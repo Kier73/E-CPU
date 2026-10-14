@@ -2,7 +2,7 @@
 
 Normative specification of the mechanisms MailCPU adopts from external reference material, the boundaries at which each mechanism attaches to the kernel state, and the obligations that gate its admission.
 
-Defined terms follow `docs/GLOSSARY.md`. Governing rules are `docs/ARCHITECTURE.md` clauses 3, 5, and 6, and the writing standard is `docs/STYLE.md`.
+Defined terms follow `docs/GLOSSARY.md`. Governing rules are `docs/ARCHITECTURE.md` clauses 3, 5, and 6.
 
 ## 1. Scope and boundary
 
@@ -662,7 +662,7 @@ It does not license assumptions about private model internals. `mailcpu/classifi
 
 The hypervisor is a control plane and not an opaque authority. Operating-system surfaces remain callable as native APIs while their typed adapter boundaries are added. Each adapter MUST preserve `ALLOW ⇒ one authorized handler`, and a learned or remote model MUST pass the `E0` replay and adversarial corpus of clause 13 before **admission**.
 
-Evidence tier: E0. The research record and source links are in `docs/BOUNDARY_JEV.md`.
+Evidence tier: E0.
 
 ### 12.2 Procedural decision model
 

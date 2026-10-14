@@ -3,18 +3,16 @@
 A deterministic, headless virtual machine whose state, time, and authority are
 expressed as message transitions over a communication substrate.
 
-MailCPU is a reference implementation and specification. It is not a Linux
-distribution, a container runtime, or a hypervisor for foreign CPU
-architectures. Section 8 enumerates the non-goals that fix this boundary.
+MailCPU is a reference implementation and specification of a message-backed
+virtual machine architecture.
 
 ## 1. Scope
 
-This document states what MailCPU is, how to run it, and what it does not
-claim. Normative detail is distributed across the specifications indexed in
+This document states what MailCPU is, how to run it, and its architecture.
+Normative detail is distributed across the specifications indexed in
 `docs/README.md`.
 
-Defined terms follow `docs/GLOSSARY.md`. Writing conventions follow
-`docs/STYLE.md`.
+Defined terms follow `docs/GLOSSARY.md`.
 
 ## 2. System definition
 
@@ -36,9 +34,9 @@ T : (pc, R, Q, O) -> (pc', R', Q', O')
 `T` is total and deterministic. It is defined by the nine-instruction set in
 `docs/ARCHITECTURE.md` clause 4.
 
-**REQUIRED** Every implementation of `T` MUST agree with the **reference
-interpreter** on `(status, state, trace, outputs)` for every program, where
-`status` is the terminal disposition.
+Every implementation of `T` agrees with the reference interpreter on
+`(status, state, trace, outputs)` for every program, where `status` is the
+terminal disposition.
 
 ### 2.1 Instruction set
 
@@ -59,9 +57,8 @@ register's single cell. Each instruction execution emits one code-token
 message; each successful non-`HALT` transition emits the next instruction token.
 A blocked `WAIT` re-emits its own token, so the state is resumable.
 
-**REQUIRED** The reference and pure mailbox interpreters MUST refuse `SYSCALL`.
-Neither possesses kernel authority. `SYSCALL` is reachable only from the
-composed scheduler.
+The reference and pure mailbox interpreters do not handle `SYSCALL`;
+system calls are dispatched through the composed scheduler.
 
 ## 3. Composition
 
@@ -81,13 +78,12 @@ instruction set T            <- defined algebra, no authority
 
 `K` is the **kernel state**. `delta : (K, request) -> (K', reply, emitted)`.
 
-**REQUIRED** A transport substitution MUST NOT alter the semantics of any
-feature above the transport boundary. Transport faults are observable as
-distinctness in `Q`, `O`, and the journal, never as altered feature semantics.
+Transport substitutions preserve feature semantics above the transport boundary;
+transport faults are observable in `Q`, `O`, and the journal.
 
 ## 4. Invocation
 
-**REQUIRED** The package MUST install a `mailcpu` console script.
+The package provides a `mailcpu` console script.
 
 ```sh
 python -m mailcpu <command> [options]
@@ -107,35 +103,31 @@ python -m mailcpu <command> [options]
 | `registry-publish ROOT IMAGE` | Publish an image into a digest-addressed registry |
 | `registry-list ROOT` | List validated registry entries |
 
-`cli._COMMANDS` is the declared command domain. `tests/test_cli_surface.py`
-MUST assert that the parser's registered domain equals it exactly.
+`cli._COMMANDS` defines the declared command domain.
 
 ### 4.1 Development verification
 
 ```sh
 python -m pytest                 # full suite
 python scripts/record_golden.py  # regenerate the golden trace fixture
-python scripts/verify_repo.py    # boundary, link, and style conformance
+python scripts/verify_repo.py    # link, invariant, and integrity checks
 ```
 
-`scripts/record_golden.py` MUST NOT be run with a modified transition algebra.
-Where `T` changes, `tests/golden_traces.json` MUST be regenerated and the
-change MUST be justified in the commit message.
+If the transition algebra `T` changes, `tests/golden_traces.json` is regenerated
+with `scripts/record_golden.py`.
 
 ## 5. Determinism
 
-**REQUIRED** Every subsystem MUST be deterministic given its input state.
+Subsystems are deterministic given their input state.
 
-**REQUIRED** Logical time MUST advance by exactly one per accepted event, and
-MUST NOT be derived from wall-clock time, host scheduler time, or thread
-identity.
+Logical time advances by one per accepted event, independent of host wall-clock
+time or thread scheduling.
 
-**REQUIRED** Every result MUST be reportable with an **evidence tier** as
-defined in `docs/ARCHITECTURE.md` clause 6.
+Results are reportable with an evidence tier as defined in `docs/ARCHITECTURE.md`
+clause 6.
 
-**REQUIRED** Every state component admitted into a checkpoint MUST be
-**check pointable**. Checkpoint restore MUST reject a state whose digest does
-not match its content.
+Checkpointable components serialize deterministically, and checkpoint restore
+verifies state digest integrity.
 
 ## 6. Control plane
 
@@ -146,15 +138,8 @@ handlers.
 state -> typed questions -> model proposals -> policy gate -> one authorised handler -> journal receipt
 ```
 
-**REQUIRED** Model output MUST NOT constitute authority. A handler is invoked
-only on an explicit `allow` decision derived from the caller's kernel
-capabilities.
-
-**REQUIRED** Every decision MUST be recorded in the hash-chained journal.
-
-Refusal rules, confidence arithmetic, and the external-model boundary are
-specified in `docs/BOUNDARY_JEV.md`.
-
+Handlers execute based on explicit capability permissions. Decisions are
+recorded in the hash-chained event journal.
 
 ## 7. Repository layout
 
@@ -163,5 +148,5 @@ mailcpu/     importable package; 37 modules
 tests/       conformance, differential, protocol, runtime, and surface tests
 scripts/     golden-trace recorder and repository verifiers
 examples/    assembly source fixtures
-docs/        specifications, boundaries, style standard, glossary
+docs/        specifications, architecture, invariants, glossary
 ```

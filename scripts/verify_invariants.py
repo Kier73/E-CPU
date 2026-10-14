@@ -6,7 +6,7 @@ would fail if the invariant were violated. This script proves that each named
 target still exists, so an invariant cannot silently lose its enforcement point
 when code is renamed or removed.
 
-It also enforces `STYLE.md` clause 7.3 across the package: every public
+It also checks docstrings across the package: every public
 function, method, and class carries a docstring.
 
 Usage:

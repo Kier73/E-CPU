@@ -1,8 +1,6 @@
-﻿# Glossary
+# Glossary
 
-Registry of defined terms for this repository. A document MUST NOT use a term
-as a defined term unless it is registered here. `docs/STYLE.md` clause 4 defines
-the registration requirement.
+Registry of defined terms for this repository.
 
 ## Notation
 

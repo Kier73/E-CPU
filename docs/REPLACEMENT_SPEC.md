@@ -133,10 +133,10 @@ request state
   -> ALLOW | REVIEW | DENY, with a journal receipt
 ```
 
-**REQUIRED** A model MUST NOT be granted authority over the host.
+Model output does not possess authority over the host.
 
-**REQUIRED** No claim is made that the internal architecture of any external
-classifier has been reproduced. See `docs/BOUNDARY_JEV.md`.
+No claim is made that the internal architecture of any external
+classifier has been reproduced.
 
 ### 7.3 Network
 

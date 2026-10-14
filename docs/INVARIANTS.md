@@ -57,9 +57,9 @@ system. Each entry has:
 | ID | Statement | Establishes | Enforced by | Required by |
 |---|---|---|---|---|
 | `A-1` | Authorisation is a function of held capabilities alone. | `mailcpu/kernel.py` | `tests/test_classifier.py::test_headless_dispatch_derives_grants_from_kernel_capabilities` | `ARCHITECTURE.md` 5 |
-| `A-2` | A request whose capability right is absent is denied regardless of model confidence. | `mailcpu/classifier.py` | `tests/test_classifier.py::test_hypervisor_denies_missing_authority_and_reviews_ambiguity` | `BOUNDARY_JEV.md` R-1 |
-| `A-3` | Only an explicit `ALLOW` reaches a registered handler. | `mailcpu/classifier.py` | `tests/test_classifier.py::test_hypervisor_allows_clear_read_and_dispatches_one_handler`, `tests/test_classifier.py::test_headless_dispatch_derives_grants_from_kernel_capabilities` | `BOUNDARY_JEV.md` R-5 |
-| `A-4` | Every hypervisor decision is appended to the journal before the reply returns. | `mailcpu/classifier.py` | `tests/test_classifier.py::test_hypervisor_decision_is_journaled_before_the_reply` | `BOUNDARY_JEV.md` R-6 |
+| `A-2` | A request whose capability right is absent is denied regardless of model confidence. | `mailcpu/classifier.py` | `tests/test_classifier.py::test_hypervisor_denies_missing_authority_and_reviews_ambiguity` | `ARCHITECTURE.md` 5 |
+| `A-3` | Only an explicit `ALLOW` reaches a registered handler. | `mailcpu/classifier.py` | `tests/test_classifier.py::test_hypervisor_allows_clear_read_and_dispatches_one_handler`, `tests/test_classifier.py::test_headless_dispatch_derives_grants_from_kernel_capabilities` | `ARCHITECTURE.md` 5 |
+| `A-4` | Every hypervisor decision is appended to the journal before the reply returns. | `mailcpu/classifier.py` | `tests/test_classifier.py::test_hypervisor_decision_is_journaled_before_the_reply` | `ARCHITECTURE.md` 7.9 |
 | `A-5` | `SIGKILL` and `SIGSTOP` are non-ignorable. | `mailcpu/kernel.py` | `tests/test_signals_environment.py::test_kill_and_stop_dispositions_cannot_be_ignored` | `REPLACEMENT_SPEC.md` 7.5 |
 | `A-6** | The default exit code for a fatal signal is single-sourced in the signal vocabulary. | `mailcpu/signals.py` | `tests/test_public_surface.py::test_signal_vocabulary_is_the_single_source_of_default_exit_codes` | `ARCHITECTURE.md` 7.2 |
 
@@ -135,7 +135,7 @@ system. Each entry has:
 | `S-3**` | Every name in `__all__` is importable and every importable public name is in `__all__`. | `mailcpu/__init__.py` | `tests/test_public_surface.py::test_every_declared_export_resolves`, `tests/test_public_surface.py::test_every_public_name_is_declared` | `README.md` 10 |
 | `S-4**` | The vendored address permutation is not exported from the package root. | `mailcpu/__init__.py` | `tests/test_public_surface.py::test_vendored_primitive_is_not_exported_from_the_package_root` | `BOUNDARY_PROCEDURAL_MODEL.md` 2 |
 | `S-5**` | The vendored address permutation is reversible. | `mailcpu/vl_procedural_primitives.py` | `tests/test_classifier.py::test_vl_feistel_primitive_is_reversible_and_drives_procedural_addresses` | `BOUNDARY_PROCEDURAL_MODEL.md` 2 |
-| `S-6**` | Every public function, method, and class carries a docstring. | `mailcpu/` | `tests/test_public_surface.py::test_every_public_callable_carries_a_docstring` | `STYLE.md` 7.3 |
+| `S-6**` | Every public function, method, and class carries a docstring. | `mailcpu/` | `tests/test_public_surface.py::test_every_public_callable_carries_a_docstring` | `ARCHITECTURE.md` 1 |
 
 ## Marking an invariant
 
