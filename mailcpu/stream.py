@@ -1,10 +1,4 @@
-"""Native bounded byte-stream sockets over the MailCPU-owned routed fabric.
-
-The stack is intentionally a MailCPU protocol, not a claim of BSD or Linux
-TCP compatibility.  It provides explicit listener/connection state, sequence
-and cumulative acknowledgement accounting, bounded receive windows, close/EOF
-semantics, and checkpointable byte buffers.
-"""
+"""Implement bounded byte-stream sockets and windowed connections over the network fabric."""
 
 from __future__ import annotations
 
@@ -441,7 +435,7 @@ class OwnedStreamStack:
         self.journal.append("network.stream.listener_destroy", {"handle": listener.handle})
 
     def destroy_connection(self, handle: int) -> None:
-        """Mathematics: remove connection `c` and index `I[(local,port,wire)]` without fabricating a peer success."""
+        """Mathematics: remove connection `c` and socket index `I[(local,port,wire)]`."""
 
         connection = self._connection(handle)
         for listener in self._listeners.values():

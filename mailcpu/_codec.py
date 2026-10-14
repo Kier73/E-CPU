@@ -1,25 +1,4 @@
-"""Value algebras for embedding runtime state into JSON-safe records.
-
-Two algebras are defined. They are distinct, and the distinction is load
-bearing:
-
-`TRANSPORT` algebra
-    Byte payloads carry an injective `{"bytes_hex": hex}` tag. Tuples and lists
-    share one JSON array representation, so tuple identity is not preserved.
-    Sufficient for wire records whose consumer reconstructs the body as a
-    sequence. Not sufficient where a byte-exact digest is computed, because two
-    distinct inputs may share one encoding.
-
-`CANONICAL` algebra
-    Every container carries a type tag, and mapping keys are emitted in sorted
-    order. Encoding is injective and a digest over the encoded form is stable
-    under input permutation. Required for hash chains, receipt computation, and
-    content addressing.
-
-Selecting the weaker algebra where the stronger one is required permits two
-distinct states to share one receipt, which defeats receipt verification. The
-canonical algebra is the only permitted choice for hashed records.
-"""
+"""Encode and decode runtime state values with transport and canonical JSON algebras."""
 
 from __future__ import annotations
 

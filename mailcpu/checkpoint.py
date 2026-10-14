@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 
 class CheckpointError(ValueError):
-    """A checkpoint is malformed, unsupported, or fails its content identity."""
+    """Exception for an invalid checkpoint or failed content identity verification."""
 
 
 def _canonical_state(state: dict[str, object]) -> bytes:

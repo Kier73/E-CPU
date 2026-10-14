@@ -129,7 +129,7 @@ class ExecutableImage:
         )
 
     def require_supported(self) -> None:
-        """Mathematics: admit execution iff requested regime `r = MAILCPU`; otherwise fail closed without semantic substitution."""
+        """Mathematics: validate execution regime `r = MAILCPU` before admitting program execution."""
 
         if self.regime is not ExecutionRegime.MAILCPU:
             raise UnsupportedRegimeError(

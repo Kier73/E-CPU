@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 
 class ElfError(ValueError):
-    """An ELF payload is malformed, unsupported, or violates loader invariants."""
+    """Exception for an invalid ELF payload or loader invariant failure."""
 
 
 PT_LOAD = 1

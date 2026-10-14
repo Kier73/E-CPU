@@ -39,10 +39,7 @@ from .trajectory import TrajectoryWriter
 from .vm import MailCPUVirtualMachine
 
 
-# The memory-backed poll record is a fixed little-endian ABI: `struct pollfd`
-# is `(int32 fd, int16 events, int16 revents)` in Linux, while MailCPU uses
-# four-byte masks to keep the record naturally aligned and lossless across its
-# page and communication boundaries.
+# The memory-backed poll record uses aligned four-byte integer fields: (int32 fd, uint32 events, uint32 revents).
 _POLLFD_BYTES = 12
 _POLLFD_FD_OFFSET = 0
 _POLLFD_EVENTS_OFFSET = 4
@@ -988,7 +985,7 @@ class HeadlessOS:
         memory.validate_access(address, size, "read")
 
     def _scheduler_wait_ready(self, pid: int, request: dict[str, Any]) -> bool:
-        """Mathematics: evaluate wake predicate `P(W)` as readiness or terminal error, never as hidden data consumption."""
+        """Mathematics: evaluate wake predicate `P(W)` as descriptor readiness or terminal error."""
 
         kind = str(request.get("kind", ""))
         try:
@@ -1038,8 +1035,7 @@ class HeadlessOS:
                     None if raw_source is None else int(raw_source),
                 )
         except (KernelError, DatagramError, StreamError, KeyError, ValueError):
-            # A destroyed or invalid wait target must wake so the original
-            # syscall can expose its precise failure instead of sleeping forever.
+            # Wake an invalid or destroyed target to return its error code.
             return True
         return False
 
@@ -1225,8 +1221,7 @@ class HeadlessOS:
             )
             return reclaimed
         if name in {"argv_into", "environ_into", "getcwd_into"}:
-            # Commit `M[a:a+|B|] := B` requires declared capacity `n>=|B|`;
-            # otherwise the transition is the undefined element with ERANGE.
+            # Verify declared capacity n >= |B| before writing to memory.
 
             address = int(args["address"])
             capacity = int(args["size"])
@@ -1682,11 +1677,7 @@ class HeadlessOS:
         required_rights: frozenset[str] = frozenset(),
         destructive: bool = False,
     ) -> tuple[HypervisorDecision, Any | None]:
-        """Mathematics: derive `G={r∈R | ∃c∈Caps(pid): c.allows(resource,r)}` before dispatching `H(request)`.
-
-        The caller supplies a requested operation and handlers, but cannot manufacture
-        authority: the kernel capability graph determines the `granted_rights` set.
-        """
+        """Mathematics: derive `G={r∈R | ∃c∈Caps(pid): c.allows(resource,r)}` before dispatching `H(request)`."""
 
         process = self.environment.kernel._process(pid)
         granted = frozenset(

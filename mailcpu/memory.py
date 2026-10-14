@@ -242,15 +242,7 @@ class VirtualMemory:
             self._reservations.pop(page_number, None)
 
     def reclaim(self, count: int = 1, page_numbers: tuple[int, ...] | None = None) -> tuple[int, ...]:
-        """Mathematics: replace selected private mappings `M[p]` with reservations `R[p]=(writable,h_p)`, preserving bytes via `h_p`.
-
-        Reclamation is deterministic: explicit pages are validated in caller
-        order; otherwise the lowest `count` private virtual pages are chosen.
-        Shared mappings are excluded because their authoritative bytes live in
-        the shared-region object rather than this memory's immutable page
-        store.  Since page blobs are content-addressed, eviction is lossless:
-        `materialize(reclaim(M[p])) = M[p]`.
-        """
+        """Mathematics: replace selected private mappings `M[p]` with reservations `R[p]=(writable,h_p)`, preserving bytes via `h_p`."""
 
         if count <= 0:
             raise VirtualMemoryError("reclaim count must be positive")

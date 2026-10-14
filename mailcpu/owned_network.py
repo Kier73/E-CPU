@@ -1,10 +1,4 @@
-"""Deterministic E1-owned network namespaces and point-to-point links.
-
-The module deliberately stops at MailCPU's ownership boundary.  It models the
-information logistics of a link (namespaces, interfaces, queues, framing, and
-checkpoint state) without opening a host socket or claiming public-network
-semantics.
-"""
+"""Manage deterministic network namespaces, interfaces, and point-to-point links."""
 
 from __future__ import annotations
 
@@ -165,11 +159,7 @@ class OwnedNetworkFabric:
         journal: EventJournal | None = None,
         queue_limit: int = 256,
     ) -> None:
-        """Mathematics: initialize finite graph `G=(N,V,L)` and frame counter `k=0` with `0<queue_limit`.
-
-        The graph is intentionally point-to-point: a send is valid only when
-        source and destination are the two endpoints of one attached link.
-        """
+        """Mathematics: initialize finite graph `G=(N,V,L)` and frame counter `k=0` with `0<queue_limit`."""
 
         if queue_limit <= 0:
             raise ValueError("queue_limit must be positive")
@@ -238,11 +228,7 @@ class OwnedNetworkFabric:
         payload: bytes,
         logical_time: int,
     ) -> int:
-        """Mathematics: enqueue `f=(k,s,d,b,t)` iff `s↔d∈L`, both `u=1`, and `|b|≤min(MTU_s,MTU_d)`.
-
-        Validation precedes allocation and enqueue, so every rejected frame is
-        a state-preserving failure rather than an invisible drop.
-        """
+        """Mathematics: enqueue frame `f=(k,s,d,b,t)` when `s↔d∈L`, both interfaces are active, and `|b|≤min(MTU_s,MTU_d)`."""
 
         if not isinstance(payload, (bytes, bytearray, memoryview)):
             raise OwnedNetworkError("network payload must be bytes-like")
@@ -270,13 +256,7 @@ class OwnedNetworkFabric:
         payload: bytes,
         logical_time: int,
     ) -> int:
-        """Mathematics: find deterministic shortest path `r=argmin_{p∈Paths(s,d)}(|p|,p)` and enqueue iff `|b|≤MTU(r)`.
-
-        Same-namespace interface transitions model an owned forwarding plane;
-        link transitions model physical point-to-point edges.  The selected
-        route is stored in the frame and journal, making forwarding evidence
-        part of the replay artifact rather than an implicit graph traversal.
-        """
+        """Mathematics: find shortest path `r=argmin_{p∈Paths(s,d)}(|p|,p)` and enqueue frame when `|b|≤MTU(r)`."""
 
         self._validate_payload(payload, logical_time)
         source_endpoint = self._require_endpoint(source)
@@ -599,12 +579,7 @@ class OwnedLinkDriver:
         self.consumer = consumer
 
     def drain(self, max_frames: int = 1) -> tuple[Any, ...]:
-        """Mathematics: repeat `peek → D.ingest → dequeue` at most `m` times; failed `D.ingest` leaves `Q_e` unchanged.
-
-        The returned tuple contains one consumer result per accepted frame.
-        This is the commit boundary between owned transport and semantic
-        decoding: transport acknowledgement occurs only after decoding accepts.
-        """
+        """Mathematics: repeat `peek → D.ingest → dequeue` at most `m` times; failed `D.ingest` leaves `Q_e` unchanged."""
 
         if max_frames < 0:
             raise ValueError("max_frames must be non-negative")

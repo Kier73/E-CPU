@@ -346,13 +346,7 @@ class DeviceBus:
         self,
         referenced_paths: set[str],
     ) -> tuple[tuple[str, int | None, int | None], ...]:
-        r"""Mathematics: set endpoint liveness `h_e := ¬live(e)` and emit one event for `master↓ ∧ slave↑ ∧ ¬h_slave`.
-
-        The result is `(pair_id, session_id, foreground_group_id)` for each
-        master-side closure that still has a live slave.  Removing both names
-        is deferred until `live(master)=live(slave)=0`, so the surviving side
-        can observe EOF/HUP and the terminal session can receive `SIGHUP`.
-        """
+        r"""Mathematics: set endpoint liveness `h_e := ¬live(e)` and emit one event for `master↓ ∧ slave↑ ∧ ¬h_slave`."""
 
         events: list[tuple[str, int | None, int | None]] = []
         for pair_id in self.pty_pairs():
@@ -403,7 +397,7 @@ class DeviceBus:
         return self._get(name).write(data)
 
     def feed(self, name: str, data: bytes) -> int:
-        """Mathematics: append input `B` to a buffered driver state `Q_name := Q_name || B`, refusing non-buffered injection."""
+        """Mathematics: append input `B` to buffered driver state `Q_name := Q_name || B`."""
 
         device = self._get(name)
         if not isinstance(device, BufferDevice):
@@ -548,7 +542,7 @@ class DeviceBus:
 
     @classmethod
     def from_snapshot(cls, payload: dict[str, dict[str, Any]]) -> "DeviceBus":
-        """Mathematics: reconstruct finite driver map `D` from typed state records, refusing unknown driver kinds."""
+        """Mathematics: reconstruct finite driver map `D` from typed driver state records."""
 
         bus = cls()
         peer_names: dict[str, str] = {}
@@ -616,7 +610,7 @@ class DeviceBus:
         return bus
 
     def _get(self, name: str) -> Device:
-        """Mathematics: perform the partial-map lookup `D[name]`, failing instead of fabricating a device."""
+        """Mathematics: look up device driver `D[name]` by registered device name."""
 
         try:
             return self._devices[name]

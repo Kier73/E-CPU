@@ -272,7 +272,7 @@ class VirtualEnvironment:
         return datagram.payload
 
     def network_fd_send(self, pid: int, socket: OpenFile, payload: bytes, logical_time: int) -> int:
-        """Mathematics: map descriptor write `write(fd,b)` to stream DATA emission, refusing unconnected datagram writes."""
+        """Mathematics: map descriptor write `write(fd,b)` to stream DATA frame emission."""
 
         if socket.network_kind != "stream_connection" or socket.network_handle is None:
             raise KernelError("network write requires a connected stream descriptor")

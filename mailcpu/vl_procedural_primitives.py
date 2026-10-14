@@ -1,10 +1,4 @@
-"""Four-round Feistel address permutation used by MailCPU procedural addressing.
-
-The construction is used only as a reversible address permutation over
-non-cryptographic domains. It provides no confidentiality, no integrity, and no
-compression. Its provenance, its non-copying boundary, and the conditions under
-which it may be substituted are specified in `docs/BOUNDARY_PROCEDURAL_MODEL.md`.
-"""
+"""Compute reversible four-round Feistel address permutations for procedural storage addressing."""
 
 from __future__ import annotations
 

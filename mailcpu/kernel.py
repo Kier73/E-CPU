@@ -13,10 +13,7 @@ from .journal import EventJournal
 from .signals import Signal
 
 
-# Poll masks follow the POSIX bit assignment so event-driven programs can
-# share one descriptor vocabulary across ordinary files, pipes, and MailCPU
-# network resources.  The kernel only reports these five stable readiness
-# classes; higher-level edge/one-shot policies remain separate state machines.
+# Poll bit masks assign standard flags for input, priority, output, error, and hangup events.
 POLLIN = 0x001
 POLLPRI = 0x002
 POLLOUT = 0x004
@@ -190,13 +187,7 @@ class VirtualKernel:
         inherit_fds: bool = False,
         subreaper: bool = False,
     ) -> int:
-        """Mathematics: allocate PID `p` and construct ABI state with inherited authority `C`, environment `E`, optional descriptors `F`, and subreaper bit `s`.
-
-        The process-tree invariant is `parent(p) ∈ P ∪ {⊥}` and the adoption
-        policy later chooses the nearest live ancestor with `s = 1`, falling
-        back to init.  A caller may request the bit only for a new process;
-        the runtime syscall is the mutable control-plane operation.
-        """
+        """Mathematics: allocate PID `p` and construct process state with capabilities `C`, environment `E`, descriptors `F`, and subreaper flag `s`."""
 
         if not name:
             raise KernelError("process name must be non-empty")
@@ -328,7 +319,7 @@ class VirtualKernel:
             raise KernelError(f"unknown terminal signal: {signal}")
 
     def set_signal_disposition(self, pid: int, signal: str | Signal, disposition: str) -> str:
-        """Mathematics: update `D_pid[σ]∈{default,ignore}`, refusing `ignore(KILL|STOP)`, and return `D_pid^old[σ]`."""
+        """Mathematics: update signal disposition `D_pid[σ]∈{default,ignore}` for allowed signals and return `D_pid^old[σ]`."""
 
         process = self._process(pid)
         parsed = Signal.parse(signal)
@@ -375,14 +366,7 @@ class VirtualKernel:
         self.journal.append("process.exec", {"pid": pid, "name": name, "argv": list(argv)})
 
     def _adopt_orphans(self, parent_pid: int) -> None:
-        """Mathematics: set `parent(c) := A(parent_pid)` for each unreaped child, where `A` is nearest live subreaper or init.
-
-        For an ancestor chain `p_0 = parent_pid`, `p_{k+1} = parent(p_k)`,
-        `A(p_0)` is the first `p_k` with `k > 0`, `status(p_k) ≠ EXITED`,
-        and `subreaper(p_k) = 1`; if no such vertex exists, live init is the
-        fallback.  The visited set proves termination even for malformed
-        restored graphs, and refusing self-adoption preserves acyclicity.
-        """
+        """Mathematics: set `parent(c) := A(parent_pid)` for each unreaped child, where `A` is the nearest live subreaper or init."""
 
         if self.init_pid is None:
             return
@@ -415,12 +399,7 @@ class VirtualKernel:
         return None
 
     def set_subreaper(self, pid: int, enabled: bool) -> bool:
-        """Mathematics: apply `s_pid := enabled` and return the previous bit `s_pid^old`.
-
-        This is intentionally a process-local policy bit: changing it does
-        not retroactively move existing children, while future parent exits
-        use the updated ancestor relation.
-        """
+        """Mathematics: set process subreaper flag `s_pid := enabled` and return previous value `s_pid^old`."""
 
         process = self._process(pid)
         previous = process.subreaper
@@ -451,7 +430,7 @@ class VirtualKernel:
         return target.session_id
 
     def setsid(self, pid: int) -> int:
-        """Mathematics: realize `session(pid):=pid` and `group(pid):=pid` iff `pid∉G`, otherwise refuse the leader transition."""
+        """Mathematics: realize `session(pid):=pid` and `group(pid):=pid` when `pid∉G`."""
 
         process = self._process(pid)
         if process.group_id == pid:
@@ -597,12 +576,7 @@ class VirtualKernel:
         return result
 
     def process_context_blob(self, pid: int, field: str) -> bytes:
-        """Mathematics: encode process context as `E(x)=||_i UTF8(x_i)||0x00`, with `x_i=argv_i`, `KEY=VALUE`, or `cwd`.
-
-        The encoding is deliberately a finite, lossless byte representation:
-        every member must exclude NUL, and environment records are sorted by
-        key so equal process states have equal ABI bytes.
-        """
+        """Mathematics: encode process context as `E(x)=||_i UTF8(x_i)||0x00`, with `x_i=argv_i`, `KEY=VALUE`, or `cwd`."""
 
         process = self._process(pid)
         if field == "argv":

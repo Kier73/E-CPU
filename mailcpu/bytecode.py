@@ -10,7 +10,7 @@ from .model import Instruction, Op, Program
 
 
 class BytecodeError(ValueError):
-    """A binary MailCPU executable is malformed, unsupported, or inconsistent."""
+    """Exception for an invalid or inconsistent binary MailCPU executable."""
 
 
 _MAGIC = b"MCPB"

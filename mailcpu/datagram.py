@@ -1,9 +1,4 @@
-"""Typed datagram protocol and socket demultiplexing over the owned network fabric.
-
-This is a MailCPU-native protocol driver.  Its wire envelope is deliberately
-small and explicit, and it never opens host sockets or delegates routing to the
-host kernel.
-"""
+"""Provide typed datagram sockets and port demultiplexing over the network fabric."""
 
 from __future__ import annotations
 

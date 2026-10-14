@@ -304,7 +304,7 @@ class HypervisorPolicy:
 
 
 class HypervisorError(RuntimeError):
-    """A classifier-gated hypervisor dispatch was refused or lacked a handler."""
+    """Exception for an unhandled or denied hypervisor dispatch."""
 
 
 class ClassifierHypervisor:
@@ -383,7 +383,7 @@ class ClassifierHypervisor:
         request: HypervisorRequest,
         handlers: Mapping[HypervisorDomain | str, Callable[[], Any]],
     ) -> tuple[HypervisorDecision, Any | None]:
-        """Mathematics: execute handler only under `decision.action = ALLOW`; otherwise preserve refusal without side effects."""
+        """Mathematics: execute the handler when `decision.action = ALLOW`; otherwise return the decision without execution."""
 
         decision = self.decide(request)
         if decision.action is not HypervisorAction.ALLOW:
@@ -442,12 +442,7 @@ def canonical_tokens(value: Any) -> set[str]:
 
 
 def _evidence_score(state_tokens: set[str], description: str) -> float:
-    """Mathematics: score evidence as `1 + 4|T(state)∩T(description)|/max(1,|T(description)|)`.
-
-    The factor `8` is the E0 calibration constant: it separates strongly identified
-    domains from an uninformative uniform prior without changing the ordering of
-    hypotheses. Ambiguous states still have equal logits and therefore confidence `0`.
-    """
+    """Mathematics: score evidence as `1 + 8|T(state)∩T(description)|/max(1,|T(description)|)`."""
 
     criterion_tokens = canonical_tokens(description)
     overlap = len(state_tokens & criterion_tokens)

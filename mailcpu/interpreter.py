@@ -55,7 +55,7 @@ class ExecutionBackend(Protocol):
         ...
 
     def syscall(self, name: str, arguments: tuple[str, ...]) -> tuple[int, bool]:
-        """Mathematics: evaluate native trap `δ_syscall(name,args)=(integer_result,halt_after)` or refuse unsupported backends."""
+        """Mathematics: evaluate native trap `δ_syscall(name,args)=(integer_result,halt_after)` using the configured syscall handler."""
 
         ...
 
@@ -191,7 +191,7 @@ class QueueBackend:
         return list(self._outputs)
 
     def syscall(self, name: str, arguments: tuple[str, ...]) -> tuple[int, bool]:
-        """Mathematics: the pure mailbox backend refuses kernel effects rather than fabricating a syscall result."""
+        """Mathematics: raise RuntimeError on syscall traps in the mailbox interpreter."""
 
         raise RuntimeError(f"SYSCALL requires an OS execution backend: {name}")
 

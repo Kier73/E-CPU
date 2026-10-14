@@ -280,7 +280,7 @@ class ServiceSupervisor:
         record.pid = None
 
     def _record(self, name: str) -> _ServiceRecord:
-        """Mathematics: perform partial lookup `S[name]`, refusing unregistered services."""
+        """Mathematics: look up service record `S[name]` by registered service name."""
 
         try:
             return self._records[name]

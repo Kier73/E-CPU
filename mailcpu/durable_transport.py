@@ -50,7 +50,7 @@ def decode_canonical_value(value: Any) -> Any:
 
 
 def _durable_message_snapshot(message: Message) -> dict[str, Any]:
-    """Mathematics: project `Message` into a lossless durable record while preserving structured body type identity."""
+    """Mathematics: project `Message` into a durable record while preserving structured body type identity."""
 
     return {
         "sender": message.sender,
@@ -320,7 +320,7 @@ class DurableMailboxTransport:
                     locking_module.flock(lock.fileno(), locking_module.LOCK_UN)
 
     def _truncate(self, length: int) -> None:
-        """Mathematics: recover only an incomplete suffix by replacing file byte domain `[length,|log|)` with `∅`."""
+        """Mathematics: truncate the log file by replacing byte domain `[length,|log|)` with `∅`."""
 
         with self.path.open("r+b") as stream:
             stream.truncate(length)

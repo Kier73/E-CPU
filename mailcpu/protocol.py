@@ -19,10 +19,7 @@ from .owned_network import OwnedNetworkError
 from .signals import SignalError
 from .stream import StreamError
 
-# The wire contract converts a dispatched syscall's failure into an explicit
-# `Err` reply. A closed exception tuple keeps that conversion exhaustive over
-# the domain errors the kernel can raise, so an unanticipated exception
-# propagates instead of being reported as an ordinary syscall failure.
+# Convert known kernel domain errors to structured Err replies.
 SYSCALL_ERRORS = (
     KernelError,
     FsError,

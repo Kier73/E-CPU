@@ -26,7 +26,7 @@ class SyscallBlocked(Exception):
     """A scheduler-owned syscall suspension carrying its checkpointable wake predicate."""
 
     def __init__(self, wait_request: dict[str, Any]) -> None:
-        """Mathematics: preserve wait state `W := wait_request` while refusing to advance the blocked instruction."""
+        """Mathematics: record wait state `W := wait_request` for the blocked instruction."""
 
         self.wait_request = dict(wait_request)
         super().__init__(f"syscall blocked on {self.wait_request}")
@@ -42,11 +42,7 @@ class SchedulerBackend:
         initial_registers: dict[str, int],
         syscall_handler: Callable[[int, str, dict[str, Any]], int] | None = None,
     ) -> None:
-        """Mathematics: initialize task valuation `R=R0`, local input queues, output sequence `O=[]`, and native trap map `H`.
-
-        The handler is injected by the composed VM; the scheduler itself
-        retains no host authority beyond this explicit state-transition hook.
-        """
+        """Mathematics: initialize task valuation `R=R0`, local input queues, output sequence `O=[]`, and native trap map `H`."""
 
         self.bus = bus
         self.endpoint = endpoint

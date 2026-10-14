@@ -14,7 +14,7 @@ from .model import Message
 
 
 class Transport(Protocol):
-    """The substrate interface whose implementations may vary in later phases."""
+    """Message substrate interface for sending, polling, and consuming messages."""
 
     def send(self, addr: str, msg: Message) -> Message:
         """Mathematics: enqueue `msg` so mailbox state changes by `Q_addr := Q_addr || [msg]`."""
