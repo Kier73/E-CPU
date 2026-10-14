@@ -1,0 +1,12 @@
+# A finite MailCPU process: n := 3, then n := n - 1 until n = 0.
+set n 3
+set one 1
+set zero 0
+set minus_one -1
+loop:
+compare positive n zero
+branch positive decrement
+halt
+decrement:
+add n n minus_one
+branch one loop

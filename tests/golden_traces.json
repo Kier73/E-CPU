@@ -1,0 +1,966 @@
+{
+  "addition": {
+    "outputs": [],
+    "state": {
+      "blocked": false,
+      "halted": true,
+      "pc": 3,
+      "registers": {
+        "left": 1,
+        "result": 2,
+        "right": 1
+      },
+      "steps": 4
+    },
+    "status": "halted",
+    "trace": [
+      {
+        "args": [
+          "left",
+          1
+        ],
+        "op": "SET",
+        "output_delta": [],
+        "pc_after": 1,
+        "pc_before": 0,
+        "registers": [
+          [
+            "left",
+            1
+          ]
+        ],
+        "step": 0
+      },
+      {
+        "args": [
+          "right",
+          1
+        ],
+        "op": "SET",
+        "output_delta": [],
+        "pc_after": 2,
+        "pc_before": 1,
+        "registers": [
+          [
+            "left",
+            1
+          ],
+          [
+            "right",
+            1
+          ]
+        ],
+        "step": 1
+      },
+      {
+        "args": [
+          "result",
+          "left",
+          "right"
+        ],
+        "op": "ADD",
+        "output_delta": [],
+        "pc_after": 3,
+        "pc_before": 2,
+        "registers": [
+          [
+            "left",
+            1
+          ],
+          [
+            "result",
+            2
+          ],
+          [
+            "right",
+            1
+          ]
+        ],
+        "step": 2
+      },
+      {
+        "args": [],
+        "op": "HALT",
+        "output_delta": [],
+        "pc_after": 3,
+        "pc_before": 3,
+        "registers": [
+          [
+            "left",
+            1
+          ],
+          [
+            "result",
+            2
+          ],
+          [
+            "right",
+            1
+          ]
+        ],
+        "step": 3
+      }
+    ]
+  },
+  "branch_not_taken": {
+    "outputs": [],
+    "state": {
+      "blocked": false,
+      "halted": true,
+      "pc": 3,
+      "registers": {
+        "condition": 0,
+        "result": 0
+      },
+      "steps": 4
+    },
+    "status": "halted",
+    "trace": [
+      {
+        "args": [
+          "condition",
+          0
+        ],
+        "op": "SET",
+        "output_delta": [],
+        "pc_after": 1,
+        "pc_before": 0,
+        "registers": [
+          [
+            "condition",
+            0
+          ]
+        ],
+        "step": 0
+      },
+      {
+        "args": [
+          "condition",
+          4
+        ],
+        "op": "BRANCH",
+        "output_delta": [],
+        "pc_after": 2,
+        "pc_before": 1,
+        "registers": [
+          [
+            "condition",
+            0
+          ]
+        ],
+        "step": 1
+      },
+      {
+        "args": [
+          "result",
+          0
+        ],
+        "op": "SET",
+        "output_delta": [],
+        "pc_after": 3,
+        "pc_before": 2,
+        "registers": [
+          [
+            "condition",
+            0
+          ],
+          [
+            "result",
+            0
+          ]
+        ],
+        "step": 2
+      },
+      {
+        "args": [],
+        "op": "HALT",
+        "output_delta": [],
+        "pc_after": 3,
+        "pc_before": 3,
+        "registers": [
+          [
+            "condition",
+            0
+          ],
+          [
+            "result",
+            0
+          ]
+        ],
+        "step": 3
+      }
+    ]
+  },
+  "branch_taken": {
+    "outputs": [],
+    "state": {
+      "blocked": false,
+      "halted": true,
+      "pc": 5,
+      "registers": {
+        "condition": 1,
+        "result": 1
+      },
+      "steps": 4
+    },
+    "status": "halted",
+    "trace": [
+      {
+        "args": [
+          "condition",
+          1
+        ],
+        "op": "SET",
+        "output_delta": [],
+        "pc_after": 1,
+        "pc_before": 0,
+        "registers": [
+          [
+            "condition",
+            1
+          ]
+        ],
+        "step": 0
+      },
+      {
+        "args": [
+          "condition",
+          4
+        ],
+        "op": "BRANCH",
+        "output_delta": [],
+        "pc_after": 4,
+        "pc_before": 1,
+        "registers": [
+          [
+            "condition",
+            1
+          ]
+        ],
+        "step": 1
+      },
+      {
+        "args": [
+          "result",
+          1
+        ],
+        "op": "SET",
+        "output_delta": [],
+        "pc_after": 5,
+        "pc_before": 4,
+        "registers": [
+          [
+            "condition",
+            1
+          ],
+          [
+            "result",
+            1
+          ]
+        ],
+        "step": 2
+      },
+      {
+        "args": [],
+        "op": "HALT",
+        "output_delta": [],
+        "pc_after": 5,
+        "pc_before": 5,
+        "registers": [
+          [
+            "condition",
+            1
+          ],
+          [
+            "result",
+            1
+          ]
+        ],
+        "step": 3
+      }
+    ]
+  },
+  "countdown": {
+    "outputs": [],
+    "state": {
+      "blocked": false,
+      "halted": true,
+      "pc": 6,
+      "registers": {
+        "minus_one": -1,
+        "n": 0,
+        "one": 1,
+        "positive": 0,
+        "zero": 0
+      },
+      "steps": 19
+    },
+    "status": "halted",
+    "trace": [
+      {
+        "args": [
+          "n",
+          3
+        ],
+        "op": "SET",
+        "output_delta": [],
+        "pc_after": 1,
+        "pc_before": 0,
+        "registers": [
+          [
+            "n",
+            3
+          ]
+        ],
+        "step": 0
+      },
+      {
+        "args": [
+          "one",
+          1
+        ],
+        "op": "SET",
+        "output_delta": [],
+        "pc_after": 2,
+        "pc_before": 1,
+        "registers": [
+          [
+            "n",
+            3
+          ],
+          [
+            "one",
+            1
+          ]
+        ],
+        "step": 1
+      },
+      {
+        "args": [
+          "minus_one",
+          -1
+        ],
+        "op": "SET",
+        "output_delta": [],
+        "pc_after": 3,
+        "pc_before": 2,
+        "registers": [
+          [
+            "minus_one",
+            -1
+          ],
+          [
+            "n",
+            3
+          ],
+          [
+            "one",
+            1
+          ]
+        ],
+        "step": 2
+      },
+      {
+        "args": [
+          "zero",
+          0
+        ],
+        "op": "SET",
+        "output_delta": [],
+        "pc_after": 4,
+        "pc_before": 3,
+        "registers": [
+          [
+            "minus_one",
+            -1
+          ],
+          [
+            "n",
+            3
+          ],
+          [
+            "one",
+            1
+          ],
+          [
+            "zero",
+            0
+          ]
+        ],
+        "step": 3
+      },
+      {
+        "args": [
+          "positive",
+          "n",
+          "zero"
+        ],
+        "op": "COMPARE",
+        "output_delta": [],
+        "pc_after": 5,
+        "pc_before": 4,
+        "registers": [
+          [
+            "minus_one",
+            -1
+          ],
+          [
+            "n",
+            3
+          ],
+          [
+            "one",
+            1
+          ],
+          [
+            "positive",
+            1
+          ],
+          [
+            "zero",
+            0
+          ]
+        ],
+        "step": 4
+      },
+      {
+        "args": [
+          "positive",
+          7
+        ],
+        "op": "BRANCH",
+        "output_delta": [],
+        "pc_after": 7,
+        "pc_before": 5,
+        "registers": [
+          [
+            "minus_one",
+            -1
+          ],
+          [
+            "n",
+            3
+          ],
+          [
+            "one",
+            1
+          ],
+          [
+            "positive",
+            1
+          ],
+          [
+            "zero",
+            0
+          ]
+        ],
+        "step": 5
+      },
+      {
+        "args": [
+          "n",
+          "n",
+          "minus_one"
+        ],
+        "op": "ADD",
+        "output_delta": [],
+        "pc_after": 8,
+        "pc_before": 7,
+        "registers": [
+          [
+            "minus_one",
+            -1
+          ],
+          [
+            "n",
+            2
+          ],
+          [
+            "one",
+            1
+          ],
+          [
+            "positive",
+            1
+          ],
+          [
+            "zero",
+            0
+          ]
+        ],
+        "step": 6
+      },
+      {
+        "args": [
+          "one",
+          4
+        ],
+        "op": "BRANCH",
+        "output_delta": [],
+        "pc_after": 4,
+        "pc_before": 8,
+        "registers": [
+          [
+            "minus_one",
+            -1
+          ],
+          [
+            "n",
+            2
+          ],
+          [
+            "one",
+            1
+          ],
+          [
+            "positive",
+            1
+          ],
+          [
+            "zero",
+            0
+          ]
+        ],
+        "step": 7
+      },
+      {
+        "args": [
+          "positive",
+          "n",
+          "zero"
+        ],
+        "op": "COMPARE",
+        "output_delta": [],
+        "pc_after": 5,
+        "pc_before": 4,
+        "registers": [
+          [
+            "minus_one",
+            -1
+          ],
+          [
+            "n",
+            2
+          ],
+          [
+            "one",
+            1
+          ],
+          [
+            "positive",
+            1
+          ],
+          [
+            "zero",
+            0
+          ]
+        ],
+        "step": 8
+      },
+      {
+        "args": [
+          "positive",
+          7
+        ],
+        "op": "BRANCH",
+        "output_delta": [],
+        "pc_after": 7,
+        "pc_before": 5,
+        "registers": [
+          [
+            "minus_one",
+            -1
+          ],
+          [
+            "n",
+            2
+          ],
+          [
+            "one",
+            1
+          ],
+          [
+            "positive",
+            1
+          ],
+          [
+            "zero",
+            0
+          ]
+        ],
+        "step": 9
+      },
+      {
+        "args": [
+          "n",
+          "n",
+          "minus_one"
+        ],
+        "op": "ADD",
+        "output_delta": [],
+        "pc_after": 8,
+        "pc_before": 7,
+        "registers": [
+          [
+            "minus_one",
+            -1
+          ],
+          [
+            "n",
+            1
+          ],
+          [
+            "one",
+            1
+          ],
+          [
+            "positive",
+            1
+          ],
+          [
+            "zero",
+            0
+          ]
+        ],
+        "step": 10
+      },
+      {
+        "args": [
+          "one",
+          4
+        ],
+        "op": "BRANCH",
+        "output_delta": [],
+        "pc_after": 4,
+        "pc_before": 8,
+        "registers": [
+          [
+            "minus_one",
+            -1
+          ],
+          [
+            "n",
+            1
+          ],
+          [
+            "one",
+            1
+          ],
+          [
+            "positive",
+            1
+          ],
+          [
+            "zero",
+            0
+          ]
+        ],
+        "step": 11
+      },
+      {
+        "args": [
+          "positive",
+          "n",
+          "zero"
+        ],
+        "op": "COMPARE",
+        "output_delta": [],
+        "pc_after": 5,
+        "pc_before": 4,
+        "registers": [
+          [
+            "minus_one",
+            -1
+          ],
+          [
+            "n",
+            1
+          ],
+          [
+            "one",
+            1
+          ],
+          [
+            "positive",
+            1
+          ],
+          [
+            "zero",
+            0
+          ]
+        ],
+        "step": 12
+      },
+      {
+        "args": [
+          "positive",
+          7
+        ],
+        "op": "BRANCH",
+        "output_delta": [],
+        "pc_after": 7,
+        "pc_before": 5,
+        "registers": [
+          [
+            "minus_one",
+            -1
+          ],
+          [
+            "n",
+            1
+          ],
+          [
+            "one",
+            1
+          ],
+          [
+            "positive",
+            1
+          ],
+          [
+            "zero",
+            0
+          ]
+        ],
+        "step": 13
+      },
+      {
+        "args": [
+          "n",
+          "n",
+          "minus_one"
+        ],
+        "op": "ADD",
+        "output_delta": [],
+        "pc_after": 8,
+        "pc_before": 7,
+        "registers": [
+          [
+            "minus_one",
+            -1
+          ],
+          [
+            "n",
+            0
+          ],
+          [
+            "one",
+            1
+          ],
+          [
+            "positive",
+            1
+          ],
+          [
+            "zero",
+            0
+          ]
+        ],
+        "step": 14
+      },
+      {
+        "args": [
+          "one",
+          4
+        ],
+        "op": "BRANCH",
+        "output_delta": [],
+        "pc_after": 4,
+        "pc_before": 8,
+        "registers": [
+          [
+            "minus_one",
+            -1
+          ],
+          [
+            "n",
+            0
+          ],
+          [
+            "one",
+            1
+          ],
+          [
+            "positive",
+            1
+          ],
+          [
+            "zero",
+            0
+          ]
+        ],
+        "step": 15
+      },
+      {
+        "args": [
+          "positive",
+          "n",
+          "zero"
+        ],
+        "op": "COMPARE",
+        "output_delta": [],
+        "pc_after": 5,
+        "pc_before": 4,
+        "registers": [
+          [
+            "minus_one",
+            -1
+          ],
+          [
+            "n",
+            0
+          ],
+          [
+            "one",
+            1
+          ],
+          [
+            "positive",
+            0
+          ],
+          [
+            "zero",
+            0
+          ]
+        ],
+        "step": 16
+      },
+      {
+        "args": [
+          "positive",
+          7
+        ],
+        "op": "BRANCH",
+        "output_delta": [],
+        "pc_after": 6,
+        "pc_before": 5,
+        "registers": [
+          [
+            "minus_one",
+            -1
+          ],
+          [
+            "n",
+            0
+          ],
+          [
+            "one",
+            1
+          ],
+          [
+            "positive",
+            0
+          ],
+          [
+            "zero",
+            0
+          ]
+        ],
+        "step": 17
+      },
+      {
+        "args": [],
+        "op": "HALT",
+        "output_delta": [],
+        "pc_after": 6,
+        "pc_before": 6,
+        "registers": [
+          [
+            "minus_one",
+            -1
+          ],
+          [
+            "n",
+            0
+          ],
+          [
+            "one",
+            1
+          ],
+          [
+            "positive",
+            0
+          ],
+          [
+            "zero",
+            0
+          ]
+        ],
+        "step": 18
+      }
+    ]
+  },
+  "wait_send": {
+    "outputs": [
+      [
+        "outbox",
+        42
+      ]
+    ],
+    "state": {
+      "blocked": false,
+      "halted": true,
+      "pc": 2,
+      "registers": {
+        "received": 42
+      },
+      "steps": 3
+    },
+    "status": "halted",
+    "trace": [
+      {
+        "args": [
+          "inbox",
+          "received"
+        ],
+        "op": "WAIT",
+        "output_delta": [],
+        "pc_after": 1,
+        "pc_before": 0,
+        "registers": [
+          [
+            "received",
+            42
+          ]
+        ],
+        "step": 0
+      },
+      {
+        "args": [
+          "outbox",
+          "received"
+        ],
+        "op": "SEND",
+        "output_delta": [
+          [
+            "outbox",
+            42
+          ]
+        ],
+        "pc_after": 2,
+        "pc_before": 1,
+        "registers": [
+          [
+            "received",
+            42
+          ]
+        ],
+        "step": 1
+      },
+      {
+        "args": [],
+        "op": "HALT",
+        "output_delta": [],
+        "pc_after": 2,
+        "pc_before": 2,
+        "registers": [
+          [
+            "received",
+            42
+          ]
+        ],
+        "step": 2
+      }
+    ]
+  }
+}

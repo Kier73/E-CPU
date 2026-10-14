@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mailcpu"
+version = "0.1.0"
+description = "A deterministic headless virtual machine whose state, time, and authority are expressed as message transitions over a communication substrate."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Kieran Vanderburgh", email = "Kier73research@gmail.com" }]
+keywords = [
+  "virtual-machine",
+  "determinism",
+  "message-passing",
+  "capability-security",
+  "information-logistics",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: System :: Emulators",
+  "Topic :: System :: Virtual Machines",
+  "Typing :: Typed",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "build>=1"]
+
+[project.urls]
+Homepage = "https://github.com/Kier73/E-CPU"
+Repository = "https://github.com/Kier73/E-CPU"
+Issues = "https://github.com/Kier73/E-CPU/issues"
+
+[project.scripts]
+mailcpu = "mailcpu.cli:main"
+
+[tool.setuptools]
+packages = ["mailcpu"]
+
+[tool.setuptools.package-data]
+mailcpu = ["py.typed"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = ["-ra", "--strict-markers"]

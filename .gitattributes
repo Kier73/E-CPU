@@ -1,0 +1,17 @@
+# Normalize line endings on commit; check them out per platform.
+
+* text=auto eol=lf
+
+*.py   text eol=lf
+*.md   text eol=lf
+*.toml text eol=lf
+*.yml  text eol=lf
+*.mca  text eol=lf
+*.json text eol=lf
+
+# The golden trace fixture is byte-compared by digest; it must not be rewritten.
+tests/golden_traces.json text eol=lf
+
+# Binary content.
+LICENSE text eol=lf
+mailcpu/py.typed text eol=lf

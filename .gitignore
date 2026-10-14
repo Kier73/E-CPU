@@ -1,0 +1,92 @@
+# ---------------------------------------------------------------------------
+# Private development workspace.
+#
+# _dev/ holds working context that is deliberately excluded from distribution:
+# the chronological build log, vendored third-party reference bundles whose
+# redistribution rights are unestablished, and generated run artifacts.
+# See _dev/README.md for its purpose. Nothing under _dev/ is tracked.
+# ---------------------------------------------------------------------------
+_dev/
+
+# ---------------------------------------------------------------------------
+# Python build and cache artifacts
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+build/
+dist/
+*.egg-info/
+.eggs/
+.installed.cfg
+
+# ---------------------------------------------------------------------------
+# Test and coverage artifacts
+# ---------------------------------------------------------------------------
+.pytest_cache/
+.benchmarks/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+
+# ---------------------------------------------------------------------------
+# Virtual environments
+# ---------------------------------------------------------------------------
+.venv/
+venv/
+env/
+ENV/
+
+# ---------------------------------------------------------------------------
+# Type checkers, linters, formatters
+# ---------------------------------------------------------------------------
+.mypy_cache/
+.ruff_cache/
+.dmypy.json
+
+# ---------------------------------------------------------------------------
+# Editors and operating systems
+# ---------------------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------------------------------------------------------------------------
+# Generated MailCPU run output.
+#
+# The runtime writes checkpoints (.mcpu.json), trajectories (.mtrj, .mtrj.idx),
+# and content-addressed registry entries (.mcp.json) under operator-chosen
+# paths. These are derived from the committed fixtures and are reproducible
+# with `python -m mailcpu os-demo`, so they are never tracked.
+# ---------------------------------------------------------------------------
+work/
+*.mcpu.json
+*.mcp.json
+*.mtrj
+*.mtrj.idx
+
+# ---------------------------------------------------------------------------
+# Local secrets
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ---------------------------------------------------------------------------
+# Reference bundles and research material that must not be redistributed.
+#
+# See docs/BOUNDARY_PROCEDURAL_MODEL.md and _dev/references/README.md.
+# ---------------------------------------------------------------------------
+references/
+native-image-check/
