@@ -257,10 +257,15 @@ class NeuralLifterPolicy:
         """
         prediction = self.head.predict(window)
 
-        # Fast-path refusal for clear uncompressed TAPE
-        if prediction.predicted_family == "tape" and prediction.confidence >= 0.88:
+        # Fast-path refusal for clear uncompressed TAPE on long witness-free windows
+        if (
+            truth is None
+            and len(window) >= 16
+            and prediction.predicted_family == "tape"
+            and prediction.confidence >= 0.95
+        ):
             return Law(family="tape", verdict="TAPE", residual=1.0), prediction
 
-        # Fallback to deterministic verifier
+        # Deterministic witness verification
         law = recover_law(window, truth)
         return law, prediction

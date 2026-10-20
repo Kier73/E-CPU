@@ -137,6 +137,41 @@ system. Each entry has:
 | `S-5**` | The vendored address permutation is reversible. | `mailcpu/vl_procedural_primitives.py` | `tests/test_classifier.py::test_vl_feistel_primitive_is_reversible_and_drives_procedural_addresses` | `BOUNDARY_PROCEDURAL_MODEL.md` 2 |
 | `S-6**` | Every public function, method, and class carries a docstring. | `mailcpu/` | `tests/test_public_surface.py::test_every_public_callable_carries_a_docstring` | `ARCHITECTURE.md` 1 |
 
+## Reversibility and chronofolded execution
+
+| ID | Statement | Establishes | Enforced by | Required by |
+|---|---|---|---|---|
+| `V-1` | Every reversible gate involution satisfies `G(G(s)) = s` identically. | `mailcpu/reversible_gates.py` | `tests/test_reversible.py::test_gate_involution_identity` | `ITERATION_2_BUILD_PLAN.md` 4.1 |
+| `V-2` | Chronofold Bennett replay restores the initial tape exactly without intermediate tape persistence. | `mailcpu/chronofold.py` | `tests/test_reversible.py::test_chronofold_bennett_constant_space_replay_and_reversal` | `ITERATION_2_BUILD_PLAN.md` 4.1 |
+
+## Communication substrates and timing channels
+
+| ID | Statement | Establishes | Enforced by | Required by |
+|---|---|---|---|---|
+| `K-1` | State `V` is reconstructed exactly from any `k` of `n` surviving residues under Garner-free CRT. | `mailcpu/rrns.py` | `tests/test_delay_loops.py::test_rrns_encoding_and_erasure_recovery` | `ITERATION_2_BUILD_PLAN.md` 4.2 |
+| `K-2` | Dynamic slot clamping enforces `\Delta_{\text{slot}} \ge 3 \sigma_{\text{jitter}}`, preventing packet reordering. | `mailcpu/delay_loop.py` | `tests/test_delay_loops.py::test_dynamic_slot_clamping` | `ITERATION_2_BUILD_PLAN.md` 4.2 |
+| `K-3` | Cadence demodulation recovers exact byte streams under Gaussian jitter with bit error rate zero. | `mailcpu/timing_channel.py` | `tests/test_timing_channel.py::test_timing_channel_resilience_to_gaussian_jitter` | `ITERATION_2_BUILD_PLAN.md` 4.2 |
+
+## Algebraic law certification and orbit leaps
+
+| ID | Statement | Establishes | Enforced by | Required by |
+|---|---|---|---|---|
+| `L-1` | Closed-form orbit leap matches step-by-step navigation for all coordinates within the certified horizon. | `mailcpu/law_certifier.py` | `tests/test_law_certifier.py::test_int_law_certification_and_leap` | `ITERATION_2_BUILD_PLAN.md` 4.4 |
+| `L-2` | Evaluating an orbit leap at or beyond the certified horizon raises `HorizonExceeded`. | `mailcpu/law_certifier.py` | `tests/test_law_certifier.py::test_guarded_navigation_horizon` | `ITERATION_2_BUILD_PLAN.md` 4.4 |
+
+## Chemical time and holonomy consensus
+
+| ID | Statement | Establishes | Enforced by | Required by |
+|---|---|---|---|---|
+| `H-1` | All Wilczek-Zee geometric phase operators belong to `SU(2)` with `U^\dagger U = I` and `\det U = 1`. | `mailcpu/holonomy_engine.py` | `tests/test_chemical_time.py::test_su2_wilczek_zee_unitary_group` | `ITERATION_2_BUILD_PLAN.md` 4.5 |
+| `H-2` | Step counts exceeding the task validity horizon trigger a typed `HorizonExceeded` fault. | `mailcpu/chemical_time.py` | `tests/test_chemical_time.py::test_horizon_tracker` | `ITERATION_2_BUILD_PLAN.md` 4.5 |
+
+## Neural lifter and policy gate
+
+| ID | Statement | Establishes | Enforced by | Required by |
+|---|---|---|---|---|
+| `Q-1` | Advisory neural routing outputs are dispatched if and only if they reproduce 100% of withheld witness probes. | `mailcpu/neural_lifter.py` | `tests/test_neural_lifter.py::test_policy_gate_isolation_truth_preservation`, `tests/test_neural_lifter.py::test_policy_gate_fallback_on_model_mismatch` | `ITERATION_2_BUILD_PLAN.md` 4.6 |
+
 ## Marking an invariant
 
 An entry marked `**` was established during the repository's preparation pass

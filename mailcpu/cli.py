@@ -356,10 +356,35 @@ def _command_registry_list(arguments: argparse.Namespace) -> int:
 def _command_lift(arguments: argparse.Namespace) -> int:
     r"""Mathematics: certify algebraic recurrence law $\mathcal{L}$ over sequence $S$ and evaluate orbit leap $s(t)$."""
     raw = arguments.sequence.strip()
-    if raw.startswith("["):
-        seq = [int(x) for x in json.loads(raw)]
-    else:
-        seq = [int(x.strip()) for x in raw.split(",") if x.strip()]
+    try:
+        if raw.startswith("["):
+            seq = [int(x) for x in json.loads(raw)]
+        else:
+            seq = [int(x.strip()) for x in raw.split(",") if x.strip()]
+    except (ValueError, json.JSONDecodeError) as err:
+        print(
+            json.dumps(
+                {
+                    "error": f"invalid sequence input: {err}",
+                    "status": "error",
+                },
+                sort_keys=True,
+            )
+        )
+        return 1
+
+    if not seq:
+        print(
+            json.dumps(
+                {
+                    "error": "empty sequence input",
+                    "status": "error",
+                },
+                sort_keys=True,
+            )
+        )
+        return 1
+
     if len(seq) >= 4:
         split = max(len(seq) // 2, len(seq) - 4)
         window = seq[:split]
@@ -541,3 +566,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     arguments = parser.parse_args(argv)
     return arguments.handler(arguments)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

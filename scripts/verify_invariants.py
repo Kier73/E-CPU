@@ -177,6 +177,20 @@ def _expected_symbol(establishes: str) -> str | None:
         "cli": "build_parser",
         "vl_procedural_primitives": "feistel_seal",
         "virtual_memory": "VirtualMemory",
+        "reversible_gates": "ReversibleGate",
+        "chronofold": "ChronoFold",
+        "rrns": "recover_rrns",
+        "delay_loop": "DelayLoopEngine",
+        "timing_channel": "CadenceModulator",
+        "dns_cell": "DnsLatchDevice",
+        "tcp_arithmetic": "AimdController",
+        "vantage_transform": "apply_vantage",
+        "law_certifier": "recover_law",
+        "mixture_decomposition": "decompose_mixture",
+        "chemical_time": "HorizonTracker",
+        "holonomy_engine": "HolonomyConsensus",
+        "neural_lifter": "NeuralLifterPolicy",
+        "substrate_sim": "WanSubstrateSimulator",
     }
     return mapping.get(stem)
 

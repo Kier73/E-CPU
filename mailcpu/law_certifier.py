@@ -875,14 +875,15 @@ def recover_law(window: Sequence[int], truth: Sequence[int] | None = None) -> La
     # 1. Binary GF(2)
     if all(v in (0, 1) for v in samples):
         c_coef, l_deg = berlekamp_massey(window, 2)
-        if l_deg < n_win // 2:
+        if 0 < l_deg < n_win // 2:
             init = list(window[:l_deg])
 
             def pred_gf2(t_idx: int) -> int:
                 r"""Predict GF(2) LFSR state."""
                 if t_idx < len(init):
                     return init[t_idx]
-                return lfsr_jump(c_coef, init, t_idx)[0]
+                adv = lfsr_jump(c_coef, init, t_idx)
+                return adv[0] if adv else 0
 
             err, first_bad = _evaluate_law_residuals(pred_gf2, samples, n_win)
             params = {"C": c_coef, "init": init}

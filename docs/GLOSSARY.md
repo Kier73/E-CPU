@@ -135,6 +135,45 @@ Registry of defined terms for this repository.
 : The constraint `sum_pid |M_pid| <= B` bounding VM-wide resident private pages.
   Distinct from per-process page quota.
 
+## Substrates and reversible execution
+
+**chemical difficulty** $\tau_{\text{chem}}$
+: The normalized information-theoretic parsing cost $H(w) + \text{LZ}(w)$ used
+  as a computational currency to scale memory allocation quotas and retention lifetimes.
+
+**chronofold**
+: A compact structural trajectory descriptor $\mathcal{F} = \langle s_0, \mathcal{T}, \mathcal{A}, D \rangle$
+  capturing shift-periodic recurrence $t_{i+P} = t_i + S$, enabling constant-space Bennett
+  replay and tape reversal.
+
+**delay loop**
+: A wide-area network storage substrate where state circulates as optical packets
+  in physical communication media without host RAM retention.
+
+**discrete geometric phase** $D$
+: The state-preserving phase factor $D = (-i)^{n_{\text{active}}}$ accumulated by active
+  micro-operations, cycling on modulo-4 period.
+
+**holonomy consensus**
+: A distributed agreement protocol coordinating multi-node state vectors via
+  $\text{SU}(2)$ Wilczek-Zee unitary operators and Fréchet mean centroids.
+
+**law certifier** ($\Omega_5$)
+: An 8-rung algebraic ladder (`int`, `lcg`, `gf2`, `cfin`, `fgraph`, `kreg`, `strat`, `tape`)
+  transforming raw execution traces into certified closed-form recurrence relations.
+
+**orbit leap**
+: A closed-form state evaluation $x_t = \mathcal{G}(t)$ computing the system state at
+  time coordinate $t$ in $\mathcal{O}(\log t)$ time without step-by-step intermediate simulation.
+
+**policy gate witness isolation**
+: An authority boundary where advisory neural routing proposals must achieve 100%
+  exact agreement against withheld verification probes before execution dispatch.
+
+**redundant residue number system (RRNS)**
+: An algebraic representation encoding integer state across coprime moduli $(m_1, \dots, m_n)$,
+  permitting exact Garner-free CRT state recovery from any $k \le n$ surviving residues.
+
 ## Non-goals
 
 **non-goal**

@@ -102,6 +102,10 @@ python -m mailcpu <command> [options]
 | `network-demo` | Exercise routed owned datagrams through the native ABI |
 | `registry-publish ROOT IMAGE` | Publish an image into a digest-addressed registry |
 | `registry-list ROOT` | List validated registry entries |
+| `lift SEQUENCE [--horizon T]` | Certify algebraic recurrence law and compute orbit leap |
+| `bench [--iterations N]` | Benchmark reversible gate cycles, delay loops, and lifter |
+| `substrate [--rtt-ms MS] [--loss-rate P] [--cycles C]` | Simulate WAN delay-loop circulation under burst loss |
+| `chronofold [--ticks N]` | Execute reversible trajectory compression and phase ledger |
 
 `cli._COMMANDS` defines the declared command domain.
 
@@ -144,7 +148,7 @@ recorded in the hash-chained event journal.
 ## 7. Repository layout
 
 ```text
-mailcpu/     importable package; 37 modules
+mailcpu/     importable package; 53 modules
 tests/       conformance, differential, protocol, runtime, and surface tests
 scripts/     golden-trace recorder and repository verifiers
 examples/    assembly source fixtures

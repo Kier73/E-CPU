@@ -293,6 +293,34 @@ rules are `docs/ARCHITECTURE.md` clauses 3 and 5 and `docs/REPLACEMENT_SPEC.md`.
 - Process environments, typed signals, digest-addressed images, service
   policies, and continuation checkpoints are explicit control-plane state.
 
+### 7.10 Substrates, reversible core, and algebraic law lifting
+
+- Micro-operation execution admits an involutive reversible gate engine ($X$, $\text{swap}$)
+  where self-inverse compositions satisfy $(G_m \circ \dots \circ G_1)^{-1} = G_1 \circ \dots \circ G_m$
+  and Bennett carry uncomputation returns ancilla registers strictly to zero.
+- Trajectory execution compresses shift-periodic patterns into $\mathcal{O}(1)$ chronofold
+  descriptors, supporting constant-space backward replay and discrete geometric phase
+  accumulation $D = (-i)^{n_{\text{active}}}$ on modulo-4 cycles.
+- Ambient communication substrates store in-flight memory across physical delay loops
+  without host RAM residency. Dynamic slot clamping enforces $\Delta_{\text{slot}} \ge 3 \sigma_{\text{jitter}}$,
+  and Redundant Residue Number Systems (RRNS) guarantee exact Garner-free CRT state reconstruction
+  from any $k \le n$ surviving packets under continuous in-flight scrubbing.
+- Discrete Cadence Modulation encodes nibbles into inter-packet transmission intervals
+  $\Delta t = \Delta_0 + d \cdot \delta_{\text{quantum}}$, paired with PLL-stabilized maximum-likelihood
+  demodulation achieving zero bit error rate under bounded Gaussian route jitter.
+- Virtual devices `/dev/dns_latch` expose decaying TTL memory latches and RFC 2308 negative
+  caching, while TCP sequence operators provide arithmetic over the cyclic ring $\mathbb{Z}_{2^{32}}$
+  and autonomous AIMD feedback concurrency control.
+- The $\Omega_5 = (\text{STATE}, \text{LIFT}, \text{NAVIGATE}, \text{DESCEND}, \text{VERIFY})$ loop
+  transforms message streams into certified closed-form recurrence relations across an 8-rung ladder,
+  enabling $\mathcal{O}(\log t)$ closed-form orbit leaps guarded by strict horizon bounds $t < \text{first\_bad}$.
+- Tripartite temporal coordinates $\langle \lambda_{\text{event}}, \tau_{\text{chronon}}, \tau_{\text{chem}} \rangle$
+  govern execution, scaling memory quotas and retention delays by normalized parsing difficulty $\tau_{\text{chem}}$,
+  and coordinating distributed multi-node consensus via $\text{SU}(2)$ Wilczek-Zee unitaries.
+- Lightweight distilled neural routing heads propose candidate algebraic ladder rungs in $\mathcal{O}(1)$ time,
+  subject to strict policy gate witness isolation that accepts proposals only upon 100% agreement
+  with withheld verification probes, falling back to exhaustive ladder search on mismatch.
+
 ## 8. Obligations
 
 The following are **REQUIRED** and are not statements of present capability.

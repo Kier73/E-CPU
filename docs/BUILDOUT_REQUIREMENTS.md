@@ -119,3 +119,27 @@ $$\delta_{\text{syscall}} : \text{ABI}_{\text{standard}} \to \mathcal{K} \times 
                                ▼
 [2. Physical Delay Loops] ───> [3. Consensus & CRT Striping] ───> [5. Leap Scheduling]
 ```
+
+
+---
+
+## 4. Iteration 2 Delivery Status & Iteration 3 Requirements
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                       ITERATION MILESTONE PROGRESS                          │
+├───────────────────────────────┬────────────┬────────────────────────────────┤
+│ Subsystem / Capability        │ Status     │ Target Milestone               │
+├───────────────────────────────┼────────────┼────────────────────────────────┤
+│ Reversible Core & Chronofold  │ COMPLETED  │ Iteration 2 (Workstream 1)     │
+│ Physical Delay Loops & RRNS   │ COMPLETED  │ Iteration 2 (Workstream 2)     │
+│ DNS Latches & TCP Arithmetic  │ COMPLETED  │ Iteration 2 (Workstream 3)     │
+│ Law Lifter & Orbit Leap       │ COMPLETED  │ Iteration 2 (Workstream 4)     │
+│ Chemical Time & Holonomy      │ COMPLETED  │ Iteration 2 (Workstream 5)     │
+│ Neural Distillation & Sim     │ COMPLETED  │ Iteration 2 (Workstream 6)     │
+│ JIT Law Lifter in Scheduler   │ PLANNED    │ Iteration 3                    │
+│ Adaptive Modulus Restriping   │ PLANNED    │ Iteration 3                    │
+│ Multi-Hop Distributed Delay   │ PLANNED    │ Iteration 3                    │
+│ Musl Libc / POSIX Userland    │ PLANNED    │ Iteration 3                    │
+└───────────────────────────────┴────────────┴────────────────────────────────┘
+```
