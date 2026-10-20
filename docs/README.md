@@ -14,6 +14,7 @@ Index of specification documents. Documents use defined terms from `GLOSSARY.md`
 | 6 | [`BOUNDARY_PROCEDURAL_MODEL.md`](BOUNDARY_PROCEDURAL_MODEL.md) | Procedural decision model and generation interface |
 | 7 | [`INVARIANTS.md`](INVARIANTS.md) | Machine-checkable invariant registry |
 | 8 | [`PLAN.md`](PLAN.md) | Research hypotheses and evaluation procedure |
+| 9 | [`BUILDOUT_REQUIREMENTS.md`](BUILDOUT_REQUIREMENTS.md) | Future architectural requirements and engineering milestones |
 
 ## Document classes
 
@@ -23,7 +24,7 @@ Index of specification documents. Documents use defined terms from `GLOSSARY.md`
 
 **Reference.** `GLOSSARY.md`, `INVARIANTS.md`. Look-up tables and registries consumed by the specifications.
 
-**Procedure.** `PLAN.md`. Research plan and evaluation procedure.
+**Procedure & Roadmap.** `PLAN.md`, `BUILDOUT_REQUIREMENTS.md`. Research plan, evaluation procedure, and future buildout requirements.
 
 ## Cross-reference integrity
 
