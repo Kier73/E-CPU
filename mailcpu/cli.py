@@ -15,6 +15,14 @@ from .trajectory import TrajectoryWriter
 from .vm import MailCPUVirtualMachine
 from .registry import ImageRegistry
 from .owned_network import NetworkAddress
+from .neural_lifter import NeuralLifterPolicy
+from .law_certifier import orbit_leap
+from .chronofold import ChronoFold
+from .substrate_sim import GilbertElliottChannel, WanSubstrateSimulator
+from .reversible_gates import ReversibleProgram, set_bits
+from .delay_loop import DelayLoopEngine
+from .dns_cell import DnsLatchDevice
+from .timing_channel import CadenceDemodulator, CadenceModulator, TimingChannelConfig
 
 
 _HEADLESS_DEMO_SOURCE = """\
@@ -43,6 +51,10 @@ _COMMANDS = (
     "network-demo",
     "registry-publish",
     "registry-list",
+    "lift",
+    "bench",
+    "substrate",
+    "chronofold",
 )
 
 
@@ -341,6 +353,128 @@ def _command_registry_list(arguments: argparse.Namespace) -> int:
     return 0
 
 
+def _command_lift(arguments: argparse.Namespace) -> int:
+    r"""Mathematics: certify algebraic recurrence law $\mathcal{L}$ over sequence $S$ and evaluate orbit leap $s(t)$."""
+    raw = arguments.sequence.strip()
+    if raw.startswith("["):
+        seq = [int(x) for x in json.loads(raw)]
+    else:
+        seq = [int(x.strip()) for x in raw.split(",") if x.strip()]
+    if len(seq) >= 4:
+        split = max(len(seq) // 2, len(seq) - 4)
+        window = seq[:split]
+        witness = seq[split:]
+    else:
+        window = seq
+        witness = None
+    policy = NeuralLifterPolicy()
+    certified, prediction = policy.certify_stream(window, truth=witness)
+    if certified.is_ground:
+        horizon_val = orbit_leap(certified, arguments.horizon)
+    else:
+        horizon_val = None
+    output = {
+        "family": certified.family,
+        "params": certified.params,
+        "order": certified.order,
+        "verdict": certified.verdict,
+        "horizon": arguments.horizon,
+        "horizon_val": horizon_val,
+        "is_ground": certified.is_ground,
+        "confidence": prediction.confidence,
+    }
+    print(json.dumps(output, sort_keys=True))
+    return 0
+
+
+def _command_bench(arguments: argparse.Namespace) -> int:
+    r"""Mathematics: execute benchmark iteration set $I$ evaluating reversibility $\Delta S = 0$ and law certification latency."""
+    p = ReversibleProgram()
+    w = 8
+    a = p.alloc(w)
+    b = p.alloc(w)
+    out = p.alloc(w)
+    p.emit_xor_add(out, a, b, w)
+
+    initial_tape = 0
+    initial_tape = set_bits(initial_tape, a, w, 10)
+    initial_tape = set_bits(initial_tape, b, w, 20)
+    tape = initial_tape
+    for _ in range(arguments.iterations):
+        tape, _ = p.execute(tape)
+        tape, _ = p.reverse_execute(tape)
+
+    engine = DelayLoopEngine()
+    group = engine.add_group(value=12345, k=2, moduli=(257, 263, 269, 271))
+    sim = WanSubstrateSimulator(
+        mean_rtt_ms=10.0,
+        jitter_sigma_ms=1.0,
+        seed=42,
+    )
+    circ_stats = sim.benchmark_delay_loop_circulation(group, rounds=arguments.iterations)
+
+    output = {
+        "status": "ok",
+        "iterations": arguments.iterations,
+        "reversible_restored": tape == initial_tape,
+        "network_loss_rate": circ_stats["network_loss_rate"],
+        "scrub_recoveries": circ_stats["scrub_recoveries"],
+    }
+    print(json.dumps(output, sort_keys=True))
+    return 0
+
+
+def _command_substrate(arguments: argparse.Namespace) -> int:
+    r"""Mathematics: simulate stochastic delay-loop network substrate under Gilbert-Elliott channel $\mathcal{GE}(p, r)$."""
+    channel = GilbertElliottChannel(
+        p_g_to_b=arguments.loss_rate,
+        p_b_to_g=0.5,
+        loss_in_good=0.001,
+        loss_in_bad=0.8,
+        seed=42,
+    )
+    sim = WanSubstrateSimulator(
+        mean_rtt_ms=arguments.rtt_ms,
+        jitter_sigma_ms=arguments.jitter,
+        channel=channel,
+        seed=42,
+    )
+    engine = DelayLoopEngine()
+    group = engine.add_group(value=9999, k=2, moduli=(257, 263, 269, 271))
+    circ_stats = sim.benchmark_delay_loop_circulation(group, rounds=arguments.cycles)
+    output = {
+        "status": "ok",
+        "cycles": arguments.cycles,
+        "loss_rate": circ_stats["network_loss_rate"],
+        "erasure_events": circ_stats["erasure_events"],
+        "scrub_recoveries": circ_stats["scrub_recoveries"],
+        "permanent_losses": circ_stats["permanent_losses"],
+    }
+    print(json.dumps(output, sort_keys=True))
+    return 0
+
+
+def _command_chronofold(arguments: argparse.Namespace) -> int:
+    r"""Mathematics: evaluate bidirectional chronofolded trajectory $\mathcal{T}$ verifying unitary conservation $U^\dagger U = I$."""
+    fold = ChronoFold(initial_tape=0x1234)
+    pattern = [10, 20, 30]
+    stride = 5
+    for iteration in range(arguments.ticks):
+        for val in pattern:
+            fold.record_step(val + iteration * stride, active_delta=2, read_delta=1)
+    is_periodic = fold.detect_periodicity(min_period=3, max_period=5)
+    output = {
+        "status": "ok",
+        "ticks": arguments.ticks,
+        "is_periodic": is_periodic,
+        "active_chronons": fold.active_chronons,
+        "sector_reads": fold.sector_reads,
+        "geometric_phase": str(fold.phase),
+    }
+    print(json.dumps(output, sort_keys=True))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Mathematics: construct the command grammar `G` such that `dom(G)` equals `_COMMANDS` exactly."""
 
@@ -382,6 +516,22 @@ def build_parser() -> argparse.ArgumentParser:
     registry_list = subparsers.add_parser("registry-list", help="list validated images in a local registry")
     registry_list.add_argument("root")
     registry_list.set_defaults(handler=_command_registry_list)
+    lift = subparsers.add_parser("lift", help="certify algebraic recurrence and perform orbit leap")
+    lift.add_argument("sequence", help="comma-separated integers or JSON array")
+    lift.add_argument("--horizon", type=int, default=100, help="target leap horizon t")
+    lift.set_defaults(handler=_command_lift)
+    bench = subparsers.add_parser("bench", help="run benchmark suite for reversible gates and substrates")
+    bench.add_argument("--iterations", type=int, default=10, help="benchmark cycle count")
+    bench.set_defaults(handler=_command_bench)
+    substrate = subparsers.add_parser("substrate", help="simulate deterministic WAN delay-loop substrate")
+    substrate.add_argument("--rtt-ms", type=float, default=20.0, help="mean round-trip time in milliseconds")
+    substrate.add_argument("--loss-rate", type=float, default=0.01, help="packet loss probability")
+    substrate.add_argument("--jitter", type=float, default=2.0, help="latency jitter standard deviation in milliseconds")
+    substrate.add_argument("--cycles", type=int, default=5, help="simulation cycle count")
+    substrate.set_defaults(handler=_command_substrate)
+    chronofold = subparsers.add_parser("chronofold", help="execute reversible chronofold schedule")
+    chronofold.add_argument("--ticks", type=int, default=4, help="number of execution ticks")
+    chronofold.set_defaults(handler=_command_chronofold)
     return parser
 
 

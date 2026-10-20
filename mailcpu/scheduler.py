@@ -8,6 +8,8 @@ from enum import Enum
 from typing import Any, Callable, Sequence
 
 from .bus import MailboxBus
+from .chemical_time import HorizonTracker, SystemEpoch
+from .chronofold import ChronoFold
 from .interpreter import ExecutionBackend, Transition, apply_instruction
 from .journal import EventJournal
 from .model import DEFAULT_MAX_TICKS, Instruction, MachineState, Op, Program, RunStatus
@@ -150,6 +152,9 @@ class ScheduledTask:
     status: TaskStatus = TaskStatus.RUNNABLE
     wait_request: dict[str, Any] | None = None
     wake_request: dict[str, Any] | None = None
+    chronofold: ChronoFold | None = None
+    chemical_cost: float = 0.0
+    horizon_tracker: HorizonTracker | None = None
 
 
 @dataclass(frozen=True)
@@ -185,6 +190,11 @@ class DeterministicScheduler:
         self.syscall_handler = syscall_handler
         self.wait_predicate: Callable[[int, dict[str, Any]], bool] | None = None
         self.post_step: Callable[[int], None] | None = None
+        self.system_epoch: SystemEpoch = SystemEpoch(
+            event_lambda=0,
+            chronon_phase=1 + 0j,
+            chemical_tau=0.0,
+        )
 
     def add(
         self,
@@ -192,6 +202,9 @@ class DeterministicScheduler:
         name: str,
         initial_registers: dict[str, int] | None = None,
         pid: int | None = None,
+        enable_chronofold: bool = False,
+        chemical_cost: float = 0.0,
+        t_horizon: int | None = None,
     ) -> int:
         """Mathematics: insert task `T[pid]` and append `pid` to ready queue, preserving unique task identity."""
 
@@ -200,7 +213,18 @@ class DeterministicScheduler:
             raise ValueError(f"task already exists: {task_pid}")
         self._next_pid = max(self._next_pid, task_pid + 1)
         backend = SchedulerBackend(self.bus, f"proc:{task_pid}", initial_registers or {}, self.syscall_handler)
-        task = ScheduledTask(task_pid, name, program, MachineState(), backend)
+        chronofold = ChronoFold(initial_tape=0) if enable_chronofold else None
+        horizon_tracker = HorizonTracker(task_pid, t_horizon=t_horizon) if t_horizon is not None else None
+        task = ScheduledTask(
+            task_pid,
+            name,
+            program,
+            MachineState(),
+            backend,
+            chronofold=chronofold,
+            chemical_cost=chemical_cost,
+            horizon_tracker=horizon_tracker,
+        )
         self.tasks[task_pid] = task
         self._ready.append(task_pid)
         self.journal.append("scheduler.add", {"pid": task_pid, "name": name})
@@ -229,12 +253,26 @@ class DeterministicScheduler:
             for mailbox, values in parent.backend.inputs.items()
         }
         backend.outputs = parent.backend.output_log()
+        child_chronofold = (
+            None
+            if parent.chronofold is None
+            else ChronoFold(
+                initial_tape=parent.chronofold.initial_tape,
+                trace=list(parent.chronofold.trace),
+                period_header=parent.chronofold.period_header,
+                period_length=parent.chronofold.period_length,
+                period_stride=parent.chronofold.period_stride,
+                active_chronons=parent.chronofold.active_chronons,
+                sector_reads=parent.chronofold.sector_reads,
+            )
+        )
         child = ScheduledTask(
             child_pid,
             parent.name,
             parent.program,
             MachineState(pc=pc, steps=steps),
             backend,
+            chronofold=child_chronofold,
         )
         self.tasks[child_pid] = child
         self._next_pid = max(self._next_pid, child_pid + 1)
@@ -381,6 +419,9 @@ class DeterministicScheduler:
     def _step(self, task: ScheduledTask) -> ScheduleEvent:
         """Mathematics: apply exactly one `T_task` transition and classify its terminal status."""
 
+        if task.horizon_tracker is not None:
+            task.horizon_tracker.assert_valid(task.state.steps)
+
         pc_before = task.state.pc
         instruction = task.program.instructions[pc_before]
         try:
@@ -404,6 +445,19 @@ class DeterministicScheduler:
                 task.status = TaskStatus.HALTED
             if self.post_step is not None:
                 self.post_step(task.pid)
+        if task.chronofold is not None:
+            op_code = list(Op).index(instruction.op)
+            step_code = (pc_before << 8) | op_code
+            task.chronofold.record_step(
+                step_code,
+                active_delta=1 if not transition.blocked else 0,
+                read_delta=1 if instruction.op in {Op.BRANCH, Op.COMPARE} else 0,
+            )
+        self.system_epoch = self.system_epoch.advance_event()
+        if task.chronofold is not None:
+            self.system_epoch = self.system_epoch.advance_chronon(task.chronofold.active_chronons)
+        if task.chemical_cost > 0.0:
+            self.system_epoch = self.system_epoch.add_chemical_difficulty(task.chemical_cost)
         return ScheduleEvent(
             tick=self.tick,
             pid=task.pid,
@@ -457,6 +511,9 @@ class DeterministicScheduler:
                     "status": task.status.value,
                     "wait_request": None if task.wait_request is None else dict(task.wait_request),
                     "wake_request": None if task.wake_request is None else dict(task.wake_request),
+                    "chronofold": None if task.chronofold is None else task.chronofold.to_dict(),
+                    "chemical_cost": task.chemical_cost,
+                    "t_horizon": None if task.horizon_tracker is None else task.horizon_tracker.t_horizon,
                     "registers": task.backend.snapshot_registers(),
                     "outputs": list(task.backend.output_log()),
                     "program": [
@@ -469,6 +526,12 @@ class DeterministicScheduler:
                     },
                 }
                 for pid, task in sorted(self.tasks.items())
+            },
+            "system_epoch": {
+                "event_lambda": self.system_epoch.event_lambda,
+                "chronon_real": self.system_epoch.chronon_phase.real,
+                "chronon_imag": self.system_epoch.chronon_phase.imag,
+                "chemical_tau": self.system_epoch.chemical_tau,
             },
         }
 
@@ -486,6 +549,16 @@ class DeterministicScheduler:
         scheduler.tick = int(payload["tick"])
         scheduler._next_pid = int(payload["next_pid"])
         scheduler._ready = deque(int(pid) for pid in payload.get("ready", ()))
+        if "system_epoch" in payload:
+            raw_epoch = payload["system_epoch"]
+            scheduler.system_epoch = SystemEpoch(
+                event_lambda=int(raw_epoch.get("event_lambda", 0)),
+                chronon_phase=complex(
+                    float(raw_epoch.get("chronon_real", 1.0)),
+                    float(raw_epoch.get("chronon_imag", 0.0)),
+                ),
+                chemical_tau=float(raw_epoch.get("chemical_tau", 0.0)),
+            )
         for raw in payload.get("tasks", {}).values():
             pid = int(raw["pid"])
             program = Program(
@@ -527,6 +600,12 @@ class DeterministicScheduler:
                 TaskStatus.SUSPENDED,
             }:
                 raise ValueError("only blocked or stopped scheduler tasks may carry a wait_request")
+            raw_fold = raw.get("chronofold")
+            chronofold = None if raw_fold is None else ChronoFold.from_dict(raw_fold)
+            chemical_cost = float(raw.get("chemical_cost", 0.0))
+            raw_horizon = raw.get("t_horizon")
+            t_horizon = None if raw_horizon is None else int(raw_horizon)
+            horizon_tracker = HorizonTracker(pid, t_horizon=t_horizon) if t_horizon is not None else None
             task = ScheduledTask(
                 pid,
                 str(raw["name"]),
@@ -536,6 +615,9 @@ class DeterministicScheduler:
                 TaskStatus(raw["status"]),
                 wait_request,
                 wake_request,
+                chronofold,
+                chemical_cost=chemical_cost,
+                horizon_tracker=horizon_tracker,
             )
             scheduler.tasks[pid] = task
         return scheduler

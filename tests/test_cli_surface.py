@@ -42,6 +42,10 @@ def test_command_outside_the_declared_domain_is_refused() -> None:
         ("network-demo", ()),
         ("registry-publish", ("make-image",)),
         ("registry-list", ("make-image", "registry-publish")),
+        ("lift", ()),
+        ("bench", ()),
+        ("substrate", ()),
+        ("chronofold", ()),
     ],
 )
 def test_every_declared_command_returns_a_zero_exit_code(command, prerequisites, tmp_path, monkeypatch) -> None:
@@ -76,6 +80,14 @@ def _operands(command: str) -> list[str]:
         return ["registry", "image.mcp.json"]
     if command == "registry-list":
         return ["registry"]
+    if command == "lift":
+        return ["1,2,3,4,5,6,7,8", "--horizon", "50"]
+    if command == "bench":
+        return ["--iterations", "5"]
+    if command == "substrate":
+        return ["--cycles", "3"]
+    if command == "chronofold":
+        return ["--ticks", "2"]
     return []
 
 

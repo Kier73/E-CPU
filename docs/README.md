@@ -15,6 +15,9 @@ Index of specification documents. Documents use defined terms from `GLOSSARY.md`
 | 7 | [`INVARIANTS.md`](INVARIANTS.md) | Machine-checkable invariant registry |
 | 8 | [`PLAN.md`](PLAN.md) | Research hypotheses and evaluation procedure |
 | 9 | [`BUILDOUT_REQUIREMENTS.md`](BUILDOUT_REQUIREMENTS.md) | Future architectural requirements and engineering milestones |
+| 10 | [`COMMUNICATION_SUBSTRATES_AND_INFORMATION_THEORY.md`](COMMUNICATION_SUBSTRATES_AND_INFORMATION_THEORY.md) | Information-theoretic analysis of communication paths as virtual computational substrates |
+| 11 | [`CROSS_SYSTEM_SYNTHESIS_TIME_COMPUTATION_MODELS.md`](CROSS_SYSTEM_SYNTHESIS_TIME_COMPUTATION_MODELS.md) | Cross-system synthesis of Virtual Quanta, VL_Logic Compiler, and MailCPU paradigms |
+| 12 | [`ITERATION_2_BUILD_PLAN.md`](ITERATION_2_BUILD_PLAN.md) | Comprehensive engineering plan and external resource ingestion map for Iteration 2 |
 
 ## Document classes
 
@@ -24,7 +27,9 @@ Index of specification documents. Documents use defined terms from `GLOSSARY.md`
 
 **Reference.** `GLOSSARY.md`, `INVARIANTS.md`. Look-up tables and registries consumed by the specifications.
 
-**Procedure & Roadmap.** `PLAN.md`, `BUILDOUT_REQUIREMENTS.md`. Research plan, evaluation procedure, and future buildout requirements.
+**Procedure & Roadmap.** `PLAN.md`, `BUILDOUT_REQUIREMENTS.md`, `ITERATION_2_BUILD_PLAN.md`. Research plan, evaluation procedure, and Iteration 2 build plan.
+
+**Research & Theory.** `COMMUNICATION_SUBSTRATES_AND_INFORMATION_THEORY.md`, `CROSS_SYSTEM_SYNTHESIS_TIME_COMPUTATION_MODELS.md`. Substrate information theory, temporal models, and cross-paradigm synthesis.
 
 ## Cross-reference integrity
 
