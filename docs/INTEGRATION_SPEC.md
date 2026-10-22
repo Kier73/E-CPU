@@ -76,6 +76,16 @@ H_n = SHA256(H_{n-1} || canonical(sequence, event, payload))
 
 `mailcpu/trajectory.py` provides scheduler integration, sparse seek, chain verification, replay callbacks, deliberate corruption rejection, and a native image-runner capture option. The substrate operates over the modelled journal. Evidence tier: E0.
 
+Scheduler trajectory frames include the semantic instruction projection
+`(step, pc_before, op, args, pc_after, registers, output_delta)` in addition
+to scheduler identity and receipt metadata. A single-task trajectory can
+therefore be compared directly with the reference interpreter trace; complete
+process, filesystem, and multi-host replay remain separate state captures.
+`TrajectoryWriter.resume` verifies an existing stream before opening it for
+append and continues its sequence, logical time, sparse index, and receipt
+chain, allowing checkpoint continuation to remain one integrity-verified
+trajectory.
+
 ## 3. Procedural storage providers
 
 ### 3.1 Provider interface
@@ -114,7 +124,7 @@ Process control provides:
 
 ### 4.2 Service supervision and checkpoint
 
-Service supervision carries desired-state records, mailbox-oriented long-lived workloads, bounded restart policies, and stop semantics. Checkpoint and restore persist the virtual filesystem, bus, journal, processes, scheduler graph, memory, and service controller.
+Service supervision carries desired-state records, mailbox-oriented long-lived workloads, bounded restart policies, and stop semantics. Checkpoint and restore persist the virtual filesystem, bus, journal, processes, scheduler graph, memory, and service controller. A digest-checked restore must produce the same post-checkpoint semantic trajectory as uninterrupted execution; trajectory receipt continuity remains a separate capture concern.
 
 Executable loading crosses kernel descriptors and enforces execute mode.
 

@@ -112,12 +112,16 @@ class MailCPUVirtualMachine:
                     event.tick,
                     {
                         "kind": "scheduler.tick",
+                        "step": event.tick,
                         "pid": event.pid,
                         "name": event.name,
                         "pc_before": event.pc_before,
                         "op": event.op,
+                        "args": list(event.args),
                         "pc_after": event.pc_after,
                         "status_after": event.status_after,
+                        "registers": [list(item) for item in event.registers],
+                        "output_delta": [list(item) for item in event.output_delta],
                     },
                 )
             self.trajectory.flush()

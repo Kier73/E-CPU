@@ -169,6 +169,9 @@ class ScheduleEvent:
     op: str
     pc_after: int
     status_after: str
+    args: tuple[Any, ...] = ()
+    registers: tuple[tuple[str, int], ...] = ()
+    output_delta: tuple[tuple[str, int], ...] = ()
 
 
 class DeterministicScheduler:
@@ -426,6 +429,7 @@ class DeterministicScheduler:
 
         pc_before = task.state.pc
         instruction = task.program.instructions[pc_before]
+        output_count_before = len(task.backend.outputs)
         try:
             transition = apply_instruction(instruction, pc_before, task.backend)
         except SyscallBlocked as blocked:
@@ -471,6 +475,9 @@ class DeterministicScheduler:
             op=instruction.op.value,
             pc_after=task.state.pc,
             status_after=task.status.value,
+            args=tuple(instruction.args),
+            registers=tuple(task.backend.snapshot_registers().items()),
+            output_delta=tuple(task.backend.outputs[output_count_before:]),
         )
 
     def _wake_tasks(self) -> None:

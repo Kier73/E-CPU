@@ -64,6 +64,40 @@ class TrajectoryWriter:
         self._previous_receipt = b"\x00" * 32
         self._closed = False
 
+    @classmethod
+    def resume(cls, data_path: str | Path, index_path: str | Path) -> "TrajectoryWriter":
+        """Mathematics: recover `(n_last,t_last,H_last,K)` after verification and append the next frame with `H_next=SHA256(H_last||c_next)` without truncation."""
+
+        data = Path(data_path)
+        index = Path(index_path)
+        last_frame: TrajectoryFrame | None = None
+        with TrajectoryReader(data, index) as reader:
+            count = reader.verify()
+
+            def capture(frame: TrajectoryFrame) -> None:
+                """Mathematics: retain only the terminal frame `f_{n_last}` while the reader proves the complete prefix."""
+
+                nonlocal last_frame
+                last_frame = frame
+
+            reader.replay(capture)
+            stride = reader.stride
+        writer = cls.__new__(cls)
+        writer.data_path = data
+        writer.index_path = index
+        writer.stride = stride
+        writer._data = data.open("ab")
+        try:
+            writer._index = index.open("ab")
+        except Exception:
+            writer._data.close()
+            raise
+        writer._sequence = count
+        writer._last_time = 0 if last_frame is None else last_frame.logical_time
+        writer._previous_receipt = b"\x00" * 32 if last_frame is None else last_frame.receipt
+        writer._closed = False
+        return writer
+
     def append(self, logical_time: int, payload: dict[str, Any]) -> TrajectoryFrame:
         """Mathematics: append frame `n` with clamped time `t_n = max(t_{n-1}, raw_t)` and receipt `H_n`."""
 

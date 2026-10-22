@@ -5,7 +5,17 @@ from pathlib import Path
 import pytest
 
 import mailcpu.checkpoint as checkpoint_module
-from mailcpu import CheckpointError, HeadlessOS, ServiceSpec, load_checkpoint
+from mailcpu import CheckpointError, HeadlessOS, ServiceSpec, TrajectoryReader, TrajectoryWriter, load_checkpoint
+
+
+def _trajectory_payloads(data_path: Path, index_path: Path) -> list[dict[str, object]]:
+    """Mathematics: decode the ordered witness projection `F=(payload_0,...,payload_n)` after receipt verification."""
+
+    with TrajectoryReader(data_path, index_path) as reader:
+        assert reader.verify() >= 0
+        frames: list[dict[str, object]] = []
+        reader.replay(lambda frame: frames.append(frame.payload))
+        return frames
 
 
 def test_checkpoint_restores_process_filesystem_bus_and_memory(tmp_path: Path) -> None:
@@ -29,6 +39,36 @@ def test_checkpoint_restores_process_filesystem_bus_and_memory(tmp_path: Path) -
     os.run(100)
     restored.run(100)
     assert restored.process(pid).to_dict() == os.process(pid).to_dict()
+
+
+def test_checkpoint_resume_matches_uninterrupted_semantic_trajectory(tmp_path: Path) -> None:
+    """Mathematics: digest-checked restore with receipt append satisfies `π(uninterrupted)=π(resumed)` and one contiguous `H_n` chain."""
+
+    source = "set n 3\nset one 1\nset zero 0\nset minus_one -1\nloop:\ncompare positive n zero\nbranch positive decrement\nhalt\ndecrement:\nadd n n minus_one\nbranch one loop\n"
+    uninterrupted_data = tmp_path / "uninterrupted.mtrj"
+    uninterrupted_index = tmp_path / "uninterrupted.mtrj.idx"
+    checkpoint = tmp_path / "resume.mcpu.json"
+    with TrajectoryWriter(uninterrupted_data, uninterrupted_index) as writer:
+        operating_system = HeadlessOS(trajectory=writer)
+        operating_system.launch_source(source, "resume-corpus")
+        prefix_events = operating_system.run(5)
+        operating_system.save_checkpoint(checkpoint)
+        operating_system.run(100)
+    uninterrupted = _trajectory_payloads(uninterrupted_data, uninterrupted_index)
+
+    resumed_data = tmp_path / "resumed.mtrj"
+    resumed_index = tmp_path / "resumed.mtrj.idx"
+    with TrajectoryWriter(resumed_data, resumed_index) as writer:
+        prefix_os = HeadlessOS(trajectory=writer)
+        prefix_os.launch_source(source, "resume-corpus")
+        assert len(prefix_os.run(5)) == len(prefix_events)
+    with TrajectoryWriter.resume(resumed_data, resumed_index) as writer:
+        restored = load_checkpoint(checkpoint)
+        restored.vm.trajectory = writer
+        restored.run(100)
+    resumed = _trajectory_payloads(resumed_data, resumed_index)
+
+    assert uninterrupted == resumed
 
 
 def test_checkpoint_preserves_subreaper_and_session_identity(tmp_path: Path) -> None:

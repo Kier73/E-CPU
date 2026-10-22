@@ -31,6 +31,7 @@ system. Each entry has:
 | `T-3` | Every `BRANCH` target satisfies `0 <= j < n` for program length `n`. | `mailcpu/model.py` | `tests/test_conformance.py::test_invalid_branch_target_is_exposed` | `README.md` 2 |
 | `T-4` | `SYSCALL` is refused by the reference and mailbox interpreters. | `mailcpu/interpreter.py` | `tests/test_runtime.py::test_reference_and_mailbox_interpreters_refuse_syscall` | `README.md` 7 |
 | `T-5` | The opcode arity table is single-sourced, so the validator and the assembler cannot disagree. | `mailcpu/model.py` | `tests/test_assembler.py::test_opcode_arity_is_single_sourced_for_assembler_and_validator` | `README.md` 2 |
+| `T-6` | The checked-in golden corpus equals both the reference and queue execution projections, and its recorder verifies by default instead of rewriting evidence. | `scripts/record_golden.py`, `mailcpu/interpreter.py` | `tests/test_golden_traces.py::test_checked_in_golden_traces_match_reference_and_queue`, `tests/test_golden_traces.py::test_golden_recorder_verifies_without_rewriting` | `README.md` 2 |
 
 ## Determinism and canonical form
 
@@ -51,6 +52,9 @@ system. Each entry has:
 | `C-1` | Checkpoint restore rejects a state whose digest does not match its content. | `mailcpu/checkpoint.py` | `tests/test_checkpoint.py::test_checkpoint_detects_tampering` | `README.md` 5 |
 | `C-2` | Checkpointed state round-trips without loss for every admitted component. | `mailcpu/checkpoint.py` | `tests/test_checkpoint.py::test_checkpoint_restores_process_filesystem_bus_and_memory`, `tests/test_checkpoint.py::test_checkpoint_preserves_service_controller` | `README.md` 5 |
 | `C-3` | Trajectory records are indexed by `(sequence, logical_time, byte_offset)` and are receipt-verifiable. | `mailcpu/trajectory.py` | `tests/test_trajectory.py::test_trajectory_receipts_index_seek_and_replay` | `GLOSSARY.md` trajectory |
+| `C-4` | A persisted single-task scheduler trajectory preserves the semantic instruction projection and matches the reference interpreter trace. | `mailcpu/vm.py`, `mailcpu/scheduler.py` | `tests/test_trajectory.py::test_vm_semantic_trajectory_replays_reference_trace` | `INTEGRATION_SPEC.md` 2.3 |
+| `C-5` | A digest-checked checkpoint restore produces the same post-checkpoint semantic trajectory as uninterrupted execution. | `mailcpu/checkpoint.py`, `mailcpu/headless.py` | `tests/test_checkpoint.py::test_checkpoint_resume_matches_uninterrupted_semantic_trajectory` | `INTEGRATION_SPEC.md` 4.2 |
+| `C-6` | Trajectory resume verifies the existing prefix and preserves its sequence, logical time, sparse-index stride, and receipt-chain identity without truncation. | `mailcpu/trajectory.py` | `tests/test_trajectory.py::test_trajectory_resume_appends_one_verified_receipt_chain`, `tests/test_trajectory.py::test_trajectory_resume_refuses_tampered_prefix` | `INTEGRATION_SPEC.md` 2.3 |
 
 ## Authority
 

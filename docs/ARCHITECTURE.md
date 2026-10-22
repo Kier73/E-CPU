@@ -73,6 +73,10 @@ in the result of `δ` for an identical `K` and `request`.
 | Network interface | Bus destination names and transport adapters | route-specific delivery semantics |
 | Classifier hypervisor | Shared request state with typed Choice/Score/Noul questions | decision receipt + `ALLOW/REVIEW/DENY` policy transition |
 
+Checkpoint restore is accepted as a continuation only when the restored
+machine produces the same post-checkpoint semantic trajectory as uninterrupted
+execution. The trajectory receipt stream remains a separate integrity proof.
+
 ## 5. Capability model
 
 Authority is explicit. A process holds a set of **capabilities**, each a pair
@@ -365,6 +369,11 @@ rules are `docs/ARCHITECTURE.md` clauses 3 and 5 and `docs/REPLACEMENT_SPEC.md`.
 - Trajectory execution compresses shift-periodic patterns into $\mathcal{O}(1)$ chronofold
   descriptors, supporting constant-space backward replay and discrete geometric phase
   accumulation $D = (-i)^{n_{\text{active}}}$ on modulo-4 cycles.
+- Scheduler trajectory frames retain the semantic instruction projection
+  `(step, pc_before, op, args, pc_after, registers, output_delta)` alongside
+  scheduler identity and receipt metadata. This makes single-task machine
+  traces comparable with the reference interpreter while leaving complete
+  process, filesystem, and multi-host replay as separate state relations.
 - Ambient communication substrates store in-flight memory across physical delay loops
   without host RAM residency. Dynamic slot clamping enforces $\Delta_{\text{slot}} \ge 3 \sigma_{\text{jitter}}$,
   and Redundant Residue Number Systems (RRNS) guarantee exact Garner-free CRT state reconstruction
