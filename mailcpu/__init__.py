@@ -288,6 +288,7 @@ from .substrate_sim import (
 )
 from .socket_transport import SocketTransport, SocketTransportClosed, SocketTransportError
 from .replicated_mailbox import ReplicatedMailboxError, ReplicatedMailboxNode, ReplicatedMailboxStore, ReplicationReceipt
+from .revision_relay import HypervisorRevisionRelayError, ReplicatedRevisionProposalRelay
 from .remote_memory import RemotePageError, RemotePageMissing, RemotePageStore, RemotePageTimeout
 from .ingestion import ArtifactIngestionError, ArtifactIngestor, ArtifactKind, IngestedArtifact, ingest_bytes, ingest_path
 from .linker import DynamicLinkResult, DynamicLinker, ElfDependencyProvider, LinkerError, LoadedElf, MappingElfProvider
@@ -607,6 +608,8 @@ __all__ = [
     "ReplicatedMailboxNode",
     "ReplicatedMailboxStore",
     "ReplicationReceipt",
+    "HypervisorRevisionRelayError",
+    "ReplicatedRevisionProposalRelay",
     "RemotePageError",
     "RemotePageMissing",
     "RemotePageStore",

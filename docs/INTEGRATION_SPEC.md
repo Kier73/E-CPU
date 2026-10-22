@@ -620,6 +620,25 @@ Reliable communication carries explicit sender backpressure.
 
 Evidence tier: E0.
 
+### 10.4 Durable hypervisor revision relay
+
+`ReplicatedRevisionProposalRelay` carries a `HypervisorRevisionProposal`
+through the existing `ReplicatedMailboxNode` without introducing a second
+retry or quorum protocol.
+
+- Submission uses the existing durable `ENQUEUE` operation and returns its
+  operation identity for quorum receipt inspection.
+- A remote replica durably applies the mailbox operation before its reliable
+  acknowledgement; the proposal remains a typed FIFO message after transport
+  delivery.
+- The relay binds proposal source to the durable node identity, validates the
+  mailbox envelope, and arbitrates before durable `CONSUME`.
+- FIFO proposals remain recoverable after remote store reopen. Malformed or
+  same-identity conflicting proposals remain at the mailbox head for diagnosis
+  and retry rather than being silently discarded.
+
+Evidence tier: E1 for controlled multi-node persistence and relay admission.
+
 ## 11. Images and execution regimes
 
 ### 11.1 Source assembly and headless execution

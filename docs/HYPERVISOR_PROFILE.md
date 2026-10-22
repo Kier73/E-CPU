@@ -362,6 +362,14 @@ proposal can then be passed directly to `receive_and_arbitrate`, which joins
 transport acknowledgement to revision admission without granting transport
 delivery authority over the model.
 
+`ReplicatedRevisionProposalRelay` extends the same transition into controlled
+multi-node persistence. Submission is a durable replicated mailbox enqueue;
+remote receipt proves durable application, while semantic admission remains
+local to the receiving hypervisor. The receiver preserves FIFO and store
+restart state, validates the source against the durable node identity, and
+consumes only after arbitration returns a typed result. Invalid or conflicting
+heads remain present for diagnosis and retry.
+
 ## 9. Headless OS integration
 
 The OS exposes these control-plane entrypoints:
@@ -372,6 +380,7 @@ The OS exposes these control-plane entrypoints:
 | `hypervisor_arbitrate(event)` | Apply identity-stable receive/stabilize/inspect |
 | `hypervisor_dispatch(pid, ...)` | Derive rights from the process, attach epoch, and gate one handler |
 | `HypervisorRevisionChannel` | Carry a validated revision proposal over the existing reliable/TCP path |
+| `ReplicatedRevisionProposalRelay` | Persist and deliver revision proposals through the controlled replicated mailbox |
 
 Current concrete adapters include:
 

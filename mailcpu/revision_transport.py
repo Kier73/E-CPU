@@ -15,7 +15,8 @@ from .model import Message
 from .reliability import ReliableChannel
 
 
-_WIRE_KIND = "mailcpu.hypervisor.revision.proposal"
+REVISION_PROPOSAL_KIND = "mailcpu.hypervisor.revision.proposal"
+_WIRE_KIND = REVISION_PROPOSAL_KIND
 
 
 class HypervisorRevisionTransportError(ValueError):

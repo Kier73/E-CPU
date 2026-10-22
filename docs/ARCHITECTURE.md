@@ -373,6 +373,9 @@ rules are `docs/ARCHITECTURE.md` clauses 3 and 5 and `docs/REPLACEMENT_SPEC.md`.
 - The revision channel reuses reliable sequencing and framed TCP. It validates
   a proposal before acknowledgement and leaves malformed or peer-mismatched
   payloads queued for diagnosis.
+- The durable revision relay reuses replicated mailbox quorum and FIFO state:
+  proposals survive remote-store reopen, are arbitrated before consume, and
+  malformed or conflicting heads remain durable for diagnosis.
 - Process signal dispositions checkpoint and are inherited. The integer-safe
   default and ignore ABI participates in explicit, group, and PTY-originated
   signal delivery. `SIGKILL` and `SIGSTOP` are non-ignorable.

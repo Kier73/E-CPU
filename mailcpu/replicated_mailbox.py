@@ -464,11 +464,17 @@ class ReplicatedMailboxNode:
     def send(self, addr: str, message: Message) -> Message:
         """Mathematics: locally commit `ENQUEUE(o,m)`, broadcast `e(o)`, and return `m` while quorum progresses."""
 
+        _operation_id, stored = self.send_with_operation(addr, message)
+        return stored
+
+    def send_with_operation(self, addr: str, message: Message) -> tuple[str, Message]:
+        """Mathematics: allocate `o`, commit `ENQUEUE(o,m)`, broadcast `e(o)`, and return `(o,m)` for receipt correlation."""
+
         self.service()
         operation_id = self.store.new_operation_id()
         stored = self.store.send(addr, message, operation_id)
         self._publish(operation_id, "enqueue", {"addr": addr, "message": _message_to_record(stored)})
-        return stored
+        return operation_id, stored
 
     def poll(self, addr: str) -> Message | None:
         """Mathematics: locally commit FIFO `DEQUEUE(o,head(Q_addr))`, then replicate that exact removal."""
