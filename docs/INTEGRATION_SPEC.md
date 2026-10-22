@@ -801,6 +801,15 @@ idempotent arbitration boundary, not an authority-changing model promotion;
 future candidate revisions must pass a withheld witness corpus before
 promotion.
 
+`ClassifierHypervisor.admit_classifier_revision` is the first revision gate.
+It evaluates a candidate in a shadow hypervisor with the current policy,
+intent model, and virtual capacity. Promotion commits only when every supplied
+witness reproduces the policy projection `(action, domain, probabilities,
+confidence, risk, intent, virtual_cost)`. The active classifier remains
+unchanged on any mismatch or shadow failure. Accepted revisions increment a
+checkpointed revision number and record the candidate identity and witness
+digest; refused revisions record their mismatch without changing authority.
+
 The hypervisor is a control plane and not an opaque authority. Operating-system surfaces remain callable as native APIs while their typed adapter boundaries are added. Each adapter MUST preserve `ALLOW ⇒ one authorized handler`, and a learned or remote model MUST pass the `E0` replay and adversarial corpus of clause 13 before **admission**.
 
 Evidence tier: E0.

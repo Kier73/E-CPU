@@ -8,7 +8,7 @@ import math
 import re
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Mapping, Protocol
+from typing import Any, Callable, Mapping, Protocol, Sequence
 
 from .evidence import EvidenceTier, with_evidence_tier
 from .intent_embedding import IntentPrototypeModel, VirtualCost, estimate_virtual_cost
@@ -308,6 +308,89 @@ class HypervisorDecision:
         )
 
 
+def _decision_semantics(decision: HypervisorDecision) -> dict[str, object]:
+    """Mathematics: project policy semantics `π(D)` while quotienting receipt and model transport identity."""
+
+    return {
+        "action": decision.action.value,
+        "domain": decision.domain.value,
+        "confidence": decision.confidence,
+        "danger_probability": decision.danger_probability,
+        "probabilities": dict(sorted(decision.probabilities.items())),
+        "intent_domain": decision.intent_domain,
+        "intent_confidence": decision.intent_confidence,
+        "intent_probabilities": dict(sorted(decision.intent_probabilities.items())),
+        "virtual_cost": decision.virtual_cost.to_dict() if decision.virtual_cost is not None else None,
+    }
+
+
+def _canonical_json_bytes(value: Any) -> bytes:
+    """Mathematics: encode finite value `x` as canonical bytes `J(x)=JSON(sort_keys,compact)(x)` or refuse it."""
+
+    try:
+        return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise ClassifierError("value is outside the canonical JSON domain") from exc
+
+
+@dataclass(frozen=True)
+class HypervisorRevisionWitness:
+    """Immutable request/output pair that a candidate classifier must reproduce."""
+
+    request: HypervisorRequest
+    expected: Mapping[str, Any]
+
+    def __post_init__(self) -> None:
+        """Mathematics: require witness `w=(request,expected)` to be typed and canonically representable."""
+
+        if not isinstance(self.request, HypervisorRequest) or not isinstance(self.expected, Mapping):
+            raise ClassifierError("revision witness requires a request and mapping projection")
+        _canonical_json_bytes(dict(self.expected))
+
+    @classmethod
+    def from_decision(cls, request: HypervisorRequest, decision: HypervisorDecision) -> "HypervisorRevisionWitness":
+        """Mathematics: derive immutable witness `w=(r,π(D(r)))` from a known policy decision."""
+
+        return cls(request, _decision_semantics(decision))
+
+    def to_dict(self) -> dict[str, object]:
+        """Mathematics: serialize witness relation `w` without including mutable journal receipt identity."""
+
+        return {"request": self.request.state(), "expected": dict(self.expected)}
+
+
+@dataclass(frozen=True)
+class HypervisorRevisionResult:
+    """Outcome of one shadow-evaluated classifier revision proposal."""
+
+    accepted: bool
+    revision: int
+    witness_digest: str
+    candidate_model: str
+    mismatch_index: int | None = None
+    error: str | None = None
+
+    def __post_init__(self) -> None:
+        """Mathematics: require revision `r≥0` and witness identity `d∈{0,1}^{256}`."""
+
+        if self.revision < 0 or len(self.witness_digest) != 64 or any(
+            character not in "0123456789abcdef" for character in self.witness_digest
+        ):
+            raise ClassifierError("invalid hypervisor revision result")
+
+    def to_dict(self) -> dict[str, object]:
+        """Mathematics: project revision result `R=(accepted,revision,digest,model,mismatch,error)` for audit."""
+
+        return {
+            "accepted": self.accepted,
+            "revision": self.revision,
+            "witness_digest": self.witness_digest,
+            "candidate_model": self.candidate_model,
+            "mismatch_index": self.mismatch_index,
+            "error": self.error,
+        }
+
+
 @dataclass(frozen=True)
 class HypervisorArbitrationEvent:
     """A distributed request envelope with a stable replay identity."""
@@ -438,6 +521,7 @@ class ClassifierHypervisor:
             raise ClassifierError("virtual capacity must be a positive integer")
         self.intent_model = intent_model or IntentPrototypeModel.default()
         self.virtual_capacity = virtual_capacity
+        self._revision = 0
 
     def decide(self, request: HypervisorRequest) -> HypervisorDecision:
         """Mathematics: evaluate exact questions, advisory proposal, and policy gates, then append receipt `H_n`."""
@@ -517,6 +601,91 @@ class ClassifierHypervisor:
             virtual_cost,
         )
 
+    @staticmethod
+    def _candidate_identity(candidate: ClassifierModel) -> str:
+        """Mathematics: project candidate identity `m` to a stable model label without granting it authority."""
+
+        return str(getattr(candidate, "model", candidate.__class__.__name__))
+
+    def admit_classifier_revision(
+        self,
+        candidate: ClassifierModel,
+        witnesses: Sequence[HypervisorRevisionWitness],
+    ) -> HypervisorRevisionResult:
+        """Mathematics: commit `H.classifier:=m'` iff `∀w∈W:π(H_{m'}(w))=w.expected`, otherwise preserve `H` exactly."""
+
+        if not callable(getattr(candidate, "evaluate", None)):
+            raise ClassifierError("candidate classifier must implement evaluate")
+        witness_tuple = tuple(witnesses)
+        if not witness_tuple:
+            raise ClassifierError("classifier revision requires at least one witness")
+        if any(not isinstance(witness, HypervisorRevisionWitness) for witness in witness_tuple):
+            raise ClassifierError("classifier revision witnesses have an invalid type")
+        witness_digest = hashlib.sha256(
+            _canonical_json_bytes([witness.to_dict() for witness in witness_tuple])
+        ).hexdigest()
+        candidate_model = self._candidate_identity(candidate)
+        shadow = ClassifierHypervisor(
+            classifier=candidate,
+            journal=EventJournal(),
+            policy=self.policy,
+            intent_model=self.intent_model,
+            virtual_capacity=self.virtual_capacity,
+        )
+        for index, witness in enumerate(witness_tuple):
+            try:
+                observed = _decision_semantics(shadow.decide(witness.request))
+            except Exception as exc:
+                self.journal.append(
+                    "hypervisor.revision.refuse",
+                    {
+                        "candidate_model": candidate_model,
+                        "witness_digest": witness_digest,
+                        "mismatch_index": index,
+                        "error": f"{type(exc).__name__}: {exc}",
+                    },
+                )
+                return HypervisorRevisionResult(
+                    False,
+                    self._revision,
+                    witness_digest,
+                    candidate_model,
+                    index,
+                    f"{type(exc).__name__}: {exc}",
+                )
+            expected = dict(witness.expected)
+            if observed != expected:
+                self.journal.append(
+                    "hypervisor.revision.refuse",
+                    {
+                        "candidate_model": candidate_model,
+                        "witness_digest": witness_digest,
+                        "mismatch_index": index,
+                        "expected": expected,
+                        "observed": observed,
+                    },
+                )
+                return HypervisorRevisionResult(
+                    False,
+                    self._revision,
+                    witness_digest,
+                    candidate_model,
+                    index,
+                    "semantic witness mismatch",
+                )
+        self.classifier = candidate
+        self._revision += 1
+        self.journal.append(
+            "hypervisor.revision.admit",
+            {
+                "candidate_model": candidate_model,
+                "witness_digest": witness_digest,
+                "witness_count": len(witness_tuple),
+                "revision": self._revision,
+            },
+        )
+        return HypervisorRevisionResult(True, self._revision, witness_digest, candidate_model)
+
     def dispatch(
         self,
         request: HypervisorRequest,
@@ -533,7 +702,7 @@ class ClassifierHypervisor:
         return decision, handler()
 
     def snapshot(self) -> dict[str, object]:
-        """Mathematics: serialize exact classifier `m`, advisory model `M`, policy `π`, and capacity `C`."""
+        """Mathematics: serialize exact classifier `m`, advisory model `M`, policy `π`, capacity `C`, and revision `r`."""
 
         model_snapshot = getattr(self.classifier, "snapshot", None)
         model = model_snapshot() if callable(model_snapshot) else {
@@ -551,6 +720,7 @@ class ClassifierHypervisor:
             },
             "intent_model": self.intent_model.snapshot(),
             "virtual_capacity": self.virtual_capacity,
+            "revision": self._revision,
         }
 
     @classmethod
@@ -579,7 +749,11 @@ class ClassifierHypervisor:
             intent_model = IntentPrototypeModel.from_snapshot(intent_payload)
         else:
             intent_model = IntentPrototypeModel.default()
-        return cls(model, journal, policy, intent_model, int(payload.get("virtual_capacity", 64)))
+        hypervisor = cls(model, journal, policy, intent_model, int(payload.get("virtual_capacity", 64)))
+        hypervisor._revision = int(payload.get("revision", 0))
+        if hypervisor._revision < 0:
+            raise ClassifierError("hypervisor revision must be non-negative")
+        return hypervisor
 
 
 class HypervisorArbitrationLoop:

@@ -13,6 +13,7 @@ from mailcpu import (
     HypervisorError,
     HypervisorDomain,
     HypervisorRequest,
+    HypervisorRevisionWitness,
     LexicalDecisionModel,
     NoulAnswer,
     NoulQuestion,
@@ -284,6 +285,74 @@ def test_hypervisor_rsi_loop_ledger_survives_checkpoint_restore() -> None:
     assert restored.hypervisor_arbitration.snapshot() == operating_system.hypervisor_arbitration.snapshot()
     assert len([record for record in restored.environment.kernel.journal.records() if record.kind == "hypervisor.decision"]) == 1
     assert restored.environment.kernel.journal.verify()
+
+
+def test_hypervisor_revision_gate_admits_witnessed_candidate_and_restores() -> None:
+    """Mathematics: candidate promotion satisfies `∀w∈W:π(H_candidate(w))=π(H_current(w))` and preserves revision identity across restore."""
+
+    operating_system = HeadlessOS()
+    requests = (
+        HypervisorRequest(
+            "read filesystem file path descriptor",
+            "/home/file",
+            {"path": "/home/file"},
+            frozenset({"read"}),
+            frozenset({"read"}),
+        ),
+        HypervisorRequest(
+            "read filesystem file path descriptor",
+            "/secret/file",
+            {"path": "/secret/file"},
+            frozenset({"read", "secret"}),
+            frozenset({"read"}),
+        ),
+        HypervisorRequest(
+            "delete filesystem file path descriptor overwrite",
+            "/home/file",
+            {"path": "/home/file"},
+            frozenset({"write"}),
+            frozenset({"write"}),
+            destructive=True,
+        ),
+    )
+    witnesses = tuple(
+        HypervisorRevisionWitness.from_decision(request, operating_system.hypervisor.decide(request))
+        for request in requests
+    )
+    candidate = ProceduralDecisionModel.from_snapshot(operating_system.hypervisor.classifier.snapshot())
+
+    result = operating_system.hypervisor.admit_classifier_revision(candidate, witnesses)
+    restored = HeadlessOS.from_snapshot(operating_system.snapshot())
+
+    assert result.accepted is True
+    assert result.revision == 1
+    assert operating_system.hypervisor.snapshot()["revision"] == 1
+    assert restored.hypervisor.snapshot() == operating_system.hypervisor.snapshot()
+    assert any(record.kind == "hypervisor.revision.admit" for record in operating_system.environment.kernel.journal.records())
+    assert operating_system.environment.kernel.journal.verify()
+
+
+def test_hypervisor_revision_gate_refuses_mismatch_without_replacing_active_model() -> None:
+    """Mathematics: `∃w:π(H_candidate(w))≠w.expected ⇒ H_after.classifier=H_before.classifier` and revision is unchanged."""
+
+    operating_system = HeadlessOS()
+    request = HypervisorRequest(
+        "read filesystem file path descriptor",
+        "/home/file",
+        {"path": "/home/file"},
+        frozenset({"read"}),
+        frozenset({"read"}),
+    )
+    witness = HypervisorRevisionWitness.from_decision(request, operating_system.hypervisor.decide(request))
+    before = operating_system.hypervisor.snapshot()
+    result = operating_system.hypervisor.admit_classifier_revision(LexicalDecisionModel(), (witness,))
+
+    assert result.accepted is False
+    assert result.revision == 0
+    assert result.mismatch_index == 0
+    assert operating_system.hypervisor.snapshot() == before
+    assert any(record.kind == "hypervisor.revision.refuse" for record in operating_system.environment.kernel.journal.records())
+    assert operating_system.environment.kernel.journal.verify()
 
 
 def test_procedural_field_is_deterministic_bounded_and_sparse() -> None:
