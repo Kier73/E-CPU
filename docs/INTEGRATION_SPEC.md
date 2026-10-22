@@ -833,6 +833,12 @@ and acknowledges only after reconstruction succeeds. The channel binds the
 proposal source and channel to the expected peer; malformed, spoofed, or
 wrong-kind payloads remain queued and unacknowledged.
 
+The composed `receive_and_arbitrate` path keeps the validated frame queued
+through revision arbitration. A same-identity conflict or other arbitration
+exception therefore leaves both the data frame and acknowledgement mailbox
+unchanged; only a typed first-seen or replay result permits reliable consume
+and acknowledgement.
+
 The hypervisor is a control plane and not an opaque authority. Operating-system surfaces remain callable as native APIs while their typed adapter boundaries are added. Each adapter MUST preserve `ALLOW ⇒ one authorized handler`, and a learned or remote model MUST pass the `E0` replay and adversarial corpus of clause 13 before **admission**.
 
 Evidence tier: E0.

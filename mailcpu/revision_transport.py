@@ -60,12 +60,20 @@ class HypervisorRevisionChannel:
         self,
         arbitration: HypervisorArbitrationLoop,
     ) -> HypervisorRevisionArbitrationResult | None:
-        """Mathematics: compose validated receive with `R_r:=RSI_r(R_r,P)` while retaining reliable acknowledgement ordering."""
+        """Mathematics: apply `R_r:=RSI_r(R_r,P)` while `F_s∈Q`, then consume and acknowledge `F_s` only after a typed result exists."""
 
         if not isinstance(arbitration, HypervisorArbitrationLoop):
             raise HypervisorRevisionTransportError("revision transport requires a HypervisorArbitrationLoop")
-        proposal = self.receive()
-        return None if proposal is None else arbitration.propose_revision(proposal)
+        peeked = self.channel.peek()
+        if peeked is None:
+            return None
+        transport_sequence, payload = peeked
+        proposal = self._decode_payload(payload)
+        result = arbitration.propose_revision(proposal)
+        received = self.channel.receive()
+        if received is None or received[0] != transport_sequence:
+            raise HypervisorRevisionTransportError("revision transport frame disappeared after arbitration")
+        return result
 
     def _decode_payload(self, payload: Any) -> HypervisorRevisionProposal:
         """Mathematics: invert wire relation `W=(kind,proposal)` only for the expected kind and peer-bound identity."""

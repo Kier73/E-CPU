@@ -6,6 +6,7 @@ import pytest
 
 from mailcpu import (
     HeadlessOS,
+    HypervisorError,
     HypervisorRequest,
     HypervisorRevisionChannel,
     HypervisorRevisionProposal,
@@ -96,4 +97,48 @@ def test_revision_transport_refuses_malformed_payload_before_acknowledgement() -
         adapter.receive()
     assert transport.pending("replica") == 1
     assert transport.pending(adapter.channel.ack_address) == 0
+
+
+def test_revision_transport_keeps_conflicting_proposal_queued_before_ack() -> None:
+    """Mathematics: if `I(P)=I(P')` and `f(P)≠f(P')`, arbitration refuses before `Q:=Q\\{F_s}` or `ACK(s)`."""
+
+    transport = InMemoryTransport()
+    sender = HypervisorRevisionChannel(
+        ReliableChannel(transport, "origin", "replica", "revisions")
+    )
+    receiver = HypervisorRevisionChannel(
+        ReliableChannel(transport, "replica", "replica", "revisions", peer="origin")
+    )
+    operating_system = HeadlessOS()
+    proposal = _proposal()
+    sender.send(proposal)
+    first = receiver.receive_and_arbitrate(operating_system.hypervisor_arbitration)
+    assert first is not None and first.admission.accepted is True
+    assert sender.channel.process_ack() == (1,)
+
+    changed_snapshot = dict(proposal.candidate_snapshot)
+    changed_snapshot["model"] = "different-candidate"
+    conflicting = HypervisorRevisionProposal(
+        proposal.source,
+        proposal.channel,
+        proposal.sequence,
+        proposal.logical_time,
+        changed_snapshot,
+        proposal.witnesses,
+    )
+    transport.send(
+        "replica",
+        Message(
+            sender="origin",
+            recipient="replica",
+            addr="replica",
+            op="RDATA",
+            body=("revisions", 1, {"kind": "mailcpu.hypervisor.revision.proposal", "proposal": conflicting.to_dict()}),
+        ),
+    )
+
+    with pytest.raises(HypervisorError, match="conflicting revision proposal"):
+        receiver.receive_and_arbitrate(operating_system.hypervisor_arbitration)
+    assert transport.pending("replica") == 1
+    assert transport.pending(receiver.channel.ack_address) == 0
 
