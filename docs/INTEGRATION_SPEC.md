@@ -685,6 +685,30 @@ authority ledger.
 The coordinator witness also round-trips its composite checkpoint and refuses
 a direction mismatch before binding a socket. Evidence tier: E1.
 
+### 10.6 Typed hypervisor operation adapters
+
+The hypervisor exposes typed adapters for operation domains that already have
+native execution paths. Each adapter constructs one `HypervisorRequest` from
+canonical operation, resource, and payload data, derives rights from the
+calling process capabilities, and invokes its native handler only after the
+existing policy returns `ALLOW`.
+
+- Filesystem reads, service starts, and network ingestion remain covered by
+  the original adapter witness.
+- Process launch is represented by `HypervisorDomain.PROCESS` and delegates to
+  `launch_file(..., loader_pid=pid)`, so executable reads and child creation
+  retain the caller's authority context.
+- Package installation is represented by `HypervisorDomain.PACKAGE`, requires
+  `write` on `/package/<digest>`, marks the operation destructive, and invokes
+  `ImageRegistry.install` only after policy admission. The registry remains
+  responsible for digest verification and supported-image admission.
+- A missing required right returns `DENY` without invoking the handler. A
+  destructive package operation returns `REVIEW` under the default policy and
+  leaves the filesystem unchanged.
+
+The process and package witnesses exercise both allowed and refused paths,
+including exact no-side-effect checks. Evidence tier: E0.
+
 ## 11. Images and execution regimes
 
 ### 11.1 Source assembly and headless execution
@@ -1014,7 +1038,7 @@ The following are **REQUIRED** staged obligations. Each is stated relative to th
 14. Retransmission over loss, receiver-advertised windows, congestion control, and loss-recovery policy above the bounded native stream layer of clause 9.2.
 15. A replicated durable mailbox backend, transactional multi-host acknowledgement commits, sequence-window negotiation below the channel, and cross-transport migration, above clauses 10.1 and 10.3.
 16. Terminal and session integration breadth: configurable control-character tables, window geometry, packet mode, alternate line disciplines, `SA_RESTART`, user signal handlers, signal masks, `sigaction` structures, and alternate signal stacks.
-17. Typed classifier adapters for filesystem, network, service, process, and package operations, preserving deterministic policy and refusal when a model is unavailable or uncertain.
+17. Typed classifier adapters for filesystem, network, service, process, and package operations are established by clause 10.6; future adapters must preserve the same deterministic policy and refusal boundary.
 18. A bounded procedural feature registry whose addresses are named by operating-system ABI fields rather than free text alone.
 19. A procedural attention stage, admitted only after convergence, normalization, and refusal tests exist.
 20. A proven recurrence and leap adapter admitted separately from classification, such that model acceleration never changes exact process semantics silently.

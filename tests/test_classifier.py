@@ -3,7 +3,9 @@ from __future__ import annotations
 import pytest
 
 from mailcpu.vl_procedural_primitives import feistel_open, feistel_seal, feistel_stream_byte
+from mailcpu.image import ImageFile
 from mailcpu import (
+    Capability,
     ChoiceAnswer,
     ChoiceQuestion,
     ClassifierHypervisor,
@@ -14,13 +16,20 @@ from mailcpu import (
     HypervisorDomain,
     HypervisorIntentRevisionWitness,
     HypervisorRequest,
+    HypervisorPolicy,
     HypervisorRevisionProposal,
     HypervisorRevisionWitness,
     IntentExample,
     IntentPrototypeModel,
+    ExecutableImage,
+    FsError,
+    ImageRegistry,
+    Instruction,
     LexicalDecisionModel,
     NoulAnswer,
     NoulQuestion,
+    Op,
+    Program,
     ScoreQuestion,
     choice_confidence,
     score_confidence,
@@ -660,3 +669,84 @@ def test_headless_hypervisor_adapters_reach_files_services_and_network() -> None
     assert network_decision.domain is HypervisorDomain.NETWORK
     assert events and events[0].kind == "connection.state"
     assert operating_system.environment.kernel.journal.verify()
+
+
+def test_headless_hypervisor_process_adapter_gates_launch_by_execute_capability() -> None:
+    """Mathematics: `ALLOW∧execute⇒|Δprocesses|=1`, while `¬execute⇒DENY∧|Δprocesses|=0`."""
+
+    operating_system = HeadlessOS()
+    init_pid = operating_system.environment.init_pid
+    operating_system.install_source("/bin/child.mca", "HALT\n")
+    before = set(operating_system.environment.kernel.processes)
+    allowed, child_pid = operating_system.hypervisor_launch_file(init_pid, "/bin/child.mca")
+    assert allowed.action is HypervisorAction.ALLOW
+    assert allowed.domain is HypervisorDomain.PROCESS
+    assert child_pid is not None
+    assert set(operating_system.environment.kernel.processes) == before | {child_pid}
+
+    limited_pid = operating_system.environment.kernel.spawn(
+        "limited-process-launcher",
+        capabilities=(Capability("/safe", frozenset({"read"})),),
+        parent_pid=init_pid,
+    )
+    denied_before = set(operating_system.environment.kernel.processes)
+    denied, result = operating_system.hypervisor_launch_file(limited_pid, "/bin/child.mca")
+    assert denied.action is HypervisorAction.DENY
+    assert result is None
+    assert set(operating_system.environment.kernel.processes) == denied_before
+    assert operating_system.environment.kernel.journal.verify()
+
+
+def test_headless_hypervisor_package_adapter_gates_verified_installation(tmp_path) -> None:
+    """Mathematics: `REVIEW∨DENY⇒ΔF=0`, while explicit `ALLOW∧write⇒F_after=install(fetch_verified(h),F_before)` exactly once."""
+
+    registry = ImageRegistry(tmp_path / "registry")
+    image = ExecutableImage(
+        "demo-package",
+        Program((Instruction(Op.HALT, ()),)),
+        files=(ImageFile("/opt/demo/data", b"package-bytes"),),
+    )
+    digest = registry.publish(image).digest
+
+    reviewed_os = HeadlessOS()
+    reviewed_decision, reviewed_result = reviewed_os.hypervisor_install_package(
+        reviewed_os.environment.init_pid,
+        registry,
+        digest,
+    )
+    assert reviewed_decision.action is HypervisorAction.REVIEW
+    assert reviewed_decision.domain is HypervisorDomain.PACKAGE
+    assert reviewed_result is None
+    with pytest.raises(FsError):
+        reviewed_os.environment.kernel.fs.stat("/opt/demo/data")
+
+    admitted_os = HeadlessOS()
+    admitted_os.hypervisor.policy = HypervisorPolicy(
+        review_confidence=0.0,
+        automatic_confidence=0.0,
+        destructive_confidence=0.0,
+        danger_review_probability=1.0,
+    )
+    admitted_decision, installed = admitted_os.hypervisor_install_package(
+        admitted_os.environment.init_pid,
+        registry,
+        digest,
+    )
+    assert admitted_decision.action is HypervisorAction.ALLOW
+    assert admitted_decision.domain is HypervisorDomain.PACKAGE
+    assert installed is not None
+    assert admitted_os.environment.kernel.fs.read_file("/opt/demo/data") == b"package-bytes"
+
+    denied_os = HeadlessOS()
+    denied_os.hypervisor.policy = admitted_os.hypervisor.policy
+    denied_pid = denied_os.environment.kernel.spawn(
+        "limited-package-installer",
+        capabilities=(Capability("/safe", frozenset({"read"})),),
+        parent_pid=denied_os.environment.init_pid,
+    )
+    denied_decision, denied_result = denied_os.hypervisor_install_package(denied_pid, registry, digest)
+    assert denied_decision.action is HypervisorAction.DENY
+    assert denied_result is None
+    with pytest.raises(FsError):
+        denied_os.environment.kernel.fs.stat("/opt/demo/data")
+    assert denied_os.environment.kernel.journal.verify()

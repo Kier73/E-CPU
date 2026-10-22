@@ -244,6 +244,8 @@ class HypervisorDomain(str, Enum):
     CPU = "cpu"
     FILESYSTEM = "filesystem"
     NETWORK = "network"
+    PROCESS = "process"
+    PACKAGE = "package"
     SERVICE = "service"
     REVIEW = "review"
 
@@ -805,7 +807,9 @@ class ClassifierHypervisor:
                     HypervisorDomain.CPU.value: "register arithmetic, instruction scheduling, program execution",
                     HypervisorDomain.FILESYSTEM.value: "file, inode, descriptor, path, read, write, storage operation",
                     HypervisorDomain.NETWORK.value: "packet, TCP, HTTP, socket, route, network operation",
-                    HypervisorDomain.SERVICE.value: "service start, stop, restart, supervisor, process lifecycle",
+                    HypervisorDomain.PROCESS.value: "spawn process executable child image launch new process",
+                    HypervisorDomain.PACKAGE.value: "package registry image digest deployment install artifact",
+                    HypervisorDomain.SERVICE.value: "service daemon supervisor start stop restart lifecycle",
                     HypervisorDomain.REVIEW.value: "unknown, ambiguous, or human-review operation",
                 },
             ),

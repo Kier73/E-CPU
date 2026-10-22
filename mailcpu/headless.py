@@ -39,6 +39,7 @@ from .memory import VirtualMemoryError
 from .model import DEFAULT_MAX_TICKS, Program
 from .owned_network import NetworkAddress, NetworkFrame
 from .posix_abi import PosixCompatibility, PosixResponse
+from .registry import ImageRegistry
 from .scheduler import ScheduleEvent, SyscallBlocked, TaskStatus
 from .signals import DEFAULT_TERMINATION_EXIT_CODE, Signal, SignalError
 from .stream import StreamError
@@ -1774,6 +1775,66 @@ class HeadlessOS:
             {"service": name},
             {HypervisorDomain.SERVICE: lambda: self.services.start(name)},
             frozenset({"execute"}),
+        )
+
+    def hypervisor_launch_file(
+        self,
+        pid: int,
+        path: str,
+        name: str | None = None,
+        argv: Sequence[str] | None = None,
+        inherit_fds: bool = False,
+        max_pages: int | None = None,
+    ) -> tuple[HypervisorDecision, int | None]:
+        """Mathematics: apply `G(pid,path)⊉{execute}⇒DENY`, else `ALLOW⇒launch_file(path)` exactly once under `loader_pid=pid`."""
+
+        canonical = normalize_path(path)
+        process_argv = None if argv is None else tuple(argv)
+        return self.hypervisor_dispatch(
+            pid,
+            "spawn process executable file child image",
+            canonical,
+            {
+                "path": canonical,
+                "name": name,
+                "argv": None if process_argv is None else list(process_argv),
+                "inherit_fds": bool(inherit_fds),
+                "max_pages": max_pages,
+            },
+            {
+                HypervisorDomain.PROCESS: lambda: self.launch_file(
+                    canonical,
+                    name=name,
+                    argv=process_argv,
+                    parent_pid=pid,
+                    inherit_fds=inherit_fds,
+                    max_pages=max_pages,
+                    loader_pid=pid,
+                )
+            },
+            frozenset({"execute"}),
+        )
+
+    def hypervisor_install_package(
+        self,
+        pid: int,
+        registry: ImageRegistry,
+        digest: str,
+    ) -> tuple[HypervisorDecision, Any | None]:
+        """Mathematics: apply `G(pid,/package/h)⊉{write}⇒DENY`; else `ALLOW∧policy_destructive⇒registry.install(h,E)` exactly once."""
+
+        if not isinstance(registry, ImageRegistry):
+            raise TypeError("package adapter requires an ImageRegistry")
+        if not isinstance(digest, str) or not digest:
+            raise ValueError("package adapter digest must be non-empty")
+        return self.hypervisor_dispatch(
+            pid,
+            "install package registry image digest deployment",
+            f"/package/{digest}",
+            {"digest": digest},
+            {HypervisorDomain.PACKAGE: lambda: registry.install(digest, self.environment)},
+            frozenset({"write"}),
+            destructive=True,
         )
 
     def hypervisor_ingest_network(

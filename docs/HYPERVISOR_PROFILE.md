@@ -471,6 +471,7 @@ principal witnesses are:
 - arbitration ledger checkpoint restore;
 - witnessed candidate revision admission and refusal;
 - revision-bound arbitration replay across admission and restore;
+- typed process and package adapters with capability-derived refusal;
 - virtual-cost ceiling division and intent probability normalisation.
 
 The complete executable witness is run with:
@@ -497,11 +498,9 @@ checkpoint product has its own round-trip and fail-closed identity witness.
 
 The next connections are deliberately staged:
 
-1. typed classifier adapters for filesystem, network, service, process, and
-   package operations;
-2. a multi-peer recovery coordinator over the same product algebra, with
+1. a multi-peer recovery coordinator over the same product algebra, with
    explicit partial-peer and quorum-degradation state;
-3. broader POSIX, foreign CPU, terminal, and public E2 integration.
+2. broader POSIX, foreign CPU, terminal, and public E2 integration.
 
 Controlled external networking is now evidenced over an actual AF_INET
 loopback path for both durable revision relay and remote page-backed memory.
@@ -509,10 +508,12 @@ The typed intent-model revision target is now also evidenced over that path,
 leaving a revision-bound candidate, held-out witnesses, and durable admission
 record. Cross-host recovery is now evidenced through a real disconnect,
 checkpoint, reconnect, lost-ACK retransmission, durable idempotence, and one
-remote admission. The next smallest extension is to expose that composition
-as an explicit recovery coordinator API, so callers now receive pending,
+remote admission. The recovery coordinator now exposes pending,
 acknowledged, and semantically admitted states without rebuilding the layers
 manually. This keeps remote data, virtual time, energy receipt, and authority
-context on the same hypervisor-governed path. The next smallest extension is
-the typed classifier-adapter boundary, because it can consume those same
-recovered operation states without changing transport or admission identity.
+context on the same hypervisor-governed path. The process adapter is now also
+typed and capability-gated. Package installation is now represented as a typed
+destructive adapter: default policy reviews it without filesystem mutation,
+while an explicitly permissive policy can invoke only the digest-verified
+registry image. Remaining adapter work is generalization to future operation
+domains, not bypassing the established policy boundary.
