@@ -809,6 +809,17 @@ remains singular, and both acknowledgement paths clear their pending frames.
 This is still one role product; namespace isolation for multiple emulated
 systems and durable multi-host duplex movement are subsequent obligations.
 
+`SystemSeed` provides the first state-space navigation boundary. It encodes a
+complete origin state `S_0`, its canonical digest `d_0`, a non-negative logical
+coordinate `k`, and the expected digest of `T^k(S_0)`, where `T` is the existing
+deterministic scheduler transition. Reading a seed reconstructs the origin and
+replays to `k`; rewind reconstructs the same origin at a lower coordinate.
+Unreachable coordinates, origin tampering, and replay-digest mismatch refuse
+explicitly. This is reversible navigation through a known deterministic orbit,
+not an assumed inverse for effectful OS transitions. Algebraic orbit leaps and
+reversible-gate descent remain separate certified navigators that may later
+replace replay only after their witnesses prove the same state digest.
+
 ## 11. Images and execution regimes
 
 ### 11.1 Source assembly and headless execution

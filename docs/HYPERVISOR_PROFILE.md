@@ -607,3 +607,12 @@ cleared, and the native process effect remains singular. Multiple emulated
 systems are not yet a typed namespace; their endpoint and channel labels still
 need a first-class system identity and incarnation envelope before shared
 hosting can be treated as collision-safe.
+
+`SystemSeed` now gives the hypervisor a canonical starting point for state
+navigation. It binds a complete system snapshot to a content digest and a
+logical scheduler coordinate, then reconstructs that state by deterministic
+replay. A seed can move forward or rewind along its origin orbit, but refuses
+when the scheduler cannot reach the requested coordinate or when the resulting
+state digest differs. This lets the hypervisor read and verify encoded system
+states before later navigators—law-certified leaps, reversible gate descent,
+or transit-derived state—are admitted as accelerations of the same seed law.

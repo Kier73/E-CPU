@@ -89,6 +89,7 @@ from .bytecode import BytecodeError, BytecodeExecutable
 from .headless import HeadlessOS, ProcessReport
 from .service import RestartPolicy, ServiceReport, ServiceSpec, ServiceSupervisor
 from .checkpoint import CheckpointError, load_checkpoint, save_checkpoint
+from .seed import SeedNavigationError, SystemSeed
 from .network import (
     HeadlessNetworkDevice,
     HttpMessage,
@@ -392,6 +393,8 @@ __all__ = [
     "FsError",
     "SyscallBlocked",
     "CheckpointError",
+    "SeedNavigationError",
+    "SystemSeed",
     "AssemblyError",
     "BytecodeError",
     "BytecodeExecutable",
