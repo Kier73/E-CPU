@@ -370,6 +370,9 @@ rules are `docs/ARCHITECTURE.md` clauses 3 and 5 and `docs/REPLACEMENT_SPEC.md`.
   identity-stable arbitration path. Exact proposal retransmission returns the
   stored admission without a second promotion; changed identities and unknown
   model kinds fail closed and journal their refusal.
+- The revision channel reuses reliable sequencing and framed TCP. It validates
+  a proposal before acknowledgement and leaves malformed or peer-mismatched
+  payloads queued for diagnosis.
 - Process signal dispositions checkpoint and are inherited. The integer-safe
   default and ignore ABI participates in explicit, group, and PTY-originated
   signal delivery. `SIGKILL` and `SIGSTOP` are non-ignorable.

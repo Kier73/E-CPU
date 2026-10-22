@@ -354,15 +354,24 @@ is a journaled refusal and leaves the active classifier and revision unchanged.
 The proposal ledger checkpoints with the decision ledger, so a restored system
 does not repeat an already admitted revision.
 
+`HypervisorRevisionChannel` places the canonical proposal inside the existing
+reliable message algebra and TCP framing. The receiver peeks, reconstructs,
+and peer-binds the proposal before consuming the reliable frame; malformed or
+spoofed payloads therefore remain queued without acknowledgement. A validated
+proposal can then be passed directly to `receive_and_arbitrate`, which joins
+transport acknowledgement to revision admission without granting transport
+delivery authority over the model.
+
 ## 9. Headless OS integration
 
-The OS exposes three control-plane entrypoints:
+The OS exposes these control-plane entrypoints:
 
 | Entry point | Effect |
 |---|---|
 | `hypervisor_decide(request)` | Return a decision without executing an effect |
 | `hypervisor_arbitrate(event)` | Apply identity-stable receive/stabilize/inspect |
 | `hypervisor_dispatch(pid, ...)` | Derive rights from the process, attach epoch, and gate one handler |
+| `HypervisorRevisionChannel` | Carry a validated revision proposal over the existing reliable/TCP path |
 
 Current concrete adapters include:
 
@@ -465,8 +474,9 @@ The next connections are deliberately staged:
    package operations;
 4. broader POSIX, foreign CPU, terminal, and public E2 integration.
 
-The first of these is the next smallest extension because it can reuse the
-existing proposal envelope, arbitration identity, journal, and checkpoint
-structures. It leaves a path for remote memory and distributed execution to
-carry not only data, but also the revision, virtual time, energy receipt, and
-authority context that gave the data meaning.
+The first of these is now implemented over the existing reliable/TCP path. The
+next smallest extension is controlled external networking or a multi-host
+proposal relay that preserves the same envelope, arbitration identity,
+journal, and checkpoint structures. This leaves a path for remote memory and
+distributed execution to carry not only data, but also the revision, virtual
+time, energy receipt, and authority context that gave the data meaning.

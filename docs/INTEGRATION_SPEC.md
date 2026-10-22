@@ -826,6 +826,13 @@ retransmission without a second promotion. A changed proposal under the same
 identity fails closed; malformed model reconstruction is a journaled refusal.
 The proposal ledger checkpoints with the headless OS.
 
+`HypervisorRevisionChannel` carries the canonical envelope over the existing
+`ReliableChannel` and therefore over the framed TCP implementation without
+creating a second delivery protocol. It validates the proposal while peeking
+and acknowledges only after reconstruction succeeds. The channel binds the
+proposal source and channel to the expected peer; malformed, spoofed, or
+wrong-kind payloads remain queued and unacknowledged.
+
 The hypervisor is a control plane and not an opaque authority. Operating-system surfaces remain callable as native APIs while their typed adapter boundaries are added. Each adapter MUST preserve `ALLOW ⇒ one authorized handler`, and a learned or remote model MUST pass the `E0` replay and adversarial corpus of clause 13 before **admission**.
 
 Evidence tier: E0.

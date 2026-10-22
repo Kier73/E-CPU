@@ -266,6 +266,41 @@ class HypervisorRequest:
             state["temporal"] = dict(self.temporal)
         return state
 
+    @classmethod
+    def from_state(cls, payload: Mapping[str, Any]) -> "HypervisorRequest":
+        """Mathematics: invert request state `x` only when operation, resource, payload, rights, risk, and time retain their typed domains."""
+
+        if not isinstance(payload, Mapping):
+            raise ClassifierError("hypervisor request state must be a mapping")
+        operation = payload.get("operation")
+        resource = payload.get("resource")
+        request_payload = payload.get("payload")
+        required = payload.get("required_rights", ())
+        granted = payload.get("granted_rights", ())
+        temporal = payload.get("temporal")
+        if (
+            not isinstance(operation, str)
+            or not operation
+            or not isinstance(resource, str)
+            or not resource
+            or not isinstance(request_payload, Mapping)
+            or not isinstance(required, (list, tuple))
+            or not isinstance(granted, (list, tuple))
+            or any(not isinstance(right, str) or not right for right in (*required, *granted))
+            or not isinstance(payload.get("destructive", False), bool)
+            or (temporal is not None and not isinstance(temporal, Mapping))
+        ):
+            raise ClassifierError("hypervisor request state has invalid fields")
+        return cls(
+            operation,
+            resource,
+            dict(request_payload),
+            frozenset(required),
+            frozenset(granted),
+            bool(payload.get("destructive", False)),
+            None if temporal is None else dict(temporal),
+        )
+
 
 @dataclass(frozen=True)
 class HypervisorDecision:
@@ -365,6 +400,14 @@ class HypervisorRevisionWitness:
         """Mathematics: serialize witness relation `w` without including mutable journal receipt identity."""
 
         return {"request": self.request.state(), "expected": dict(self.expected)}
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "HypervisorRevisionWitness":
+        """Mathematics: invert serialized witness `w=(request,expected)` while preserving its canonical semantic projection."""
+
+        if not isinstance(payload, Mapping) or not isinstance(payload.get("request"), Mapping) or not isinstance(payload.get("expected"), Mapping):
+            raise ClassifierError("revision witness snapshot has invalid fields")
+        return cls(HypervisorRequest.from_state(payload["request"]), dict(payload["expected"]))
 
 
 @dataclass(frozen=True)
@@ -466,6 +509,25 @@ class HypervisorRevisionProposal:
             "candidate_snapshot": dict(self.candidate_snapshot),
             "witnesses": [witness.to_dict() for witness in self.witnesses],
         }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "HypervisorRevisionProposal":
+        """Mathematics: invert canonical proposal `P` only when identity, candidate snapshot, and every witness reconstruct exactly."""
+
+        if not isinstance(payload, Mapping):
+            raise ClassifierError("revision proposal snapshot must be a mapping")
+        raw_candidate = payload.get("candidate_snapshot")
+        raw_witnesses = payload.get("witnesses")
+        if not isinstance(raw_candidate, Mapping) or not isinstance(raw_witnesses, (list, tuple)):
+            raise ClassifierError("revision proposal snapshot has invalid candidate or witnesses")
+        return cls(
+            payload.get("source"),
+            payload.get("channel"),
+            payload.get("sequence"),
+            payload.get("logical_time"),
+            dict(raw_candidate),
+            tuple(HypervisorRevisionWitness.from_dict(raw) for raw in raw_witnesses),
+        )
 
 
 @dataclass(frozen=True)

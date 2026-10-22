@@ -167,6 +167,7 @@ from .intent_embedding import (
     estimate_virtual_cost,
     structural_tokens,
 )
+from .revision_transport import HypervisorRevisionChannel, HypervisorRevisionTransportError
 from .procedural_model import ProceduralDecisionModel, ProceduralModelSpec, ProceduralWeightField
 from .reversible_gates import (
     ARM_NONE,
@@ -485,6 +486,8 @@ __all__ = [
     "HypervisorRevisionProposal",
     "HypervisorRevisionResult",
     "HypervisorRevisionWitness",
+    "HypervisorRevisionChannel",
+    "HypervisorRevisionTransportError",
     "LexicalDecisionModel",
     "NoulAnswer",
     "NoulQuestion",
