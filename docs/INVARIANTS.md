@@ -85,6 +85,8 @@ system. Each entry has:
 | `E-4` | Missing interpreter providers preserve caller memory before any runtime handoff commit. | `mailcpu/linker.py` | `tests/test_linker.py::test_dynamic_linker_missing_interpreter_preserves_memory` | `INTEGRATION_SPEC.md` 11.5 |
 | `E-5` | Startup stack materialization publishes aligned argc, argv, envp, auxiliary-vector, and string pointers inside one committed mapping. | `mailcpu/elf.py` | `tests/test_elf_startup.py::test_startup_stack_materializes_aligned_vectors_and_auxiliary_state` | `INTEGRATION_SPEC.md` 11.5 |
 | `E-6` | Startup stack overlap and invalid environment failures leave the original memory snapshot unchanged. | `mailcpu/elf.py` | `tests/test_elf_startup.py::test_startup_stack_failure_preserves_original_memory`, `tests/test_elf_startup.py::test_startup_stack_rejects_invalid_environment_before_mapping` | `INTEGRATION_SPEC.md` 11.5 |
+| `E-7` | Runtime admission commits linked images and startup stacks only after an exact machine-width backend validates the complete handoff. | `mailcpu/runtime.py` | `tests/test_elf_runtime_admission.py::test_runtime_loader_commits_only_after_backend_admission` | `INTEGRATION_SPEC.md` 11.5 |
+| `E-8` | Missing, rejecting, or link-failing runtime admission preserves the caller's virtual-memory snapshot. | `mailcpu/runtime.py` | `tests/test_elf_runtime_admission.py::test_runtime_loader_missing_backend_preserves_memory`, `tests/test_elf_runtime_admission.py::test_runtime_loader_backend_rejection_preserves_memory`, `tests/test_elf_runtime_admission.py::test_runtime_loader_link_failure_preserves_memory` | `INTEGRATION_SPEC.md` 11.5 |
 
 ## Numbered POSIX boundary
 

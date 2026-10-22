@@ -283,6 +283,14 @@ from .replicated_mailbox import ReplicatedMailboxError, ReplicatedMailboxNode, R
 from .remote_memory import RemotePageError, RemotePageMissing, RemotePageStore, RemotePageTimeout
 from .ingestion import ArtifactIngestionError, ArtifactIngestor, ArtifactKind, IngestedArtifact, ingest_bytes, ingest_path
 from .linker import DynamicLinkResult, DynamicLinker, ElfDependencyProvider, LinkerError, LoadedElf, MappingElfProvider
+from .runtime import (
+    ElfExecutionBackend,
+    ElfExecutionCandidate,
+    ElfExecutionHandoff,
+    ElfRuntimeLoader,
+    ExecutionAdmissionError,
+    ExecutionBackendRegistry,
+)
 from .posix_abi import (
     AT_FDCWD,
     MAP_ANONYMOUS,
@@ -598,6 +606,12 @@ __all__ = [
     "LinkerError",
     "LoadedElf",
     "MappingElfProvider",
+    "ElfExecutionBackend",
+    "ElfExecutionCandidate",
+    "ElfExecutionHandoff",
+    "ElfRuntimeLoader",
+    "ExecutionAdmissionError",
+    "ExecutionBackendRegistry",
     "AT_FDCWD",
     "MAP_ANONYMOUS",
     "MAP_FIXED",

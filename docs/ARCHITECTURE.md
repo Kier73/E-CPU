@@ -319,6 +319,11 @@ rules are `docs/ARCHITECTURE.md` clauses 3 and 5 and `docs/REPLACEMENT_SPEC.md`.
   x86-64 `[argc,argv,NULL,envp,NULL,auxv,strings]` mapping with deterministic
   environment order. The mapping is published only after all words and
   strings are written to a clone.
+- `ExecutionBackendRegistry` maps an exact `(machine,bits)` identity to a
+  validator supplied by a verified CPU/ABI backend. `ElfRuntimeLoader.admit`
+  composes linking and startup-stack materialization on a private clone,
+  invokes that validator, and commits once only after the complete handoff is
+  accepted. Missing or rejecting backends leave caller memory unchanged.
 
 ### 7.11 Numbered POSIX boundary
 

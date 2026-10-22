@@ -168,10 +168,20 @@ syscall numbers and unsupported flag/protection families return explicit errno
 results, and compound pointer destinations are preflighted before state
 mutation.
 
+#### Stage 8 implemented
+
+`ElfRuntimeLoader` now composes provider-backed linking and deterministic
+startup-stack materialization on a private virtual-memory clone. An exact
+`(machine,bits)` backend registry validates the complete entry and stack
+handoff before one final commit; absent or rejecting backends leave the caller
+memory unchanged. This establishes the execution admission boundary while
+leaving native instruction execution to a supplied verified CPU/ABI backend.
+
 #### Requirements
 1. **Standard C Runtime (Musl Libc)**: Port and validate a standard C runtime against the numbered foundation, adding pointer-vector `execve`, interpreter handoff, and broader errno/structure coverage.
 2. **Terminal & PTY Full Session Ecosystem**: Support complete job control, session switching, and ANSI line disciplines to run interactive shells (Bash, Dash, Zsh).
 3. **OCI Container Rootfs Importer**: Ingest standard container filesystem layers directly into content-addressed inode trees.
+4. **Verified Native CPU Backends**: Supply a real instruction/ABI backend for each admitted ELF machine identity and connect its scheduler state to `ElfExecutionHandoff` without bypassing the admission transaction.
 
 ---
 

@@ -677,6 +677,12 @@ The executable boundary admits ELF payloads for virtual-memory staging.
   vector, and NUL-terminated strings in one aligned virtual-memory mapping.
   Every pointer targets the same mapping, environment order is deterministic,
   and the mapping is committed only after clone-local writes succeed.
+- `ExecutionBackendRegistry` admits only one validator for each exact
+  `(machine,bits)` identity. `ElfRuntimeLoader.admit` composes dynamic
+  linking, startup-stack materialization, candidate validation, and one final
+  memory commit. It returns an `ElfExecutionHandoff` only after the matching
+  backend accepts the entry and stack state; missing or rejecting backends
+  leave the caller memory image unchanged.
 - Load staging maps maximal page runs, copies file-backed bytes, preserves zero-filled BSS, and applies writable and non-writable page protections while exposing declared executable pages separately.
 - `HeadlessOS.load_elf_image` reads the payload through the virtual descriptor path, journals its digest, entry point, and load bias, and stages it into a process memory image.
 
@@ -686,9 +692,10 @@ Evidence tier: E0.
 
 Dynamic planning, provider application, and runtime handoff are E0
 deterministic artifact operations. The transactional linker boundary loads
-named providers and mutates only a validated memory clone before commit.
-Foreign instruction execution, signal startup, and libc initialization remain
-separate boundaries.
+named providers and mutates only a validated memory clone before commit. A
+native instruction backend, signal startup, and libc initialization remain
+separate boundaries; the handoff becomes executable when a verified backend is
+registered for the exact machine and width.
 
 ### 11.6 Numbered POSIX boundary
 
