@@ -90,3 +90,16 @@ work/
 # ---------------------------------------------------------------------------
 references/
 native-image-check/
+
+# ---------------------------------------------------------------------------
+# Agent/meta research and local fault-injection artifacts.
+#
+# Research notes are working material rather than shipped runtime or normative
+# specification. Product code, tests, and docs/ remain versioned.
+# ---------------------------------------------------------------------------
+research/
+*.checkpoint
+*.checkpoint.json
+*.mailbox
+*.mailbox.log
+*.fault-log

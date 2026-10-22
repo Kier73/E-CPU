@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from mailcpu.bus import MailboxBus
 from mailcpu.faults import FaultInjectingTransport, FaultProfile
 from mailcpu.headless import HeadlessOS
@@ -31,6 +33,24 @@ def test_fault_transport_exposes_drop_duplicate_delay_and_reorder() -> None:
     assert [item.action for item in transport.observations] == ["deliver", "drop", "deliver"]
 
 
+def test_transport_and_bus_restore_reject_counter_collisions_and_route_mismatch() -> None:
+    r"""Mathematics: restored identity counters must exceed `max(id)` and every queued message must inhabit its declared mailbox."""
+
+    transport = InMemoryTransport()
+    transport.send("mailbox", Message(sender="a", recipient="mailbox"))
+    invalid_transport = transport.snapshot()
+    invalid_transport["next_id"] = 1
+    with pytest.raises(ValueError, match="next_id"):
+        InMemoryTransport.from_snapshot(invalid_transport)
+
+    bus = MailboxBus()
+    bus.send("a", "b", "data", {"value": 1})
+    invalid_bus = bus.snapshot()
+    invalid_bus["queues"]["b"][0]["destination"] = "other"
+    with pytest.raises(ValueError, match="identity or route"):
+        MailboxBus.from_snapshot(invalid_bus)
+
+
 def test_structured_syscall_request_reply_crosses_bus() -> None:
     """Mathematics: verify request/reply composition `client.submit; server.serve; client.receive = Ok(result)`."""
 
@@ -60,6 +80,42 @@ def test_structured_syscall_failure_is_a_wire_level_result() -> None:
     assert response is not None
     assert response.ok is False
     assert "unknown syscall" in (response.error or "")
+
+
+def test_syscall_server_rejects_payload_pid_spoofing() -> None:
+    r"""Mathematics: request authority requires `message.source = proc(request.pid)`."""
+
+    bus = MailboxBus()
+    kernel = VirtualKernel(bus=bus)
+    victim = kernel.spawn("victim")
+    attacker = kernel.spawn("attacker")
+    bus.send(
+        f"proc:{attacker}",
+        "kernel",
+        "syscall.request",
+        {"request_id": "req-spoof", "pid": victim, "name": "getpid", "args": {}},
+        reply_to=f"proc:{attacker}",
+    )
+
+    with pytest.raises(ValueError, match="identity mismatch"):
+        SyscallServer(bus, kernel).serve_once()
+    assert bus.peek(f"proc:{victim}") == ()
+
+
+def test_syscall_client_rejects_forged_response_source() -> None:
+    r"""Mathematics: client response acceptance requires `source = server_endpoint` and `destination = proc(pid)`."""
+
+    bus = MailboxBus()
+    client = SyscallClient(bus, 7)
+    bus.send(
+        "attacker",
+        "proc:7",
+        "syscall.response",
+        {"request_id": "req-00000001", "ok": True, "result": 99, "error": None},
+    )
+
+    with pytest.raises(ValueError, match="identity mismatch"):
+        client.receive()
 
 
 def test_headless_memory_syscalls_cross_bus_with_lossless_bytes() -> None:
@@ -137,7 +193,7 @@ def test_syscall_server_deduplicates_side_effects_and_restores_cache() -> None:
     assert first_result is not None and len(first_result.result) == 2
     assert len(kernel.pipes) == 1
 
-    bus.send("proc:client", "kernel", "syscall.request", dict(original.payload), reply_to=f"proc:{pid}")
+    bus.send(f"proc:{pid}", "kernel", "syscall.request", dict(original.payload), reply_to=f"proc:{pid}")
     duplicate = server.serve_once()
     assert duplicate is not None and duplicate.request_id == request_id and duplicate.ok
     duplicate_result = client.receive()
@@ -145,7 +201,7 @@ def test_syscall_server_deduplicates_side_effects_and_restores_cache() -> None:
     assert len(kernel.pipes) == 1
 
     restored_server = SyscallServer.from_snapshot(bus, kernel, server.snapshot())
-    bus.send("proc:client", "kernel", "syscall.request", dict(original.payload), reply_to=f"proc:{pid}")
+    bus.send(f"proc:{pid}", "kernel", "syscall.request", dict(original.payload), reply_to=f"proc:{pid}")
     restored_duplicate = restored_server.serve_once()
     assert restored_duplicate is not None and restored_duplicate.ok
     assert client.receive().result == first_result.result
@@ -153,7 +209,7 @@ def test_syscall_server_deduplicates_side_effects_and_restores_cache() -> None:
 
     altered = dict(original.payload)
     altered["name"] = "getpid"
-    bus.send("proc:client", "kernel", "syscall.request", altered, reply_to=f"proc:{pid}")
+    bus.send(f"proc:{pid}", "kernel", "syscall.request", altered, reply_to=f"proc:{pid}")
     conflict = restored_server.serve_once()
     assert conflict is not None and conflict.ok is False
     assert "reused" in (client.receive().error or "")

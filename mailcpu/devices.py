@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections import deque
 from typing import Any, Callable, Protocol
 
+from .dns_cell import DnsLatchDevice
+
 
 class Device(Protocol):
     """Driver boundary for a device backed by communication or local state."""
@@ -483,7 +485,9 @@ class DeviceBus:
 
         result: dict[str, dict[str, Any]] = {}
         for name, device in sorted(self._devices.items()):
-            if isinstance(device, NullDevice):
+            if isinstance(device, DnsLatchDevice):
+                result[name] = device.snapshot()
+            elif isinstance(device, NullDevice):
                 result[name] = {"kind": "null"}
             elif isinstance(device, PtyMasterDevice):
                 result[name] = {
@@ -544,23 +548,47 @@ class DeviceBus:
     def from_snapshot(cls, payload: dict[str, dict[str, Any]]) -> "DeviceBus":
         """Mathematics: reconstruct finite driver map `D` from typed driver state records."""
 
+        if not isinstance(payload, dict):
+            raise ValueError("device snapshot must be a mapping")
         bus = cls()
         peer_names: dict[str, str] = {}
         for name, raw in sorted(payload.items()):
+            if not isinstance(name, str) or not name or "/" in name:
+                raise ValueError(f"invalid device identity: {name}")
+            if not isinstance(raw, dict):
+                raise ValueError(f"device state must be a mapping: {name}")
             kind = raw.get("kind")
-            if kind == "null":
+            if kind == "dns_latch":
+                device = DnsLatchDevice.from_snapshot(raw)
+            elif kind == "null":
                 device: Device = NullDevice()
             elif kind == "pty_master":
+                pair_id = str(raw.get("pair_id", ""))
+                peer_name = str(raw.get("peer_name", ""))
+                if not pair_id or not peer_name or peer_name == name:
+                    raise ValueError(f"invalid pty master identity: {name}")
                 device = PtyMasterDevice(
-                    str(raw["pair_id"]),
+                    pair_id,
                     bytes.fromhex(str(raw.get("buffer_hex", ""))),
                     bool(raw.get("peer_hungup", False)),
                 )
                 device.writes.extend(bytes.fromhex(item) for item in raw.get("writes_hex", []))
-                peer_names[name] = str(raw["peer_name"])
+                peer_names[name] = peer_name
             elif kind == "pty_slave":
+                pair_id = str(raw.get("pair_id", ""))
+                peer_name = str(raw.get("peer_name", ""))
+                if not pair_id or not peer_name or peer_name == name:
+                    raise ValueError(f"invalid pty slave identity: {name}")
+                for field in ("controlling_session_id", "foreground_group_id"):
+                    if raw.get(field) is not None and int(raw[field]) <= 0:
+                        raise ValueError(f"invalid pty ownership field: {name}")
+                for signal in raw.get("pending_signals", []):
+                    if not isinstance(signal, (list, tuple)) or len(signal) != 2:
+                        raise ValueError(f"invalid pending terminal signal: {name}")
+                    if int(signal[0]) <= 0 or not str(signal[1]) or str(signal[1]) != str(signal[1]).upper():
+                        raise ValueError(f"invalid pending terminal signal: {name}")
                 device = PtySlaveDevice(
-                    str(raw["pair_id"]),
+                    pair_id,
                     bytes.fromhex(str(raw.get("buffer_hex", ""))),
                     None if raw.get("controlling_session_id") is None else int(raw["controlling_session_id"]),
                     None if raw.get("foreground_group_id") is None else int(raw["foreground_group_id"]),
@@ -575,8 +603,16 @@ class DeviceBus:
                     bool(raw.get("peer_hungup", False)),
                 )
                 device.writes.extend(bytes.fromhex(item) for item in raw.get("writes_hex", []))
-                peer_names[name] = str(raw["peer_name"])
+                peer_names[name] = peer_name
             elif kind == "terminal":
+                for field in ("controlling_session_id", "foreground_group_id"):
+                    if raw.get(field) is not None and int(raw[field]) <= 0:
+                        raise ValueError(f"invalid terminal ownership field: {name}")
+                for signal in raw.get("pending_signals", []):
+                    if not isinstance(signal, (list, tuple)) or len(signal) != 2:
+                        raise ValueError(f"invalid pending terminal signal: {name}")
+                    if int(signal[0]) <= 0 or not str(signal[1]) or str(signal[1]) != str(signal[1]).upper():
+                        raise ValueError(f"invalid pending terminal signal: {name}")
                 device = TerminalDevice(
                     bytes.fromhex(str(raw.get("buffer_hex", ""))),
                     None if raw.get("controlling_session_id") is None else int(raw["controlling_session_id"]),
@@ -599,6 +635,12 @@ class DeviceBus:
                 raise ValueError(f"unknown device kind: {kind}")
             bus.register(name, device)
         for name, peer_name in peer_names.items():
+            if peer_name not in payload or peer_name not in peer_names:
+                raise ValueError(f"missing pty peer: {name}, {peer_name}")
+            raw = payload[name]
+            peer_raw = payload[peer_name]
+            if peer_names.get(peer_name) != name or str(raw.get("pair_id")) != str(peer_raw.get("pair_id")):
+                raise ValueError(f"asymmetric pty peer pair: {name}, {peer_name}")
             device = bus._get(name)
             peer = bus._get(peer_name)
             if isinstance(device, PtyMasterDevice) and isinstance(peer, PtySlaveDevice):

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from mailcpu.dns_cell import DnsLatchDevice, DnsRecord, DnsResolverSim
+from mailcpu.devices import DeviceBus
+from mailcpu.dns_cell import DnsLatchDevice, DnsRecord, DnsResolverSim, LogicalClock
+from mailcpu.kernel import VirtualKernel
 from mailcpu.tcp_arithmetic import (
     MOD32,
     AimdController,
@@ -28,6 +30,34 @@ def test_dns_record_ttl_decay() -> None:
     assert record.remaining_ttl(now=170.0) == 0
     assert record.is_alive(now=120.0) is True
     assert record.is_alive(now=161.0) is False
+
+
+def test_dns_record_fractional_ttl_uses_documented_floor() -> None:
+    r"""Mathematics: `TTL_remaining(t) = max(0, TTL0 - floor(t - t0))` at fractional boundaries."""
+
+    record = DnsRecord("fractional.test", "A", "192.0.2.1", 100.0, 60)
+    assert record.remaining_ttl(now=100.1) == 60
+    assert record.remaining_ttl(now=159.9) == 1
+    assert record.remaining_ttl(now=160.0) == 0
+    assert record.remaining_ttl(now=99.0) == 60
+
+
+def test_dns_record_and_latch_reject_negative_ttl_and_non_binary_bits() -> None:
+    r"""Mathematics: the admitted state domain is `TTL0 ∈ Z_{≥0}` and `bit ∈ {0,1}`."""
+
+    with pytest.raises(ValueError, match="TTL"):
+        DnsRecord("invalid.test", "A", "192.0.2.1", 0.0, -1)
+
+    device = DnsLatchDevice()
+    with pytest.raises(ValueError, match="bit"):
+        device.write(b"SET invalid.test 2 60\n")
+    with pytest.raises(ValueError, match="TTL"):
+        device.write(b"SET invalid.test 1 -1\n")
+
+    invalid_snapshot = device.snapshot()
+    invalid_snapshot["latches"] = {"invalid.test": 2}
+    with pytest.raises(ValueError, match="bit"):
+        DnsLatchDevice.from_snapshot(invalid_snapshot)
 
 
 def test_dns_resolver_positive_and_negative_caching() -> None:
@@ -78,6 +108,18 @@ def test_dns_multi_resolver_canary_poll() -> None:
     assert resolver.multi_resolver_canary_poll("probe.test", now=2.0) is True
 
 
+def test_dns_canary_poll_uses_explicit_independent_resolver_state() -> None:
+    r"""Mathematics: canary result is the disjunction of independent cache predicates, not a duplicated local cache."""
+
+    peer = DnsResolverSim(server_ip="9.9.9.9", canary_ips=())
+    resolver = DnsResolverSim(server_ip="8.8.8.8", canary_ips=(), canary_resolvers=(peer,))
+    peer.insert_record("peer-only.test", "A", "192.0.2.9", ttl=30, now=10.0)
+    assert resolver.multi_resolver_canary_poll("peer-only.test", now=11.0) is True
+
+    peer.cache.clear()
+    assert resolver.multi_resolver_canary_poll("peer-only.test", now=11.0) is False
+
+
 def test_dns_latch_device_read_write_snapshot() -> None:
     r"""Mathematics: `/dev/dns_latch` exposes decaying presence bits to userspace and round-trips through snapshots."""
 
@@ -98,6 +140,77 @@ def test_dns_latch_device_read_write_snapshot() -> None:
     assert restored.latches == device.latches
     restored_out = restored.read().decode("utf-8")
     assert restored_out == output
+
+
+def test_dns_resolver_uses_one_injected_logical_clock_for_latch_decay() -> None:
+    r"""Mathematics: resolver/device observations use the shared coordinate `t=T.now()`, so `advance(Δ)` changes TTL by `floor(Δ)`."""
+
+    clock = LogicalClock(100.0)
+    with pytest.raises(ValueError, match="cannot move backwards"):
+        clock.set(99.0)
+    device = DnsLatchDevice(DnsResolverSim(clock=clock))
+    device.write(b"SET shared-clock.test 1 10\n")
+    assert device.read().decode("utf-8") == "shared-clock.test=1\n"
+
+    clock.advance(9.9)
+    assert device.read().decode("utf-8") == "shared-clock.test=1\n"
+    clock.advance(0.1)
+    assert device.read().decode("utf-8") == "shared-clock.test=0\n"
+
+
+def test_dns_latch_snapshot_preserves_remaining_ttl_across_clock_domain() -> None:
+    r"""Mathematics: snapshot stores `r_s=TTL_remaining(t_s)` and restore satisfies `TTL_restored(t_r)=r_s` even when `t_r≠t_s`."""
+
+    source_clock = LogicalClock(100.0)
+    device = DnsLatchDevice(DnsResolverSim(clock=source_clock))
+    device.write(b"SET checkpointed.test 1 10\n")
+    source_clock.advance(4.9)
+    snapshot = device.snapshot()
+
+    restored_clock = LogicalClock(10_000.0)
+    restored = DnsLatchDevice.from_snapshot(snapshot, clock=restored_clock)
+    assert restored.read().decode("utf-8") == "checkpointed.test=1\n"
+    restored_clock.advance(1.0)
+    assert restored.read().decode("utf-8") == "checkpointed.test=1\n"
+    restored_clock.advance(5.0)
+    assert restored.read().decode("utf-8") == "checkpointed.test=0\n"
+
+
+def test_device_bus_restores_dns_latch_without_inventing_canary_state() -> None:
+    r"""Mathematics: typed device projection preserves `D[dns_latch]`, while an external canary graph with missing peers is rejected."""
+
+    clock = LogicalClock(5.0)
+    bus = DeviceBus()
+    bus.register("dns_latch", DnsLatchDevice(DnsResolverSim(clock=clock)))
+    bus.write("dns_latch", b"SET bus.test 1 20\n")
+    restored = DeviceBus.from_snapshot(bus.snapshot())
+    assert restored.read("dns_latch").decode("utf-8") == "bus.test=1\n"
+
+    peer = DnsResolverSim(clock=LogicalClock(5.0))
+    external = DnsLatchDevice(DnsResolverSim(clock=LogicalClock(5.0), canary_resolvers=(peer,)))
+    with pytest.raises(ValueError, match="explicit canary resolvers"):
+        DnsLatchDevice.from_snapshot(external.snapshot())
+
+
+def test_kernel_exposes_dns_latch_as_checkpointable_device() -> None:
+    r"""Mathematics: kernel device composition satisfies `"dns_latch"∈dom(D)` and preserves `/dev/dns_latch` I/O across `K' = restore(snapshot(K))`."""
+
+    kernel = VirtualKernel()
+    pid = kernel.spawn("dns-user")
+    fd = kernel.syscall(pid, "open", path="/dev/dns_latch", mode="r+")
+    command = b"SET kernel.test 1 30\n"
+    assert kernel.syscall(pid, "write", fd=fd, data=command) == len(command)
+    assert kernel.syscall(pid, "read", fd=fd) == b"kernel.test=1\n"
+    assert "dns_latch" in kernel.devices.names()
+
+    restored = VirtualKernel.from_snapshot(kernel.snapshot())
+    restored_pid = next(iter(restored.processes))
+    restored_fd = next(
+        fd
+        for fd, handle in restored.processes[restored_pid].fds.items()
+        if handle.path == "/dev/dns_latch"
+    )
+    assert restored.syscall(restored_pid, "read", fd=restored_fd) == b"kernel.test=1\n"
 
 
 def test_tcp_sequence_ring_arithmetic() -> None:

@@ -618,7 +618,10 @@ class VirtualEnvironment:
                         chunks.append(self.kernel.syscall(process_id, "read", fd=fd, size=-1))
                     finally:
                         self.kernel.syscall(process_id, "close", fd=fd)
-                return CommandResult(0, b"".join(chunks).decode("utf-8"))
+                try:
+                    return CommandResult(0, b"".join(chunks).decode("utf-8"))
+                except UnicodeDecodeError as exc:
+                    return CommandResult(1, stderr=f"cat: binary or invalid UTF-8 input: {exc}\n")
             if command == "mkdir":
                 for path in rest:
                     self.kernel.syscall(process_id, "mkdir", path=path)
@@ -645,8 +648,10 @@ class VirtualEnvironment:
                     return CommandResult(2, stderr="write requires PATH TEXT\n")
                 path, text = rest[0], " ".join(rest[1:])
                 fd = self.kernel.syscall(process_id, "open", path=path, mode="w", create=True)
-                self.kernel.syscall(process_id, "write", fd=fd, data=text.encode("utf-8"))
-                self.kernel.syscall(process_id, "close", fd=fd)
+                try:
+                    self.kernel.syscall(process_id, "write", fd=fd, data=text.encode("utf-8"))
+                finally:
+                    self.kernel.syscall(process_id, "close", fd=fd)
                 return CommandResult(0)
             if command == "ps":
                 rows = self.kernel.process_table()

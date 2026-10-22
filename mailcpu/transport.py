@@ -118,16 +118,30 @@ class InMemoryTransport:
         transport._next_id = int(payload["next_id"])
         if transport._next_id <= 0:
             raise ValueError("transport next_id must be positive")
+        maximum_id = 0
         for raw_address, raw_queue in payload.get("queues", {}).items():
             address = str(raw_address)
+            if not address:
+                raise ValueError("transport mailbox address must be non-empty")
             queue: deque[Message] = deque()
             for raw_message in raw_queue:
                 message = _message_from_snapshot(dict(raw_message))
-                if not message.message_id or message.message_id in transport._locations:
+                if (
+                    not message.message_id
+                    or not message.message_id.startswith("m")
+                    or not message.message_id[1:].isdigit()
+                    or int(message.message_id[1:]) <= 0
+                    or message.message_id in transport._locations
+                ):
                     raise ValueError(f"duplicate or empty transport message id: {message.message_id}")
+                if message.recipient != address:
+                    raise ValueError("transport message recipient does not match mailbox")
+                maximum_id = max(maximum_id, int(message.message_id[1:]))
                 queue.append(message)
                 transport._locations[message.message_id] = address
             transport._queues[address] = queue
+        if transport._next_id <= maximum_id:
+            raise ValueError("transport next_id collides with a restored message")
         return transport
 
 

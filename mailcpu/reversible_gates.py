@@ -11,13 +11,53 @@ KIND_SWAP: int = 1
 ARM_NONE: tuple[int, int] = (0, 0)
 
 
+def _validate_controls(pos: int, neg: int) -> None:
+    r"""Mathematics: enforce the Boolean control invariant `pos \land neg = 0` and `pos, neg \ge 0`."""
+
+    if pos < 0 or neg < 0:
+        raise ValueError("control masks must be non-negative")
+    if pos & neg:
+        raise ValueError("control bit specified with contradictory polarities")
+
+
+def _validate_slice(base: int, width: int, label: str = "slice") -> None:
+    r"""Mathematics: validate interval `[base, base + width)` with `base \ge 0` and `width \ge 0`."""
+
+    if base < 0 or width < 0:
+        raise ValueError(f"{label} base and width must be non-negative")
+
+
+def _ranges_overlap(base_a: int, width_a: int, base_b: int, width_b: int) -> bool:
+    r"""Mathematics: test interval intersection `[a_0,a_1) \cap [b_0,b_1) \ne \varnothing`."""
+
+    return max(base_a, base_b) < min(base_a + width_a, base_b + width_b)
+
+
+def _validate_gate_geometry(kind: int, pos: int, neg: int, t1: int, t2: int) -> None:
+    r"""Mathematics: validate an involution's disjoint target/control supports and kind domain."""
+
+    _validate_controls(pos, neg)
+    if kind not in (KIND_X, KIND_SWAP):
+        raise ValueError(f"unknown reversible gate kind: {kind}")
+    if t1 < 0 or (kind == KIND_SWAP and t2 < 0):
+        raise ValueError("gate target indices must be non-negative")
+    if kind == KIND_X:
+        if pos & (1 << t1) or neg & (1 << t1):
+            raise ValueError("gate target cannot also be a control")
+    elif t1 == t2:
+        raise ValueError("swap targets must be distinct")
+    elif (pos | neg) & ((1 << t1) | (1 << t2)):
+        raise ValueError("swap targets cannot also be controls")
+
+
 def arm_union(a: tuple[int, int], b: tuple[int, int]) -> tuple[int, int]:
     r"""Mathematics: evaluate `(pos_a \lor pos_b, neg_a \lor neg_b)`, asserting `(pos_a \lor pos_b) \land (neg_a \lor neg_b) = 0`."""
 
+    _validate_controls(*a)
+    _validate_controls(*b)
     pos = a[0] | b[0]
     neg = a[1] | b[1]
-    if pos & neg:
-        raise ValueError("control bit specified with contradictory polarities")
+    _validate_controls(pos, neg)
     return (pos, neg)
 
 
@@ -30,6 +70,11 @@ class ReversibleGate:
     neg: int
     t1: int
     t2: int = -1
+
+    def __post_init__(self) -> None:
+        r"""Mathematics: enforce the gate support invariant required for `G \circ G = I`."""
+
+        _validate_gate_geometry(self.kind, self.pos, self.neg, self.t1, self.t2)
 
     def is_enabled(self, tape: int) -> bool:
         r"""Mathematics: evaluate predicate `(tape \land pos = pos) \land (tape \land neg = 0)`."""
@@ -60,17 +105,7 @@ def apply_gate(tape: int, gate: ReversibleGate | tuple[int, int, int, int, int])
     if isinstance(gate, ReversibleGate):
         return gate.apply(tape)
     kind, pos, neg, t1, t2 = gate
-    if pos and (tape & pos) != pos:
-        return (tape, False)
-    if neg and (tape & neg) != 0:
-        return (tape, False)
-    if kind == KIND_X:
-        return (tape ^ (1 << t1), True)
-    b1 = (tape >> t1) & 1
-    b2 = (tape >> t2) & 1
-    if b1 != b2:
-        return (tape ^ ((1 << t1) | (1 << t2)), True)
-    return (tape, False)
+    return ReversibleGate(kind, pos, neg, t1, t2).apply(tape)
 
 
 def execute_gates(tape: int, gates: Sequence[ReversibleGate | tuple[int, int, int, int, int]]) -> tuple[int, int]:
@@ -107,12 +142,14 @@ def phase_factor(active_chronons: int) -> complex:
 def get_bits(tape: int, base: int, width: int) -> int:
     r"""Mathematics: extract integer slice `(tape \gg base) \bmod 2^{width}`."""
 
+    _validate_slice(base, width)
     return (tape >> base) & ((1 << width) - 1)
 
 
 def set_bits(tape: int, base: int, width: int, value: int) -> int:
     r"""Mathematics: replace slice with `value \bmod 2^{width}` in `tape`."""
 
+    _validate_slice(base, width)
     mask = ((1 << width) - 1) << base
     return (tape & ~mask) | ((value & ((1 << width) - 1)) << base)
 
@@ -126,6 +163,7 @@ class ReversibleProgram:
         self.gates: list[tuple[int, int, int, int, int]] = []
         self.nbits: int = 0
         self._free: dict[int, list[int]] = {}
+        self._live: dict[int, int] = {}
         self._peak: int = 0
 
     @property
@@ -135,42 +173,62 @@ class ReversibleProgram:
         return self._peak
 
     def alloc(self, n: int = 1) -> int:
-        """Mathematics: allocate `n` contiguous zero-initialized bits from free list or tape ceiling."""
+        """Mathematics: allocate `n > 0` contiguous bits, reusing a free interval when available."""
 
+        if n <= 0:
+            raise ValueError("allocation width must be positive")
         bucket = self._free.get(n)
         if bucket:
-            return bucket.pop()
+            base = bucket.pop()
+            self._live[base] = n
+            return base
         base = self.nbits
         self.nbits += n
         self._peak = max(self._peak, self.nbits)
+        self._live[base] = n
         return base
 
     def free(self, base: int, n: int = 1) -> None:
-        """Mathematics: recycle `n` bits at `base`, asserting they have been Bennett-uncomputed to zero."""
+        """Mathematics: recycle exactly an owned interval after the caller proves its Bennett state is zero."""
 
+        _validate_slice(base, n, "free interval")
+        if self._live.get(base) != n:
+            raise ValueError("free interval is not an owned live allocation")
+        del self._live[base]
         self._free.setdefault(n, []).append(base)
 
     def emit_x(self, target: int, pos: int = 0, neg: int = 0) -> None:
-        """Mathematics: append controlled NOT gate flipping bit `target`."""
+        r"""Mathematics: append controlled NOT `t \mapsto t \oplus 2^{target}` with target outside controls."""
 
+        _validate_gate_geometry(KIND_X, pos, neg, target, -1)
         self.gates.append((KIND_X, pos, neg, target, -1))
 
     def emit_swap(self, t1: int, t2: int, pos: int = 0, neg: int = 0) -> None:
-        """Mathematics: append controlled exchange gate swapping bits `t1` and `t2`."""
+        r"""Mathematics: append controlled exchange `t_1 \leftrightarrow t_2` with disjoint supports."""
 
+        _validate_gate_geometry(KIND_SWAP, pos, neg, t1, t2)
         self.gates.append((KIND_SWAP, pos, neg, t1, t2))
 
     def emit_copy(self, out_base: int, src_base: int, width: int, arm: tuple[int, int] = ARM_NONE) -> None:
         r"""Mathematics: emit `out \leftarrow out \oplus src` across `width` bits under control `arm`."""
 
+        _validate_slice(out_base, width, "output")
+        _validate_slice(src_base, width, "source")
+        if _ranges_overlap(out_base, width, src_base, width):
+            raise ValueError("copy source and output ranges must be disjoint")
         pos, neg = arm
+        _validate_controls(pos, neg)
+        if (pos | neg) & sum(1 << (out_base + index) for index in range(width)):
+            raise ValueError("copy output cannot also be a control")
         for index in range(width):
             self.emit_x(out_base + index, pos | (1 << (src_base + index)), neg)
 
     def emit_const(self, out_base: int, value: int, width: int, arm: tuple[int, int] = ARM_NONE) -> None:
         r"""Mathematics: emit `out \leftarrow out \oplus (value \bmod 2^{width})` under control `arm`."""
 
+        _validate_slice(out_base, width, "output")
         pos, neg = arm
+        _validate_controls(pos, neg)
         for index in range(width):
             if (value >> index) & 1:
                 self.emit_x(out_base + index, pos, neg)
@@ -186,7 +244,12 @@ class ReversibleProgram:
     def emit_inc(self, out_base: int, src_base: int, width: int, arm: tuple[int, int] = ARM_NONE) -> None:
         r"""Mathematics: emit `out \leftarrow out \oplus ((src + 1) \bmod 2^{width})` into fresh zero cell under control `arm`."""
 
+        _validate_slice(out_base, width, "output")
+        _validate_slice(src_base, width, "source")
+        if _ranges_overlap(out_base, width, src_base, width):
+            raise ValueError("increment source and output ranges must be disjoint")
         pos, neg = arm
+        _validate_controls(pos, neg)
         self.emit_x(out_base, pos, neg | (1 << src_base))
         for index in range(1, width):
             self.emit_x(out_base + index, pos | (1 << (src_base + index)), neg)
@@ -195,7 +258,15 @@ class ReversibleProgram:
     def emit_bitwise(self, out_base: int, a_base: int, b_base: int, width: int, op: str, arm: tuple[int, int] = ARM_NONE) -> None:
         r"""Mathematics: emit `out \leftarrow out \oplus (a \odot b)` for `\odot \in \{\land, \lor, \oplus\}`."""
 
+        _validate_slice(out_base, width, "output")
+        _validate_slice(a_base, width, "left input")
+        _validate_slice(b_base, width, "right input")
+        if _ranges_overlap(out_base, width, a_base, width) or _ranges_overlap(out_base, width, b_base, width):
+            raise ValueError("bitwise output and input ranges must be disjoint")
         pos, neg = arm
+        _validate_controls(pos, neg)
+        if op not in {"xor", "and", "or"}:
+            raise ValueError(f"unknown bitwise operator: {op}")
         for index in range(width):
             target = out_base + index
             ai = a_base + index
@@ -209,20 +280,32 @@ class ReversibleProgram:
                 self.emit_x(target, pos | (1 << ai), neg)
                 self.emit_x(target, pos | (1 << bi), neg)
                 self.emit_x(target, pos | (1 << ai) | (1 << bi), neg)
-            else:
-                raise ValueError(f"unknown bitwise operator: {op}")
 
     def emit_shl(self, out_base: int, src_base: int, width: int, shift: int, arm: tuple[int, int] = ARM_NONE) -> None:
         r"""Mathematics: emit `out \leftarrow out \oplus ((src \ll shift) \bmod 2^{width})`."""
 
+        _validate_slice(out_base, width, "output")
+        _validate_slice(src_base, width, "source")
+        if shift < 0:
+            raise ValueError("shift must be non-negative")
+        if _ranges_overlap(out_base, width, src_base, width):
+            raise ValueError("shift source and output ranges must be disjoint")
         pos, neg = arm
+        _validate_controls(pos, neg)
         for index in range(max(0, width - shift)):
             self.emit_x(out_base + index + shift, pos | (1 << (src_base + index)), neg)
 
     def emit_shr(self, out_base: int, src_base: int, width: int, shift: int, arm: tuple[int, int] = ARM_NONE) -> None:
         r"""Mathematics: emit `out \leftarrow out \oplus (src \gg shift)` across `width` bits."""
 
+        _validate_slice(out_base, width, "output")
+        _validate_slice(src_base, width, "source")
+        if shift < 0:
+            raise ValueError("shift must be non-negative")
+        if _ranges_overlap(out_base, width, src_base, width):
+            raise ValueError("shift source and output ranges must be disjoint")
         pos, neg = arm
+        _validate_controls(pos, neg)
         for index in range(shift, width):
             self.emit_x(out_base + index - shift, pos | (1 << (src_base + index)), neg)
 
@@ -238,7 +321,17 @@ class ReversibleProgram:
     ) -> None:
         r"""Mathematics: emit `out \leftarrow out \oplus ((a + (b \ll shift\_b) + cin) \bmod 2^{width})` with Bennett carry uncomputation."""
 
+        if width <= 0:
+            raise ValueError("addition width must be positive")
+        _validate_slice(out_base, width, "output")
+        _validate_slice(a_base, width, "left input")
+        _validate_slice(b_base, width, "right input")
+        if _ranges_overlap(out_base, width, a_base, width) or _ranges_overlap(out_base, width, b_base, width):
+            raise ValueError("addition output and input ranges must be disjoint")
+        if shift_b < 0:
+            raise ValueError("shift_b must be non-negative")
         pos, neg = arm
+        _validate_controls(pos, neg)
 
         def _b_index(i: int) -> int | None:
             """Mathematics: map shifted bit index `i - shift_b` to tape bit coordinate when within `[0, width)`."""
@@ -288,7 +381,15 @@ class ReversibleProgram:
     ) -> None:
         r"""Mathematics: emit `out \leftarrow out \oplus ((a - b) \bmod 2^{width})` via two's complement `a + \sim b + 1`."""
 
+        if width <= 0:
+            raise ValueError("subtraction width must be positive")
+        _validate_slice(out_base, width, "output")
+        _validate_slice(a_base, width, "left input")
+        _validate_slice(b_base, width, "right input")
+        if _ranges_overlap(out_base, width, a_base, width) or _ranges_overlap(out_base, width, b_base, width):
+            raise ValueError("subtraction output and input ranges must be disjoint")
         pos, neg = arm
+        _validate_controls(pos, neg)
         inv = self.alloc(width)
         self.emit_copy(inv, b_base, width, arm)
         for index in range(width):
@@ -310,7 +411,15 @@ class ReversibleProgram:
     ) -> None:
         r"""Mathematics: emit `out \leftarrow out \oplus ((a \times b) \bmod 2^{width})` via shift-and-add with full Bennett uncomputation."""
 
+        if width <= 0:
+            raise ValueError("multiplication width must be positive")
+        _validate_slice(out_base, width, "output")
+        _validate_slice(a_base, width, "left input")
+        _validate_slice(b_base, width, "right input")
+        if _ranges_overlap(out_base, width, a_base, width) or _ranges_overlap(out_base, width, b_base, width):
+            raise ValueError("multiplication output and input ranges must be disjoint")
         pos, neg = arm
+        _validate_controls(pos, neg)
         start = len(self.gates)
         partials: list[int] = []
         for j in range(width):

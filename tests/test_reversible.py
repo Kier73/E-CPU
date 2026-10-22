@@ -62,6 +62,36 @@ def test_contradictory_controls_raise() -> None:
         arm_union((0b01, 0), (0, 0b01))
 
 
+def test_invalid_reversible_geometry_is_rejected() -> None:
+    r"""Mathematics: an involution requires disjoint target and control supports."""
+
+    with pytest.raises(ValueError, match="target cannot also be a control"):
+        ReversibleGate(kind=KIND_X, pos=0b1, neg=0, t1=0)
+
+    with pytest.raises(ValueError, match="source and output ranges"):
+        ReversibleProgram().emit_copy(out_base=2, src_base=3, width=2)
+
+    with pytest.raises(ValueError, match="non-negative"):
+        ReversibleProgram().emit_shl(out_base=0, src_base=4, width=2, shift=-1)
+
+    with pytest.raises(ValueError, match="unknown reversible gate kind"):
+        apply_gate(0, (99, 0, 0, 0, -1))
+
+
+def test_allocator_rejects_double_free_and_unknown_intervals() -> None:
+    r"""Mathematics: allocator ownership is a partial bijection between live and free intervals."""
+
+    program = ReversibleProgram()
+    base = program.alloc(3)
+    program.free(base, 3)
+
+    with pytest.raises(ValueError, match="owned live allocation"):
+        program.free(base, 3)
+
+    with pytest.raises(ValueError, match="owned live allocation"):
+        program.free(99, 1)
+
+
 def test_reversible_adder_and_ancilla_cleanup() -> None:
     r"""Mathematics: adder computes `(a + b) \bmod 2^w` with Bennett carry uncomputation, leaving carry ancillas strictly at 0."""
 
@@ -168,7 +198,7 @@ def test_chronofold_serialization_roundtrip() -> None:
         initial_tape=0xDEADBEEF,
         trace=[1, 2, 4, 8, 16],
         period_header=2,
-        period_length=3,
+        period_length=1,
         period_stride=1,
         active_chronons=12,
         sector_reads=5,
@@ -184,6 +214,21 @@ def test_chronofold_serialization_roundtrip() -> None:
     assert deserialized.active_chronons == fold.active_chronons
     assert deserialized.sector_reads == fold.sector_reads
     assert deserialized.phase == fold.phase
+
+
+def test_chronofold_rejects_period_metadata_outside_trace() -> None:
+    r"""Mathematics: a period witness requires `h + 2P <= |trace|`; malformed witnesses are rejected."""
+
+    with pytest.raises(ValueError, match="retained trace"):
+        ChronoFold.from_dict(
+            {
+                "format": "mailcpu-chronofold/1",
+                "initial_tape": "0x0",
+                "trace": [1, 2],
+                "period_header": 1,
+                "period_length": 1,
+            }
+        )
 
 
 def test_scheduler_chronofold_integration() -> None:
@@ -218,4 +263,6 @@ def test_scheduler_chronofold_integration() -> None:
     assert restored_task.chronofold.trace == task.chronofold.trace
     assert restored_task.chronofold.active_chronons == task.chronofold.active_chronons
     assert restored_task.chronofold.phase == task.chronofold.phase
+    assert scheduler.system_epoch.chronon_phase == phase_factor(4)
+    assert restored_scheduler.system_epoch.chronon_phase == phase_factor(4)
 

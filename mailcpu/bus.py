@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import deque
+import copy
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -48,7 +49,7 @@ class MailboxBus:
             source=source,
             destination=destination,
             kind=kind,
-            payload=dict(payload),
+            payload=copy.deepcopy(dict(payload)),
             logical_time=self._logical_time,
             reply_to=reply_to,
         )
@@ -67,7 +68,18 @@ class MailboxBus:
     def peek(self, destination: str) -> tuple[BusMessage, ...]:
         """Mathematics: observe `Q_destination` without mutation, so `Q' = Q`."""
 
-        return tuple(self._queues.get(destination, ()))
+        return tuple(
+            BusMessage(
+                message.message_id,
+                message.source,
+                message.destination,
+                message.kind,
+                copy.deepcopy(message.payload),
+                message.logical_time,
+                message.reply_to,
+            )
+            for message in self._queues.get(destination, ())
+        )
 
     def pending(self, destination: str | None = None) -> int:
         """Mathematics: compute `|Q| = Σ_addr |Q_addr|`, optionally restricting the sum to one address."""
@@ -105,7 +117,7 @@ class MailboxBus:
                         "source": message.source,
                         "destination": message.destination,
                         "kind": message.kind,
-                        "payload": message.payload,
+                        "payload": copy.deepcopy(message.payload),
                         "logical_time": message.logical_time,
                         "reply_to": message.reply_to,
                     }
@@ -122,19 +134,40 @@ class MailboxBus:
         bus = cls()
         bus._next_id = int(payload["next_id"])
         bus._logical_time = int(payload["logical_time"])
+        if bus._next_id <= 0 or bus._logical_time < 0:
+            raise ValueError("bus counters must be positive/non-negative")
+        maximum_id = 0
+        maximum_time = 0
         for address, raw_queue in payload.get("queues", {}).items():
+            address = str(address)
+            if not address:
+                raise ValueError("bus destination must be non-empty")
             queue: deque[BusMessage] = deque()
             for raw in raw_queue:
-                queue.append(
-                    BusMessage(
-                        str(raw["message_id"]),
-                        str(raw["source"]),
-                        str(raw["destination"]),
-                        str(raw["kind"]),
-                        dict(raw["payload"]),
-                        int(raw["logical_time"]),
-                        raw.get("reply_to"),
-                    )
+                message = BusMessage(
+                    str(raw["message_id"]),
+                    str(raw["source"]),
+                    str(raw["destination"]),
+                    str(raw["kind"]),
+                    copy.deepcopy(dict(raw["payload"])),
+                    int(raw["logical_time"]),
+                    raw.get("reply_to"),
                 )
-            bus._queues[str(address)] = queue
+                if (
+                    not message.message_id.startswith("b")
+                    or not message.message_id[1:].isdigit()
+                    or int(message.message_id[1:]) <= 0
+                    or message.destination != address
+                    or not message.source
+                    or not message.kind
+                    or message.logical_time <= 0
+                    or message.logical_time > bus._logical_time
+                ):
+                    raise ValueError("invalid bus message identity or route")
+                maximum_id = max(maximum_id, int(message.message_id[1:]))
+                maximum_time = max(maximum_time, message.logical_time)
+                queue.append(message)
+            bus._queues[address] = queue
+        if bus._next_id <= maximum_id or bus._logical_time < maximum_time:
+            raise ValueError("bus counters collide with restored messages")
         return bus

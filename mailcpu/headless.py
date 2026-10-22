@@ -193,6 +193,7 @@ class HeadlessOS:
                 parent_pid=pid,
                 inherit_fds=bool(args.get("inherit_fds", False)),
                 max_pages=None if args.get("max_pages") is None else int(args["max_pages"]),
+                loader_pid=pid,
             )
         if syscall_name == "waitpid":
             # Projection `σ_kernel := π(σ_scheduler)` runs before selection so
@@ -1426,11 +1427,12 @@ class HeadlessOS:
         group_id: int | None = None,
         inherit_fds: bool = False,
         max_pages: int | None = None,
+        loader_pid: int | None = None,
     ) -> int:
-        """Mathematics: load executable bytes through `open → read → close`, decode source or MCPB, and enqueue the ABI process."""
+        """Mathematics: load executable bytes through `open → read → close` under `loader_pid` authority, decode, and enqueue the ABI process."""
 
         canonical = normalize_path(path)
-        program = self.read_executable_program(canonical)
+        program = self.read_executable_program(canonical, loader_pid=loader_pid)
         process_name = name or canonical.rsplit("/", 1)[-1]
         process_argv = tuple(argv) if argv is not None else (canonical,)
         return self.spawn(
@@ -1933,6 +1935,8 @@ class HeadlessOS:
     def snapshot(self) -> dict[str, object]:
         """Mathematics: serialize `OS = (VM, Services, HypervisorPolicy)` into one continuation-capable checkpoint graph."""
 
+        if self._pending_exec or self._pending_fork:
+            raise ValueError("cannot snapshot an uncommitted exec or fork transition")
         return {
             "vm": self.vm.snapshot(),
             "services": self.services.snapshot(),

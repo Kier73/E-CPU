@@ -77,6 +77,30 @@ def test_event_journal_is_a_sha256_hash_chain() -> None:
     assert operating_system.process(pid).status == "exited"
 
 
+def test_bus_and_journal_isolate_nested_payload_mutation() -> None:
+    r"""Mathematics: enqueue and append store `deepcopy(x)`, so external mutation cannot alter `Q` or the hash-chain payload."""
+
+    from mailcpu.bus import MailboxBus
+    from mailcpu.journal import EventJournal
+
+    payload = {"nested": [1, {"value": 2}]}
+    bus = MailboxBus()
+    bus.send("a", "b", "data", payload)
+    payload["nested"][1]["value"] = 99
+    observed = bus.peek("b")[0]
+    observed.payload["nested"][1]["value"] = 77
+    assert bus.peek("b")[0].payload["nested"][1]["value"] == 2
+
+    journal_payload = {"nested": [1, {"value": 2}]}
+    journal = EventJournal()
+    journal.append("test", journal_payload)
+    journal_payload["nested"][1]["value"] = 99
+    record = journal.records()[0]
+    record.payload["nested"][1]["value"] = 77
+    assert journal.records()[0].payload["nested"][1]["value"] == 2
+    assert journal.verify()
+
+
 def test_virtual_memory_cross_page_write_and_copy_on_write() -> None:
     """Mathematics: verify page-local writes preserve clone state, `clone(M)` sharing immutable blobs until divergence."""
 
@@ -162,6 +186,18 @@ def test_demand_reservation_preserves_failure_and_read_only_semantics() -> None:
     assert len(readonly.mapped_pages()) == 0
     assert readonly.read(0, 1) == b"\x00"
     assert readonly.mapped_pages()[0].writable is False
+
+
+def test_protect_preserves_evicted_page_backing() -> None:
+    r"""Mathematics: protection changes `w` only, so reclaim backing `h` remains invariant under `protect`."""
+
+    memory = VirtualMemory(page_size=8)
+    memory.map(0, 8)
+    memory.write(0, b"abcdefgh")
+    assert memory.reclaim(page_numbers=(0,)) == (0,)
+    memory.protect(0, 8, writable=False)
+    assert memory.read(0, 8) == b"abcdefgh"
+    assert memory.mapped_pages()[0].writable is False
 
 
 def test_memory_protection_transitions_are_atomic_and_process_local() -> None:

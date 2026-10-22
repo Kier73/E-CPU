@@ -8,6 +8,7 @@ from typing import Any, Callable, Sequence
 
 from .bus import BusMessage, MailboxBus
 from .devices import BufferDevice, DeviceBus, NullDevice, TerminalDevice
+from .dns_cell import DnsLatchDevice
 from .fs import FileStat, FsError, VirtualFileSystem, normalize_path
 from .journal import EventJournal
 from .signals import Signal
@@ -174,6 +175,7 @@ class VirtualKernel:
         if not self.devices.names():
             self.devices.register("null", NullDevice())
             self.devices.register("console", TerminalDevice())
+            self.devices.register("dns_latch", DnsLatchDevice())
 
     def spawn(
         self,
@@ -201,7 +203,7 @@ class VirtualKernel:
         parent = None if parent_pid is None else self._process(parent_pid)
         pid = self._next_pid
         self._next_pid += 1
-        caps = capabilities or (
+        caps = capabilities if capabilities is not None else (
             parent.capabilities
             if parent is not None
             else (Capability("/", frozenset({"read", "write", "execute", "send", "receive"})),)
@@ -729,7 +731,7 @@ class VirtualKernel:
                 None if args.get("target_fd") is None else int(args["target_fd"]),
             )
         if name == "fstat":
-            return self.fs.stat(self._handle(process, args["fd"]).path)
+            return self._fstat(process, int(args["fd"]))
         if name == "lseek":
             return self._lseek(process, args["fd"], int(args.get("offset", 0)), args.get("whence", 0))
         if name == "pipe":
@@ -810,6 +812,23 @@ class VirtualKernel:
             return process.exit_code
         raise KernelError(f"unknown syscall: {name}")
 
+    def _fstat(self, process: Process, fd: int) -> FileStat:
+        """Mathematics: project descriptor state onto `F=(inode,kind,mode,owner,size)` for filesystem and synthetic resources."""
+
+        handle = self._handle(process, fd)
+        if handle.pipe_id is not None:
+            pipe = self.pipes.get(handle.pipe_id)
+            if pipe is None:
+                raise KernelError(f"unknown pipe: {handle.pipe_id}")
+            return FileStat(handle.description_id, "pipe", 0o600, 0, len(pipe.buffer))
+        if handle.network_kind is not None:
+            network_identity = f"{handle.network_kind}:{handle.network_handle}"
+            return FileStat(network_identity, "socket", 0o600, 0, 0)
+        device_name = self.device_name_for_path(handle.path)
+        if device_name is not None:
+            return FileStat(f"device:{device_name}", "device", 0o666, 0, 0)
+        return self.fs.stat(handle.path)
+
     def _open(self, process: Process, path: str, mode: str, create: bool) -> int:
         """Mathematics: allocate the least unused descriptor `fd ≥ 3` and bind it to a validated access mode."""
 
@@ -820,6 +839,10 @@ class VirtualKernel:
             raise KernelError("open mode must contain r, w, a, or +")
         self._authorize(process, canonical, "read" if readable else "write")
         if writable:
+            self._authorize(process, canonical, "write")
+        if create:
+            # Namespace creation is itself a write, even when the resulting
+            # descriptor is requested read-only.
             self._authorize(process, canonical, "write")
         device_name = self.device_name_for_path(canonical)
         append_offset = 0
@@ -1314,12 +1337,15 @@ class VirtualKernel:
         return readiness & (requested | POLLERR | POLLHUP)
 
     def _pipe_referenced(self, pipe_id: str) -> bool:
-        """Mathematics: determine `∃p,fd: fds_p[fd].pipe_id=pipe_id` over the finite process graph."""
+        r"""Mathematics: determine `∃p,fd: fds_p[fd].pipe_id=p ∨ ∃t: T[t].description.pipe_id=p`, including in-flight FD transfers."""
 
         return any(
             handle.pipe_id == pipe_id
             for process in self.processes.values()
             for handle in process.fds.values()
+        ) or any(
+            transfer.description.pipe_id == pipe_id
+            for transfer in self._fd_transfers.values()
         )
 
     def _gc_open_files(self) -> None:
@@ -1520,49 +1546,51 @@ class VirtualKernel:
         journal = EventJournal.from_snapshot(list(payload["journal"]))
         kernel = cls(filesystem, bus, devices, journal)
         kernel.processes = {}
-        kernel.pipes = {
-            str(pipe_id): PipeState(
-                str(pipe_id),
-                bytearray.fromhex(str(raw.get("buffer_hex", ""))),
-                int(raw.get("capacity", 65_536)),
-            )
-            for pipe_id, raw in payload.get("pipes", {}).items()
-        }
+        kernel.pipes = {}
+        for pipe_id, raw in payload.get("pipes", {}).items():
+            pipe_key = str(pipe_id)
+            if not pipe_key.startswith("p") or not pipe_key[1:].isdigit() or int(pipe_key[1:]) <= 0:
+                raise KernelError(f"invalid pipe identity: {pipe_key}")
+            if not isinstance(raw, dict):
+                raise KernelError(f"pipe state must be a mapping: {pipe_key}")
+            capacity = int(raw.get("capacity", 65_536))
+            buffer = bytearray.fromhex(str(raw.get("buffer_hex", "")))
+            if capacity <= 0 or len(buffer) > capacity:
+                raise KernelError(f"invalid pipe capacity or occupancy: {pipe_key}")
+            kernel.pipes[pipe_key] = PipeState(pipe_key, buffer, capacity)
         kernel._next_pipe = int(payload.get("next_pipe", len(kernel.pipes) + 1))
         kernel._next_description = int(payload.get("next_description", 1))
         kernel._next_transfer = int(payload.get("next_transfer", 1))
+        if kernel._next_pipe <= max((int(pipe_id[1:]) for pipe_id in kernel.pipes), default=0):
+            raise KernelError("next_pipe collides with an existing pipe")
+        if kernel._next_description <= 0 or kernel._next_transfer <= 0:
+            raise KernelError("kernel resource counters must be positive")
         kernel._fd_transfers = {}
         kernel._open_files = {}
         description_payload = {
             str(description_id): dict(raw)
             for description_id, raw in payload.get("open_descriptions", {}).items()
         }
+        for description_id, raw in description_payload.items():
+            if not description_id.startswith("o") or not description_id[1:].isdigit() or int(description_id[1:]) <= 0:
+                raise KernelError(f"invalid open-description identity: {description_id}")
+            if not isinstance(raw, dict):
+                raise KernelError(f"open-description state must be a mapping: {description_id}")
+        if kernel._next_description <= max(
+            (int(description_id[1:]) for description_id in description_payload),
+            default=0,
+        ):
+            raise KernelError("next_description collides with an existing open description")
         details = payload.get("process_details")
         if details is None:
-            details = {
-                str(row["pid"]): {
-                    "pid": row["pid"],
-                    "name": row["name"],
-                    "status": row["status"],
-                    "capabilities": [{"resource": "/", "rights": ["read", "write", "execute", "send", "receive"]}],
-                    "cwd": "/",
-                    "fds": {},
-                    "fd_flags": {},
-                    "next_fd": 3,
-                    "exit_code": row.get("exit_code"),
-                    "environment": {},
-                    "argv": row.get("argv", ()),
-                    "parent_pid": row.get("parent_pid"),
-                    "group_id": row.get("group_id", row["pid"]),
-                    "session_id": row.get("session_id", row.get("group_id", row["pid"])),
-                    "reaped": row.get("reaped", False),
-                    "subreaper": row.get("subreaper", False),
-                    "errno": row.get("errno", 0),
-                    "signal_dispositions": dict(row.get("signal_dispositions", {})),
-                }
-                for row in payload.get("processes", ())
-            }
-        for raw in details.values():
+            raise KernelError("kernel snapshot is missing process_details")
+        if not isinstance(details, dict):
+            raise KernelError("kernel process_details must be a mapping")
+        for detail_key, raw in details.items():
+            if not isinstance(raw, dict):
+                raise KernelError("kernel process detail must be a mapping")
+            if int(detail_key) != int(raw["pid"]):
+                raise KernelError("kernel process key does not match embedded PID")
             process = Process(
                 pid=int(raw["pid"]),
                 name=str(raw["name"]),
@@ -1599,6 +1627,10 @@ class VirtualKernel:
                     for signal, disposition in raw.get("signal_dispositions", {}).items()
                 },
             )
+            if process.pid <= 0:
+                raise KernelError("process PID must be positive")
+            if any(fd < 0 for fd in process.fds) or process.next_fd < max(3, max(process.fds, default=2) + 1):
+                raise KernelError(f"invalid descriptor allocation state for process: {process.pid}")
             for signal, disposition in process.signal_dispositions.items():
                 if signal not in {item.value for item in Signal} or disposition != "ignore":
                     raise KernelError(f"invalid signal disposition for process: {process.pid}")
@@ -1608,13 +1640,19 @@ class VirtualKernel:
                 raise KernelError(f"invalid descriptor flags for process: {process.pid}")
             if any(fd not in process.fds for fd in process.fd_flags):
                 raise KernelError(f"descriptor flags reference missing fd for process: {process.pid}")
+            if process.pid in kernel.processes:
+                raise KernelError(f"duplicate process identity: {process.pid}")
             kernel.processes[process.pid] = process
         for transfer_id, raw_transfer in dict(payload.get("fd_transfers", {})).items():
             transfer_key = str(transfer_id)
+            if not transfer_key.startswith("x") or not transfer_key[1:].isdigit() or int(transfer_key[1:]) <= 0:
+                raise KernelError(f"invalid FD transfer identity: {transfer_key}")
             if transfer_key in kernel._fd_transfers:
                 raise KernelError(f"duplicate FD transfer identity: {transfer_key}")
             sender_pid = int(raw_transfer["sender_pid"])
             destination_pid = int(raw_transfer["destination_pid"])
+            if sender_pid not in kernel.processes:
+                raise KernelError(f"FD transfer sender does not exist: {sender_pid}")
             if destination_pid not in kernel.processes:
                 raise KernelError(f"FD transfer destination does not exist: {destination_pid}")
             description_id = str(raw_transfer["description_id"])
@@ -1628,16 +1666,33 @@ class VirtualKernel:
                 destination_pid,
                 description,
             )
+        if kernel._next_transfer <= max(
+            (int(transfer_id[1:]) for transfer_id in kernel._fd_transfers),
+            default=0,
+        ):
+            raise KernelError("next_transfer collides with an existing FD transfer")
         kernel._gc_open_files()
         kernel._next_pid = int(payload["next_pid"])
+        if kernel._next_pid <= 0 or kernel._next_pid <= max(kernel.processes, default=0):
+            raise KernelError("next_pid collides with an existing process")
+        for process in kernel.processes.values():
+            if process.parent_pid is not None:
+                if process.parent_pid == process.pid or process.parent_pid not in kernel.processes:
+                    raise KernelError(f"invalid parent reference for process: {process.pid}")
+            if process.group_id is not None and process.group_id <= 0:
+                raise KernelError(f"invalid process group for process: {process.pid}")
+            if process.session_id is not None and process.session_id <= 0:
+                raise KernelError(f"invalid process session for process: {process.pid}")
         raw_init_pid = payload.get("init_pid")
         kernel.init_pid = (
             None
             if raw_init_pid is None and not kernel.processes
-            else int(raw_init_pid) if raw_init_pid is not None else min(
-                process.pid for process in kernel.processes.values() if process.parent_pid is None
-            )
+            else int(raw_init_pid) if raw_init_pid is not None else None
         )
+        if kernel.processes and kernel.init_pid not in kernel.processes:
+            raise KernelError("init_pid does not identify a restored process")
+        if kernel.init_pid is not None and kernel.processes[kernel.init_pid].parent_pid is not None:
+            raise KernelError("init_pid must identify a root process")
         return kernel
 
     def _restore_open_file(
@@ -1648,7 +1703,9 @@ class VirtualKernel:
     ) -> OpenFile:
         """Mathematics: reconstruct one canonical description `D[description_id]` and make every descriptor alias it."""
 
-        raw = descriptions.get(description_id, raw_handle)
+        raw = descriptions.get(description_id)
+        if raw is None:
+            raise KernelError(f"open description does not exist: {description_id}")
         candidate = OpenFile(
             str(raw["path"]),
             int(raw["offset"]),
@@ -1660,6 +1717,13 @@ class VirtualKernel:
             None if raw.get("network_handle") is None else int(raw["network_handle"]),
             int(raw.get("status_flags", 0)),
         )
+        if candidate.offset < 0:
+            raise KernelError(f"open description offset is negative: {description_id}")
+        if candidate.pipe_id is not None:
+            if candidate.pipe_id not in self.pipes or candidate.path != f"pipe:{candidate.pipe_id}":
+                raise KernelError(f"open description references an invalid pipe: {description_id}")
+        if candidate.network_kind is not None and candidate.network_handle is None:
+            raise KernelError(f"network description has no handle: {description_id}")
         existing = self._open_files.get(description_id)
         if existing is not None:
             if (

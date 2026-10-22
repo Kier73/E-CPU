@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+import mailcpu.checkpoint as checkpoint_module
 from mailcpu import CheckpointError, HeadlessOS, ServiceSpec, load_checkpoint
 
 
@@ -61,6 +62,49 @@ def test_checkpoint_detects_tampering(tmp_path: Path) -> None:
     path.write_text(path.read_text(encoding="utf-8").replace("mailcpu-checkpoint-v1", "tampered"), encoding="utf-8")
     with pytest.raises(CheckpointError, match="unsupported checkpoint format"):
         load_checkpoint(path)
+
+
+def test_checkpoint_publication_preserves_previous_file_on_replace_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    r"""Mathematics: failed publication leaves prior `C_old` intact because `replace(C_tmp, C)` is the sole commit point."""
+
+    operating_system = HeadlessOS()
+    path = tmp_path / "atomic.mcpu.json"
+    operating_system.save_checkpoint(path)
+    previous = path.read_bytes()
+
+    def fail_replace(_source: Path, _destination: Path) -> None:
+        """Mathematics: model an interruption before the atomic commit function `replace` returns."""
+
+        raise OSError("simulated publication interruption")
+
+    monkeypatch.setattr(checkpoint_module.os, "replace", fail_replace)
+    with pytest.raises(OSError, match="publication interruption"):
+        operating_system.save_checkpoint(path)
+
+    assert path.read_bytes() == previous
+    assert not list(tmp_path.glob(".atomic.mcpu.json.*.tmp"))
+
+
+def test_snapshot_refuses_uncommitted_deferred_transition() -> None:
+    r"""Mathematics: serialization is admitted only at a transition boundary, `pending_exec ∪ pending_fork = ∅`."""
+
+    operating_system = HeadlessOS()
+    operating_system._pending_fork[123] = 124
+
+    with pytest.raises(ValueError, match="uncommitted"):
+        operating_system.snapshot()
+
+
+def test_vm_restore_rejects_orphan_memory_image() -> None:
+    r"""Mathematics: VM correspondence requires `dom(M) = dom(T)` for memory images `M` and scheduler tasks `T`."""
+
+    operating_system = HeadlessOS()
+    pid = operating_system.launch_source("halt", "memory-owner")
+    snapshot = operating_system.snapshot()
+    del snapshot["vm"]["memories"][str(pid)]
+
+    with pytest.raises(ValueError, match="one-to-one"):
+        HeadlessOS.from_snapshot(snapshot)
 
 
 def test_checkpoint_preserves_service_controller(tmp_path: Path) -> None:

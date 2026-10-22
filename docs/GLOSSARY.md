@@ -159,7 +159,7 @@ Registry of defined terms for this repository.
   $\text{SU}(2)$ Wilczek-Zee unitary operators and Fréchet mean centroids.
 
 **law certifier** ($\Omega_5$)
-: An 8-rung algebraic ladder (`int`, `lcg`, `gf2`, `cfin`, `fgraph`, `kreg`, `strat`, `tape`)
+: The implemented six-rung algebraic ladder (`int`, `lcg`, `gf2`, `fgraph`, `kreg`, `tape`)
   transforming raw execution traces into certified closed-form recurrence relations.
 
 **orbit leap**

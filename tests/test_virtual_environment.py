@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from mailcpu.bus import MailboxBus
+from mailcpu.devices import DeviceBus
 from mailcpu.environment import VirtualEnvironment
 from mailcpu.fs import FsError, VirtualFileSystem
 from mailcpu.kernel import Capability, FD_CLOEXEC, F_GETFD, F_SETFD, KernelError, POLLHUP, POLLIN, VirtualKernel
@@ -21,6 +22,11 @@ def test_content_addressed_filesystem_and_snapshot() -> None:
     assert snapshot["blobs"]
     with pytest.raises(FsError):
         filesystem.read_file("/tmp/missing")
+
+    malformed = filesystem.snapshot()
+    malformed["next_inode"] = 2
+    with pytest.raises(FsError, match="collides"):
+        VirtualFileSystem.from_snapshot(malformed)
 
 
 def test_filesystem_rename_preserves_inode_identity_and_rejects_cycles() -> None:
@@ -54,6 +60,23 @@ def test_kernel_syscalls_capabilities_and_file_descriptors() -> None:
     assert kernel.syscall(pid, "read", fd=fd, size=-1) == b"llo"
     with pytest.raises(KernelError, match="permission denied"):
         kernel.syscall(pid, "open", path="/etc/secret", mode="r")
+
+
+def test_empty_capability_tuple_is_not_promoted_to_root_and_create_requires_write() -> None:
+    r"""Mathematics: `C=∅` grants no path rights, and namespace creation requires `write ∈ C`."""
+
+    kernel = VirtualKernel()
+    kernel.fs.mkdir("/sandbox")
+    no_rights = kernel.spawn("closed", capabilities=())
+    with pytest.raises(KernelError, match="permission denied"):
+        kernel.syscall(no_rights, "open", path="/sandbox/new", mode="r", create=True)
+
+    read_only = kernel.spawn(
+        "reader",
+        capabilities=(Capability("/sandbox", frozenset({"read"})),),
+    )
+    with pytest.raises(KernelError, match="permission denied"):
+        kernel.syscall(read_only, "open", path="/sandbox/new", mode="r", create=True)
 
 
 def test_relative_paths_seek_append_and_rename_preserve_open_handles() -> None:
@@ -102,6 +125,62 @@ def test_directory_rename_rewrites_open_descendant_paths_and_fstat() -> None:
     assert kernel.fs.read_file("/sandbox/moved/value") == b"x"
 
 
+def test_fstat_projects_pipe_and_device_descriptions() -> None:
+    r"""Mathematics: `fstat` maps pipe/device descriptors to stable synthetic kinds instead of requiring filesystem inodes."""
+
+    kernel = VirtualKernel()
+    kernel.fs.mkdir("/dev")
+    kernel.fs.create_file("/dev/null", b"")
+    pid = kernel.spawn("fstat-user")
+    read_fd, write_fd = kernel.syscall(pid, "pipe")
+    kernel.syscall(pid, "write", fd=write_fd, data=b"pipe")
+
+    pipe_stat = kernel.syscall(pid, "fstat", fd=read_fd)
+    assert pipe_stat.kind == "pipe"
+    assert pipe_stat.size == 4
+
+    device_fd = kernel.syscall(pid, "open", path="/dev/null", mode="r")
+    device_stat = kernel.syscall(pid, "fstat", fd=device_fd)
+    assert device_stat.kind == "device"
+    assert device_stat.size == 0
+
+
+def test_kernel_restore_rejects_missing_process_details_instead_of_granting_root() -> None:
+    r"""Mathematics: restore must preserve capability relation `C_pid`, never replace absent details with `C_pid={root}`."""
+
+    kernel = VirtualKernel()
+    pid = kernel.spawn("secured")
+    snapshot = kernel.snapshot()
+    del snapshot["process_details"]
+
+    with pytest.raises(KernelError, match="missing process_details"):
+        VirtualKernel.from_snapshot(snapshot)
+
+
+def test_device_restore_rejects_asymmetric_pty_peer_state() -> None:
+    r"""Mathematics: a PTY relation requires symmetric peer edges `peer(peer(e)) = e` and equal pair identities."""
+
+    environment = VirtualEnvironment.bootstrap()
+    environment.kernel.syscall(environment.init_pid, "pty_open")
+    state = environment.kernel.devices.snapshot()
+    state["ptym0001"]["peer_name"] = "ptys9999"
+
+    with pytest.raises(ValueError, match="missing pty peer"):
+        DeviceBus.from_snapshot(state)
+
+
+def test_shell_cat_reports_binary_input_without_leaking_a_decode_exception() -> None:
+    r"""Mathematics: shell command result is total over byte strings, so invalid UTF-8 maps to status `1` rather than an uncaught exception."""
+
+    kernel = VirtualKernel()
+    kernel.fs.mkdir("/tmp")
+    kernel.fs.create_file("/tmp/binary", b"\xff")
+    pid = kernel.spawn("shell")
+    result = VirtualEnvironment(kernel, pid).run_command(("cat", "/tmp/binary"), pid=pid)
+    assert result.exit_code == 1
+    assert "binary or invalid UTF-8" in result.stderr
+
+
 def test_dup_and_inherited_descriptors_share_open_description_across_checkpoint() -> None:
     """Mathematics: aliases satisfy `D(fd_1)=D(fd_2)`, therefore `offset(fd_1)=offset(fd_2)` and checkpoint preserves that equivalence class."""
 
@@ -125,6 +204,23 @@ def test_dup_and_inherited_descriptors_share_open_description_across_checkpoint(
     assert restored.syscall(parent, "close", fd=fd) == 0
     assert restored.syscall(parent, "lseek", fd=20, offset=0, whence=0) == 0
     assert restored.syscall(parent, "read", fd=alias, size=3) == b"abc"
+
+
+def test_pipe_endpoint_transfer_keeps_pipe_alive_until_receipt() -> None:
+    r"""Mathematics: an in-flight transfer is a live pipe endpoint, so closing the sender cannot delete `Q_pipe`."""
+
+    kernel = VirtualKernel()
+    parent = kernel.spawn("parent")
+    child = kernel.spawn("child", parent_pid=parent)
+    read_fd, write_fd = kernel.syscall(parent, "pipe")
+    assert kernel.syscall(parent, "write", fd=write_fd, data=b"queued") == 6
+    assert kernel.syscall(parent, "send_fd", fd=read_fd, destination_pid=child) == 0
+    kernel.syscall(parent, "close", fd=read_fd)
+    assert kernel.pipes
+
+    received = kernel.syscall(child, "receive_fd")
+    assert received >= 3
+    assert kernel.syscall(child, "read", fd=received, size=6) == b"queued"
 
 
 def test_bus_ordering_and_process_ipc() -> None:

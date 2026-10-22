@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+import mailcpu.image as image_module
 from mailcpu.cli import demo_image, main
 from mailcpu.environment import VirtualEnvironment
 from mailcpu.bytecode import BytecodeError, BytecodeExecutable
@@ -24,6 +25,27 @@ def test_executable_image_round_trip_and_install(tmp_path: Path) -> None:
     environment = VirtualEnvironment.bootstrap()
     loaded.install(environment)
     assert environment.kernel.fs.read_file("/opt/mailcpu/README").startswith(b"This file")
+
+
+def test_image_publication_preserves_previous_file_on_replace_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    r"""Mathematics: failed `replace(I_tmp,I)` leaves the prior image bytes unchanged and removes the temporary artifact."""
+
+    image = demo_image()
+    path = tmp_path / "nested" / "demo.mcp.json"
+    image.save(path)
+    previous = path.read_bytes()
+
+    def fail_replace(_source: Path, _destination: Path) -> None:
+        """Mathematics: model an interruption before the atomic image commit returns."""
+
+        raise OSError("simulated image publication interruption")
+
+    monkeypatch.setattr(image_module.os, "replace", fail_replace)
+    with pytest.raises(OSError, match="image publication interruption"):
+        image.save(path)
+
+    assert path.read_bytes() == previous
+    assert not list(path.parent.glob(".demo.mcp.json.*.tmp"))
 
 
 def test_binary_bytecode_round_trip_is_deterministic_and_validated() -> None:

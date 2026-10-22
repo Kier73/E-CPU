@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .headless import HeadlessOS
+    from .kernel import KernelError
 
 
 class CheckpointError(ValueError):
@@ -22,14 +25,35 @@ def _canonical_state(state: dict[str, object]) -> bytes:
 
 
 def save_checkpoint(operating_system: HeadlessOS, path: str | Path) -> str:
-    """Mathematics: write `digest = SHA256(c)` beside state `c` and return the content identity."""
+    """Mathematics: publish `C=(format,digest,S)` by same-directory atomic replacement after `SHA256(S)=digest`."""
 
     state = operating_system.snapshot()
     digest = hashlib.sha256(_canonical_state(state)).hexdigest()
     document = {"format": "mailcpu-checkpoint-v1", "digest": digest, "state": state}
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    payload = json.dumps(document, indent=2, sort_keys=True) + "\n"
+    temporary_path: Path | None = None
+    try:
+        descriptor, raw_temporary_path = tempfile.mkstemp(
+            prefix=f".{destination.name}.",
+            suffix=".tmp",
+            dir=str(destination.parent),
+            text=True,
+        )
+        temporary_path = Path(raw_temporary_path)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary_path, destination)
+        temporary_path = None
+    finally:
+        if temporary_path is not None:
+            try:
+                temporary_path.unlink()
+            except FileNotFoundError:
+                pass
     return digest
 
 
@@ -52,5 +76,5 @@ def load_checkpoint(path: str | Path) -> HeadlessOS:
         raise CheckpointError("checkpoint digest mismatch")
     try:
         return HeadlessOS.from_snapshot(state)
-    except (KeyError, TypeError, ValueError, OSError) as exc:
+    except (KeyError, TypeError, ValueError, OSError, KernelError) as exc:
         raise CheckpointError(str(exc)) from exc

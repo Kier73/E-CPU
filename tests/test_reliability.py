@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from mailcpu.faults import FaultInjectingTransport, FaultProfile
+from mailcpu.model import Message
 from mailcpu.reliability import ReliabilityPolicy, ReliableChannel, ReliableChannelWouldBlock
 from mailcpu.transport import InMemoryTransport
 
@@ -24,6 +25,7 @@ def test_reliable_channel_retries_a_dropped_frame_and_deduplicates() -> None:
         "receiver",
         "data",
         ReliabilityPolicy(lease_ticks=1, max_attempts=3),
+        peer="sender",
     )
     assert sender.send({"value": 9}) == 1
     assert receiver.receive() is None
@@ -60,10 +62,58 @@ def test_reliable_channel_deduplicates_duplicate_delivery() -> None:
 
     transport = FaultInjectingTransport(FaultProfile(duplicate_indices=frozenset({1})))
     sender = ReliableChannel(transport, "sender", "receiver", "data")
-    receiver = ReliableChannel(transport, "receiver", "receiver", "data")
+    receiver = ReliableChannel(transport, "receiver", "receiver", "data", peer="sender")
     sender.send("once")
     assert receiver.receive() == (1, "once")
     assert receiver.receive() is None
+
+
+def test_reliable_channel_recovers_delayed_predecessor_behind_later_frame() -> None:
+    r"""Mathematics: with physical `Q=[F_2,F_1]`, selective identity consumption restores logical delivery `1,2` without delivering `2` early."""
+
+    transport = FaultInjectingTransport(FaultProfile(delays=((1, 3),)))
+    sender = ReliableChannel(transport, "sender", "receiver", "data", ReliabilityPolicy(1, 3))
+    receiver = ReliableChannel(transport, "receiver", "receiver", "data", ReliabilityPolicy(1, 3), peer="sender")
+    assert sender.send("first") == 1
+    assert sender.send("second") == 2
+    assert receiver.receive() is None
+    transport.advance(3)
+    assert receiver.peek() == (1, "first")
+    assert receiver.receive() == (1, "first")
+    assert receiver.receive() == (2, "second")
+    assert receiver.next_receive_sequence == 3
+
+
+def test_reliable_channel_recovers_lost_ack_and_duplicate_after_later_event() -> None:
+    r"""Mathematics: lost `ACK(1)` leaves `P={1,2}` until retry, while duplicate `F'_1` is consumed as `s<r` and never redelivered."""
+
+    transport = FaultInjectingTransport(FaultProfile(drop_indices=frozenset({2})))
+    sender = ReliableChannel(transport, "sender", "receiver", "data", ReliabilityPolicy(1, 3))
+    receiver = ReliableChannel(transport, "receiver", "receiver", "data", ReliabilityPolicy(1, 3), peer="sender")
+    assert sender.send("first") == 1
+    assert receiver.receive() == (1, "first")
+    assert sender.send("second") == 2
+    assert receiver.receive() == (2, "second")
+    assert sender.process_ack() == (2,)
+    assert sender.pending_sequences() == (1,)
+    assert sender.tick() == ()
+    assert receiver.receive() is None
+    assert sender.process_ack() == (1,)
+    assert sender.pending_sequences() == ()
+
+
+def test_reliable_channel_snapshot_preserves_logical_receive_cursor() -> None:
+    r"""Mathematics: restoring `(D,r)` after sequence 1 delivery keeps `r=2`, so queued sequence 2 remains the next result."""
+
+    transport = InMemoryTransport()
+    sender = ReliableChannel(transport, "sender", "receiver", "data")
+    receiver = ReliableChannel(transport, "receiver", "receiver", "data", peer="sender")
+    sender.send("first")
+    sender.send("second")
+    assert receiver.receive() == (1, "first")
+    restored = ReliableChannel.from_snapshot(receiver.snapshot(), transport)
+    assert restored.next_receive_sequence == 2
+    assert restored.receive() == (2, "second")
 
 
 def test_reliable_channel_snapshot_restores_pending_binary_state() -> None:
@@ -74,7 +124,7 @@ def test_reliable_channel_snapshot_restores_pending_binary_state() -> None:
     assert sender.send({"blob": b"mailcpu"}) == 1
     snapshot = sender.snapshot()
     restored = ReliableChannel.from_snapshot(snapshot, transport)
-    receiver = ReliableChannel(transport, "receiver", "receiver", "data", ReliabilityPolicy(2, 3))
+    receiver = ReliableChannel(transport, "receiver", "receiver", "data", ReliabilityPolicy(2, 3), peer="sender")
 
     assert receiver.receive() == (1, {"blob": b"mailcpu"})
     assert restored.process_ack() == (1,)
@@ -99,7 +149,7 @@ def test_reliable_channel_and_fault_transport_resume_as_one_state() -> None:
     sender.send({"value": 9})
     restored_transport = FaultInjectingTransport.from_snapshot(transport.snapshot())
     restored_sender = ReliableChannel.from_snapshot(sender.snapshot(), restored_transport)
-    receiver = ReliableChannel(restored_transport, "receiver", "receiver", "data", ReliabilityPolicy(1, 3))
+    receiver = ReliableChannel(restored_transport, "receiver", "receiver", "data", ReliabilityPolicy(1, 3), peer="sender")
 
     assert restored_sender.tick() == ()
     assert receiver.receive() == (1, {"value": 9})
@@ -112,7 +162,7 @@ def test_reliable_channel_enforces_bounded_inflight_window_and_reopens_after_ack
 
     transport = InMemoryTransport()
     sender = ReliableChannel(transport, "sender", "receiver", "data", ReliabilityPolicy(3, 2, 2))
-    receiver = ReliableChannel(transport, "receiver", "receiver", "data")
+    receiver = ReliableChannel(transport, "receiver", "receiver", "data", peer="sender")
     assert sender.send("first") == 1
     assert sender.send("second") == 2
     assert sender.available_window == 0
@@ -153,3 +203,54 @@ def test_reliable_channel_snapshot_preserves_window_admission() -> None:
     invalid["policy"]["window_size"] = 1
     with pytest.raises(ValueError, match="exceed reliable channel window"):
         ReliableChannel.from_snapshot(invalid, transport)
+
+
+def test_reliable_channel_rejects_spoofed_ack_before_pending_mutation() -> None:
+    r"""Mathematics: acknowledgement acceptance requires `sender = peer` and exact mailbox identity."""
+
+    transport = InMemoryTransport()
+    sender = ReliableChannel(transport, "sender", "receiver", "data")
+    sender.send("protected")
+    transport.send(
+        sender.ack_address,
+        Message(
+            sender="attacker",
+            recipient=sender.ack_address,
+            addr=sender.ack_address,
+            op="RACK",
+            body=("data", 1),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="sender or mailbox"):
+        sender.process_ack()
+    assert sender.pending_sequences() == (1,)
+
+
+def test_reliable_channel_rejects_forged_data_sender_without_consuming_frame() -> None:
+    r"""Mathematics: receive admits only `sender=source`; a foreign `RDATA` remains queued for diagnosis."""
+
+    transport = InMemoryTransport()
+    receiver = ReliableChannel(transport, "receiver", "receiver", "data", peer="sender")
+    transport.send(
+        "receiver",
+        Message(
+            sender="attacker",
+            recipient="receiver",
+            op="RDATA",
+            addr="receiver",
+            body=("data", 1, "forged"),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="mailbox identity"):
+        receiver.receive()
+    assert transport.pending("receiver") == 1
+
+
+def test_reliable_ack_routes_are_injective_for_delimiter_names() -> None:
+    r"""Mathematics: length-prefix encoding makes `(sender, channel) -> mailbox` injective."""
+
+    left = ReliableChannel(InMemoryTransport(), "a:b", "peer", "c")
+    right = ReliableChannel(InMemoryTransport(), "a", "peer", "b:c")
+    assert left.ack_address != right.ack_address

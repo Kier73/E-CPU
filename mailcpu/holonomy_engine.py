@@ -83,7 +83,7 @@ def mat_adjoint2(a: Matrix2x2) -> Matrix2x2:
 
 
 def mat_trace2(a: Matrix2x2) -> complex:
-    r"""Compute the trace of a $2 \times 2$ matrix: $\text{Tr}(A) = A_{00} + A_{11}$."""
+    r"""Mathematics: compute `Tr(A) = A[0][0] + A[1][1]` for a 2-by-2 matrix."""
     return a[0][0] + a[1][1]
 
 
@@ -201,6 +201,8 @@ class HolonomyConsensus:
     def register_node_unitary(self, node_id: str, u: Matrix2x2) -> None:
         r"""Register a geometric phase unitary for a distributed node.
 
+        Mathematics: update the node map as `N' = N union {node_id -> u}`.
+
         Args:
             node_id: Unique node identifier.
             u: Submitted $2 \times 2$ $\text{SU}(2)$ unitary matrix.
@@ -208,11 +210,11 @@ class HolonomyConsensus:
         self._nodes[node_id] = u
 
     def node_count(self) -> int:
-        r"""Return the number of currently registered nodes."""
+        r"""Mathematics: return `|dom(N)|`, the cardinality of the node map."""
         return len(self._nodes)
 
     def max_pairwise_distance(self) -> float:
-        r"""Calculate the maximum pairwise distance across all registered node unitaries."""
+        r"""Mathematics: calculate `max_{i<j} d(U_i, U_j)`, or 0 for fewer than two nodes."""
         items = list(self._nodes.values())
         if len(items) < 2:
             return 0.0
@@ -225,7 +227,7 @@ class HolonomyConsensus:
         return max_d
 
     def is_in_consensus(self) -> bool:
-        r"""Evaluate whether all registered nodes are within the consensus tolerance."""
+        r"""Mathematics: return 1 exactly when `max_{i<j} d(U_i, U_j) <= tolerance`."""
         if len(self._nodes) < 2:
             return True
         return self.max_pairwise_distance() <= self.tolerance

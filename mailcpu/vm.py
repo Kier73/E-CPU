@@ -7,6 +7,11 @@ from typing import Any, Callable, Sequence
 from .environment import VirtualEnvironment
 from .memory import ResidentQuotaExceeded, SharedRegion, VirtualMemory
 from .model import DEFAULT_MAX_TICKS, Program
+from .observation import (
+    ResolverObservation,
+    SubstrateObservation,
+    decode_substrate_observation,
+)
 from .scheduler import DeterministicScheduler, ScheduleEvent
 from .trajectory import TrajectoryWriter
 
@@ -35,6 +40,7 @@ class MailCPUVirtualMachine:
         self.shared_regions: dict[str, SharedRegion] = {}
         self.max_resident_pages = max_resident_pages
         self.host_syscall_handler: Callable[[int, str, dict[str, Any]], Any] | None = None
+        self._resolver_observation_receipts: dict[tuple[int, str, int], tuple[Any, ...]] = {}
 
     def create_shared_memory(self, name: str, size: int) -> SharedRegion:
         """Mathematics: extend shared map `S := S[name↦region]` with zero-filled region of byte cardinality `size`."""
@@ -114,6 +120,70 @@ class MailCPUVirtualMachine:
                 )
             self.trajectory.flush()
         return events
+
+    def apply_substrate_observation(
+        self,
+        pid: int,
+        observation: SubstrateObservation,
+        sequence: int,
+        register_prefix: str = "substrate",
+    ) -> bool:
+        """Mathematics: apply idempotent external transition `R[p,*] := π(O)` once per receipt key `(pid,source,sequence)`."""
+
+        if not isinstance(sequence, int) or isinstance(sequence, bool) or sequence <= 0:
+            raise ValueError("observation sequence must be a positive integer")
+        try:
+            task = self.scheduler.tasks[pid]
+        except KeyError as exc:
+            raise ValueError(f"unknown observation target pid: {pid}") from exc
+        payload = observation.to_payload()
+        receipt_key = (pid, observation.source, sequence)
+        previous = self._resolver_observation_receipts.get(receipt_key)
+        if previous is not None:
+            if previous != payload:
+                raise ValueError("observation receipt sequence conflicts with prior payload")
+            return False
+        for register, value in observation.register_values(register_prefix).items():
+            task.backend.write_register(register, value)
+        self._resolver_observation_receipts[receipt_key] = payload
+        self.scheduler.system_epoch = self.scheduler.system_epoch.advance_event()
+        journal_payload = {
+            "pid": pid,
+            "source": observation.source,
+            "sequence": sequence,
+            "kind": observation.kind,
+            "register_values": observation.register_values(register_prefix),
+        }
+        if isinstance(observation, ResolverObservation):
+            journal_payload.update(
+                {
+                    "domain": observation.domain,
+                    "record_type": observation.record_type,
+                    "logical_time": observation.logical_time,
+                    "status": observation.status,
+                    "hit": observation.hit,
+                    "ttl": observation.ttl,
+                    "value": observation.value,
+                }
+            )
+        self.environment.kernel.journal.append(
+            f"substrate.{observation.kind}_observation",
+            journal_payload,
+        )
+        return True
+
+    def apply_resolver_observation(
+        self,
+        pid: int,
+        observation: ResolverObservation,
+        sequence: int,
+        register_prefix: str = "resolver",
+    ) -> bool:
+        """Mathematics: preserve resolver API as the specialization `apply_resolver(O)=apply_substrate(O)` for `kind(O)=resolver`."""
+
+        if observation.kind != "resolver":
+            raise ValueError("resolver application requires a resolver observation")
+        return self.apply_substrate_observation(pid, observation, sequence, register_prefix)
 
     def _dispatch_program_syscall(self, pid: int, name: str, arguments: dict[str, Any]) -> int:
         """Mathematics: compose program trap `H(pid,name,A)=int(G(pid,name,A))`, where `G` is the bound OS handler or kernel syscall map."""
@@ -209,6 +279,15 @@ class MailCPUVirtualMachine:
             "shared_regions": {
                 name: region.snapshot() for name, region in sorted(self.shared_regions.items())
             },
+            "resolver_observation_receipts": [
+                {
+                    "pid": pid,
+                    "source": source,
+                    "sequence": sequence,
+                    "payload": list(payload),
+                }
+                for (pid, source, sequence), payload in sorted(self._resolver_observation_receipts.items())
+            ],
         }
 
     @classmethod
@@ -247,6 +326,35 @@ class MailCPUVirtualMachine:
             )
             for pid, memory in payload.get("memories", {}).items()
         }
+        machine._resolver_observation_receipts = {}
+        raw_receipts = payload.get("resolver_observation_receipts", ())
+        if not isinstance(raw_receipts, (list, tuple)):
+            raise ValueError("VM resolver observation receipts must be a sequence")
+        for raw_receipt in raw_receipts:
+            if not isinstance(raw_receipt, dict):
+                raise ValueError("VM resolver observation receipt must be a mapping")
+            pid = int(raw_receipt["pid"])
+            source = str(raw_receipt["source"])
+            sequence = int(raw_receipt["sequence"])
+            if pid <= 0 or not source or sequence <= 0:
+                raise ValueError("invalid VM resolver observation receipt identity")
+            raw_payload = raw_receipt.get("payload")
+            if not isinstance(raw_payload, (list, tuple)):
+                raise ValueError("VM resolver observation receipt payload must be a sequence")
+            observation = decode_substrate_observation(tuple(raw_payload))
+            if observation.source != source or pid not in machine.scheduler.tasks:
+                raise ValueError("VM resolver observation receipt ownership mismatch")
+            receipt_key = (pid, source, sequence)
+            if receipt_key in machine._resolver_observation_receipts:
+                raise ValueError("duplicate VM resolver observation receipt")
+            machine._resolver_observation_receipts[receipt_key] = observation.to_payload()
+        task_pids = set(machine.scheduler.tasks)
+        memory_pids = set(machine.memories)
+        if task_pids != memory_pids:
+            raise ValueError("VM scheduler tasks and memory images are not one-to-one")
+        kernel_pids = set(environment.kernel.processes)
+        if not task_pids.issubset(kernel_pids):
+            raise ValueError("VM scheduler task has no kernel process")
         machine._validate_resident_budget()
         return machine
 

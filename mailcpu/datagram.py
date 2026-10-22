@@ -330,7 +330,19 @@ class OwnedDatagramStack:
             source_port, destination_port, body = decode_datagram(frame.payload)
             socket_id = self._bindings.get((target.address, destination_port))
             if socket_id is None:
-                raise DatagramError(f"no socket bound for {target.address.path()}:{destination_port}")
+                dropped = self.fabric.receive(target.address)
+                if dropped is None or dropped.frame_id != frame.frame_id:
+                    raise DatagramError("network frame changed during unbound datagram discard")
+                self.journal.append(
+                    "network.datagram.drop",
+                    {
+                        "frame_id": frame.frame_id,
+                        "destination": target.address.to_dict(),
+                        "destination_port": destination_port,
+                        "reason": "unbound-port",
+                    },
+                )
+                continue
             socket = self._socket(socket_id)
             if len(socket.inbox) >= socket.queue_limit:
                 raise DatagramError("socket receive queue is full")

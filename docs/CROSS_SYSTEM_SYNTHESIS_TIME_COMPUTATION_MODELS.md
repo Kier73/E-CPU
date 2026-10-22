@@ -20,7 +20,7 @@ Defined terms follow `docs/GLOSSARY.md`. Core architecture follows `docs/ARCHITE
 ├─────────────────────────┼─────────────────────────┼────────────────────┤
 │ • Communication as state│ • Reversible VQM-16 ISA │ • Universal Ω_5:   │
 │ • Logical event time    │ • Chronons & phase D    │   State->Lift->Nav │
-│ • Content-addressed VFS │ • Chronofolding (time   │ • 8-rung ladder:   │
+│ • Content-addressed VFS │ • Periodic trajectory  │ • 6-rung ladder:   │
 │ • Hash-chained journal  │   over space iteration) │   int, lcg, tape...│
 │ • Zero-RAM Feistel seal │ • Bennett constant-     │ • Chemical time    │
 │ • Capability hypervisor │   space ledger replay   │ • Neural lifters   │
@@ -49,7 +49,7 @@ In Virtual Quanta (*temporal.py*), time is treated as a physical resource rather
    $$D = (-i)^{n_{\text{active}}} \in \{1, -i, -1, i\}$$
 2. **Chronofolding**: The compiler refactors space into time. Rather than unrolling loops statically into vast predicated circuits (which scales as $\mathcal{O}(\text{max\_loop} \times |\text{body}|)$ in space), the temporal machine executes one iteration at a time, emitting an integer event ledger:
    $$\text{Storage}(\text{Chronofold}) = \mathcal{O}(1) \text{ snapshots} + \text{periodic trace header}$$
-3. **Bennett Constant-Space Replay**: The final tape is dropped from RAM (`retain_tape=False`). When the final state is required, `fold.recompute_final_tape()` replays the compressed structural trace in bounded memory, achieving Landauer-optimal computation.
+3. **Bennett Constant-Space Replay**: The final tape is dropped from RAM (`retain_tape=False`). When the final state is required, `fold.recompute_final_tape()` replays the retained structural trace in bounded working memory; periodicity is recorded as metadata and is not yet a storage-compressing rewrite.
 
 ### 2.2 VL_Logic Compiler: Chemical Time and Horizon Persistence
 
@@ -71,7 +71,7 @@ In VL_Logic Compiler (*VL_INSIGHTS.md*), time is formulated as an intrinsic prop
 | Dimension | MailCPU / E-CPU | Virtual Quanta (`vquanta`) | VL_Logic Compiler (`VL_Embed`) |
 |---|---|---|---|
 | **Core Abstraction** | Message transition triple $(pc, R, Q, O)$ | Reversible tape permutation $\sigma \in S_{2^N}$ | Universal operator $\Omega_5 = (\text{STATE}, \text{LIFT}, \text{NAV}, \text{DESC}, \text{VERIFY})$ |
-| **Instruction Set** | 9-instruction register/mailbox algebra | Involutive gates ($X$, $\text{swap}$) | 8-rung ground ladder (`int`, `lcg`, `gf2`, `fgraph`...)|
+| **Instruction Set** | 9-instruction register/mailbox algebra | Involutive gates ($X$, $\text{swap}$) | 6-rung ground ladder (`int`, `lcg`, `gf2`, `fgraph`...)|
 | **Branch Handling** | Queue blocking on empty `WAIT` | Masked register arms (data-independent) | Lane decimation & vantage-point coordinate shifts |
 | **Memory Model** | Content-addressed pages $\text{SHA256}(\text{bytes})$ | Shared linear tape with sector allocation | Latent registry; external structure as memory |
 | **Determinism Gate** | Hash-chained journal receipts | Bit-exact cross-engine test certificates | Translation closure: $T(M, F_A) \to (M, F_B)$, $E_{\text{noise}}=0$|
@@ -164,8 +164,8 @@ MailCPU serves as the foundational substrate (Iteration 1). By assimilating the 
 ### Actionable Integration Pipeline:
 
 1. **Adopt Chronofolding into the MailCPU Scheduler**:
-   Replace MailCPU's linearly expanding trajectory journals with Virtual Quanta's compressed shift-periodic chronofold ledgers. This cuts distributed replay storage by orders of magnitude while preserving bit-exact reversibility.
-2. **Embed the $\Omega_5$ Law Lifter into Network Channels**:
-   Deploy the 8-rung ladder classification on incoming network frame sequences. When an in-flight stream matches a known affine or LCG recurrence, leap the virtual machine clock forward using closed-form orbit jumping ($s_t = \Lambda(s_0, t)$ in $\mathcal{O}(\log t)$), bypassing network RTT delays.
+   Replace MailCPU's linearly expanding trajectory journals with a shift-periodic chronofold index. The current implementation retains the trace and records a bounded periodicity witness; storage reduction remains a future, verified build rather than a present claim.
+2. **Embed the six-rung Law Lifter into Network Channels**:
+   Deploy the six-rung classification on incoming network frame sequences. When an in-flight stream matches a known affine or LCG recurrence and its modulus is identified, a future execution adapter may use closed-form orbit jumping ($s_t = \Lambda(s_0, t)$ in $\mathcal{O}(\log t)$); the current lifter certifies and navigates only the recovered evidence horizon.
 3. **Unify Time Metrics**:
    Tie MailCPU's logical event ticks $\lambda$, Virtual Quanta's phase chronons $\tau_c$, and VL_Logic's chemical time $\tau_{\text{chem}}$ into a single relativistic coordinate system where execution difficulty dynamically governs memory allocation and cache retention.

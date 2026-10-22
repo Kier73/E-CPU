@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import tempfile
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -143,13 +145,32 @@ class ExecutableImage:
         return hashlib.sha256(canonical).hexdigest()
 
     def save(self, path: str | Path) -> None:
-        """Mathematics: persist exactly one canonical image representation `bytes(path) := JSON(I)`."""
+        """Mathematics: publish canonical image `I` by durable sibling write and atomic replacement `replace(I_tmp, I)`."""
 
         destination = Path(path)
-        destination.write_text(
-            json.dumps(self.to_dict(), indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        payload = json.dumps(self.to_dict(), indent=2, sort_keys=True) + "\n"
+        temporary_path: Path | None = None
+        try:
+            descriptor, raw_temporary_path = tempfile.mkstemp(
+                prefix=f".{destination.name}.",
+                suffix=".tmp",
+                dir=str(destination.parent),
+                text=True,
+            )
+            temporary_path = Path(raw_temporary_path)
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                stream.write(payload)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary_path, destination)
+            temporary_path = None
+        finally:
+            if temporary_path is not None:
+                try:
+                    temporary_path.unlink()
+                except FileNotFoundError:
+                    pass
 
     @classmethod
     def load(cls, path: str | Path) -> "ExecutableImage":

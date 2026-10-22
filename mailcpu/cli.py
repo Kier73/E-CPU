@@ -439,11 +439,15 @@ def _command_bench(arguments: argparse.Namespace) -> int:
     circ_stats = sim.benchmark_delay_loop_circulation(group, rounds=arguments.iterations)
 
     output = {
-        "status": "ok",
+        "status": "ok" if circ_stats["permanent_losses"] == 0.0 and circ_stats["verification_failures"] == 0.0 else "degraded",
         "iterations": arguments.iterations,
         "reversible_restored": tape == initial_tape,
         "network_loss_rate": circ_stats["network_loss_rate"],
+        "attempted_recoveries": circ_stats["attempted_recoveries"],
+        "verified_recoveries": circ_stats["verified_recoveries"],
         "scrub_recoveries": circ_stats["scrub_recoveries"],
+        "verification_failures": circ_stats["verification_failures"],
+        "permanent_losses": circ_stats["permanent_losses"],
     }
     print(json.dumps(output, sort_keys=True))
     return 0
@@ -468,11 +472,14 @@ def _command_substrate(arguments: argparse.Namespace) -> int:
     group = engine.add_group(value=9999, k=2, moduli=(257, 263, 269, 271))
     circ_stats = sim.benchmark_delay_loop_circulation(group, rounds=arguments.cycles)
     output = {
-        "status": "ok",
+        "status": "ok" if circ_stats["permanent_losses"] == 0.0 and circ_stats["verification_failures"] == 0.0 else "degraded",
         "cycles": arguments.cycles,
         "loss_rate": circ_stats["network_loss_rate"],
+        "attempted_recoveries": circ_stats["attempted_recoveries"],
+        "verified_recoveries": circ_stats["verified_recoveries"],
         "erasure_events": circ_stats["erasure_events"],
         "scrub_recoveries": circ_stats["scrub_recoveries"],
+        "verification_failures": circ_stats["verification_failures"],
         "permanent_losses": circ_stats["permanent_losses"],
     }
     print(json.dumps(output, sort_keys=True))

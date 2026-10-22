@@ -28,6 +28,7 @@ import ast
 import builtins
 import io
 import re
+import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -111,7 +112,20 @@ def check_prose() -> Findings:
 
 
 def check_docstrings() -> Findings:
-    return Findings("docstrings")
+    findings = Findings("docstrings")
+    for path in _python_files():
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if node.name.startswith("__") and node.name.endswith("__"):
+                continue
+            docstring = ast.get_docstring(node)
+            if not docstring:
+                findings.add(path, node.lineno, node.name, "missing docstring")
+            elif "Mathematics:" not in docstring:
+                findings.add(path, node.lineno, node.name, "missing governing mathematics annotation")
+    return findings
 
 
 def check_links() -> Findings:
@@ -212,20 +226,16 @@ def _matches(path: Path, pattern: str) -> bool:
 
 
 def _tracked_files() -> list[Path]:
-    """Mathematics: project the repository tree onto the files eligible for distribution."""
+    """Mathematics: return `F = {ROOT/p | p ∈ Git-index ∪ unignored-worktree}`."""
 
-    excluded = {PRIVATE_PREFIX, ".git", "__pycache__", ".pytest_cache", ".venv", "build", "dist"}
-    files: list[Path] = []
-    for path in ROOT.rglob("*"):
-        if not path.is_file():
-            continue
-        relative = path.relative_to(ROOT)
-        if excluded & set(relative.parts):
-            continue
-        if path.suffix in {".pyc"}:
-            continue
-        files.append(path)
-    return sorted(files)
+    result = subprocess.run(
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+        cwd=ROOT,
+        check=True,
+        stdout=subprocess.PIPE,
+    )
+    relative_paths = [Path(raw) for raw in result.stdout.decode("utf-8").split("\0") if raw]
+    return sorted(ROOT / path for path in relative_paths if path.suffix != ".pyc")
 
 
 CHECKS = {

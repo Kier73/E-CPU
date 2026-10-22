@@ -320,10 +320,12 @@ class OwnedStreamStack:
 
         connection = self._connection(handle)
         self._pump_address(connection.local)
+        peer = self._peer_connection(connection)
         readable = bool(connection.receive_buffer) or connection.eof
         writable = (
             connection.state is StreamState.ESTABLISHED
             and sum(connection.pending.values()) < self.window
+            and len(peer.receive_buffer) < self.window
             and self.fabric.queue_available(connection.peer) > 0
         )
         hangup = connection.eof or connection.state is StreamState.CLOSED
@@ -354,7 +356,11 @@ class OwnedStreamStack:
         available_queue = self.fabric.queue_available(connection.peer)
         if available_queue <= 0:
             raise StreamError("stream destination queue cannot accept all segments")
-        body = body[: min(len(body), available_window, available_queue * chunk_size)]
+        peer = self._peer_connection(connection)
+        available_receiver = self.window - len(peer.receive_buffer)
+        if available_receiver <= 0:
+            raise StreamError("stream receiver window is full")
+        body = body[: min(len(body), available_window, available_receiver, available_queue * chunk_size)]
         chunks = [body[index : index + chunk_size] for index in range(0, len(body), chunk_size)]
         next_sequence = connection.send_next
         if next_sequence + len(body) > _MAX_SEQUENCE:
@@ -640,7 +646,20 @@ class OwnedStreamStack:
             segment = StreamSegment.from_bytes(frame.payload)
             handle = self._wire_index.get((address, segment.destination_port, segment.connection_id))
             if handle is None:
-                raise StreamError("stream segment has no local connection")
+                dropped = self.fabric.receive(address)
+                if dropped is None or dropped.frame_id != frame.frame_id:
+                    raise StreamError("network frame changed during orphan stream discard")
+                self.journal.append(
+                    "network.stream.drop",
+                    {
+                        "frame_id": frame.frame_id,
+                        "destination": address.to_dict(),
+                        "connection_id": segment.connection_id,
+                        "destination_port": segment.destination_port,
+                        "reason": "unknown-connection",
+                    },
+                )
+                continue
             connection = self._connection(handle)
             if frame.source != connection.peer or segment.source_port != connection.peer_port:
                 raise StreamError("stream segment peer identity mismatch")
@@ -677,6 +696,8 @@ class OwnedStreamStack:
                 raise StreamError("unsupported stream flag combination")
             if segment.sequence != connection.receive_next:
                 raise StreamError("out-of-order stream segment")
+            if len(connection.receive_buffer) + len(segment.payload) > self.window:
+                raise StreamError("stream receiver window is full")
             next_receive = connection.receive_next + len(segment.payload)
             if next_receive > _MAX_SEQUENCE:
                 raise StreamError("stream receive sequence space exhausted")
@@ -699,6 +720,14 @@ class OwnedStreamStack:
                 "network.stream.data",
                 {"handle": handle, "sequence": segment.sequence, "size": len(segment.payload)},
             )
+
+    def _peer_connection(self, connection: _Connection) -> _Connection:
+        r"""Mathematics: resolve the unique peer `C[(peer, peer_port, wire_id)]` required for receiver-credit accounting."""
+
+        peer_handle = self._wire_index.get((connection.peer, connection.peer_port, connection.wire_id))
+        if peer_handle is None:
+            raise StreamError("stream peer connection is missing")
+        return self._connection(peer_handle)
 
     def _acknowledge(self, connection: _Connection, acknowledgement: int) -> None:
         """Mathematics: advance cumulative ACK `A:=ack` only when `old_A≤ack≤send_next`, removing `q+len(q)≤ack`."""

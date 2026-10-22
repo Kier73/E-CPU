@@ -113,7 +113,37 @@ def test_policy_gate_fallback_on_model_mismatch() -> None:
     truth = lane[20:]
 
     law, pred = misleading_policy.certify_stream(window, truth)
-    # Even though head suggested gf2, deterministic verifier must certify as int!
-    assert law.verdict == "GROUND"
+    # The unwrapped progression is fitted, not ground: without an observed
+    # modulus, extrapolation beyond the witness is not identified.
+    assert law.verdict == "FITTED"
     assert law.family == "int"
     assert law.params["step"] == 7
+
+
+def test_policy_never_vetoes_lawful_trace_with_high_confidence_tape_prediction() -> None:
+    r"""Mathematics: advisory prediction cannot override deterministic witness recovery."""
+
+    class TapeHead(DistilledRungHead):
+        r"""Mathematics: construct a deliberately adversarial posterior."""
+
+        def predict(self, window):
+            r"""Mathematics: return $P(\mathrm{tape}\mid W)=0.999$ without changing $W$."""
+            result = super().predict(window)
+            result.predicted_family = "tape"
+            result.confidence = 0.999
+            result.probabilities = {name: 0.0 for name in result.probabilities}
+            result.probabilities["tape"] = 0.999
+            return result
+
+    lane = []
+    current = 13
+    for _ in range(40):
+        lane.append(current)
+        current = (5 * current + 1) % 256
+
+    policy = NeuralLifterPolicy(head=TapeHead())
+    law, prediction = policy.certify_stream(lane[:25])
+
+    assert prediction.predicted_family == "tape"
+    assert law.verdict != "TAPE"
+    assert law.family == "lcg"

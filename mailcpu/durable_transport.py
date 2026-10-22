@@ -92,10 +92,11 @@ class DurableMailboxTransport:
     _VERSION = 1
     _GENESIS = b"\x00" * 32
 
-    def __init__(self, path: str | Path) -> None:
+    def __init__(self, path: str | Path, repair_torn: bool = True) -> None:
         """Mathematics: initialize `Q=Π_addr []`, identity index `L=∅`, log head `H=0^256`, and sequence `n=0`, then replay `path`."""
 
         self.path = Path(path)
+        self._repair_torn = bool(repair_torn)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock_path = self.path.with_name(self.path.name + ".lock")
         self._queues: dict[str, deque[Message]] = {}
@@ -176,9 +177,12 @@ class DurableMailboxTransport:
         }
 
     def verify(self) -> bool:
-        """Mathematics: replay a fresh copy and require equal `(n,H,Q,L,next_id)` to certify the current log."""
+        """Mathematics: replay a non-repairing fresh copy and require equal `(n,H,Q,L,next_id)` without mutating the log."""
 
-        candidate = type(self)(self.path)
+        try:
+            candidate = type(self)(self.path, repair_torn=False)
+        except DurableTransportError:
+            return False
         return (
             candidate._sequence == self._sequence
             and candidate._head == self._head
@@ -194,6 +198,8 @@ class DurableMailboxTransport:
         complete_length = len(raw_data)
         if raw_data and not raw_data.endswith(b"\n"):
             complete_length = raw_data.rfind(b"\n") + 1
+            if not self._repair_torn:
+                raise DurableTransportError("durable mailbox has an incomplete final record")
             self._truncate(complete_length)
             raw_data = raw_data[:complete_length]
         for line in raw_data.splitlines():
@@ -292,7 +298,7 @@ class DurableMailboxTransport:
 
         self._lock_path.touch(exist_ok=True)
         with self._lock_path.open("a+b") as lock:
-            lock.seek(0)
+            lock.seek(0, os.SEEK_END)
             if lock.tell() == 0:
                 lock.write(b"0")
                 lock.flush()

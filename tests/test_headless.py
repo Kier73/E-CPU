@@ -4,7 +4,7 @@ import pytest
 
 from mailcpu import HeadlessOS, assemble
 from mailcpu.fs import FsError
-from mailcpu.kernel import KernelError, POLLIN
+from mailcpu.kernel import Capability, KernelError, POLLIN
 
 
 COUNTDOWN = """
@@ -390,6 +390,20 @@ def test_scheduled_spawn_file_creates_virtual_child_without_host_launch() -> Non
     assert child.parent_pid == parent_pid
     assert child.status == "exited"
     assert child.exit_code == 7
+
+
+def test_spawn_file_reads_executable_with_calling_process_authority() -> None:
+    r"""Mathematics: `spawn_file(P,path)` is defined only when `P` can read the executable inode."""
+
+    os = HeadlessOS()
+    parent = os.launch_source("wait inbox value\nhalt\n", "restricted")
+    os.install_source("/secret/child.mca", "halt\n", mode=0o755)
+    os.environment.kernel._process(parent).capabilities = (
+        Capability("/safe", frozenset({"read", "execute"})),
+    )
+
+    with pytest.raises(KernelError, match="permission denied"):
+        os.syscall(parent, "spawn_file", path="/secret/child.mca", name="child")
 
 
 def test_scheduled_exec_replaces_image_after_trap_without_old_program_continuing() -> None:

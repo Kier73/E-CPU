@@ -194,13 +194,13 @@ class HorizonTracker:
     family: str = "tape"
 
     def is_valid_coordinate(self, t: int) -> bool:
-        r"""Check if coordinate $t$ lies strictly within the certified horizon."""
+        r"""Mathematics: return 1 exactly when `t_horizon is None or t < t_horizon`."""
         if self.t_horizon is None:
             return True
         return t < self.t_horizon
 
     def assert_valid(self, t: int) -> None:
-        r"""Assert that coordinate $t < t_{\text{horizon}}$, raising `HorizonExceeded` on breach."""
+        r"""Mathematics: enforce `t_horizon is None or t < t_horizon`, raising `HorizonExceeded` otherwise."""
         if not self.is_valid_coordinate(t):
             raise HorizonExceeded(
                 f"task {self.task_id} attempted navigation to coordinate t={t} "
@@ -227,7 +227,7 @@ class SystemEpoch:
     chemical_tau: float
 
     def advance_event(self) -> SystemEpoch:
-        r"""Advance the discrete event counter by 1."""
+        r"""Mathematics: update `event_lambda' = event_lambda + 1` and preserve the other coordinates."""
         return SystemEpoch(
             event_lambda=self.event_lambda + 1,
             chronon_phase=self.chronon_phase,
@@ -235,7 +235,7 @@ class SystemEpoch:
         )
 
     def advance_chronon(self, active_bits: int) -> SystemEpoch:
-        r"""Multiply chronon phase by discrete geometric factor $D = (-i)^{n_{\text{active}} \bmod 4}$."""
+        r"""Mathematics: update `chronon_phase' = chronon_phase * (-i)^(active_bits mod 4)`."""
         phase_map = (1 + 0j, 0 - 1j, -1 + 0j, 0 + 1j)
         step_factor = phase_map[active_bits % 4]
         return SystemEpoch(
@@ -245,7 +245,7 @@ class SystemEpoch:
         )
 
     def add_chemical_difficulty(self, diff: float) -> SystemEpoch:
-        r"""Accumulate chemical parsing difficulty."""
+        r"""Mathematics: update `chemical_tau' = chemical_tau + max(0, diff)`."""
         return SystemEpoch(
             event_lambda=self.event_lambda,
             chronon_phase=self.chronon_phase,

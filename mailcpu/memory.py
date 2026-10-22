@@ -300,7 +300,11 @@ class VirtualMemory:
                     mapping.shared_page,
                 )
             else:
-                self._reservations[page_number] = PageReservation(page_number, writable)
+                self._reservations[page_number] = PageReservation(
+                    page_number,
+                    writable,
+                    self._reservations[page_number].backing_blob_id,
+                )
 
     def read(self, address: int, size: int) -> bytes:
         """Mathematics: concatenate page slices `read(a,n) = ||_p page[p][offset:offset+k_p]`."""

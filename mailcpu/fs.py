@@ -126,6 +126,9 @@ class VirtualFileSystem:
         """Mathematics: allocate a fresh inode identity `i_n` and, for files, bind `blob = SHA256(data)`."""
 
         inode_id = f"i{self._next_inode:08d}"
+        while inode_id in self._inodes:
+            self._next_inode += 1
+            inode_id = f"i{self._next_inode:08d}"
         self._next_inode += 1
         inode = Inode(inode_id, kind, mode, owner)
         if kind is NodeKind.FILE:
@@ -330,10 +333,16 @@ class VirtualFileSystem:
         filesystem = cls()
         filesystem.root_inode = str(payload["root_inode"])
         filesystem._next_inode = int(payload["next_inode"])
+        if filesystem._next_inode <= 0:
+            raise FsError("snapshot next_inode must be positive")
         filesystem.blobs = BlobStore.from_snapshot(dict(payload["blobs"]))
         filesystem.providers = ProviderRegistry.from_snapshot(dict(payload.get("providers", {})))
         filesystem._inodes = {}
         for inode_id, raw in payload["inodes"].items():
+            if not isinstance(inode_id, str) or not inode_id.startswith("i") or not inode_id[1:].isdigit():
+                raise FsError(f"invalid inode identity: {inode_id}")
+            if int(inode_id[1:]) <= 0:
+                raise FsError(f"invalid inode identity: {inode_id}")
             inode = Inode(
                 str(raw["inode_id"]),
                 NodeKind(raw["kind"]),
@@ -348,6 +357,12 @@ class VirtualFileSystem:
             filesystem._inodes[inode_id] = inode
         if filesystem.root_inode not in filesystem._inodes:
             raise FsError("snapshot root inode is missing")
+        root = filesystem._inodes[filesystem.root_inode]
+        if root.kind is not NodeKind.DIRECTORY:
+            raise FsError("snapshot root inode is not a directory")
+        max_inode = max(int(inode_id[1:]) for inode_id in filesystem._inodes)
+        if filesystem._next_inode <= max_inode:
+            raise FsError("snapshot next_inode collides with an existing inode")
         for inode in filesystem._inodes.values():
             if inode.kind is NodeKind.FILE:
                 if inode.provider_key is not None:

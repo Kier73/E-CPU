@@ -105,7 +105,7 @@ python -m mailcpu <command> [options]
 | `lift SEQUENCE [--horizon T]` | Certify algebraic recurrence law and compute orbit leap |
 | `bench [--iterations N]` | Benchmark reversible gate cycles, delay loops, and lifter |
 | `substrate [--rtt-ms MS] [--loss-rate P] [--cycles C]` | Simulate WAN delay-loop circulation under burst loss |
-| `chronofold [--ticks N]` | Execute reversible trajectory compression and phase ledger |
+| `chronofold [--ticks N]` | Execute reversible trajectory ledger analysis and phase accounting |
 
 `cli._COMMANDS` defines the declared command domain.
 
@@ -148,7 +148,7 @@ recorded in the hash-chained event journal.
 ## 7. Repository layout
 
 ```text
-mailcpu/     importable package; 53 modules
+mailcpu/     importable package; 55 modules
 tests/       conformance, differential, protocol, runtime, and surface tests
 scripts/     golden-trace recorder and repository verifiers
 examples/    assembly source fixtures

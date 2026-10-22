@@ -13,9 +13,9 @@ Model predictions are strictly advisory:
 \[
 \text{State Stream} \xrightarrow{\quad\text{Distilled Head}\quad} \hat{c} \xrightarrow{\quad\text{Deterministic Witness Verifier}\quad} \text{GROUND} \lor \text{Fallback}
 \]
-A predicted candidate law is dispatched if and only if it reproduces 100% of the
-withheld verification probes in the witness set. A failure triggers fallback to the
-exhaustive deterministic ladder, guaranteeing zero execution divergence.
+The deterministic certifier is the sole admission authority. The prediction is
+retained as telemetry and future scheduling guidance, but it cannot create a law,
+refuse a law, or change a verdict without deterministic evidence.
 """
 
 from __future__ import annotations
@@ -139,7 +139,7 @@ class LifterPrediction:
 
 
 class DistilledRungHead:
-    r"""Lightweight distilled classification head for 8-rung ladder prediction.
+    r"""Lightweight distilled classification head for six-rung ladder prediction.
 
     Mathematics:
     Evaluates calibrated linear projection $\mathbf{z} = \mathbf{W} \mathbf{v} + \mathbf{b}$
@@ -224,14 +224,16 @@ class DistilledRungHead:
 
 
 class NeuralLifterPolicy:
-    r"""Policy gate isolation hypervisor pairing fast neural prediction with witness verification.
+    r"""Policy gate isolation pairing advisory prediction with witness verification.
 
     Mathematics:
     Ensures absolute mathematical correctness:
     1. Distilled neural head suggests candidate family $\hat{c}$.
     2. Deterministic witness verification verifies $\hat{c}$ against ground truth $T$.
-    3. If verification yields `GROUND`, the certified law is accepted with $\mathcal{O}(1)$ overhead.
-    4. If verification fails, policy falls back to exhaustive ladder search.
+    3. The deterministic ladder alone determines `GROUND`, `PREFIX-GROUND`, `FITTED`,
+       or `TAPE`.
+    4. The prediction may optimize future candidate ordering, but never changes
+       the result of the witness verifier.
     """
 
     def __init__(self, head: DistilledRungHead | None = None) -> None:
@@ -243,7 +245,7 @@ class NeuralLifterPolicy:
         window: Sequence[int],
         truth: Sequence[int] | None = None,
     ) -> tuple[Law, LifterPrediction]:
-        r"""Certify a stream with fast neural guidance and deterministic isolation.
+        r"""Certify a stream with advisory neural telemetry and deterministic isolation.
 
         Mathematics:
         Evaluates $P(\text{family} \mid W)$ and validates against witness $T$.
@@ -257,15 +259,7 @@ class NeuralLifterPolicy:
         """
         prediction = self.head.predict(window)
 
-        # Fast-path refusal for clear uncompressed TAPE on long witness-free windows
-        if (
-            truth is None
-            and len(window) >= 16
-            and prediction.predicted_family == "tape"
-            and prediction.confidence >= 0.95
-        ):
-            return Law(family="tape", verdict="TAPE", residual=1.0), prediction
-
-        # Deterministic witness verification
+        # The prediction cannot veto a lawful trace: only deterministic recovery
+        # may issue a refusal or a certificate.
         law = recover_law(window, truth)
         return law, prediction

@@ -103,12 +103,15 @@ class ServiceSupervisor:
             except KernelError:
                 record.pid = None
                 current = None
-            if current is not None and current.status in {
-                ProcessStatus.RUNNABLE.value,
-                ProcessStatus.BLOCKED.value,
-            }:
+            if current is not None and current.status != ProcessStatus.EXITED.value:
                 record.state = current.status
                 return self.status(name)
+            if current is not None:
+                # A direct caller may have terminated the process without
+                # passing through supervisor reconciliation. Reap it before
+                # realizing the desired state again.
+                record.exit_code = current.exit_code
+                self._collect(record)
         record.pid = self.operating_system.launch_file(
             record.spec.source_path,
             name=f"service:{name}",

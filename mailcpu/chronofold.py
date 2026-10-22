@@ -1,4 +1,4 @@
-"""Chronofolded structural trajectory ledger and Bennett constant-space replay engine."""
+"""Structural trajectory ledger with periodicity metadata and Bennett replay."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ class AllocatorSnapshot:
 
 @dataclass
 class ChronoFold:
-    r"""Mathematics: compact structural trajectory representation `\mathcal{F} = \langle s_0, \mathcal{T}, \mathcal{A}, D \rangle`."""
+    r"""Mathematics: trajectory representation `\mathcal{F} = \langle s_0, \mathcal{T}, \mathcal{A}, D \rangle` with optional period metadata."""
 
     initial_tape: int
     trace: list[int] = field(default_factory=list)
@@ -58,7 +58,7 @@ class ChronoFold:
         self.sector_reads += read_delta
 
     def detect_periodicity(self, min_period: int = 1, max_period: int = 64) -> bool:
-        r"""Mathematics: detect shift-periodic recurrence `\exists P, S : t_{i+P} = t_i + S` across trace suffix."""
+        r"""Mathematics: detect shift-periodic recurrence `\exists P, S : t_{i+P} = t_i + S` and store metadata without deleting samples."""
 
         trace_len = len(self.trace)
         if trace_len < min_period * 2:
@@ -129,14 +129,30 @@ class ChronoFold:
             raise ValueError(f"unsupported chronofold format: {data.get('format')}")
         raw_tape = data["initial_tape"]
         initial_tape = int(raw_tape, 16) if isinstance(raw_tape, str) else int(raw_tape)
+        trace = [int(step_code) for step_code in data.get("trace", [])]
+        period_header = int(data.get("period_header", 0))
+        period_length = int(data.get("period_length", 1))
+        period_stride = int(data.get("period_stride", 0))
+        active_chronons = int(data.get("active_chronons", 0))
+        sector_reads = int(data.get("sector_reads", 0))
+        if initial_tape < 0:
+            raise ValueError("chronofold initial_tape must be non-negative")
+        if any(step_code < 0 for step_code in trace):
+            raise ValueError("chronofold trace codes must be non-negative")
+        if period_header < 0 or period_length <= 0:
+            raise ValueError("chronofold period metadata has invalid bounds")
+        if active_chronons < 0 or sector_reads < 0:
+            raise ValueError("chronofold counters must be non-negative")
+        if period_header and period_header + 2 * period_length > len(trace):
+            raise ValueError("chronofold period metadata exceeds the retained trace")
         fold = cls(
             initial_tape=initial_tape,
-            trace=list(data.get("trace", [])),
-            period_header=int(data.get("period_header", 0)),
-            period_length=int(data.get("period_length", 1)),
-            period_stride=int(data.get("period_stride", 0)),
-            active_chronons=int(data.get("active_chronons", 0)),
-            sector_reads=int(data.get("sector_reads", 0)),
+            trace=trace,
+            period_header=period_header,
+            period_length=period_length,
+            period_stride=period_stride,
+            active_chronons=active_chronons,
+            sector_reads=sector_reads,
         )
         return fold
 

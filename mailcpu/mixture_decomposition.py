@@ -44,6 +44,7 @@ class MixtureComponent:
     verdict: str
     order: int
     params: dict[str, Any] = field(default_factory=dict)
+    first_bad: int | None = None
 
 
 @dataclass
@@ -59,7 +60,7 @@ class Mixture:
 
     @property
     def is_mixture(self) -> bool:
-        r"""Return True if this represents a non-trivial certified mixture ($s > 1$)."""
+        r"""Mathematics: return 1 exactly when `stride > 1 and len(components) == stride`."""
         return self.stride > 1 and len(self.components) == self.stride
 
 
@@ -115,6 +116,7 @@ def decompose_mixture(
                     verdict=law.verdict,
                     order=law.order,
                     params=dict(law.params),
+                    first_bad=law.first_bad,
                 )
             )
         if all_ground and len(comps) == s:
@@ -165,18 +167,30 @@ def recover_mixture(
             {
                 "residue": c.residue,
                 "family": c.family,
+                "verdict": c.verdict,
                 "order": c.order,
                 "params": c.params,
+                "first_bad": c.first_bad,
             }
             for c in mix.components
         ],
     }
+    component_horizons = [
+        mix.stride * component.first_bad + component.residue
+        for component in mix.components
+        if component.first_bad is not None
+    ]
+    composite_verdict = (
+        "GROUND"
+        if all(component.verdict == "GROUND" for component in mix.components)
+        else "PREFIX-GROUND"
+    )
     composite_law = Law(
         family=f"mixture_{dominant_family}",
         params=composite_params,
         order=mix.stride,
-        verdict="GROUND",
+        verdict=composite_verdict,
         residual=0.0,
-        first_bad=None,
+        first_bad=min(component_horizons) if component_horizons else None,
     )
     return composite_law, mix

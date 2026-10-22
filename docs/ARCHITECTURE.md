@@ -312,7 +312,7 @@ rules are `docs/ARCHITECTURE.md` clauses 3 and 5 and `docs/REPLACEMENT_SPEC.md`.
   caching, while TCP sequence operators provide arithmetic over the cyclic ring $\mathbb{Z}_{2^{32}}$
   and autonomous AIMD feedback concurrency control.
 - The $\Omega_5 = (\text{STATE}, \text{LIFT}, \text{NAVIGATE}, \text{DESCEND}, \text{VERIFY})$ loop
-  transforms message streams into certified closed-form recurrence relations across an 8-rung ladder,
+  transforms message streams into certified closed-form recurrence relations across the implemented six-rung ladder,
   enabling $\mathcal{O}(\log t)$ closed-form orbit leaps guarded by strict horizon bounds $t < \text{first\_bad}$.
 - Tripartite temporal coordinates $\langle \lambda_{\text{event}}, \tau_{\text{chronon}}, \tau_{\text{chem}} \rangle$
   govern execution, scaling memory quotas and retention delays by normalized parsing difficulty $\tau_{\text{chem}}$,

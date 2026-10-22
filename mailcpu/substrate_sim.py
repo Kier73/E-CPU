@@ -25,7 +25,8 @@ import random
 from dataclasses import dataclass
 from typing import Sequence
 
-from mailcpu.delay_loop import DelayGroup, DelayLoopEngine, DelaySlot
+from mailcpu.delay_loop import DelayGroup, DelaySlot
+from mailcpu.rrns import recover_rrns
 from mailcpu.timing_channel import CadenceDemodulator, CadenceModulator
 
 
@@ -46,7 +47,7 @@ class NetworkStats:
 
     @property
     def loss_rate(self) -> float:
-        r"""Compute empirical packet loss fraction in $[0.0, 1.0]$."""
+        r"""Mathematics: compute `packets_dropped / packets_sent`, or 0 when the denominator is zero."""
         if self.packets_sent == 0:
             return 0.0
         return self.packets_dropped / self.packets_sent
@@ -140,7 +141,7 @@ class WanSubstrateSimulator:
         self._latencies: list[float] = []
 
     def sample_rtt(self) -> float:
-        r"""Sample stochastic round-trip time $\text{RTT} \sim \mathcal{N}(\mu, \sigma^2)$ clamped $\ge \mu/4$."""
+        r"""Mathematics: sample `R ~ Normal(mu, sigma^2)` and return `max(mu/4, R)`."""
         val = self._rng.gauss(self.mean_rtt_ms, self.jitter_sigma_ms)
         return max(self.mean_rtt_ms * 0.25, val)
 
@@ -172,6 +173,12 @@ class WanSubstrateSimulator:
         self.stats.packets_delivered += 1
         self._latencies.append(rtt)
         self.stats.mean_latency_ms = sum(self._latencies) / len(self._latencies)
+        if len(self._latencies) > 1:
+            mean = self.stats.mean_latency_ms
+            self.stats.jitter_std_ms = math.sqrt(
+                sum((latency - mean) ** 2 for latency in self._latencies)
+                / (len(self._latencies) - 1)
+            )
         return True, arrival_time
 
     def benchmark_delay_loop_circulation(
@@ -184,62 +191,77 @@ class WanSubstrateSimulator:
         Mathematics:
         Simulates $R$ round trips of a redundant group of $N$ packets. In each round,
         surviving packets are gathered, and if $k \le \text{surviving} < N$, the
-        group is scrubbed to revive lost packets. If surviving $< k$, loss is permanent.
+        group is scrubbed to revive lost packets. A recovery is counted only when
+        `recover_rrns` is consistent and reconstructs `group.initial_value` exactly.
+        If surviving $< k$, loss is permanent.
 
         Args:
             group: Redundant `DelayGroup` instance.
             rounds: Number of circulation passes.
 
         Returns:
-            Dict containing `rounds`, `erasure_events`, `scrub_recoveries`, and `permanent_loss_count`.
+            Dict containing attempted and verified recovery counts, loss counts,
+            and the empirical network loss rate.
         """
         erasure_events = 0
-        scrub_recoveries = 0
+        attempted_recoveries = 0
+        verified_recoveries = 0
+        verification_failures = 0
         permanent_losses = 0
 
-        current_slots = list(group.slots)
         k_req = group.k
 
         for _ in range(rounds):
+            if group.is_lost:
+                break
             surviving: list[DelaySlot] = []
-            for slot in current_slots:
+            for slot in group.slots:
                 payload = slot.encode_payload()
                 delivered, _ = self.transmit(payload, send_time_ms=0.0)
+                slot.alive = delivered
                 if delivered:
                     surviving.append(slot)
 
-            if len(surviving) < len(current_slots):
+            if len(surviving) < len(group.slots):
                 erasure_events += 1
                 if len(surviving) >= k_req:
-                    scrub_recoveries += 1
-                    revived_slots: list[DelaySlot] = []
-                    new_ver = (surviving[0].version + 1) if surviving else 1
-                    for i in range(len(current_slots)):
-                        found = next((s for s in surviving if s.slot_id == i), None)
-                        if found is not None:
-                            revived_slots.append(found)
-                        else:
-                            revived_slots.append(
-                                DelaySlot(
-                                    slot_id=i,
-                                    group_id=group.group_id,
-                                    pos=i,
-                                    modulus=current_slots[i].modulus,
-                                    version=new_ver,
-                                    residue=0,
-                                )
-                            )
-                    current_slots = revived_slots
-                    group.slots = current_slots
+                    attempted_recoveries += 1
+                    pairs = [(slot.modulus, slot.residue) for slot in surviving]
+                    recovered, consistent = recover_rrns(pairs, k_req, group.moduli)
+                    if not consistent or recovered is None or recovered != group.initial_value:
+                        verification_failures += 1
+                        group.bad_recon_count += 1
+                        group.is_lost = True
+                        break
+
+                    for slot in group.slots:
+                        if not slot.alive:
+                            slot.alive = True
+                            slot.version += 1
+                            slot.residue = recovered % slot.modulus
+
+                    read_pairs = [(slot.modulus, slot.residue) for slot in group.slots]
+                    verified_value, read_ok = recover_rrns(read_pairs, k_req, group.moduli)
+                    if not read_ok or verified_value != group.initial_value:
+                        verification_failures += 1
+                        group.bad_recon_count += 1
+                        group.is_lost = True
+                        break
+
+                    verified_recoveries += 1
                     group.scrub_count += 1
                 else:
                     permanent_losses += 1
                     group.is_lost = True
+                    break
 
         return {
             "rounds": float(rounds),
             "erasure_events": float(erasure_events),
-            "scrub_recoveries": float(scrub_recoveries),
+            "attempted_recoveries": float(attempted_recoveries),
+            "verified_recoveries": float(verified_recoveries),
+            "scrub_recoveries": float(verified_recoveries),
+            "verification_failures": float(verification_failures),
             "permanent_losses": float(permanent_losses),
             "network_loss_rate": self.stats.loss_rate,
         }

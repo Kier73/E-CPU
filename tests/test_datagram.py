@@ -108,6 +108,36 @@ def test_datagram_stack_binds_demultiplexes_and_preserves_small_buffer_failure()
     assert os.environment.owned_network.peek(NetworkAddress("guest", "eth0")) is not None
 
 
+def test_unbound_datagram_does_not_block_later_bound_frame() -> None:
+    r"""Mathematics: demultiplexing drops `p_d ∉ dom(B)` and continues to the next FIFO frame."""
+
+    os, pid, source_socket, destination_socket = _network()
+    assert source_socket is not None and destination_socket is not None
+    os.syscall(
+        pid,
+        "net_dgram_send",
+        socket_id=source_socket,
+        destination_namespace="guest",
+        destination_interface="eth0",
+        destination_port=7999,
+        payload=b"orphan",
+        logical_time=1,
+    )
+    os.syscall(
+        pid,
+        "net_dgram_send",
+        socket_id=source_socket,
+        destination_namespace="guest",
+        destination_interface="eth0",
+        destination_port=7000,
+        payload=b"bound",
+        logical_time=2,
+    )
+
+    datagram = os.syscall(pid, "net_dgram_receive", socket_id=destination_socket)
+    assert datagram.payload == b"bound"
+
+
 def test_datagram_checkpoint_restores_raw_and_socket_queues(tmp_path: Path) -> None:
     """Mathematics: `restore(snapshot(F,B,Q))` preserves a queued wire datagram and binding identity."""
 

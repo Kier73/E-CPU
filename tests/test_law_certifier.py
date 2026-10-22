@@ -1,7 +1,7 @@
 r"""Unit tests for Omega-5 law certification, vantage transforms, and mixture decomposition.
 
 Mathematics:
-Verifies formal invariants across the 8-rung algebraic ladder:
+Verifies formal invariants across the implemented six-rung algebraic ladder:
 - $O(1)$ and $O(\log t)$ orbit navigation
 - 2-adic bit-lifting and BSGS inversion
 - Vantage-point transforms and difference invariants
@@ -86,6 +86,19 @@ def test_int_law_certification_and_leap() -> None:
     target = lane[25]
     coord = find_guarded(law, target)
     assert coord == 25
+
+
+def test_unwrapped_integer_fit_is_not_admitted_as_ground() -> None:
+    r"""Mathematics: constant raw differences without a wrap do not identify modulus `M`, so distant navigation is refused."""
+
+    lane = list(range(30))
+    law = recover_law(lane[:20], lane[20:])
+
+    assert law.family == "int"
+    assert law.verdict == "FITTED"
+    assert law.is_ground is False
+    with pytest.raises(Refused):
+        orbit_leap(law, 300)
 
 
 def test_lcg_power_of_two_and_adic_inversion() -> None:
@@ -319,3 +332,39 @@ def test_mixture_decomposition_interleaved_streams() -> None:
     # Verify orbit leap reproduces held out interleaved stream
     for t in (52, 53, 60, 61):
         assert orbit_leap(mix_law, t) == interleaved[t]
+
+
+def test_mixture_navigation_preserves_component_verdict_and_horizon() -> None:
+    r"""Mathematics: global mixture horizon is `min_r(s·first_bad_r+r)`, and guarded navigation refuses `t` at or beyond it."""
+
+    law = Law(
+        family="mixture_int",
+        order=2,
+        verdict="PREFIX-GROUND",
+        first_bad=4,
+        params={
+            "stride": 2,
+            "components": [
+                {
+                    "residue": 0,
+                    "family": "int",
+                    "verdict": "PREFIX-GROUND",
+                    "first_bad": 2,
+                    "order": 1,
+                    "params": {"x0": 10, "step": 1, "mod": 97},
+                },
+                {
+                    "residue": 1,
+                    "family": "int",
+                    "verdict": "GROUND",
+                    "first_bad": None,
+                    "order": 1,
+                    "params": {"x0": 20, "step": 1, "mod": 97},
+                },
+            ],
+        },
+    )
+
+    assert navigate_guarded(law, 3) == 21
+    with pytest.raises(HorizonExceeded):
+        navigate_guarded(law, 4)

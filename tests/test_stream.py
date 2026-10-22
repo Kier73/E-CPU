@@ -11,7 +11,7 @@ from mailcpu import (
     decode_stream_segment,
     encode_stream_segment,
 )
-from mailcpu.stream import STREAM_ACK, STREAM_DATA
+from mailcpu.stream import STREAM_ACK, STREAM_DATA, encode_stream_segment
 
 
 def _stream_network(establish: bool = True) -> tuple[HeadlessOS, int, int | None, int | None, int | None]:
@@ -81,6 +81,23 @@ def test_stream_send_receive_ack_window_and_close_eof() -> None:
     assert os.syscall(pid, "net_stream_accept", listener=listener) == 0
 
 
+def test_orphan_stream_segment_does_not_block_established_connection() -> None:
+    r"""Mathematics: an unknown `(destination_port, connection_id)` segment is discarded before the next valid segment."""
+
+    os, pid, _, client, server = _stream_network()
+    assert client is not None and server is not None
+    source = os.environment.streams.connection_binding(client)[0]
+    destination = os.environment.streams.connection_binding(client)[2]
+    os.environment.owned_network.send_routed(
+        source,
+        destination,
+        encode_stream_segment(999999, STREAM_DATA, 0, 0, 9000, 8000, b"orphan"),
+        1,
+    )
+    assert os.syscall(pid, "net_stream_send", handle=client, payload=b"valid", logical_time=2) == 5
+    assert os.syscall(pid, "net_stream_receive", handle=server) == b"valid"
+
+
 def test_stream_send_commits_partial_window_prefix_and_resumes_after_ack() -> None:
     """Mathematics: stream send returns `k=min(|B|,W-Σ|pending|,C_peer·chunk)` and later commits the suffix after cumulative ACK."""
 
@@ -93,6 +110,24 @@ def test_stream_send_commits_partial_window_prefix_and_resumes_after_ack() -> No
     second = os.syscall(pid, "net_stream_send", handle=client, payload=payload[first:], logical_time=2)
     assert second == 17
     assert os.syscall(pid, "net_stream_receive", handle=server) == payload[first:]
+
+
+def test_stream_send_respects_receiver_buffer_credit() -> None:
+    r"""Mathematics: admitted bytes satisfy `|R_peer| + k ≤ W`, even after ACK clears sender pending state."""
+
+    os, pid, _, client, server = _stream_network()
+    assert client is not None and server is not None
+    os.environment.streams.window = 8
+    assert os.syscall(pid, "net_stream_send", handle=client, payload=b"12345678", logical_time=1) == 8
+    assert os.environment.network_stream_peek(pid, server) == b"12345678"
+    with pytest.raises(StreamError, match="receiver window"):
+        os.environment.network_stream_send(pid, client, b"x", 2)
+    assert os.environment.network_stream_receive(pid, server) == b"12345678"
+    assert os.syscall(pid, "net_stream_send", handle=client, payload=b"x", logical_time=2) == 1
+
+    # The second payload is still in flight; the receiver can never accumulate
+    # more than the configured byte window.
+    assert os.syscall(pid, "net_stream_receive", handle=server) == b"x"
 
 
 def test_stream_checkpoint_restores_connection_and_raw_segments(tmp_path: Path) -> None:

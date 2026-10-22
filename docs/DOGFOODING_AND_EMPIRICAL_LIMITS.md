@@ -59,7 +59,7 @@ Dogfooding revealed five fundamental physical and algorithmic boundaries:
 ### 3.2 Degenerate Binary LFSR Jump Bounds
 - **Phenomenon**: All-zero binary streams evaluated by the Berlekamp-Massey algorithm produce recurrence degree $L = 0$ with an empty initial state vector `init = []`.
 - **Impact**: Advancing an empty LFSR via companion matrix multiplication raises `IndexError` when accessing the state vector.
-- **Resolution**: Bounded the GF(2) ladder rung to $0 < L < n_{\text{win}} // 2$. Constant zero streams naturally fall through to `cfin` (constant finite field) or `int` ($x_{t+1} = x_t + 0$).
+- **Resolution**: Bounded the GF(2) ladder rung to $0 < L < n_{\text{win}} // 2$. Constant zero streams fall through to `int` ($x_{t+1} = x_t + 0$) or an honest `tape` refusal when no identified law is available.
 
 ### 3.3 Logical Time vs Delta Stepping in Schedulers
 - **Phenomenon**: `scheduler.run(max_ticks)` accepts an absolute logical time ceiling $t < \text{max\_ticks}$, not a delta of steps to execute.

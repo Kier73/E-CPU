@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass
 from enum import Enum
+import math
 from typing import Any, Callable, Sequence
 
 from .bus import MailboxBus
@@ -304,6 +305,7 @@ class DeterministicScheduler:
         task.state.blocked = False
         task.wait_request = None
         task.wake_request = None
+        self._ready = deque(item for item in self._ready if item != pid)
         self.journal.append("scheduler.terminate", {"pid": pid, "tick": self.tick})
 
     def exec(self, pid: int, program: Program, name: str | None = None) -> None:
@@ -454,8 +456,11 @@ class DeterministicScheduler:
                 read_delta=1 if instruction.op in {Op.BRANCH, Op.COMPARE} else 0,
             )
         self.system_epoch = self.system_epoch.advance_event()
-        if task.chronofold is not None:
-            self.system_epoch = self.system_epoch.advance_chronon(task.chronofold.active_chronons)
+        # Chronon phase is a product over the current transition's active
+        # gates, not over the cumulative prefix already recorded by ChronoFold.
+        self.system_epoch = self.system_epoch.advance_chronon(
+            1 if not transition.blocked else 0
+        )
         if task.chemical_cost > 0.0:
             self.system_epoch = self.system_epoch.add_chemical_difficulty(task.chemical_cost)
         return ScheduleEvent(
@@ -548,7 +553,11 @@ class DeterministicScheduler:
         scheduler = cls(bus=bus, journal=journal, syscall_handler=syscall_handler)
         scheduler.tick = int(payload["tick"])
         scheduler._next_pid = int(payload["next_pid"])
+        if scheduler.tick < 0 or scheduler._next_pid <= 0:
+            raise ValueError("scheduler tick and next_pid must be positive-domain values")
         scheduler._ready = deque(int(pid) for pid in payload.get("ready", ()))
+        if len(set(scheduler._ready)) != len(scheduler._ready) or any(pid <= 0 for pid in scheduler._ready):
+            raise ValueError("scheduler ready queue contains duplicate or invalid identities")
         if "system_epoch" in payload:
             raw_epoch = payload["system_epoch"]
             scheduler.system_epoch = SystemEpoch(
@@ -559,14 +568,25 @@ class DeterministicScheduler:
                 ),
                 chemical_tau=float(raw_epoch.get("chemical_tau", 0.0)),
             )
+            if (
+                scheduler.system_epoch.event_lambda < 0
+                or scheduler.system_epoch.chemical_tau < 0
+                or not math.isfinite(scheduler.system_epoch.chemical_tau)
+                or not math.isclose(abs(scheduler.system_epoch.chronon_phase), 1.0, rel_tol=1e-9, abs_tol=1e-9)
+            ):
+                raise ValueError("invalid scheduler system epoch")
         for raw in payload.get("tasks", {}).values():
             pid = int(raw["pid"])
+            if pid <= 0 or pid in scheduler.tasks:
+                raise ValueError("duplicate or invalid scheduler task identity")
             program = Program(
                 tuple(
                     Instruction(Op(item["op"]), tuple(item.get("args", ())))
                     for item in raw["program"]
                 )
             )
+            if not program.instructions:
+                raise ValueError(f"scheduler task has empty program: {pid}")
             backend = SchedulerBackend(bus, f"proc:{pid}", dict(raw.get("registers", {})), syscall_handler)
             backend.inputs = {
                 str(mailbox): deque(int(value) for value in values)
@@ -582,6 +602,13 @@ class DeterministicScheduler:
                 blocked=raw["status"] == TaskStatus.BLOCKED.value,
                 steps=int(raw["steps"]),
             )
+            status = TaskStatus(raw["status"])
+            if not 0 <= state.pc < len(program.instructions) or state.steps < 0 or state.steps > scheduler.tick:
+                raise ValueError(f"invalid scheduler machine coordinates: {pid}")
+            if state.halted != (status is TaskStatus.HALTED):
+                raise ValueError(f"scheduler halted/status mismatch: {pid}")
+            if state.blocked != (status is TaskStatus.BLOCKED):
+                raise ValueError(f"scheduler blocked/status mismatch: {pid}")
             raw_wait = raw.get("wait_request")
             if raw_wait is not None and not isinstance(raw_wait, dict):
                 raise ValueError("scheduler wait_request must be a mapping or null")
@@ -590,12 +617,12 @@ class DeterministicScheduler:
             if raw_wake is not None and not isinstance(raw_wake, dict):
                 raise ValueError("scheduler wake_request must be a mapping or null")
             wake_request = None if raw_wake is None else dict(raw_wake)
-            if wake_request is not None and TaskStatus(raw["status"]) not in {
+            if wake_request is not None and status not in {
                 TaskStatus.RUNNABLE,
                 TaskStatus.SUSPENDED,
             }:
                 raise ValueError("only runnable or suspended scheduler tasks may carry a wake_request")
-            if wait_request is not None and TaskStatus(raw["status"]) not in {
+            if wait_request is not None and status not in {
                 TaskStatus.BLOCKED,
                 TaskStatus.SUSPENDED,
             }:
@@ -603,8 +630,12 @@ class DeterministicScheduler:
             raw_fold = raw.get("chronofold")
             chronofold = None if raw_fold is None else ChronoFold.from_dict(raw_fold)
             chemical_cost = float(raw.get("chemical_cost", 0.0))
+            if chemical_cost < 0 or not math.isfinite(chemical_cost):
+                raise ValueError("scheduler chemical_cost must be finite and non-negative")
             raw_horizon = raw.get("t_horizon")
             t_horizon = None if raw_horizon is None else int(raw_horizon)
+            if t_horizon is not None and t_horizon < 0:
+                raise ValueError("scheduler horizon must be non-negative")
             horizon_tracker = HorizonTracker(pid, t_horizon=t_horizon) if t_horizon is not None else None
             task = ScheduledTask(
                 pid,
@@ -612,7 +643,7 @@ class DeterministicScheduler:
                 program,
                 state,
                 backend,
-                TaskStatus(raw["status"]),
+                status,
                 wait_request,
                 wake_request,
                 chronofold,
@@ -620,4 +651,8 @@ class DeterministicScheduler:
                 horizon_tracker=horizon_tracker,
             )
             scheduler.tasks[pid] = task
+        if scheduler.tasks and scheduler._next_pid <= max(scheduler.tasks):
+            raise ValueError("scheduler next_pid must exceed restored task identities")
+        if any(pid not in scheduler.tasks or scheduler.tasks[pid].status is not TaskStatus.RUNNABLE for pid in scheduler._ready):
+            raise ValueError("scheduler ready queue references a non-runnable task")
         return scheduler

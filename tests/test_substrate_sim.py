@@ -74,10 +74,18 @@ def test_wan_datagram_transmission() -> None:
     assert sim.stats.packets_sent == 100
     assert sim.stats.packets_delivered + sim.stats.packets_dropped == 100
     assert sim.stats.loss_rate >= 0.0
+    assert sim.stats.mean_latency_ms > 0.0
+    assert sim.stats.jitter_std_ms >= 0.0
 
 
 def test_delay_loop_circulation_benchmark() -> None:
-    r"""Test delay loop scrubbing under simulated WAN burst erasures."""
+    r"""Test delay loop scrubbing under simulated WAN burst erasures.
+
+    Mathematics:
+    Every reported recovery must preserve the encoded value, so
+    `verified_recoveries <= attempted_recoveries` and
+    `read_group(group_id) = initial_value` after each successful scrub.
+    """
     sim = WanSubstrateSimulator(mean_rtt_ms=20.0, jitter_sigma_ms=2.0, seed=99)
     engine = DelayLoopEngine()
     group = engine.add_group(value=12345, k=2, moduli=(257, 263, 269, 271))
@@ -85,7 +93,39 @@ def test_delay_loop_circulation_benchmark() -> None:
     results = sim.benchmark_delay_loop_circulation(group, rounds=15)
     assert results["rounds"] == 15.0
     assert results["erasure_events"] >= 0.0
-    assert results["scrub_recoveries"] >= 0.0
+    assert results["verified_recoveries"] <= results["attempted_recoveries"]
+    if not group.is_lost:
+        recovered, ok = engine.read_group(group.group_id)
+        assert ok is True
+        assert recovered == group.initial_value
+
+
+def test_delay_loop_benchmark_preserves_slot_identity_and_value() -> None:
+    r"""Test deterministic erasures against exact RRNS reconstruction.
+
+    Mathematics:
+    For each round, three of five residues reconstruct
+    `V = CRT({(m_i, V mod m_i)})`; every revived slot keeps its identity and
+    receives `V mod m_i`, so the group remains equal to `V`.
+    """
+    sim = WanSubstrateSimulator(mean_rtt_ms=20.0, jitter_sigma_ms=0.0, seed=1)
+    engine = DelayLoopEngine()
+    group = engine.add_group(value=50000, k=3, moduli=(199, 197, 193, 191, 181))
+    original_ids = tuple(slot.slot_id for slot in group.slots)
+    drop_pattern = iter(([False, True, False, False, False] * 3))
+    sim.channel.should_drop = drop_pattern.__next__
+
+    results = sim.benchmark_delay_loop_circulation(group, rounds=3)
+
+    assert results["attempted_recoveries"] == 3.0
+    assert results["verified_recoveries"] == 3.0
+    assert results["scrub_recoveries"] == 3.0
+    assert results["verification_failures"] == 0.0
+    assert tuple(slot.slot_id for slot in group.slots) == original_ids
+    assert all(slot.residue == group.initial_value % slot.modulus for slot in group.slots)
+    recovered, ok = engine.read_group(group.group_id)
+    assert ok is True
+    assert recovered == group.initial_value
 
 
 def test_timing_channel_wan_benchmark() -> None:

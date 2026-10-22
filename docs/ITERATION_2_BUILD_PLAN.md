@@ -16,7 +16,7 @@ $$\mathcal{U}_2 = \langle \mathcal{S}_{\text{substrate}}, \; \mathcal{E}_{\text{
 
 Where:
 - $\mathcal{S}_{\text{substrate}}$: Physical in-flight network delay lines, Anantharam-Verdú timing channels, DNS TTL decaying latches, and TCP sliding-window arithmetic operators.
-- $\mathcal{E}_{\text{reversible}}$: Involutive gate micro-ops ($X$, `swap`), chronofolded periodic trace compression, and discrete geometric phase accumulation ($D = (-i)^{n_{\text{active}}}$) achieving zero-entropy thermodynamic backtracking ($E_{\text{diss}} = 0$).
+- $\mathcal{E}_{\text{reversible}}$: Involutive gate micro-ops ($X$, `swap`), chronofolded periodicity metadata, and discrete geometric phase accumulation ($D = (-i)^{n_{\text{active}}}$) supporting exact thermodynamic backtracking in the model.
 - $\mathcal{L}_{\text{law\_lifter}}$: The $\Omega_5 = (\text{STATE}, \text{LIFT}, \text{NAVIGATE}, \text{DESCEND}, \text{VERIFY})$ loop that transforms raw message streams into certified closed-form algebraic laws, accelerating execution via logarithmic orbit leaps.
 - $\mathcal{T}_{\text{chemical}}$: A unified triple-time coordinate $\tau_{\text{system}} = \langle \lambda_{\text{event}}, \; \tau_{\text{chronon}}, \; \tau_{\text{chem}} \rangle$, where structural parsing difficulty is the currency of memory persistence bounded by the $t_{\text{horizon}} = \text{first\_bad}$ horizon.
 - $\mathcal{P}_{\text{capability}}$: Deterministic cryptographic authority boundary isolating advisory neural lifter proposals from execution dispatch.
@@ -130,8 +130,8 @@ Specific algorithms, modules, and data structures identified for adaptation or i
      $$(G_n \circ \dots \circ G_1)^{-1} = G_1 \circ \dots \circ G_n$$
    - *Target*: Implements reversible micro-ops beneath the 9-instruction MailCPU algebra, enabling zero-entropy state backtracking without full checkpoint snapshots.
 2. ***vquanta/temporal.py***:
-   - *Core Asset*: Chronofolding serializer, shift-periodic snapshot compression, active chronon phase accumulation ($D = (-i)^{\#\text{active}}$), and Bennett constant-space tape recomputation.
-   - *Target*: Replaces monotonically expanding journal logs with compact periodic trace headers, allowing long-running distributed processes to reconstruct state in $\mathcal{O}(1)$ space.
+   - *Core Asset*: Chronofolding serializer, shift-periodic witness metadata, active chronon phase accumulation ($D = (-i)^{\#\text{active}}$), and Bennett constant-space tape recomputation.
+   - *Target*: Establishes a validated periodicity index while retaining the trace; compact trace rewriting is a subsequent build requiring its own replay and corruption tests.
 3. ***vquanta/warp.py***:
    - *Core Asset*: Mask-based SIMT predication without branch jumps.
    - *Target*: Eliminates timing-channel side leaks and branch-prediction divergence in distributed multi-node execution.
@@ -148,7 +148,7 @@ Specific algorithms, modules, and data structures identified for adaptation or i
    - *Core Asset*: DNS TTL probing, negative caching latches, and non-authoritative cache presence decoders.
    - *Target*: Supplies global, distributed, semi-persistent decaying memory cells.
 3. ***VL_Embed/vl_agents/wide_cert.py***:
-   - *Core Asset*: Multi-modulus algebraic law certifier covering the 8-rung ladder (`int`, `lcg`, `gf2`, `fgraph`, `cfin`, `kreg`, `strat`, `tape`).
+    - *Core Asset*: Algebraic law certifier covering the implemented six-rung ladder (`int`, `lcg`, `gf2`, `fgraph`, `kreg`, `tape`).
    - *Target*: Bridges raw message streams into certified closed-form mathematical functions.
 4. ***VL_Embed/vl_agents/chemical_time.py* & *persistence.py***:
    - *Core Asset*: Chemical time parsing metrics and `first_bad` persistence horizon tracking.
@@ -233,7 +233,7 @@ $$\text{Transition Storage: } \mathcal{O}(N) \text{ full states} \quad \xrightar
    - `test_reversible_adder_and_ancilla_cleanup`: carry ancillas uncomputed to zero.
    - `test_reversible_subtractor_and_multiplier`: modular ring arithmetic reversal.
    - `test_discrete_geometric_phase_ledger`: $D(n) = (-i)^n$ modulo-4 cycle.
-   - `test_chronofold_periodic_trace_compression`: shift-periodic pattern detection.
+   - `test_chronofold_periodic_trace_compression`: shift-periodic pattern detection and metadata validation.
    - `test_chronofold_bennett_constant_space_replay_and_reversal`: exact $(T^N)^{-1}(T^N(s_0)) = s_0$ tape recovery.
    - `test_chronofold_serialization_roundtrip`: JSON export/import equivalence.
    - `test_scheduler_chronofold_integration`: scheduler micro-step trace and snapshot restore.
@@ -325,7 +325,7 @@ Message Stream ──> [ Vantage Transform ] ──> [ Wide Certifier ] ──> 
    - Discrete vantage-point transformations for stream re-parameterization: stride decimation `vp_stride` ($\sigma_k(x)_j = x_{k j}$), discrete difference `vp_difference` ($\Delta x_j = x_{j+1} - x_j$), prefix integration `vp_integrate` ($\Sigma x_j = \sum x_i$), origin centering `vp_origin` ($\Omega(x)_j = x_j - x_0$), modular projection `vp_modulus` ($\mu_M(x)_j = x_j \bmod M$), and uniform range folding `vp_fold`.
    - Unified transform pipeline dispatch via `apply_vantage`.
 2. `mailcpu/law_certifier.py` (Completed):
-   - 8-rung algebraic ladder classification: integer arithmetic progression `int`, affine congruential recurrence `lcg`, Galois field linear recurrence `gf2` (Berlekamp-Massey), functional graph periodic orbits `fgraph` (in-window collision and Brent cycle detection), $k$-regular sequences `kreg`, and fallback `tape`.
+    - Six-rung algebraic ladder classification: integer arithmetic progression `int`, binary linear recurrence `gf2` (Berlekamp-Massey), affine congruential recurrence `lcg`, functional graph periodic orbits `fgraph` (in-window collision and Brent cycle detection), $k$-regular sequences `kreg`, and fallback `tape`.
    - Data-driven wide modulus recovery using determinant GCD invariant: $M \mid \gcd_i |d_{i+1} d_{i-1} - d_i^2|$, recovering prime and non-power-of-two moduli ($2^{31}-1$, $65537$).
    - Closed-form logarithmic orbit leaping `orbit_leap` and `lcg_navigate` evaluating $s_t = (a^t s_0 + c \sum_{i=0}^{t-1} a^i) \bmod M$ in $\mathcal{O}(\log t)$ multiplications.
    - Dual-mode inversion `find_guarded`: $\mathcal{O}(\log M)$ 2-adic bit-lifting for full-period power-of-two affine recurrences, and $\mathcal{O}(\sqrt{M})$ baby-step giant-step (BSGS) for prime-order rings.
@@ -398,9 +398,9 @@ $$\text{State Stream} \xrightarrow{\quad\text{Distilled Neural Head}\quad} \text
 
 #### Implemented Components & Verification:
 1. `mailcpu/neural_lifter.py` (Completed):
-   - Fast $\mathcal{O}(|w|)$ 8-feature normalized extraction (`extract_lifter_features`): Shannon entropy, distinct value ratio, binary indicator, modal difference ratio, GCD diff unit flag, determinant GCD nonzero flag, max bit length, and sign variation ratio.
+   - Fast $\mathcal{O}(|w|)$ 8-feature normalized extraction (`extract_lifter_features`): Shannon entropy, distinct value ratio, binary indicator, modal difference ratio, GCD diff unit flag, determinant GCD nonzero flag, max bit length, and cycle indicator.
    - Calibrated distilled linear classification head (`DistilledRungHead`): predicts algebraic ladder rungs (`int`, `lcg`, `gf2`, `fgraph`, `kreg`, `tape`) in $\mathcal{O}(1)$ time using weights distilled from algebraic manifolds.
-   - Policy Gate Isolation hypervisor (`NeuralLifterPolicy`): pairs $\mathcal{O}(1)$ neural predictions with deterministic witness verification (`certify_stream`), certifying candidate laws if and only if they reproduce 100% of withheld verification probes, falling back cleanly to the exhaustive algebraic ladder on mismatch.
+   - Policy Gate Isolation hypervisor (`NeuralLifterPolicy`): retains neural predictions as advisory telemetry while deterministic witness verification (`certify_stream`) alone admits or refuses laws.
 2. `mailcpu/substrate_sim.py` (Completed):
    - 2-state Gilbert-Elliott Markov burst erasure channel model (`GilbertElliottChannel`): Good/Bad states with configurable transition matrix $P = \begin{pmatrix} 1-p & p \\ q & 1-q \end{pmatrix}$ and independent state drop probabilities $(p_G, p_B)$.
    - Wide-area network simulation harness (`WanSubstrateSimulator`): Gaussian propagation latency $\mathcal{N}(\mu, \sigma^2)$ clamped $\ge \mu/4$, packet loss accounting, and automated offline CI benchmarks.

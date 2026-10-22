@@ -83,12 +83,15 @@ def encode_request(request: SyscallRequest) -> dict[str, Any]:
 def decode_request(payload: dict[str, Any]) -> SyscallRequest:
     """Mathematics: invert `encode_request` on the typed request fields, rejecting missing identity components."""
 
-    return SyscallRequest(
+    request = SyscallRequest(
         request_id=str(payload["request_id"]),
         pid=int(payload["pid"]),
         name=str(payload["name"]),
         args=dict(decode_transport_value(dict(payload.get("args", {})))),
     )
+    if not request.request_id or request.pid <= 0 or not request.name:
+        raise ValueError("syscall request identity is invalid")
+    return request
 
 
 def encode_response(response: SyscallResponse) -> dict[str, Any]:
@@ -123,11 +126,12 @@ def _request_fingerprint(request: SyscallRequest) -> str:
 class SyscallClient:
     """Client-side syscall message producer and response consumer."""
 
-    def __init__(self, bus: MailboxBus, pid: int) -> None:
+    def __init__(self, bus: MailboxBus, pid: int, server_endpoint: str = "kernel") -> None:
         """Mathematics: bind client identity `endpoint = proc:pid` to the shared bus."""
 
         self.bus = bus
         self.pid = pid
+        self.server_endpoint = server_endpoint
         self._next_request = 1
 
     def submit(self, name: str, **args: Any) -> str:
@@ -138,7 +142,7 @@ class SyscallClient:
         request = SyscallRequest(request_id, self.pid, name, args)
         self.bus.send(
             f"proc:{self.pid}",
-            "kernel",
+            self.server_endpoint,
             "syscall.request",
             encode_request(request),
             reply_to=f"proc:{self.pid}",
@@ -153,6 +157,8 @@ class SyscallClient:
             return None
         if message.kind != "syscall.response":
             raise ValueError(f"unexpected client message kind: {message.kind}")
+        if message.source != self.server_endpoint or message.destination != f"proc:{self.pid}":
+            raise ValueError("syscall response identity mismatch")
         return decode_response(message.payload)
 
 
@@ -176,6 +182,11 @@ class SyscallServer:
         if message.kind != "syscall.request":
             raise ValueError(f"unexpected server message kind: {message.kind}")
         request = decode_request(message.payload)
+        expected_source = f"proc:{request.pid}"
+        if message.source != expected_source or message.destination != self.endpoint:
+            raise ValueError("syscall request identity mismatch")
+        if message.reply_to is not None and message.reply_to != expected_source:
+            raise ValueError("syscall reply route is not owned by request source")
         fingerprint = _request_fingerprint(request)
         cached = self._responses.get(request.request_id)
         if cached is not None:
@@ -194,7 +205,7 @@ class SyscallServer:
             except SYSCALL_ERRORS as exc:
                 response = SyscallResponse(request.request_id, False, error=str(exc))
             self._responses[request.request_id] = (fingerprint, response)
-        destination = message.reply_to or message.source
+        destination = expected_source
         self.bus.send(
             self.endpoint,
             destination,
