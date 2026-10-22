@@ -685,6 +685,14 @@ authority ledger.
 The coordinator witness also round-trips its composite checkpoint and refuses
 a direction mismatch before binding a socket. Evidence tier: E1.
 
+The `CrossHostMultiPeerRecoveryCoordinator` extends the same product to every
+peer factor of one durable node. It restores all outbound and inbound channel
+maps together, exposes pending sequences by peer, and preserves the existing
+quorum predicate during partial recovery. A three-host witness loses one ACK,
+replays the other from its transport checkpoint, reports `2 < q=3` until the
+lost peer is retransmitted, and then reaches `1+|A|=3` without duplicating the
+durable mailbox message. Evidence tier: E1.
+
 ### 10.6 Typed hypervisor operation adapters
 
 The hypervisor exposes typed adapters for operation domains that already have

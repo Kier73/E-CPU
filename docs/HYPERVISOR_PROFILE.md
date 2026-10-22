@@ -496,11 +496,17 @@ cardinality, and the latest semantic admission without introducing a second
 delivery or authority ledger. The real TCP witness now uses this API, and the
 checkpoint product has its own round-trip and fail-closed identity witness.
 
+The multi-peer recovery coordinator now extends that product to every peer
+factor, reporting per-peer pending sequences while preserving partial quorum as
+uncommitted. A three-host TCP witness loses one acknowledgement, restores the
+other from its checkpointed transport queue, retransmits the lost sequence,
+and reaches the existing quorum predicate without a duplicate durable message.
+
 The next connections are deliberately staged:
 
-1. a multi-peer recovery coordinator over the same product algebra, with
-   explicit partial-peer and quorum-degradation state;
-2. broader POSIX, foreign CPU, terminal, and public E2 integration.
+1. broader POSIX, foreign CPU, terminal, and public E2 integration;
+2. cross-transport migration and receiver-advertised recovery policy above the
+   existing peer-factor product.
 
 Controlled external networking is now evidenced over an actual AF_INET
 loopback path for both durable revision relay and remote page-backed memory.
