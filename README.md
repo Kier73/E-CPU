@@ -147,6 +147,8 @@ state -> typed questions -> model proposals -> policy gate -> one authorised han
 Handlers execute based on explicit capability permissions. Decisions are
 recorded in the hash-chained event journal.
 
+The detailed operational profile is [`docs/HYPERVISOR_PROFILE.md`](docs/HYPERVISOR_PROFILE.md).
+
 ## 7. Repository layout
 
 ```text
