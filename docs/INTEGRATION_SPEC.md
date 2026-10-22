@@ -217,7 +217,15 @@ Demand zero-fill, allocation, protection, reclamation, and a VM-wide **resident 
 
 ### 5.2 Content-addressed reclamation
 
-`mem_reclaim` deterministically evicts selected private pages into existing content-addressed blobs. A later access admits the page and restores the exact bytes, and the reservation/backing relation is included in checkpoints. Backing is currently local deterministic state; remote page backing is the next memory stage. Evidence tier: E0.
+`mem_reclaim` deterministically evicts selected private pages into content-addressed
+backing. With an injected `PageBacking`, publication completes before the
+resident mapping becomes a reservation; a later access resolves the same
+digest through local or remote CAS and restores exact bytes. `RemotePageStore`
+uses atomic local page files plus `PAGE_PUT`, `PAGE_GET`, `PAGE_DATA`, and
+`PAGE_MISS` mailbox messages over bidirectional replicated channels. A missing
+or corrupted remote page is an explicit failure, never fabricated zero data.
+The reservation/backing relation remains checkpointable, while the provider is
+re-injected on restore. Evidence tier: E1 for controlled multi-node paths.
 
 ### 5.3 Demand paging and resident accounting
 
@@ -754,7 +762,7 @@ The following are **REQUIRED** staged obligations. Each is stated relative to th
 1. Receipt accounting for procedural providers, and a `/proc` provider surface beyond the provider interface of clause 3.
 2. Signal and cancellation semantics beyond termination; migration compatibility for checkpoint and image formats; crash-recovery transaction boundaries.
 3. Broader process-group lifecycle policy beyond init adoption, and subreaper policy beyond the init fallback of clause 4.6.
-4. Multi-tier and remote page backing, execute permissions on pages, physically deduplicated shared-page accounting for shared mappings, and differential tests against selected POSIX memory behaviour.
+4. Multi-tier policy, execute permissions on pages, physically deduplicated shared-page accounting for shared mappings, and differential tests against selected POSIX memory behaviour.
 5. Timed blocking deadlines on structured `poll`, `epoll` edge and one-shot modes, cancellation tokens, descriptor leases, `pidfd` semantics, and socket option and `ioctl` breadth.
 6. Partial-write semantics for oversized atomic pipe payloads, and a complete Linux `PIPE_BUF` atomicity policy.
 7. Numerical Linux errno identity for every system call, signal interruption, `EINTR` restart policy, `SIGPIPE`, and a libc-compatible return ABI.

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Callable, Sequence
 
 from .environment import VirtualEnvironment
-from .memory import ResidentQuotaExceeded, SharedRegion, VirtualMemory
+from .memory import PageBacking, ResidentQuotaExceeded, SharedRegion, VirtualMemory
 from .model import DEFAULT_MAX_TICKS, Program
 from .observation import (
     ResolverObservation,
@@ -24,8 +24,9 @@ class MailCPUVirtualMachine:
         environment: VirtualEnvironment | None = None,
         trajectory: TrajectoryWriter | None = None,
         max_resident_pages: int | None = None,
+        page_backing: PageBacking | None = None,
     ) -> None:
-        """Mathematics: compose `VM = (environment.kernel, scheduler, memory_map)` over one shared bus and journal."""
+        """Mathematics: compose `VM = (environment.kernel, scheduler, memory_map, page_backing)` over one shared bus and journal."""
 
         if max_resident_pages is not None and max_resident_pages <= 0:
             raise ValueError("max_resident_pages must be positive when provided")
@@ -39,6 +40,7 @@ class MailCPUVirtualMachine:
         self.memories: dict[int, VirtualMemory] = {}
         self.shared_regions: dict[str, SharedRegion] = {}
         self.max_resident_pages = max_resident_pages
+        self.page_backing = page_backing
         self.host_syscall_handler: Callable[[int, str, dict[str, Any]], Any] | None = None
         self._resolver_observation_receipts: dict[tuple[int, str, int], tuple[Any, ...]] = {}
 
@@ -86,7 +88,7 @@ class MailCPUVirtualMachine:
         """Mathematics: create ABI process `P`, scheduler task `T`, and private memory image `M_pid` as one spawn transition."""
 
         self._admit_resident_pages(2)
-        memory = VirtualMemory(page_size, max_pages, self._admit_resident_pages)
+        memory = VirtualMemory(page_size, max_pages, self._admit_resident_pages, self.page_backing)
         memory.map(0, page_size * 2)
         pid = self.environment.kernel.spawn(
             name,
@@ -213,6 +215,7 @@ class MailCPUVirtualMachine:
             old_memory.page_size,
             old_memory.max_pages,
             self._admit_resident_pages,
+            self.page_backing,
         )
         replacement.map(0, old_memory.page_size * 2)
         self.scheduler.exec(pid, program, name)
@@ -295,6 +298,7 @@ class MailCPUVirtualMachine:
         cls,
         payload: dict[str, Any],
         trajectory: TrajectoryWriter | None = None,
+        page_backing: PageBacking | None = None,
     ) -> "MailCPUVirtualMachine":
         """Mathematics: invert `snapshot` into a continuation-equivalent VM state with shared bus and journal identity."""
 
@@ -307,6 +311,7 @@ class MailCPUVirtualMachine:
                 if payload.get("max_resident_pages") is None
                 else int(payload["max_resident_pages"])
             ),
+            page_backing=page_backing,
         )
         machine.shared_regions = {
             str(name): SharedRegion.from_snapshot(dict(raw))
@@ -323,6 +328,7 @@ class MailCPUVirtualMachine:
                 dict(memory),
                 shared_regions=machine.shared_regions,
                 resident_admitter=machine._admit_resident_pages,
+                page_backing=machine.page_backing,
             )
             for pid, memory in payload.get("memories", {}).items()
         }

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, field
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, Protocol
 
 
 class VirtualMemoryError(Exception):
@@ -29,6 +29,20 @@ class MemoryQuotaExceeded(VirtualMemoryError):
 
 class ResidentQuotaExceeded(VirtualMemoryError):
     """A VM-wide resident-page admission request would exceed its resource budget."""
+
+
+class PageBacking(Protocol):
+    """Content-addressed provider used to publish evicted bytes and fault them back by digest."""
+
+    def put_page(self, data: bytes) -> str:
+        """Mathematics: publish `b` and return its identity `h=SHA256(b)`."""
+
+        ...
+
+    def get_page(self, digest: str) -> bytes:
+        """Mathematics: resolve `CAS[h]=b` with `SHA256(b)=h`, or raise without inventing bytes."""
+
+        ...
 
 
 @dataclass(frozen=True)
@@ -105,8 +119,9 @@ class VirtualMemory:
         page_size: int = 4096,
         max_pages: int | None = None,
         resident_admitter: Callable[[int], None] | None = None,
+        page_backing: PageBacking | None = None,
     ) -> None:
-        """Mathematics: initialize page size `P`, quota `Q`, page map `M=∅`, blob map `B=∅`, and shared map `S=∅`."""
+        """Mathematics: initialize page size `P`, quota `Q`, page map `M=∅`, blob cache `B=∅`, shared map `S=∅`, and optional backing `C`."""
 
         if page_size <= 0 or page_size & (page_size - 1):
             raise ValueError("page_size must be a positive power of two")
@@ -115,6 +130,7 @@ class VirtualMemory:
         self.page_size = page_size
         self.max_pages = max_pages
         self._resident_admitter = resident_admitter
+        self._page_backing = page_backing
         self._mappings: dict[int, PageMapping] = {}
         self._reservations: dict[int, PageReservation] = {}
         self._blobs: dict[str, bytes] = {}
@@ -130,12 +146,21 @@ class VirtualMemory:
         return digest
 
     def _get_page(self, blob_id: str) -> bytes:
-        """Mathematics: perform the partial immutable lookup `B[blob_id]`."""
+        """Mathematics: resolve `B[h]`, then `C[h]` on a cache miss, requiring `SHA256(bytes)=h` at both paths."""
 
+        local = self._blobs.get(blob_id)
+        if local is not None:
+            return local
+        if self._page_backing is None:
+            raise VirtualMemoryError(f"missing page blob: {blob_id}")
         try:
-            return self._blobs[blob_id]
-        except KeyError as exc:
-            raise VirtualMemoryError(f"missing page blob: {blob_id}") from exc
+            data = self._page_backing.get_page(blob_id)
+        except Exception as error:
+            raise VirtualMemoryError(f"page backing could not resolve: {blob_id}") from error
+        if not isinstance(data, bytes) or len(data) != self.page_size or hashlib.sha256(data).hexdigest() != blob_id:
+            raise VirtualMemoryError(f"page backing returned invalid content: {blob_id}")
+        self._blobs[blob_id] = data
+        return data
 
     def preflight_mapping(self, page_numbers: tuple[int, ...], check_resident: bool = False) -> None:
         """Mathematics: admit a finite page set `P` iff `P∩(M∪R)=∅` and `|M|+|P|≤Q`, optionally requiring resident admission `A(|P|)`."""
@@ -269,6 +294,14 @@ class VirtualMemory:
                 raise VirtualMemoryError(f"shared page cannot be reclaimed: {page_number}")
             self._get_page(mapping.blob_id)
             mappings.append(mapping)
+        if self._page_backing is not None:
+            for mapping in mappings:
+                try:
+                    persisted = self._page_backing.put_page(self._get_page(mapping.blob_id))
+                except Exception as error:
+                    raise VirtualMemoryError(f"remote page backing failed for {mapping.blob_id}") from error
+                if persisted != mapping.blob_id:
+                    raise VirtualMemoryError("remote page backing changed page identity")
         for mapping in mappings:
             self._reservations[mapping.page_number] = PageReservation(
                 mapping.page_number,
@@ -276,6 +309,8 @@ class VirtualMemory:
                 mapping.blob_id,
             )
             del self._mappings[mapping.page_number]
+            if self._page_backing is not None:
+                self._blobs.pop(mapping.blob_id, None)
         return tuple(mapping.page_number for mapping in mappings)
 
     def protect(self, start: int, length: int, writable: bool) -> None:
@@ -361,7 +396,7 @@ class VirtualMemory:
     def clone(self) -> "VirtualMemory":
         """Mathematics: create a snapshot sharing immutable `B` and `M`; later writes allocate new page hashes."""
 
-        clone = VirtualMemory(self.page_size, self.max_pages, self._resident_admitter)
+        clone = VirtualMemory(self.page_size, self.max_pages, self._resident_admitter, self._page_backing)
         clone._mappings = dict(self._mappings)
         clone._reservations = dict(self._reservations)
         clone._blobs = dict(self._blobs)
@@ -379,6 +414,7 @@ class VirtualMemory:
         return {
             "page_size": self.page_size,
             "max_pages": self.max_pages,
+            "page_backing": self._page_backing is not None,
             "reservations": [
                 {
                     "page_number": reservation.page_number,
@@ -409,6 +445,7 @@ class VirtualMemory:
         payload: dict[str, Any],
         shared_regions: Mapping[str, SharedRegion] | None = None,
         resident_admitter: Callable[[int], None] | None = None,
+        page_backing: PageBacking | None = None,
     ) -> "VirtualMemory":
         """Mathematics: reconstruct `(P,Q,M,B,S)` and require every private blob identity and shared reference to validate."""
 
@@ -416,6 +453,7 @@ class VirtualMemory:
             int(payload["page_size"]),
             None if payload.get("max_pages") is None else int(payload["max_pages"]),
             resident_admitter,
+            page_backing,
         )
         memory._shared_regions = dict(shared_regions or {})
         for name, region in memory._shared_regions.items():
@@ -445,7 +483,10 @@ class VirtualMemory:
             if reservation.page_number < 0:
                 raise VirtualMemoryError(f"invalid reserved page number: {reservation.page_number}")
             if reservation.backing_blob_id is not None:
-                memory._get_page(reservation.backing_blob_id)
+                if reservation.backing_blob_id not in memory._blobs and memory._page_backing is None:
+                    raise VirtualMemoryError(f"missing reserved page blob: {reservation.backing_blob_id}")
+                if reservation.backing_blob_id in memory._blobs:
+                    memory._get_page(reservation.backing_blob_id)
             if reservation.page_number in memory._reservations:
                 raise VirtualMemoryError(f"duplicate page reservation: {reservation.page_number}")
             memory._reservations[reservation.page_number] = reservation
@@ -465,7 +506,7 @@ class VirtualMemory:
                     raise VirtualMemoryError(f"shared region is not page aligned: {mapping.shared_id}")
                 if not 0 <= mapping.shared_page < region.size // memory.page_size:
                     raise VirtualMemoryError(f"invalid shared page index: {mapping.shared_page}")
-            elif mapping.blob_id not in memory._blobs:
+            elif mapping.blob_id not in memory._blobs and memory._page_backing is None:
                 raise VirtualMemoryError(f"missing mapped page blob: {mapping.blob_id}")
             if mapping.page_number < 0:
                 raise VirtualMemoryError(f"invalid mapped page number: {mapping.page_number}")

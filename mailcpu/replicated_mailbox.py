@@ -458,8 +458,6 @@ class ReplicatedMailboxNode:
         selected_quorum = total_nodes // 2 + 1 if quorum is None else int(quorum)
         if selected_quorum < 1 or selected_quorum > total_nodes:
             raise ReplicatedMailboxError("replication quorum is outside node set")
-        if set(self.outbound) & set(self.inbound):
-            raise ReplicatedMailboxError("one peer cannot be both inbound and outbound under one identity")
         self.quorum = selected_quorum
         self._pending: dict[str, _PendingOperation] = {}
 

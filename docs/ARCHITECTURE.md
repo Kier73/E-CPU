@@ -179,6 +179,10 @@ rules are `docs/ARCHITECTURE.md` clauses 3 and 5 and `docs/REPLACEMENT_SPEC.md`.
   Mapping identity and contents survive checkpoint and restore.
 - `mem_reclaim` moves private resident pages to content-addressed backing; a
   later access faults the page back without byte loss.
+- `PageBacking` is an optional continuation path for evicted pages.
+  `RemotePageStore` persists fixed-size page bytes in an fsynced local CAS and
+  transfers them through bidirectional replicated-mailbox messages, validating
+  each page by its SHA-256 identity before admission.
 - `read_into` and `write_from` transfer bytes between kernel descriptors and
   virtual memory. Non-mutating page preflight precedes destructive descriptor
   reads, preserving compound-syscall failure atomicity.
@@ -339,8 +343,8 @@ rules are `docs/ARCHITECTURE.md` clauses 3 and 5 and `docs/REPLACEMENT_SPEC.md`.
 
 The following are **REQUIRED** staged obligations of the same machine.
 
-1. Multi-tier eviction policy, durable remote page backing, execute permissions,
-   and a broader memory ABI above the specified deterministic
+1. Multi-tier eviction policy, execute permissions, and a broader memory ABI
+   above the specified deterministic local and remote
    content-addressed reclamation, demand paging, ELF load staging, protection
    transitions, typed faults, quotas, and resident budget.
 2. Terminal and session integration breadth, and signal and wait behaviour for

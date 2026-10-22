@@ -73,6 +73,7 @@ system. Each entry has:
 | `M-4` | An unreserved access produces a typed page fault. | `mailcpu/memory.py` | `tests/test_runtime.py::test_virtual_memory_reports_typed_page_faults` | `REPLACEMENT_SPEC.md` 7.9 |
 | `M-5** | An undersized destination returns `-ERANGE` before memory mutation. | `mailcpu/headless.py` | `tests/test_headless.py::test_scheduled_process_context_abi_packs_argv_environment_and_cwd_atomically` | `REPLACEMENT_SPEC.md` 7.4 |
 | `M-6` | A read is non-consuming with respect to the register mailbox it observes. | `mailcpu/interpreter.py` | `tests/test_conformance.py::test_queue_register_read_is_non_consuming` | `PLAN.md` 4.5 |
+| `M-7` | Remote-backed reclaim publishes a page identity before reservation, and a later fault restores exact bytes through the same digest. | `mailcpu/memory.py`, `mailcpu/remote_memory.py` | `tests/test_remote_memory.py::test_virtual_memory_reclaim_faults_through_remote_page_backing` | `ARCHITECTURE.md` 7.3 |
 
 ## Descriptors and blocking
 

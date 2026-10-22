@@ -4,6 +4,7 @@ from .interpreter import QueueInterpreter, ReferenceInterpreter
 from .memory import (
     MemoryQuotaExceeded,
     PageFault,
+    PageBacking,
     ResidentQuotaExceeded,
     SharedRegion,
     VirtualMemory,
@@ -265,6 +266,7 @@ from .substrate_sim import (
 )
 from .socket_transport import SocketTransport, SocketTransportClosed, SocketTransportError
 from .replicated_mailbox import ReplicatedMailboxError, ReplicatedMailboxNode, ReplicatedMailboxStore, ReplicationReceipt
+from .remote_memory import RemotePageError, RemotePageMissing, RemotePageStore, RemotePageTimeout
 
 __all__ = [
     "InMemoryTransport",
@@ -333,6 +335,7 @@ __all__ = [
     "Program",
     "ProcessReport",
     "PageFault",
+    "PageBacking",
     "ResidentQuotaExceeded",
     "ProceduralDecisionModel",
     "ProceduralModelSpec",
@@ -532,4 +535,8 @@ __all__ = [
     "ReplicatedMailboxNode",
     "ReplicatedMailboxStore",
     "ReplicationReceipt",
+    "RemotePageError",
+    "RemotePageMissing",
+    "RemotePageStore",
+    "RemotePageTimeout",
 ]

@@ -90,8 +90,17 @@ $$\text{Memory Hierarchy } = \begin{cases}
 \text{Tier 3: Remote Peer Mailbox Store} & (\tau \sim 100-500\,\text{ms})
 \end{cases}$$
 
+#### Stage 3 implemented
+
+`RemotePageStore` supplies fixed-size SHA-256 page CAS files with atomic
+publication, request/response transfer over bidirectional replicated mailbox
+channels, restart-safe local recovery, duplicate-safe page delivery, and
+explicit missing/corrupt-page failures. `VirtualMemory` accepts this backing
+provider; reclaim publishes before reservation and a later fault resolves the
+same page identity through the provider.
+
 #### Requirements
-1. **Remote Page Eviction & Faulting**: Connect `mem_reclaim` to network-backed storage, transparently faulting evicted pages back via content-addressed digests.
+1. **Remote Page Eviction & Faulting**: Connect `mem_reclaim` to network-backed storage, transparently faulting evicted pages back via content-addressed digests. **Implemented by `RemotePageStore` and `PageBacking`.**
 2. **Distributed Copy-on-Write (CoW)**: Share pages across remote nodes via SHA-256 digests, eliminating eager memory copies during distributed process spawns.
 
 ---
