@@ -783,6 +783,24 @@ It does not license assumptions about private model internals. `mailcpu/classifi
 - hard missing-**right** denial, confidence review gates, destructive-operation review, and explicit handler dispatch;
 - hash-chained `hypervisor.decision` receipts and check pointable model identity and policy thresholds.
 
+`HypervisorArbitrationLoop` adds the first bounded RSI control loop around that
+authority function:
+
+```text
+Receive(source, channel, sequence, logical_time, request)
+    -> Stabilize(identity, canonical_fingerprint)
+    -> Inspect(decision_receipt, replay/conflict)
+```
+
+The first event with identity `(source, channel, sequence)` evaluates the
+existing policy once and records its request fingerprint and decision receipt.
+An exact retransmission returns the original receipt without a second policy
+evaluation; a changed payload under the same identity fails closed. The ledger
+and cycle count participate in headless checkpoints. This loop is an
+idempotent arbitration boundary, not an authority-changing model promotion;
+future candidate revisions must pass a withheld witness corpus before
+promotion.
+
 The hypervisor is a control plane and not an opaque authority. Operating-system surfaces remain callable as native APIs while their typed adapter boundaries are added. Each adapter MUST preserve `ALLOW ⇒ one authorized handler`, and a learned or remote model MUST pass the `E0` replay and adversarial corpus of clause 13 before **admission**.
 
 Evidence tier: E0.

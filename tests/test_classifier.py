@@ -8,7 +8,9 @@ from mailcpu import (
     ChoiceQuestion,
     ClassifierHypervisor,
     HeadlessOS,
+    HypervisorArbitrationEvent,
     HypervisorAction,
+    HypervisorError,
     HypervisorDomain,
     HypervisorRequest,
     LexicalDecisionModel,
@@ -189,6 +191,98 @@ def test_headless_checkpoint_preserves_hypervisor_policy_and_receipts() -> None:
     restored = HeadlessOS.from_snapshot(snapshot)
     assert restored.hypervisor.snapshot() == operating_system.hypervisor.snapshot()
     assert restored.environment.kernel.journal.snapshot() == operating_system.environment.kernel.journal.snapshot()
+    assert restored.environment.kernel.journal.verify()
+
+
+def test_hypervisor_rsi_loop_reuses_exact_retransmission_receipt() -> None:
+    """Mathematics: one identity `I` admits one decision `D(I)`, while exact retransmission returns `H(D(I))` without another policy evaluation."""
+
+    operating_system = HeadlessOS()
+    request = HypervisorRequest(
+        "read filesystem file path descriptor",
+        "/home/file",
+        {"path": "/home/file"},
+        frozenset({"read"}),
+        frozenset({"read"}),
+    )
+    event = HypervisorArbitrationEvent("node-a", "control", 1, 7, request)
+
+    first = operating_system.hypervisor_arbitrate(event)
+    duplicate = operating_system.hypervisor_arbitrate(event)
+
+    assert first.replayed is False
+    assert first.decision is not None and first.decision.action is HypervisorAction.ALLOW
+    assert duplicate.replayed is True
+    assert duplicate.decision is None
+    assert duplicate.decision_receipt == first.decision_receipt
+    assert len([record for record in operating_system.environment.kernel.journal.records() if record.kind == "hypervisor.decision"]) == 1
+    assert operating_system.environment.kernel.journal.verify()
+
+
+def test_hypervisor_rsi_loop_refuses_conflicting_retransmission() -> None:
+    """Mathematics: fixed identity `I` cannot transition from fingerprint `f` to `f'≠f`; conflict is refused before a second decision."""
+
+    operating_system = HeadlessOS()
+    original = HypervisorArbitrationEvent(
+        "node-a",
+        "control",
+        1,
+        7,
+        HypervisorRequest(
+            "read filesystem file path descriptor",
+            "/home/file",
+            {"path": "/home/file"},
+            frozenset({"read"}),
+            frozenset({"read"}),
+        ),
+    )
+    conflicting = HypervisorArbitrationEvent(
+        "node-a",
+        "control",
+        1,
+        7,
+        HypervisorRequest(
+            "read filesystem file path descriptor",
+            "/home/other",
+            {"path": "/home/other"},
+            frozenset({"read"}),
+            frozenset({"read"}),
+        ),
+    )
+    operating_system.hypervisor_arbitrate(original)
+
+    with pytest.raises(HypervisorError, match="conflicting arbitration retransmission"):
+        operating_system.hypervisor_arbitrate(conflicting)
+
+    assert len([record for record in operating_system.environment.kernel.journal.records() if record.kind == "hypervisor.decision"]) == 1
+    assert operating_system.environment.kernel.journal.verify()
+
+
+def test_hypervisor_rsi_loop_ledger_survives_checkpoint_restore() -> None:
+    """Mathematics: `restore(snapshot(L))` preserves `I↦(f,H)`, so a post-restore duplicate cannot re-enter policy evaluation."""
+
+    operating_system = HeadlessOS()
+    event = HypervisorArbitrationEvent(
+        "node-a",
+        "control",
+        1,
+        7,
+        HypervisorRequest(
+            "read filesystem file path descriptor",
+            "/home/file",
+            {"path": "/home/file"},
+            frozenset({"read"}),
+            frozenset({"read"}),
+        ),
+    )
+    first = operating_system.hypervisor_arbitrate(event)
+    restored = HeadlessOS.from_snapshot(operating_system.snapshot())
+    duplicate = restored.hypervisor_arbitrate(event)
+
+    assert duplicate.replayed is True
+    assert duplicate.decision_receipt == first.decision_receipt
+    assert restored.hypervisor_arbitration.snapshot() == operating_system.hypervisor_arbitration.snapshot()
+    assert len([record for record in restored.environment.kernel.journal.records() if record.kind == "hypervisor.decision"]) == 1
     assert restored.environment.kernel.journal.verify()
 
 

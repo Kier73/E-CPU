@@ -68,6 +68,8 @@ system. Each entry has:
 | `A-5` | `SIGKILL` and `SIGSTOP` are non-ignorable. | `mailcpu/kernel.py` | `tests/test_signals_environment.py::test_kill_and_stop_dispositions_cannot_be_ignored` | `REPLACEMENT_SPEC.md` 7.5 |
 | `A-6** | The default exit code for a fatal signal is single-sourced in the signal vocabulary. | `mailcpu/signals.py` | `tests/test_public_surface.py::test_signal_vocabulary_is_the_single_source_of_default_exit_codes` | `ARCHITECTURE.md` 7.2 |
 
+| `A-7` | The arbitration loop admits one decision per `(source, channel, sequence)`, reuses the original receipt on an exact retransmission, and refuses a changed payload under that identity across checkpoint restore. | `mailcpu/classifier.py`, `mailcpu/headless.py` | `tests/test_classifier.py::test_hypervisor_rsi_loop_reuses_exact_retransmission_receipt`, `tests/test_classifier.py::test_hypervisor_rsi_loop_refuses_conflicting_retransmission`, `tests/test_classifier.py::test_hypervisor_rsi_loop_ledger_survives_checkpoint_restore` | `INTEGRATION_SPEC.md` 12.1 |
+
 ## Memory
 
 | ID | Statement | Establishes | Enforced by | Required by |

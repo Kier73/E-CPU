@@ -13,6 +13,9 @@ from .classifier import (
     ClassifierHypervisor,
     HypervisorDecision,
     HypervisorDomain,
+    HypervisorArbitrationEvent,
+    HypervisorArbitrationLoop,
+    HypervisorArbitrationResult,
     HypervisorRequest,
 )
 from .environment import CommandResult, VirtualEnvironment
@@ -98,6 +101,7 @@ class HeadlessOS:
         self.vm.scheduler.wait_predicate = self._scheduler_wait_ready
         self.vm.scheduler.post_step = self._apply_deferred_exec
         self.hypervisor = ClassifierHypervisor(journal=self.environment.kernel.journal)
+        self.hypervisor_arbitration = HypervisorArbitrationLoop(self.hypervisor)
         self.posix = PosixCompatibility(self)
         from .service import ServiceSupervisor
 
@@ -1680,6 +1684,11 @@ class HeadlessOS:
 
         return self.hypervisor.decide(request)
 
+    def hypervisor_arbitrate(self, event: HypervisorArbitrationEvent) -> HypervisorArbitrationResult:
+        """Mathematics: apply the checkpointable loop `R:=RSI(R,event)` and reuse exact transport identities without re-evaluation."""
+
+        return self.hypervisor_arbitration.arbitrate(event)
+
     def hypervisor_dispatch(
         self,
         pid: int,
@@ -1959,6 +1968,7 @@ class HeadlessOS:
             "vm": self.vm.snapshot(),
             "services": self.services.snapshot(),
             "hypervisor": self.hypervisor.snapshot(),
+            "hypervisor_arbitration": self.hypervisor_arbitration.snapshot(),
         }
 
     def save_checkpoint(self, path: str) -> str:
@@ -1991,6 +2001,10 @@ class HeadlessOS:
         operating_system.hypervisor = ClassifierHypervisor.from_snapshot(
             dict(payload.get("hypervisor", {})),
             operating_system.environment.kernel.journal,
+        )
+        operating_system.hypervisor_arbitration = HypervisorArbitrationLoop.from_snapshot(
+            operating_system.hypervisor,
+            dict(payload.get("hypervisor_arbitration", {})),
         )
         operating_system.services = ServiceSupervisor.from_snapshot(
             operating_system,

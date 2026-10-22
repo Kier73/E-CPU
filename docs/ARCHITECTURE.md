@@ -355,6 +355,11 @@ rules are `docs/ARCHITECTURE.md` clauses 3 and 5 and `docs/REPLACEMENT_SPEC.md`.
 - The classifier hypervisor separates typed probabilistic evidence from
   authority. Hard capability checks, confidence thresholds, destructive review,
   handler dispatch, and journal receipts are native control-plane transitions.
+- The hypervisor arbitration loop receives distributed source/channel/sequence
+  envelopes, stabilizes exact retransmissions by canonical fingerprint, and
+  refuses same-identity payload changes. Its ledger and cycle count checkpoint
+  with the headless OS; learned revision remains a separately witnessed
+  proposal until admitted.
 - Process signal dispositions checkpoint and are inherited. The integer-safe
   default and ignore ABI participates in explicit, group, and PTY-originated
   signal delivery. `SIGKILL` and `SIGSTOP` are non-ignorable.

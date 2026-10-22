@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
@@ -308,6 +309,84 @@ class HypervisorDecision:
 
 
 @dataclass(frozen=True)
+class HypervisorArbitrationEvent:
+    """A distributed request envelope with a stable replay identity."""
+
+    source: str
+    channel: str
+    sequence: int
+    logical_time: int
+    request: HypervisorRequest
+
+    def __post_init__(self) -> None:
+        """Mathematics: require event identity `e=(source,channel,s,t,r)` with nonempty labels, `s>0`, and `t≥0`."""
+
+        if not isinstance(self.source, str) or not self.source:
+            raise ClassifierError("arbitration source must be non-empty")
+        if not isinstance(self.channel, str) or not self.channel:
+            raise ClassifierError("arbitration channel must be non-empty")
+        if not isinstance(self.sequence, int) or isinstance(self.sequence, bool) or self.sequence <= 0:
+            raise ClassifierError("arbitration sequence must be positive")
+        if not isinstance(self.logical_time, int) or isinstance(self.logical_time, bool) or self.logical_time < 0:
+            raise ClassifierError("arbitration logical_time must be non-negative")
+        if not isinstance(self.request, HypervisorRequest):
+            raise ClassifierError("arbitration request must be a HypervisorRequest")
+
+    @property
+    def identity(self) -> tuple[str, str, int]:
+        """Mathematics: project transport identity `I(e)=(source,channel,sequence)` independently of payload."""
+
+        return self.source, self.channel, self.sequence
+
+    def to_dict(self) -> dict[str, object]:
+        """Mathematics: serialize the finite event relation `e` without changing request semantics."""
+
+        return {
+            "source": self.source,
+            "channel": self.channel,
+            "sequence": self.sequence,
+            "logical_time": self.logical_time,
+            "request": self.request.state(),
+        }
+
+
+@dataclass(frozen=True)
+class HypervisorArbitrationResult:
+    """One first-seen or replayed arbitration outcome."""
+
+    source: str
+    channel: str
+    sequence: int
+    logical_time: int
+    fingerprint: str
+    decision_receipt: str
+    decision: HypervisorDecision | None
+    replayed: bool
+
+    def __post_init__(self) -> None:
+        """Mathematics: require `fingerprint` and `decision_receipt` to be 256-bit hexadecimal identities."""
+
+        for name, value in (("fingerprint", self.fingerprint), ("decision_receipt", self.decision_receipt)):
+            if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
+                raise ClassifierError(f"{name} must be lowercase SHA-256 hex")
+
+    def to_dict(self) -> dict[str, object]:
+        """Mathematics: project result `R=(I,f,H,decision,replayed)` into a stable audit record."""
+
+        return {
+            "source": self.source,
+            "channel": self.channel,
+            "sequence": self.sequence,
+            "logical_time": self.logical_time,
+            "fingerprint": self.fingerprint,
+            "decision_receipt": self.decision_receipt,
+            "action": None if self.decision is None else self.decision.action.value,
+            "domain": None if self.decision is None else self.decision.domain.value,
+            "replayed": self.replayed,
+        }
+
+
+@dataclass(frozen=True)
 class HypervisorPolicy:
     """Risk thresholds separating autonomous action, review, and authority denial."""
 
@@ -501,6 +580,154 @@ class ClassifierHypervisor:
         else:
             intent_model = IntentPrototypeModel.default()
         return cls(model, journal, policy, intent_model, int(payload.get("virtual_capacity", 64)))
+
+
+class HypervisorArbitrationLoop:
+    """Bounded Receive–Stabilize–Inspect loop around the authority-preserving hypervisor."""
+
+    def __init__(self, hypervisor: ClassifierHypervisor) -> None:
+        """Mathematics: initialize replay ledger `L=∅` and cycle counter `k=0` over one policy authority `H`."""
+
+        if not isinstance(hypervisor, ClassifierHypervisor):
+            raise ClassifierError("arbitration loop requires a ClassifierHypervisor")
+        self.hypervisor = hypervisor
+        self._seen: dict[tuple[str, str, int], tuple[str, str]] = {}
+        self._cycle = 0
+
+    @staticmethod
+    def _fingerprint(event: HypervisorArbitrationEvent) -> str:
+        """Mathematics: calculate payload identity `f(e)=SHA256(JSON_sort(e))` independently of journal position."""
+
+        try:
+            canonical = json.dumps(
+                event.to_dict(),
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+                allow_nan=False,
+            ).encode("utf-8")
+        except (TypeError, ValueError) as exc:
+            raise ClassifierError("arbitration event is outside the canonical JSON domain") from exc
+        return hashlib.sha256(canonical).hexdigest()
+
+    def arbitrate(self, event: HypervisorArbitrationEvent) -> HypervisorArbitrationResult:
+        """Mathematics: apply `L[I]` once, return the same receipt on exact replay, and refuse `I↦f'` when `f'≠f`."""
+
+        if not isinstance(event, HypervisorArbitrationEvent):
+            raise ClassifierError("arbitration requires a HypervisorArbitrationEvent")
+        identity = event.identity
+        fingerprint = self._fingerprint(event)
+        previous = self._seen.get(identity)
+        if previous is not None:
+            previous_fingerprint, decision_receipt = previous
+            if previous_fingerprint != fingerprint:
+                raise HypervisorError("conflicting arbitration retransmission")
+            self.hypervisor.journal.append(
+                "hypervisor.arbitration.replay",
+                {
+                    "source": event.source,
+                    "channel": event.channel,
+                    "sequence": event.sequence,
+                    "logical_time": event.logical_time,
+                    "fingerprint": fingerprint,
+                    "decision_receipt": decision_receipt,
+                },
+            )
+            return HypervisorArbitrationResult(
+                event.source,
+                event.channel,
+                event.sequence,
+                event.logical_time,
+                fingerprint,
+                decision_receipt,
+                None,
+                True,
+            )
+
+        decision = self.hypervisor.decide(event.request)
+        self._cycle += 1
+        self._seen[identity] = (fingerprint, decision.receipt)
+        self.hypervisor.journal.append(
+            "hypervisor.arbitration.accept",
+            {
+                "source": event.source,
+                "channel": event.channel,
+                "sequence": event.sequence,
+                "logical_time": event.logical_time,
+                "fingerprint": fingerprint,
+                "decision_receipt": decision.receipt,
+                "cycle": self._cycle,
+            },
+        )
+        return HypervisorArbitrationResult(
+            event.source,
+            event.channel,
+            event.sequence,
+            event.logical_time,
+            fingerprint,
+            decision.receipt,
+            decision,
+            False,
+        )
+
+    def snapshot(self) -> dict[str, object]:
+        """Mathematics: serialize finite ledger `L={(I,f,H)}` and cycle count `k` for exact duplicate recovery."""
+
+        return {
+            "version": 1,
+            "cycle": self._cycle,
+            "seen": [
+                {
+                    "source": source,
+                    "channel": channel,
+                    "sequence": sequence,
+                    "fingerprint": fingerprint,
+                    "decision_receipt": decision_receipt,
+                }
+                for (source, channel, sequence), (fingerprint, decision_receipt) in sorted(self._seen.items())
+            ],
+        }
+
+    @classmethod
+    def from_snapshot(
+        cls,
+        hypervisor: ClassifierHypervisor,
+        payload: Mapping[str, Any],
+    ) -> "HypervisorArbitrationLoop":
+        """Mathematics: reconstruct `L` only when identities are unique, receipts are hashes, and `k=|L|`."""
+
+        if int(payload.get("version", 1)) != 1:
+            raise ClassifierError("unsupported hypervisor arbitration snapshot")
+        loop = cls(hypervisor)
+        cycle = int(payload.get("cycle", 0))
+        if cycle < 0:
+            raise ClassifierError("arbitration cycle must be non-negative")
+        for raw in payload.get("seen", ()):
+            source = str(raw["source"])
+            channel = str(raw["channel"])
+            sequence = int(raw["sequence"])
+            identity = (source, channel, sequence)
+            if identity in loop._seen:
+                raise ClassifierError("duplicate arbitration identity in snapshot")
+            if not source or not channel or sequence <= 0:
+                raise ClassifierError("invalid arbitration identity in snapshot")
+            fingerprint = str(raw["fingerprint"])
+            decision_receipt = str(raw["decision_receipt"])
+            HypervisorArbitrationResult(
+                source,
+                channel,
+                sequence,
+                0,
+                fingerprint,
+                decision_receipt,
+                None,
+                True,
+            )
+            loop._seen[identity] = (fingerprint, decision_receipt)
+        if cycle != len(loop._seen):
+            raise ClassifierError("arbitration cycle does not equal admitted event count")
+        loop._cycle = cycle
+        return loop
 
 
 def canonical_tokens(value: Any) -> set[str]:
