@@ -1680,7 +1680,7 @@ class HeadlessOS:
         required_rights: frozenset[str] = frozenset(),
         destructive: bool = False,
     ) -> tuple[HypervisorDecision, Any | None]:
-        """Mathematics: derive `G={r∈R | ∃c∈Caps(pid): c.allows(resource,r)}` before dispatching `H(request)`."""
+        """Mathematics: derive `G={r∈R | ∃c∈Caps(pid):c.allows(resource,r)}` and attach current epoch `τ=(λ,phase,τ_chem)`."""
 
         process = self.environment.kernel._process(pid)
         granted = frozenset(
@@ -1688,13 +1688,20 @@ class HeadlessOS:
             for right in required_rights
             if any(capability.allows(resource, right) for capability in process.capabilities)
         )
+        epoch = self.vm.scheduler.system_epoch
         request = HypervisorRequest(
-            operation,
-            resource,
-            dict(payload),
-            required_rights,
-            granted,
-            destructive,
+            operation=operation,
+            resource=resource,
+            payload=dict(payload),
+            required_rights=required_rights,
+            granted_rights=granted,
+            destructive=destructive,
+            temporal={
+                "event_lambda": epoch.event_lambda,
+                "chronon_real": epoch.chronon_phase.real,
+                "chronon_imag": epoch.chronon_phase.imag,
+                "chemical_tau": epoch.chemical_tau,
+            },
         )
         return self.hypervisor.dispatch(request, handlers)
 

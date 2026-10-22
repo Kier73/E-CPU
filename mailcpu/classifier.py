@@ -5,11 +5,12 @@ from __future__ import annotations
 import json
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Mapping, Protocol
 
 from .evidence import EvidenceTier, with_evidence_tier
+from .intent_embedding import IntentPrototypeModel, VirtualCost, estimate_virtual_cost
 from .journal import EventJournal
 
 
@@ -247,11 +248,12 @@ class HypervisorRequest:
     required_rights: frozenset[str] = frozenset()
     granted_rights: frozenset[str] = frozenset()
     destructive: bool = False
+    temporal: Mapping[str, Any] | None = None
 
     def state(self) -> dict[str, object]:
-        """Mathematics: form shared classifier state `x = (operation, resource, payload, authority, risk)`."""
+        """Mathematics: form shared state `x=(operation,resource,payload,authority,risk,time)` for all advisory and exact gates."""
 
-        return {
+        state: dict[str, object] = {
             "operation": self.operation,
             "resource": self.resource,
             "payload": dict(self.payload),
@@ -259,6 +261,9 @@ class HypervisorRequest:
             "granted_rights": sorted(self.granted_rights),
             "destructive": self.destructive,
         }
+        if self.temporal is not None:
+            state["temporal"] = dict(self.temporal)
+        return state
 
 
 @dataclass(frozen=True)
@@ -272,9 +277,14 @@ class HypervisorDecision:
     probabilities: dict[str, float]
     model: str
     receipt: str
+    intent_domain: str = ""
+    intent_confidence: float = 0.0
+    intent_probabilities: dict[str, float] = field(default_factory=dict)
+    intent_digest: str = ""
+    virtual_cost: VirtualCost | None = None
 
     def to_dict(self) -> dict[str, object]:
-        """Mathematics: project decision `d` into a stable control-plane record."""
+        """Mathematics: project decision `d` and advisory/time receipts into a stable control-plane record."""
 
         return with_evidence_tier(
             {
@@ -285,6 +295,13 @@ class HypervisorDecision:
                 "probabilities": dict(sorted(self.probabilities.items())),
                 "model": self.model,
                 "receipt": self.receipt,
+                "intent_embedding": {
+                    "domain": self.intent_domain,
+                    "confidence": self.intent_confidence,
+                    "probabilities": dict(sorted(self.intent_probabilities.items())),
+                    "digest": self.intent_digest,
+                },
+                "virtual_cost": self.virtual_cost.to_dict() if self.virtual_cost is not None else None,
             },
             EvidenceTier.E0,
         )
@@ -298,11 +315,18 @@ class HypervisorPolicy:
     automatic_confidence: float = 0.70
     destructive_confidence: float = 0.90
     danger_review_probability: float = 0.70
+    embedding_review_confidence: float = 0.90
 
     def __post_init__(self) -> None:
         """Mathematics: require thresholds in unit interval `[0,1]` and `review ≤ automatic ≤ destructive`."""
 
-        values = (self.review_confidence, self.automatic_confidence, self.destructive_confidence, self.danger_review_probability)
+        values = (
+            self.review_confidence,
+            self.automatic_confidence,
+            self.destructive_confidence,
+            self.danger_review_probability,
+            self.embedding_review_confidence,
+        )
         if any(value < 0 or value > 1 for value in values) or not self.review_confidence <= self.automatic_confidence <= self.destructive_confidence:
             raise ClassifierError("invalid hypervisor thresholds")
 
@@ -319,8 +343,10 @@ class ClassifierHypervisor:
         classifier: ClassifierModel | None = None,
         journal: EventJournal | None = None,
         policy: HypervisorPolicy | None = None,
+        intent_model: IntentPrototypeModel | None = None,
+        virtual_capacity: int = 64,
     ) -> None:
-        """Mathematics: compose `H = (classifier, policy, journal)` without granting model output direct authority."""
+        """Mathematics: compose `H=(classifier, intent_model, policy, journal, C)` without granting proposals authority."""
 
         if classifier is None:
             from .procedural_model import ProceduralDecisionModel
@@ -329,9 +355,13 @@ class ClassifierHypervisor:
         self.classifier = classifier
         self.journal = journal or EventJournal()
         self.policy = policy or HypervisorPolicy()
+        if not isinstance(virtual_capacity, int) or isinstance(virtual_capacity, bool) or virtual_capacity < 1:
+            raise ClassifierError("virtual capacity must be a positive integer")
+        self.intent_model = intent_model or IntentPrototypeModel.default()
+        self.virtual_capacity = virtual_capacity
 
     def decide(self, request: HypervisorRequest) -> HypervisorDecision:
-        """Mathematics: evaluate typed questions, apply authority/risk gates, and append receipt `H_n`."""
+        """Mathematics: evaluate exact questions, advisory proposal, and policy gates, then append receipt `H_n`."""
 
         questions: dict[str, Question] = {
             "domain": ChoiceQuestion.from_mapping(
@@ -350,7 +380,10 @@ class ClassifierHypervisor:
                 false_criteria="read inspect list observe classify",
             ),
         }
-        batch = self.classifier.evaluate(request.state(), questions)
+        state = request.state()
+        batch = self.classifier.evaluate(state, questions)
+        intent_prediction = self.intent_model.predict(state)
+        virtual_cost = estimate_virtual_cost(state, self.virtual_capacity)
         domain_answer = batch.answers["domain"]
         danger_answer = batch.answers["danger"]
         if not isinstance(domain_answer, ChoiceAnswer) or not isinstance(danger_answer, NoulAnswer):
@@ -370,17 +403,40 @@ class ClassifierHypervisor:
             action = HypervisorAction.REVIEW
         else:
             action = HypervisorAction.ALLOW
+        disagreement = (
+            action is HypervisorAction.ALLOW
+            and intent_prediction.confidence >= self.policy.embedding_review_confidence
+            and intent_prediction.domain != domain.value
+        )
+        if disagreement:
+            action = HypervisorAction.REVIEW
         payload = {
-            "request": request.state(),
+            "request": state,
             "action": action.value,
             "domain": domain.value,
             "confidence": domain_answer.confidence,
             "danger_probability": danger_answer.noul,
             "probabilities": domain_answer.probabilities,
             "model": batch.model,
+            "intent_embedding": intent_prediction.to_dict(),
+            "embedding_disagreement": disagreement,
+            "virtual_cost": virtual_cost.to_dict(),
         }
         receipt = self.journal.append("hypervisor.decision", payload).digest
-        return HypervisorDecision(action, domain, domain_answer.confidence, danger_answer.noul, domain_answer.probabilities, batch.model, receipt)
+        return HypervisorDecision(
+            action,
+            domain,
+            domain_answer.confidence,
+            danger_answer.noul,
+            domain_answer.probabilities,
+            batch.model,
+            receipt,
+            intent_prediction.domain,
+            intent_prediction.confidence,
+            intent_prediction.probabilities,
+            intent_prediction.digest,
+            virtual_cost,
+        )
 
     def dispatch(
         self,
@@ -398,7 +454,7 @@ class ClassifierHypervisor:
         return decision, handler()
 
     def snapshot(self) -> dict[str, object]:
-        """Mathematics: serialize policy `π` and generator/model identity `m` while journal state remains in the OS graph."""
+        """Mathematics: serialize exact classifier `m`, advisory model `M`, policy `π`, and capacity `C`."""
 
         model_snapshot = getattr(self.classifier, "snapshot", None)
         model = model_snapshot() if callable(model_snapshot) else {
@@ -412,12 +468,15 @@ class ClassifierHypervisor:
                 "automatic_confidence": self.policy.automatic_confidence,
                 "destructive_confidence": self.policy.destructive_confidence,
                 "danger_review_probability": self.policy.danger_review_probability,
+                "embedding_review_confidence": self.policy.embedding_review_confidence,
             },
+            "intent_model": self.intent_model.snapshot(),
+            "virtual_capacity": self.virtual_capacity,
         }
 
     @classmethod
     def from_snapshot(cls, payload: Mapping[str, Any], journal: EventJournal) -> "ClassifierHypervisor":
-        """Mathematics: reconstruct `H'=(f_m,π,journal)` from serialized model/generator identity and thresholds."""
+        """Mathematics: reconstruct `H'=(f_m,M,π,journal,C)` from finite checkpoint data."""
 
         policy_payload = dict(payload.get("policy", {}))
         policy = HypervisorPolicy(
@@ -425,6 +484,7 @@ class ClassifierHypervisor:
             automatic_confidence=float(policy_payload.get("automatic_confidence", 0.70)),
             destructive_confidence=float(policy_payload.get("destructive_confidence", 0.90)),
             danger_review_probability=float(policy_payload.get("danger_review_probability", 0.70)),
+            embedding_review_confidence=float(policy_payload.get("embedding_review_confidence", 0.90)),
         )
         model_payload = payload.get("model", {})
         if isinstance(model_payload, Mapping) and model_payload.get("kind") == "procedural":
@@ -435,7 +495,12 @@ class ClassifierHypervisor:
             model = LexicalDecisionModel(str(model_payload.get("model", "mailcpu-lexical-e0")))
         else:
             model = LexicalDecisionModel(str(model_payload or "mailcpu-lexical-e0"))
-        return cls(model, journal, policy)
+        intent_payload = payload.get("intent_model", {})
+        if isinstance(intent_payload, Mapping) and intent_payload.get("kind") == "intent-prototype":
+            intent_model = IntentPrototypeModel.from_snapshot(intent_payload)
+        else:
+            intent_model = IntentPrototypeModel.default()
+        return cls(model, journal, policy, intent_model, int(payload.get("virtual_capacity", 64)))
 
 
 def canonical_tokens(value: Any) -> set[str]:

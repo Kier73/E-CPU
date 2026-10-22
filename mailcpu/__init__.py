@@ -134,6 +134,17 @@ from .classifier import (
     choice_confidence,
     score_confidence,
 )
+from .intent_embedding import (
+    IntentEmbedding,
+    IntentEmbeddingError,
+    IntentEncoding,
+    IntentExample,
+    IntentPrediction,
+    IntentPrototypeModel,
+    VirtualCost,
+    estimate_virtual_cost,
+    structural_tokens,
+)
 from .procedural_model import ProceduralDecisionModel, ProceduralModelSpec, ProceduralWeightField
 from .reversible_gates import (
     ARM_NONE,
@@ -414,6 +425,15 @@ __all__ = [
     "decode_stream_segment",
     "encode_stream_segment",
     "score_confidence",
+    "IntentEmbedding",
+    "IntentEmbeddingError",
+    "IntentEncoding",
+    "IntentExample",
+    "IntentPrediction",
+    "IntentPrototypeModel",
+    "VirtualCost",
+    "estimate_virtual_cost",
+    "structural_tokens",
     "ARM_NONE",
     "KIND_SWAP",
     "KIND_X",
