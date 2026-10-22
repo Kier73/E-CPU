@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import struct
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Mapping
 
 if TYPE_CHECKING:
     from .memory import VirtualMemory
@@ -34,6 +34,39 @@ MACHINE_NAMES = {
     62: "x86_64",
     183: "AArch64",
     243: "RISC-V",
+}
+
+DT_NULL = 0
+DT_NEEDED = 1
+DT_PLTRELSZ = 2
+DT_STRTAB = 5
+DT_STRSZ = 10
+DT_SYMTAB = 6
+DT_SYMENT = 11
+DT_RELA = 7
+DT_RELASZ = 8
+DT_RELAENT = 9
+DT_SONAME = 14
+DT_RPATH = 15
+DT_SYMBOLIC = 16
+DT_REL = 17
+DT_RELSZ = 18
+DT_RELENT = 19
+DT_PLTREL = 20
+DT_JMPREL = 23
+DT_RUNPATH = 29
+DT_HASH = 4
+DT_GNU_HASH = 0x6FFFFEF5
+MAX_DYNAMIC_ENTRIES = 1_000_000
+MAX_DYNAMIC_STRINGS = 1_048_576
+
+_RELATIVE_TYPES = {3: {8}, 40: {23}, 62: {8}, 183: {1027}, 243: {3}}
+_SYMBOL_RELOCATION_TYPES = {
+    3: {1, 6, 7},
+    40: {2, 21, 22},
+    62: {1, 6, 7},
+    183: {257, 1025, 1026},
+    243: {2, 5, 6},
 }
 
 
@@ -85,6 +118,72 @@ class ElfLoadResult:
 
 
 @dataclass(frozen=True)
+class ElfSymbol:
+    """One dynamic symbol-table record with its resolved string-table name."""
+
+    index: int
+    name: str
+    value: int
+    size: int
+    info: int
+    other: int
+    section_index: int
+
+    @property
+    def defined(self) -> bool:
+        """Mathematics: a symbol is locally defined exactly when `st_shndx≠SHN_UNDEF=0`."""
+
+        return self.section_index != 0
+
+
+@dataclass(frozen=True)
+class ElfRelocation:
+    """One REL or RELA dynamic relocation before runtime binding."""
+
+    offset: int
+    relocation_type: int
+    symbol_index: int
+    addend: int | None
+    symbol_name: str | None
+
+
+@dataclass(frozen=True)
+class ElfDynamicInfo:
+    """Parsed dynamic loader metadata and relocation relation for one ELF image."""
+
+    needed: tuple[str, ...]
+    soname: str | None
+    rpath: str | None
+    runpath: str | None
+    symbols: tuple[ElfSymbol, ...]
+    relocations: tuple[ElfRelocation, ...]
+    string_table_address: int | None
+    string_table_size: int | None
+    symbol_table_address: int | None
+    symbol_entry_size: int | None
+
+
+@dataclass(frozen=True)
+class RelocationAction:
+    """A resolved write intent produced without mutating virtual memory."""
+
+    target_address: int
+    relocation_type: int
+    symbol_name: str | None
+    addend: int
+    value: int
+
+
+@dataclass(frozen=True)
+class DynamicLinkPlan:
+    """A deterministic, dependency-preserving relocation plan awaiting a linker write phase."""
+
+    load_bias: int
+    dependencies: tuple[str, ...]
+    actions: tuple[RelocationAction, ...]
+
+
+@dataclass(frozen=True)
 class ElfImage:
     """A validated ELF image whose loadable program headers are ready for staging."""
 
@@ -97,6 +196,7 @@ class ElfImage:
     interpreter: str | None
     has_dynamic_segment: bool
     digest: str
+    dynamic: ElfDynamicInfo | None = None
 
     @property
     def machine_name(self) -> str:
@@ -144,6 +244,61 @@ class ElfImage:
             executable_pages=tuple(sorted(page for page, executable in page_executable.items() if executable)),
         )
 
+    def plan_relocations(
+        self,
+        base: int = 0,
+        bindings: Mapping[str, int] | None = None,
+    ) -> DynamicLinkPlan:
+        """Mathematics: resolve `R_RELATIVE=base+addend` and `R_SYMBOL=B[name]+addend` into immutable actions without writing memory."""
+
+        if base < 0 or base % ELF_PAGE_SIZE:
+            raise ElfError("ELF load bias must be non-negative and page-aligned")
+        if self.elf_type == ET_EXEC and base != 0:
+            raise ElfError("ET_EXEC cannot be relocated by a non-zero load bias")
+        dynamic = self.dynamic
+        if dynamic is None:
+            return DynamicLinkPlan(base, (), ())
+        symbol_bindings = {str(name): int(value) for name, value in dict(bindings or {}).items()}
+        symbols = {symbol.index: symbol for symbol in dynamic.symbols}
+        actions: list[RelocationAction] = []
+        relative_types = _RELATIVE_TYPES.get(self.machine, set())
+        symbol_types = _SYMBOL_RELOCATION_TYPES.get(self.machine, set())
+        for relocation in dynamic.relocations:
+            if relocation.relocation_type in relative_types:
+                addend = int(relocation.addend or 0)
+                actions.append(
+                    RelocationAction(
+                        base + relocation.offset,
+                        relocation.relocation_type,
+                        None,
+                        addend,
+                        base + addend,
+                    )
+                )
+                continue
+            if relocation.relocation_type not in symbol_types:
+                raise ElfError(f"unsupported relocation type {relocation.relocation_type} for {self.machine_name}")
+            symbol = symbols.get(relocation.symbol_index)
+            if symbol is None or not symbol.name:
+                raise ElfError(f"relocation references unknown dynamic symbol: {relocation.symbol_index}")
+            if symbol.defined:
+                symbol_value = base + symbol.value
+            elif symbol.name in symbol_bindings:
+                symbol_value = symbol_bindings[symbol.name]
+            else:
+                raise ElfError(f"unresolved dynamic symbol: {symbol.name}")
+            addend = int(relocation.addend or 0)
+            actions.append(
+                RelocationAction(
+                    base + relocation.offset,
+                    relocation.relocation_type,
+                    symbol.name,
+                    addend,
+                    symbol_value + addend,
+                )
+            )
+        return DynamicLinkPlan(base, dynamic.needed, tuple(actions))
+
 
 def _page_runs(page_numbers: tuple[int, ...]) -> tuple[tuple[int, int], ...]:
     """Mathematics: factor sorted `P` into maximal consecutive intervals `(start,length)` whose union equals `P`."""
@@ -167,6 +322,227 @@ def _checked_interval(offset: int, size: int, total: int, label: str) -> tuple[i
     if offset < 0 or size < 0 or offset + size > total:
         raise ElfError(f"{label} lies outside the ELF payload")
     return offset, offset + size
+
+
+def _read_virtual_bytes(address: int, size: int, segments: tuple[ElfSegment, ...]) -> bytes:
+    """Mathematics: invert one file-backed load projection `v↦file[v]` over `[address,address+size)` without crossing an absent interval."""
+
+    if address < 0 or size < 0:
+        raise ElfError("dynamic virtual interval is negative")
+    for segment in segments:
+        start = segment.virtual_address
+        end = start + segment.file_size
+        if start <= address and address + size <= end:
+            offset = address - start
+            return segment.data[offset : offset + size]
+    raise ElfError(f"dynamic virtual interval is not file-backed: {address:#x}+{size:#x}")
+
+
+def _read_dynamic_string(table: bytes, offset: int, label: str) -> str:
+    """Mathematics: resolve `str[offset:next_nul)` inside the bounded dynamic string domain `0≤offset<|strtab|`."""
+
+    if offset < 0 or offset >= len(table):
+        raise ElfError(f"{label} string offset is outside DT_STRTAB")
+    end = table.find(b"\0", offset)
+    if end < 0:
+        raise ElfError(f"{label} string is not NUL-terminated")
+    try:
+        return table[offset:end].decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ElfError(f"{label} string is not valid UTF-8") from error
+
+
+def _parse_hash_symbol_count(
+    address: int | None,
+    endian: str,
+    segments: tuple[ElfSegment, ...],
+) -> int | None:
+    """Mathematics: obtain `nchain` from SysV `DT_HASH`, or infer the terminal GNU-hash chain index."""
+
+    if address is None:
+        return None
+    raw = _read_virtual_bytes(address, 8, segments)
+    bucket_count, chain_count = struct.unpack_from(endian + "II", raw, 0)
+    if bucket_count == 0:
+        return chain_count
+    return chain_count
+
+
+def _parse_gnu_hash_symbol_count(address: int | None, bits: int, endian: str, segments: tuple[ElfSegment, ...]) -> int | None:
+    """Mathematics: infer GNU-hash symbol domain cardinality from `symoffset` and the first terminal chain marker."""
+
+    if address is None:
+        return None
+    word_size = 8 if bits == 64 else 4
+    header = _read_virtual_bytes(address, 16, segments)
+    header_format = struct.Struct(endian + "IIII")
+    bucket_count, symbol_offset, bloom_size, _bloom_shift = header_format.unpack(header)
+    if bucket_count == 0:
+        return symbol_offset
+    buckets_address = address + 16 + bloom_size * word_size
+    buckets = _read_virtual_bytes(buckets_address, bucket_count * 4, segments)
+    bucket_values = struct.unpack(endian + f"{bucket_count}I", buckets)
+    maximum_bucket = max(bucket_values, default=0)
+    if maximum_bucket < symbol_offset:
+        return symbol_offset
+    chains_address = buckets_address + bucket_count * 4
+    chain_count = 0
+    index = maximum_bucket - symbol_offset
+    while chain_count <= MAX_DYNAMIC_ENTRIES:
+        raw = _read_virtual_bytes(chains_address + index * 4, 4, segments)
+        value = struct.unpack(endian + "I", raw)[0]
+        chain_count += 1
+        if value & 1:
+            return maximum_bucket + chain_count
+        index += 1
+    raise ElfError("GNU hash symbol chain exceeds dynamic limit")
+
+
+def _parse_dynamic(
+    data: bytes,
+    offset: int,
+    size: int,
+    bits: int,
+    endian: str,
+    segments: tuple[ElfSegment, ...],
+) -> ElfDynamicInfo:
+    """Mathematics: fold `PT_DYNAMIC` records until `DT_NULL`, then decode bounded strings, symbols, and REL/RELA relations."""
+
+    entry_size = 16 if bits == 64 else 8
+    if size <= 0 or size % entry_size:
+        raise ElfError("dynamic table size is not an entry multiple")
+    _checked_interval(offset, size, len(data), "dynamic table")
+    dynamic_bytes = data[offset : offset + size]
+    dynamic_format = struct.Struct(endian + ("qQ" if bits == 64 else "iI"))
+    tags: dict[int, int] = {}
+    needed_offsets: list[int] = []
+    terminated = False
+    for index in range(size // entry_size):
+        tag, value = dynamic_format.unpack_from(dynamic_bytes, index * entry_size)
+        if tag == DT_NULL:
+            terminated = True
+            break
+        if index >= MAX_DYNAMIC_ENTRIES:
+            raise ElfError("dynamic table exceeds entry limit")
+        if tag == DT_NEEDED:
+            needed_offsets.append(int(value))
+        else:
+            tags.setdefault(int(tag), int(value))
+    if not terminated:
+        raise ElfError("dynamic table has no DT_NULL terminator")
+
+    string_address = tags.get(DT_STRTAB)
+    string_size = tags.get(DT_STRSZ)
+    string_table: bytes | None = None
+    if string_address is not None or string_size is not None or needed_offsets:
+        if string_address is None or string_size is None or string_size > MAX_DYNAMIC_STRINGS:
+            raise ElfError("dynamic string table metadata is incomplete or too large")
+        string_table = _read_virtual_bytes(string_address, string_size, segments)
+
+    def string_at(value: int, label: str) -> str:
+        """Mathematics: resolve one dynamic string-table offset `value` through the shared bounded table."""
+
+        if string_table is None:
+            raise ElfError(f"{label} requires DT_STRTAB")
+        return _read_dynamic_string(string_table, value, label)
+
+    needed = tuple(string_at(value, "DT_NEEDED") for value in needed_offsets)
+    soname = None if DT_SONAME not in tags else string_at(tags[DT_SONAME], "DT_SONAME")
+    rpath = None if DT_RPATH not in tags else string_at(tags[DT_RPATH], "DT_RPATH")
+    runpath = None if DT_RUNPATH not in tags else string_at(tags[DT_RUNPATH], "DT_RUNPATH")
+
+    def dynamic_table(tag: int, size_tag: int, entry_tag: int, expected: int, label: str, addend: bool) -> list[ElfRelocation]:
+        """Mathematics: parse `size/entry` fixed records from dynamic virtual address `tag`, preserving `addend=⊥` for REL."""
+
+        address = tags.get(tag)
+        table_size = tags.get(size_tag, 0)
+        if address is None:
+            if table_size:
+                raise ElfError(f"{label} size has no address")
+            return []
+        entry = tags.get(entry_tag, expected)
+        if entry != expected or table_size % entry:
+            raise ElfError(f"{label} entry size is invalid")
+        raw_table = _read_virtual_bytes(address, table_size, segments)
+        result: list[ElfRelocation] = []
+        format_string = endian + ("QQq" if bits == 64 and addend else "QQ" if bits == 64 else "IIi" if addend else "II")
+        record_format = struct.Struct(format_string)
+        for cursor in range(0, table_size, entry):
+            values = record_format.unpack_from(raw_table, cursor)
+            relocation_offset, info = int(values[0]), int(values[1])
+            symbol_index = info >> (32 if bits == 64 else 8)
+            relocation_type = info & ((1 << (32 if bits == 64 else 8)) - 1)
+            relocation_addend = int(values[2]) if addend else None
+            result.append(ElfRelocation(relocation_offset, relocation_type, symbol_index, relocation_addend, None))
+        return result
+
+    relocations = dynamic_table(DT_RELA, DT_RELASZ, DT_RELAENT, 24 if bits == 64 else 12, "DT_RELA", True)
+    relocations.extend(dynamic_table(DT_REL, DT_RELSZ, DT_RELENT, 16 if bits == 64 else 8, "DT_REL", False))
+    jmprel_address = tags.get(DT_JMPREL)
+    if jmprel_address is not None:
+        plt_size = tags.get(DT_PLTRELSZ, 0)
+        plt_kind = tags.get(DT_PLTREL)
+        if plt_kind == DT_RELA:
+            relocations.extend(dynamic_table(DT_JMPREL, DT_PLTRELSZ, DT_RELAENT, 24 if bits == 64 else 12, "DT_JMPREL/RELA", True))
+        elif plt_kind == DT_REL:
+            relocations.extend(dynamic_table(DT_JMPREL, DT_PLTRELSZ, DT_RELENT, 16 if bits == 64 else 8, "DT_JMPREL/REL", False))
+        elif plt_size:
+            raise ElfError("DT_JMPREL has no valid DT_PLTREL kind")
+
+    symbol_address = tags.get(DT_SYMTAB)
+    symbol_entry = tags.get(DT_SYMENT)
+    symbols: list[ElfSymbol] = []
+    if symbol_address is not None:
+        expected_symbol_entry = 24 if bits == 64 else 16
+        if symbol_entry != expected_symbol_entry:
+            raise ElfError("dynamic symbol entry size is invalid")
+        symbol_count = _parse_hash_symbol_count(tags.get(DT_HASH), endian, segments)
+        if symbol_count is None:
+            symbol_count = _parse_gnu_hash_symbol_count(tags.get(DT_GNU_HASH), bits, endian, segments)
+        if symbol_count is None:
+            symbol_count = max((relocation.symbol_index for relocation in relocations), default=-1) + 1
+        if symbol_count > MAX_DYNAMIC_ENTRIES:
+            raise ElfError("dynamic symbol table exceeds entry limit")
+        raw_symbols = _read_virtual_bytes(symbol_address, symbol_count * expected_symbol_entry, segments)
+        for index in range(symbol_count):
+            raw = raw_symbols[index * expected_symbol_entry : (index + 1) * expected_symbol_entry]
+            if bits == 64:
+                name_offset, info, other, section_index, value, symbol_size = struct.unpack(endian + "IBBHQQ", raw)
+            else:
+                name_offset, value, symbol_size, info, other, section_index = struct.unpack(endian + "IIIBBH", raw)
+            symbols.append(
+                ElfSymbol(index, string_at(name_offset, "dynamic symbol"), int(value), int(symbol_size), int(info), int(other), int(section_index))
+            )
+    symbol_map = {symbol.index: symbol.name for symbol in symbols}
+    relocations = tuple(
+        ElfRelocation(relocation.offset, relocation.relocation_type, relocation.symbol_index, relocation.addend, symbol_map.get(relocation.symbol_index))
+        for relocation in relocations
+    )
+    return ElfDynamicInfo(
+        needed,
+        soname,
+        rpath,
+        runpath,
+        tuple(symbols),
+        relocations,
+        string_address,
+        string_size,
+        symbol_address,
+        symbol_entry,
+    )
+
+
+def _read_virtual_bytes_from_file_segments(offset: int, size: int, segments: tuple[ElfSegment, ...]) -> bytes:
+    """Mathematics: read a dynamic table's raw file interval by locating the segment whose stored bytes contain `offset..offset+size`."""
+
+    if offset < 0 or size < 0:
+        raise ElfError("dynamic file interval is negative")
+    for segment in segments:
+        segment_offset = segment.offset
+        if segment_offset <= offset and offset + size <= segment_offset + segment.file_size:
+            start = offset - segment_offset
+            return segment.data[start : start + size]
+    raise ElfError(f"dynamic file interval is not represented by a load segment: {offset:#x}+{size:#x}")
 
 
 def parse_elf(payload: bytes) -> ElfImage:
@@ -206,6 +582,7 @@ def parse_elf(payload: bytes) -> ElfImage:
     load_segments: list[ElfSegment] = []
     interpreter: str | None = None
     has_dynamic = False
+    dynamic_header: tuple[int, int] | None = None
     program_header = struct.Struct(endian + ("IIIIIIII" if bits == 32 else "IIQQQQQQ"))
     for index in range(phnum):
         raw = program_header.unpack_from(data, phoff + index * phentsize)
@@ -216,6 +593,7 @@ def parse_elf(payload: bytes) -> ElfImage:
         _checked_interval(offset, file_size, len(data), f"program segment {index}")
         if segment_type == PT_DYNAMIC:
             has_dynamic = True
+            dynamic_header = (int(offset), int(file_size))
         if segment_type == PT_INTERP:
             if file_size <= 1 or file_size > MAX_INTERPRETER_BYTES:
                 raise ElfError("invalid ELF interpreter size")
@@ -259,6 +637,9 @@ def parse_elf(payload: bytes) -> ElfImage:
             raise ElfError("PT_LOAD memory intervals overlap")
     if not any(segment.virtual_address <= entry < segment.virtual_address + segment.memory_size for segment in ordered):
         raise ElfError("ELF entry point is outside PT_LOAD memory")
+    dynamic = None
+    if dynamic_header is not None and dynamic_header[1] > 0:
+        dynamic = _parse_dynamic(data, dynamic_header[0], dynamic_header[1], bits, endian, tuple(ordered))
     return ElfImage(
         bits,
         "little" if endian == "<" else "big",
@@ -269,4 +650,5 @@ def parse_elf(payload: bytes) -> ElfImage:
         interpreter,
         has_dynamic,
         hashlib.sha256(data).hexdigest(),
+        dynamic,
     )

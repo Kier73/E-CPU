@@ -76,6 +76,8 @@ class IngestedArtifact:
                     "interpreter": self.elf.interpreter,
                     "dynamic": self.elf.has_dynamic_segment,
                     "load_segments": len(self.elf.segments),
+                    "needed": list(self.elf.dynamic.needed) if self.elf.dynamic is not None else [],
+                    "relocations": len(self.elf.dynamic.relocations) if self.elf.dynamic is not None else 0,
                 }
             )
         return result

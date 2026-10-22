@@ -304,6 +304,10 @@ rules are `docs/ARCHITECTURE.md` clauses 3 and 5 and `docs/REPLACEMENT_SPEC.md`.
   memory stager. Load segments, BSS, page protections, entry point, interpreter
   metadata, and dynamic presence are retained. Foreign instruction execution
   fails closed.
+- Dynamic ELF metadata is decoded into bounded dependencies, symbols, REL/RELA
+  records, and a digest-preserving `DynamicLinkPlan`. Relative actions and
+  explicitly supplied symbol bindings produce typed write intents without
+  mutating memory before a later linker stage admits them.
 
 ### 7.9 Control plane
 

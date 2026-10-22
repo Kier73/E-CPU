@@ -110,7 +110,18 @@ from .stream import (
     encode_stream_segment,
 )
 from .signals import Signal, SignalError
-from .elf import ElfError, ElfImage, ElfLoadResult, ElfSegment, parse_elf
+from .elf import (
+    DynamicLinkPlan,
+    ElfDynamicInfo,
+    ElfError,
+    ElfImage,
+    ElfLoadResult,
+    ElfRelocation,
+    ElfSegment,
+    ElfSymbol,
+    RelocationAction,
+    parse_elf,
+)
 from .image import ExecutionRegime, ExecutableImage, UnsupportedRegimeError
 from .registry import ImageRecord, ImageRegistry, RegistryError
 from .classifier import (
@@ -377,8 +388,13 @@ __all__ = [
     "SignalError",
     "ElfError",
     "ElfImage",
+    "ElfDynamicInfo",
     "ElfLoadResult",
+    "ElfRelocation",
     "ElfSegment",
+    "ElfSymbol",
+    "DynamicLinkPlan",
+    "RelocationAction",
     "parse_elf",
     "SyscallClient",
     "SyscallRequest",

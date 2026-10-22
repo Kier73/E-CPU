@@ -75,6 +75,12 @@ system. Each entry has:
 | `M-6` | A read is non-consuming with respect to the register mailbox it observes. | `mailcpu/interpreter.py` | `tests/test_conformance.py::test_queue_register_read_is_non_consuming` | `PLAN.md` 4.5 |
 | `M-7` | Remote-backed reclaim publishes a page identity before reservation, and a later fault restores exact bytes through the same digest. | `mailcpu/memory.py`, `mailcpu/remote_memory.py` | `tests/test_remote_memory.py::test_virtual_memory_reclaim_faults_through_remote_page_backing` | `ARCHITECTURE.md` 7.3 |
 
+## Dynamic ELF planning
+
+| ID | Statement | Establishes | Enforced by | Required by |
+|---|---|---|---|---|
+| `E-1` | Dynamic ELF dependencies and relative relocations are decoded deterministically, while undefined symbols require explicit bindings. | `mailcpu/elf.py` | `tests/test_dynamic_elf.py::test_dynamic_elf_parses_dependencies_and_relative_relocation_plan`, `tests/test_dynamic_elf.py::test_dynamic_elf_requires_explicit_external_symbol_binding` | `INTEGRATION_SPEC.md` 11.5 |
+
 ## Descriptors and blocking
 
 | ID | Statement | Establishes | Enforced by | Required by |

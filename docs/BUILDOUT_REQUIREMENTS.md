@@ -35,10 +35,18 @@ retains ELF loader metadata without pretending that dynamic native binaries
 are already executable by the MailCPU scheduler. The `ingest` CLI command
 reports the same typed result and writes only validated outputs.
 
+#### Stage 5 implemented
+
+`ElfImage` now decodes bounded `PT_DYNAMIC` string, dependency, symbol, and
+REL/RELA relocation tables. `plan_relocations` resolves load-bias-relative
+actions and requires explicit bindings for undefined symbols, producing a
+typed immutable `DynamicLinkPlan`; dependency loading and memory mutation are
+the next linker slice.
+
 #### Requirements
 1. **WASM-to-MailCPU Transpiler**: Map WebAssembly linear memory and typed control-flow operations to MailCPU content-addressed pages and mailbox queues $\mathcal{Q}$.
 2. **LLVM Architecture Target**: Implement a MailCPU code generator targeting the fundamental nine-instruction transition algebra (`SET`, `COPY`, `ADD`, `COMPARE`, `BRANCH`, `SEND`, `WAIT`, `SYSCALL`, `HALT`).
-3. **Dynamic ELF Loader & Relocation**: Extend static segment staging in `mailcpu/elf.py` to support dynamic linking, symbol tables, and relocations.
+3. **Dynamic ELF Loader & Relocation**: Extend static segment staging in `mailcpu/elf.py` to support dynamic linking, symbol tables, and relocations. **Dynamic metadata parsing and relocation planning are implemented; dependency loading and relocation application remain.**
 
 ---
 

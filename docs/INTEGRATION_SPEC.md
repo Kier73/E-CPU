@@ -657,12 +657,20 @@ The executable boundary admits ELF payloads for virtual-memory staging.
 - ELF32 and ELF64 little-endian and big-endian identification and headers are parsed with bounded program-header tables and supported-machine validation.
 - `PT_LOAD` intervals enforce file and memory size ordering, page congruence, alignment, non-overlap, address bounds, and entry-point containment.
 - `PT_INTERP` and dynamic-segment presence are retained as loader metadata rather than executed or discarded.
+- `PT_DYNAMIC` metadata is decoded into bounded `DT_NEEDED`, soname/search-path,
+  dynamic-symbol, and REL/RELA records. `ElfImage.plan_relocations` emits
+  relative and explicitly bound symbol write intents with load-bias arithmetic;
+  unresolved symbols and unsupported relocation types remain typed failures.
 - Load staging maps maximal page runs, copies file-backed bytes, preserves zero-filled BSS, and applies writable and non-writable page protections while exposing declared executable pages separately.
 - `HeadlessOS.load_elf_image` reads the payload through the virtual descriptor path, journals its digest, entry point, and load bias, and stages it into a process memory image.
 
 **REQUIRED** No instruction backend is fabricated for a foreign architecture. A parsed ELF image remains a staged artifact, and foreign instruction execution fails closed until a verified CPU and ABI backend is supplied.
 
 Evidence tier: E0.
+
+Dynamic planning is an E0 deterministic artifact operation. It does not yet
+load dependency providers or mutate staged memory; those operations are the
+next dynamic-linker boundary.
 
 ## 12. Control plane
 
