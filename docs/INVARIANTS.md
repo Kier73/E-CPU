@@ -91,6 +91,8 @@ system. Each entry has:
 | `U-3` | `wait4(WNOHANG)` does not reap an unexited child, while a completed wait writes the encoded exit status before returning the child identity. | `mailcpu/posix_abi.py` | `tests/test_posix_abi.py::test_posix_wait4_encodes_status_and_wnohang_without_reaping_early` | `INTEGRATION_SPEC.md` 11.6 |
 | `U-4` | Unsupported numbers and invalid pointers return explicit errno results, and a failed pointer read leaves the descriptor projection unchanged. | `mailcpu/posix_abi.py` | `tests/test_posix_abi.py::test_posix_unsupported_and_invalid_transitions_are_explicit` | `INTEGRATION_SPEC.md` 11.6 |
 | `U-5` | `O_CLOEXEC` remains descriptor-local and is not confused with shared open-description flags. | `mailcpu/posix_abi.py`, `mailcpu/kernel.py` | `tests/test_posix_abi.py::test_posix_open_cloexec_sets_descriptor_local_flag` | `INTEGRATION_SPEC.md` 11.6 |
+| `U-6` | `execve` decodes bounded argv and environment vectors, replaces the supplied environment, and preserves ordinary descriptors through native image replacement. | `mailcpu/posix_abi.py`, `mailcpu/headless.py`, `mailcpu/kernel.py` | `tests/test_posix_abi.py::test_posix_execve_decodes_argv_and_environment_before_atomic_replacement` | `INTEGRATION_SPEC.md` 11.6 |
+| `U-7` | Malformed `execve` vectors fail before image replacement while process errno records the explicit failure. | `mailcpu/posix_abi.py` | `tests/test_posix_abi.py::test_posix_execve_rejects_invalid_vectors_before_mutating_the_old_image` | `INTEGRATION_SPEC.md` 11.6 |
 
 ## Descriptors and blocking
 

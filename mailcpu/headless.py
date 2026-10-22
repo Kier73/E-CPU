@@ -1460,8 +1460,9 @@ class HeadlessOS:
         path: str,
         argv: Sequence[str] | None = None,
         name: str | None = None,
+        environment: dict[str, str] | None = None,
     ) -> ProcessReport:
-        """Mathematics: apply `execve(pid,path,argv)` after decoding either source or MCPB and before mutating the current image."""
+        """Mathematics: apply `execve(pid,path,argv,environment)` after complete decode and validation, before mutating the current image."""
 
         canonical = normalize_path(path)
         program = self.read_executable_program(canonical, loader_pid=pid)
@@ -1473,8 +1474,10 @@ class HeadlessOS:
         if not process_name or any(not isinstance(argument, str) for argument in process_argv):
             raise KernelError("exec identity is invalid")
         self.environment.kernel._validate_argv(process_argv)
+        if environment is not None:
+            self.environment.kernel._validate_environment(environment)
         self.vm.exec_program(pid, program, process_name)
-        self.environment.kernel.exec_process(pid, process_name, process_argv)
+        self.environment.kernel.exec_process(pid, process_name, process_argv, environment=environment)
         self.environment.release_network_handles(pid)
         return self.process(pid)
 

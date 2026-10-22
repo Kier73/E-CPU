@@ -41,6 +41,7 @@ WNOHANG = 0x1
 AT_FDCWD = -100
 _STAT_BYTES = 144
 _MAX_C_STRING = 4096
+_MAX_VECTOR_ITEMS = 4096
 
 
 class PosixAbiError(Exception):
@@ -61,6 +62,18 @@ class PosixHost(Protocol):
 
     def syscall(self, pid: int, syscall_name: str, **args: Any) -> Any:
         """Mathematics: evaluate the native transition `δ_os(pid,name,args)` or raise its typed failure."""
+
+        ...
+
+    def exec_file(
+        self,
+        pid: int,
+        path: str,
+        argv: tuple[str, ...],
+        name: str | None = None,
+        environment: dict[str, str] | None = None,
+    ) -> Any:
+        """Mathematics: commit validated image replacement `X_pid:=exec(path,argv,environment)` or raise without a return image."""
 
         ...
 
@@ -119,6 +132,7 @@ def _syscall_specs() -> dict[int, PosixSyscallSpec]:
         (0, "read", "read", ("fd", "address", "size")),
         (1, "write", "write", ("fd", "address", "size")),
         (2, "open", "open", ("path_address", "flags", "mode")),
+        (59, "execve", "execve", ("path_address", "argv_address", "envp_address")),
         (3, "close", "close", ("fd",)),
         (5, "fstat", "fstat", ("fd", "stat_address")),
         (8, "lseek", "lseek", ("fd", "offset", "whence")),
@@ -209,6 +223,8 @@ class PosixCompatibility:
             )
         if name == "open":
             return self._open(pid, args)
+        if name == "execve":
+            return self._execve(pid, args)
         if name == "close":
             return self.host.syscall(pid, "close", fd=self._int(args, "fd"))
         if name == "fstat":
@@ -328,6 +344,28 @@ class PosixCompatibility:
         self.host.syscall(pid, "mem_write", address=address, data=payload)
         return 0
 
+    def _execve(self, pid: int, args: dict[str, Any]) -> int:
+        """Mathematics: decode `(path,argv,envp)` completely, then commit one native image transition with no old-image return."""
+
+        path = self._path(pid, args)
+        argv = self._vector(pid, self._int(args, "argv_address"), "argv")
+        environment_values = self._vector(pid, self._int(args, "envp_address", 0), "environment")
+        environment: dict[str, str] = {}
+        for entry in environment_values:
+            if "=" not in entry:
+                raise PosixAbiError("environment entry has no separator", Errno.EINVAL)
+            key, value = entry.split("=", 1)
+            if (
+                not key
+                or key in environment
+                or not (key[0].isalpha() or key[0] == "_")
+                or not all(character.isalnum() or character == "_" for character in key)
+            ):
+                raise PosixAbiError("environment key is invalid or duplicated", Errno.EINVAL)
+            environment[key] = value
+        self.host.exec_file(pid, path, argv=argv, name=None, environment=environment)
+        return 0
+
     def _mmap(self, pid: int, args: dict[str, Any]) -> int:
         """Mathematics: map only `MAP_PRIVATE|MAP_ANONYMOUS` with modeled `PROT_READ/WRITE`, preserving unmapped flags as explicit failure."""
 
@@ -402,23 +440,46 @@ class PosixCompatibility:
 
         if "path_address" in args:
             address = self._int(args, "path_address")
-            raw = bytearray()
-            for offset in range(_MAX_C_STRING):
-                byte = self.host.syscall(pid, "mem_read", address=address + offset, size=1)
-                if byte == b"\x00":
-                    try:
-                        path = bytes(raw).decode("utf-8")
-                    except UnicodeDecodeError as error:
-                        raise PosixAbiError("path is not UTF-8", Errno.EINVAL) from error
-                    if not path:
-                        raise PosixAbiError("path must be non-empty", Errno.EINVAL)
-                    return path
-                raw.extend(byte)
-            raise PosixAbiError("path exceeds compatibility string limit", Errno.EINVAL)
+            path = self._read_c_string(pid, address)
+            if not path:
+                raise PosixAbiError("path must be non-empty", Errno.EINVAL)
+            return path
         path = args.get("path")
         if isinstance(path, str) and path:
             return path
         raise PosixAbiError("POSIX path pointer is required", Errno.EFAULT)
+
+    def _read_c_string(self, pid: int, address: int) -> str:
+        """Mathematics: decode `s = M_pid[address:address+k]` at the least `k≤L` with `s[k-1]=NUL`, or fail explicitly."""
+
+        if address < 0:
+            raise PosixAbiError("string pointer is negative", Errno.EFAULT)
+        raw = bytearray()
+        for offset in range(_MAX_C_STRING):
+            byte = self.host.syscall(pid, "mem_read", address=address + offset, size=1)
+            if byte == b"\x00":
+                try:
+                    return bytes(raw).decode("utf-8")
+                except UnicodeDecodeError as error:
+                    raise PosixAbiError("string is not UTF-8", Errno.EINVAL) from error
+            raw.extend(byte)
+        raise PosixAbiError("string exceeds compatibility limit", Errno.EINVAL)
+
+    def _vector(self, pid: int, address: int, field: str) -> tuple[str, ...]:
+        """Mathematics: decode the bounded pointer vector `V(q)=[C(M[q+8i])]` through its first null pointer."""
+
+        if address == 0:
+            return ()
+        if address < 0:
+            raise PosixAbiError(f"{field} vector pointer is negative", Errno.EFAULT)
+        values: list[str] = []
+        for index in range(_MAX_VECTOR_ITEMS):
+            pointer_bytes = self.host.syscall(pid, "mem_read", address=address + index * 8, size=8)
+            pointer = struct.unpack("<Q", pointer_bytes)[0]
+            if pointer == 0:
+                return tuple(values)
+            values.append(self._read_c_string(pid, pointer))
+        raise PosixAbiError(f"{field} vector exceeds compatibility limit", Errno.E2BIG)
 
     def _preflight(self, pid: int, address: int, size: int, access: str) -> None:
         """Mathematics: prove `P(address,size)⊆M_pid` with the requested access before a compound transition mutates descriptors."""

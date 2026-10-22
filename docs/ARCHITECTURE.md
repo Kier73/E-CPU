@@ -323,6 +323,11 @@ rules are `docs/ARCHITECTURE.md` clauses 3 and 5 and `docs/REPLACEMENT_SPEC.md`.
   image. Compound destinations are preflighted before descriptor creation,
   waiting, or file-position mutation, and failures return the negative errno
   projection while recording the process errno.
+- Numbered `execve(59)` decodes bounded argv and environment pointer vectors
+  from virtual memory, validates the complete environment, and then invokes
+  the existing atomic executable replacement. It preserves ordinary
+  descriptors and clears the replaced process environment according to the
+  supplied vector.
 - `fstat` emits the fixed x86-64 144-byte record, `wait4` emits the encoded
   exit status, and `pipe` emits its descriptor pair through the existing
   memory-transfer law. Unsupported numbers and unsupported flag families

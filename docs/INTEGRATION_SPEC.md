@@ -707,6 +707,7 @@ The current numbered domain is:
 | 32 | `dup` | `dup` | shared open description |
 | 33 | `dup2` | `dup2` | target replacement follows native descriptor law |
 | 39 | `getpid` | `getpid` | none |
+| 59 | `execve` | `exec_file` | path, argv, and environment are bounded virtual-memory vectors |
 | 60 | `exit` | `exit` | process termination is native |
 | 61 | `wait4` | `waitpid` + `mem_write` | four-byte encoded exit status; `WNOHANG` supported |
 | 72 | `fcntl` | `fcntl` | descriptor-local and shared flags remain distinct |
@@ -714,10 +715,17 @@ The current numbered domain is:
 | 80 | `chdir` | `chdir` | pathname is a NUL-terminated virtual-memory string |
 
 The adapter currently admits private anonymous mappings and modeled read/write
-protection. `fork`, pointer-vector `execve`, `brk`, `rusage`, executable page
-permissions, sockets, and broader flag families require their own backed
+protection. `fork`, `brk`, `rusage`, executable page permissions, sockets, ELF
+interpreter handoff, and broader flag families require their own backed
 contracts. An unsupported number returns `ENOSYS`; an unsupported argument
 family returns `EINVAL`; no unsupported behavior is represented as success.
+
+`execve` decodes each pointer vector to its first null pointer, bounds both
+vector length and string length, rejects malformed or duplicated environment
+keys, and validates the complete replacement before image mutation. It admits
+the existing source and MCPB executable loader. Foreign ELF instruction
+execution, auxiliary-vector construction, and interpreter startup remain
+separate boundaries.
 
 Evidence tier: E0.
 

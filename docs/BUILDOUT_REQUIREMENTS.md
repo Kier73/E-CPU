@@ -158,10 +158,11 @@ $$\delta_{\text{syscall}} : \text{ABI}_{\text{standard}} \to \mathcal{K} \times 
 existing MailCPU kernel. Pointer paths and buffers cross through the virtual
 memory ABI; `fstat` emits a fixed 144-byte x86-64 record; `wait4` encodes
 child status; `mmap`/`mprotect`/`munmap`, descriptor duplication and flags,
-file positioning, `pipe`, process identity, `exit`, `getcwd`, and `chdir` are
-translated through native transitions. Unsupported syscall numbers and
-unsupported flag/protection families return explicit errno results, and
-compound pointer destinations are preflighted before state mutation.
+file positioning, `pipe`, process identity, `exit`, `getcwd`, `chdir`, and
+pointer-vector `execve` are translated through native transitions. Unsupported
+syscall numbers and unsupported flag/protection families return explicit errno
+results, and compound pointer destinations are preflighted before state
+mutation.
 
 #### Requirements
 1. **Standard C Runtime (Musl Libc)**: Port and validate a standard C runtime against the numbered foundation, adding pointer-vector `execve`, interpreter handoff, and broader errno/structure coverage.

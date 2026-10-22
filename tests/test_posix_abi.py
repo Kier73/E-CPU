@@ -33,6 +33,13 @@ def _write_c_string(operating_system: HeadlessOS, pid: int, address: int, value:
     operating_system.syscall(pid, "mem_write", address=address, data=value.encode("utf-8") + b"\x00")
 
 
+def _write_pointer_vector(operating_system: HeadlessOS, pid: int, address: int, pointers: tuple[int, ...]) -> None:
+    """Mathematics: materialize `q_i∈u64` followed by `q_end=0` as the ABI vector `Q=(q_0,...,q_n,0)`."""
+
+    payload = b"".join(struct.pack("<Q", pointer) for pointer in (*pointers, 0))
+    operating_system.syscall(pid, "mem_write", address=address, data=payload)
+
+
 def test_posix_pointer_io_open_and_stat_follow_native_memory_laws() -> None:
     """Mathematics: `read` and `write` preserve byte cardinality while `fstat` writes one fixed 144-byte record."""
 
@@ -120,7 +127,7 @@ def test_posix_unsupported_and_invalid_transitions_are_explicit() -> None:
     """Mathematics: `n∉dom(Π)` yields `-ENOSYS`, while an invalid pointer yields `-EFAULT` without moving the file cursor."""
 
     operating_system, pid = _process()
-    unsupported = operating_system.posix.invoke(pid, 59)
+    unsupported = operating_system.posix.invoke(pid, 57)
     assert unsupported.result == -int(Errno.ENOSYS)
     assert unsupported.errno == int(Errno.ENOSYS)
     _write_c_string(operating_system, pid, 0, "/tmp/atomic")
@@ -156,6 +163,67 @@ def test_posix_exclusive_open_is_authorized_and_atomic() -> None:
     second = operating_system.posix.invoke(pid, 2, path_address=0, flags=O_CREAT | O_EXCL | O_RDWR, mode=0o644)
     assert second.errno == 17
     assert set(operating_system.environment.kernel.processes[pid].fds) == descriptors_before
+
+
+def test_posix_execve_decodes_argv_and_environment_before_atomic_replacement() -> None:
+    """Mathematics: `execve` commits only after `path`, `argv`, and `envp` decode, replacing `E_old` with `E_new` while preserving PID and ordinary descriptors."""
+
+    operating_system = HeadlessOS()
+    pid = operating_system.launch_source(
+        "wait inbox value\n",
+        "old-image",
+        environment={"OLD": "yes"},
+        argv=("old-image",),
+    )
+    descriptor = operating_system.syscall(pid, "open", path="/etc/hostname", mode="r")
+    operating_system.install_source("/home/replacement.mca", "set result 41\nset one 1\nadd result result one\nhalt\n")
+    _write_c_string(operating_system, pid, 0, "/home/replacement.mca")
+    _write_c_string(operating_system, pid, 1024, "replacement.mca")
+    _write_c_string(operating_system, pid, 1088, "argument")
+    _write_pointer_vector(operating_system, pid, 256, (1024, 1088))
+    _write_c_string(operating_system, pid, 2048, "NEW=value")
+    _write_pointer_vector(operating_system, pid, 512, (2048,))
+    result = operating_system.posix.invoke(pid, 59, path_address=0, argv_address=256, envp_address=512)
+    assert result.result == 0
+    report = operating_system.process(pid)
+    assert report.pid == pid
+    assert report.name == "replacement.mca"
+    assert report.argv == ("replacement.mca", "argument")
+    assert report.environment == {"NEW": "value"}
+    assert descriptor in operating_system.environment.kernel.processes[pid].fds
+    operating_system.run(20)
+    assert operating_system.process(pid).registers["result"] == 42
+
+
+def test_posix_execve_rejects_invalid_vectors_before_mutating_the_old_image() -> None:
+    """Mathematics: malformed `envp` gives `-EINVAL` while `(program,argv,environment,F)` remains equal to its pre-call projection."""
+
+    operating_system = HeadlessOS()
+    pid = operating_system.launch_source("wait inbox value\n", "stable", environment={"KEEP": "yes"})
+    operating_system.install_source("/home/replacement.mca", "halt\n")
+    _write_c_string(operating_system, pid, 0, "/home/replacement.mca")
+    _write_pointer_vector(operating_system, pid, 256, ())
+    _write_c_string(operating_system, pid, 1024, "INVALID-KEY=value")
+    _write_pointer_vector(operating_system, pid, 512, (1024,))
+    before = operating_system.process(pid).to_dict()
+    failure = operating_system.posix.invoke(pid, 59, path_address=0, argv_address=256, envp_address=512)
+    assert failure.result == -22
+    before["errno"] = 22
+    assert operating_system.process(pid).to_dict() == before
+
+
+def test_posix_execve_null_vectors_clear_environment_and_allow_empty_argv() -> None:
+    """Mathematics: null `argv`/`envp` pointers decode to empty finite vectors and commit the corresponding process metadata."""
+
+    operating_system = HeadlessOS()
+    pid = operating_system.launch_source("wait inbox value\n", "stable", environment={"KEEP": "yes"})
+    operating_system.install_source("/home/empty.mca", "halt\n")
+    _write_c_string(operating_system, pid, 0, "/home/empty.mca")
+    result = operating_system.posix.invoke(pid, 59, path_address=0, argv_address=0, envp_address=0)
+    assert result.ok
+    report = operating_system.process(pid)
+    assert report.argv == ()
+    assert report.environment == {}
 
 
 def test_headless_exposes_numbered_posix_adapter() -> None:

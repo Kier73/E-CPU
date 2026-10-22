@@ -44,6 +44,7 @@ class Errno(IntEnum):
     ESRCH = 3
     EINTR = 4
     EIO = 5
+    E2BIG = 7
     ECHILD = 10
     EAGAIN = 11
     ENOMEM = 12
@@ -351,8 +352,14 @@ class VirtualKernel:
         process = self._process(pid)
         return process.signal_dispositions.get(Signal.parse(signal).value) == "ignore"
 
-    def exec_process(self, pid: int, name: str, argv: Sequence[str]) -> None:
-        """Mathematics: replace process image metadata while preserving `pid,C,E,F,cwd,parent,group` and setting status to runnable."""
+    def exec_process(
+        self,
+        pid: int,
+        name: str,
+        argv: Sequence[str],
+        environment: dict[str, str] | None = None,
+    ) -> None:
+        """Mathematics: replace image metadata while preserving `pid,C,F,cwd,parent,group` and setting `(argv,environment,status)` atomically."""
 
         process = self._process(pid)
         if process.status is ProcessStatus.EXITED:
@@ -360,12 +367,19 @@ class VirtualKernel:
         if not name:
             raise KernelError("exec name must be non-empty")
         self._validate_argv(argv)
+        if environment is not None:
+            self._validate_environment(environment)
         self._close_on_exec(process)
         process.name = name
         process.argv = tuple(argv)
+        if environment is not None:
+            process.environment = dict(environment)
         process.status = ProcessStatus.RUNNABLE
         process.exit_code = None
-        self.journal.append("process.exec", {"pid": pid, "name": name, "argv": list(argv)})
+        payload = {"pid": pid, "name": name, "argv": list(argv)}
+        if environment is not None:
+            payload["environment"] = dict(environment)
+        self.journal.append("process.exec", payload)
 
     def _adopt_orphans(self, parent_pid: int) -> None:
         """Mathematics: set `parent(c) := A(parent_pid)` for each unreaped child, where `A` is the nearest live subreaper or init."""
