@@ -836,6 +836,27 @@ frontier receipts, digest changes, and forged routes refuse before state
 restoration. This leaves admission policy, authoritative frontier advancement,
 and durable multi-host ownership as the next composition over the typed boundary.
 
+### 10.8 Hypervisor seed admission
+
+`HeadlessOS.seed_admission` is the authoritative registry for hosted seed
+envelopes. `HypervisorSeedAdmissionCoordinator` shares the kernel's
+hash-chained `EventJournal` with the classifier Hypervisor and persists its
+registry and replay ledger in the OS checkpoint. Before any registry mutation,
+it reconstructs the seed from its checkpoint payload and replays it; an invalid
+origin or state digest therefore becomes a journaled refusal with no partial
+registration.
+
+For each `system_id`, the registry admits a new system or a higher incarnation.
+Within one incarnation, the seed origin digest is invariant, the scheduler
+coordinate cannot decrease, and the per-source maximal input frontier cannot
+regress or change the digest at an equal sequence. A frontier extension must
+advance the seed coordinate. Exact envelope bytes are keyed by their SHA-256
+fingerprint and return the original admission or refusal receipt on
+retransmission. A stale incarnation, frontier regression, origin conflict,
+same-coordinate state conflict, or invalid restore leaves the current envelope
+unchanged. Checkpoint restore reconstructs both the current registry and the
+fingerprint ledger before the host resumes.
+
 ## 11. Images and execution regimes
 
 ### 11.1 Source assembly and headless execution

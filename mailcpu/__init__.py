@@ -98,6 +98,11 @@ from .seed import (
     SystemSeed,
     SystemSeedEnvelope,
 )
+from .seed_admission import (
+    HypervisorSeedAdmissionCoordinator,
+    SeedAdmissionError,
+    SeedAdmissionResult,
+)
 from .network import (
     HeadlessNetworkDevice,
     HttpMessage,
@@ -408,6 +413,9 @@ __all__ = [
     "SystemSeed",
     "SystemSeedEnvelope",
     "SYSTEM_SEED_ENVELOPE_KIND",
+    "HypervisorSeedAdmissionCoordinator",
+    "SeedAdmissionError",
+    "SeedAdmissionResult",
     "AssemblyError",
     "BytecodeError",
     "BytecodeExecutable",

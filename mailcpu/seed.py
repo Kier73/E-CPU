@@ -374,9 +374,24 @@ class SystemSeedEnvelope:
             raise SeedEnvelopeError("seed envelope seed payload is invalid") from exc
 
     @classmethod
+    def from_snapshot(cls, payload: Mapping[str, Any]) -> "SystemSeedEnvelope":
+        """Mathematics: reconstruct `E` from a typed checkpoint payload before it enters a Hypervisor registry."""
+
+        if not isinstance(payload, Mapping) or payload.get("format") != "mailcpu-system-seed-envelope/1":
+            raise SeedEnvelopeError("unsupported system seed envelope snapshot")
+        try:
+            return cls._from_payload(payload)
+        except SeedEnvelopeError:
+            raise
+        except SeedNavigationError as exc:
+            raise SeedEnvelopeError("seed envelope seed payload is invalid") from exc
+
+    @classmethod
     def _from_payload(cls, payload: Mapping[str, Any]) -> "SystemSeedEnvelope":
         """Mathematics: reconstruct `E` from verified payload coordinates and preserve the frontier as a finite set."""
 
+        if payload.get("format") not in (None, "mailcpu-system-seed-envelope/1"):
+            raise SeedEnvelopeError("unsupported system seed envelope payload")
         identity_payload = payload.get("identity")
         seed_payload = payload.get("seed")
         raw_frontier = payload.get("input_frontier", ())

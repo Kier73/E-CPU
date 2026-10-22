@@ -628,3 +628,20 @@ the message route against the identity, and only then restores the seeded
 system. This is the first system-level substrate for several emulated systems;
 the next hypervisor boundary is authoritative admission of frontier progress,
 stale-incarnation refusal, and live multi-system scheduling over these routes.
+
+`HypervisorSeedAdmissionCoordinator` now turns that transit object into an
+authority decision. It shares the kernel journal with the classifier
+Hypervisor and is checkpointed inside `HeadlessOS`. Candidate seeds are
+reconstructed and replayed in shadow before registration. A new system or
+higher incarnation may enter the registry; within an incarnation, origin
+identity is fixed, scheduler coordinate is monotone, and each source's maximal
+input receipt cannot regress or change its digest at the same sequence. Frontier
+growth must advance virtual time. The envelope fingerprint ledger returns the
+original receipt for exact retransmission, while stale incarnations, conflicting
+origins, invalid restores, and non-monotone frontiers produce journaled
+refusals without changing the hosted system.
+
+This is the first active Hypervisor process for encoded system state: seed bytes
+are no longer only readable and routable, but are admitted into a persistent
+registry under a replayable temporal law. The next boundary is live frontier
+advancement from external inputs and shared scheduling of the admitted systems.

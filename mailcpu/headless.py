@@ -106,6 +106,9 @@ class HeadlessOS:
         self.vm.scheduler.post_step = self._apply_deferred_exec
         self.hypervisor = ClassifierHypervisor(journal=self.environment.kernel.journal)
         self.hypervisor_arbitration = HypervisorArbitrationLoop(self.hypervisor)
+        from .seed_admission import HypervisorSeedAdmissionCoordinator
+
+        self.seed_admission = HypervisorSeedAdmissionCoordinator(self.environment.kernel.journal)
         self.posix = PosixCompatibility(self)
         from .service import ServiceSupervisor
 
@@ -2109,7 +2112,7 @@ class HeadlessOS:
         return tuple(results)
 
     def snapshot(self) -> dict[str, object]:
-        """Mathematics: serialize `OS = (VM, Services, HypervisorPolicy)` into one continuation-capable checkpoint graph."""
+        """Mathematics: serialize `OS = (VM, Services, HypervisorPolicy, SeedAdmission)` into one continuation-capable checkpoint graph."""
 
         if self._pending_exec or self._pending_fork:
             raise ValueError("cannot snapshot an uncommitted exec or fork transition")
@@ -2118,6 +2121,7 @@ class HeadlessOS:
             "services": self.services.snapshot(),
             "hypervisor": self.hypervisor.snapshot(),
             "hypervisor_arbitration": self.hypervisor_arbitration.snapshot(),
+            "seed_admission": self.seed_admission.snapshot(),
         }
 
     def save_checkpoint(self, path: str) -> str:
@@ -2154,6 +2158,12 @@ class HeadlessOS:
         operating_system.hypervisor_arbitration = HypervisorArbitrationLoop.from_snapshot(
             operating_system.hypervisor,
             dict(payload.get("hypervisor_arbitration", {})),
+        )
+        from .seed_admission import HypervisorSeedAdmissionCoordinator
+
+        operating_system.seed_admission = HypervisorSeedAdmissionCoordinator.from_snapshot(
+            dict(payload.get("seed_admission", {})),
+            operating_system.environment.kernel.journal,
         )
         operating_system.services = ServiceSupervisor.from_snapshot(
             operating_system,
