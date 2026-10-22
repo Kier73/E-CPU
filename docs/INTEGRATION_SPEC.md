@@ -798,6 +798,17 @@ invalid queue state refuses before the target is changed. This establishes
 single-channel migration; duplex operation/result migration and durable
 multi-host handoff remain subsequent compositions.
 
+`DuplexTransportMigrationCheckpoint` and
+`CrossTransportDuplexRecoveryCoordinator` now compose that handoff for one
+hypervisor role. Request and result reliable factors, the result semantic
+ledger, and the headless hypervisor snapshot move together into one shared
+in-memory mailbox substrate. A shadow target must restore both directions and
+the operation identity before the real target is changed. The migrated result
+ledger returns an exact retransmission as a replay, the original native effect
+remains singular, and both acknowledgement paths clear their pending frames.
+This is still one role product; namespace isolation for multiple emulated
+systems and durable multi-host duplex movement are subsequent obligations.
+
 ## 11. Images and execution regimes
 
 ### 11.1 Source assembly and headless execution

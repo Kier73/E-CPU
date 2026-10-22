@@ -190,6 +190,8 @@ from .recovery_policy import (
 )
 from .migration import (
     CrossTransportRecoveryCoordinator,
+    CrossTransportDuplexRecoveryCoordinator,
+    DuplexTransportMigrationCheckpoint,
     TransportMigrationCheckpoint,
     TransportMigrationError,
 )
@@ -547,6 +549,8 @@ __all__ = [
     "advertise_recovery_policy",
     "negotiate_recovery_policy",
     "CrossTransportRecoveryCoordinator",
+    "CrossTransportDuplexRecoveryCoordinator",
+    "DuplexTransportMigrationCheckpoint",
     "TransportMigrationCheckpoint",
     "TransportMigrationError",
     "LexicalDecisionModel",

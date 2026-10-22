@@ -8,7 +8,14 @@ from typing import Any, Mapping
 
 from ._codec import message_from_record as _message_from_snapshot
 from ._codec import message_to_record as _message_snapshot
+from .headless import HeadlessOS
+from .hypervisor_transport import HypervisorOperationResultChannel, HypervisorOperationTransportError
 from .model import Message
+from .recovery import (
+    DuplexOperationRole,
+    HypervisorOperationDuplexRecoveryCoordinator,
+    RecoveryCoordinatorError,
+)
 from .recovery_policy import RecoveryPolicyAgreement, RecoveryPolicyError
 from .reliability import ReliableChannel
 from .socket_transport import SocketTransport
@@ -186,6 +193,202 @@ class CrossTransportRecoveryCoordinator:
             return ReliableChannel.from_snapshot(deepcopy(checkpoint.channel), target_transport)
         except (TypeError, ValueError, KeyError, OverflowError) as exc:
             raise TransportMigrationError("target transport cannot restore reliable channel state") from exc
+
+
+@dataclass(frozen=True)
+class DuplexTransportMigrationCheckpoint:
+    """A joint request/result migration product with one role-bound hypervisor snapshot."""
+
+    request: TransportMigrationCheckpoint
+    response: TransportMigrationCheckpoint
+    response_channel: dict[str, Any]
+    operating_system: dict[str, Any]
+    role: DuplexOperationRole
+
+    @classmethod
+    def capture(
+        cls,
+        request_transport: SocketTransport,
+        request_channel: ReliableChannel,
+        response_transport: SocketTransport,
+        response_channel: HypervisorOperationResultChannel,
+        operating_system: HeadlessOS,
+        agreement: RecoveryPolicyAgreement,
+        *,
+        role: DuplexOperationRole,
+    ) -> "DuplexTransportMigrationCheckpoint":
+        """Mathematics: capture `D=(R_q,Q_q,R_r,Q_r,S,OS,role)` only after both reciprocal channels share agreement `A`."""
+
+        if not isinstance(operating_system, HeadlessOS):
+            raise TransportMigrationError("duplex migration requires a HeadlessOS")
+        if role not in ("origin", "executor"):
+            raise TransportMigrationError("duplex migration role is invalid")
+        try:
+            HypervisorOperationDuplexRecoveryCoordinator(
+                request_transport,
+                request_channel,
+                response_transport,
+                response_channel,
+                operating_system,
+                role=role,
+            )
+        except RecoveryCoordinatorError as exc:
+            raise TransportMigrationError("duplex migration channel identities are inconsistent") from exc
+        request = TransportMigrationCheckpoint.capture(request_transport, request_channel, agreement)
+        response = TransportMigrationCheckpoint.capture(response_transport, response_channel.channel, agreement)
+        response_snapshot = deepcopy(response_channel.snapshot())
+        if response_snapshot.get("channel") != response.channel:
+            raise TransportMigrationError("duplex response ledger channel disagrees with response checkpoint")
+        return cls(
+            request,
+            response,
+            response_snapshot,
+            deepcopy(operating_system.snapshot()),
+            role,
+        )
+
+    @classmethod
+    def from_snapshot(cls, payload: Mapping[str, Any]) -> "DuplexTransportMigrationCheckpoint":
+        """Mathematics: reconstruct `D` only from two complete transport products, one result ledger, one OS, and `role∈{origin,executor}`."""
+
+        if int(payload.get("version", 1)) != 1:
+            raise TransportMigrationError("unsupported duplex transport migration checkpoint version")
+        request_payload = payload.get("request")
+        response_payload = payload.get("response")
+        response_channel = payload.get("response_channel")
+        operating_system = payload.get("operating_system")
+        role = str(payload.get("role", ""))
+        if (
+            not isinstance(request_payload, Mapping)
+            or not isinstance(response_payload, Mapping)
+            or not isinstance(response_channel, Mapping)
+            or not isinstance(operating_system, Mapping)
+            or role not in ("origin", "executor")
+        ):
+            raise TransportMigrationError("duplex transport migration checkpoint is incomplete")
+        request = TransportMigrationCheckpoint.from_snapshot(request_payload)
+        response = TransportMigrationCheckpoint.from_snapshot(response_payload)
+        if not isinstance(response_channel.get("channel"), Mapping):
+            raise TransportMigrationError("duplex response ledger channel is invalid")
+        return cls(
+            request,
+            response,
+            deepcopy(dict(response_channel)),
+            deepcopy(dict(operating_system)),
+            role,  # type: ignore[arg-type]
+        )
+
+    def snapshot(self) -> dict[str, object]:
+        """Mathematics: serialize the joint product `D` with no aliases across request, response, ledger, or OS factors."""
+
+        return {
+            "version": 1,
+            "request": self.request.snapshot(),
+            "response": self.response.snapshot(),
+            "response_channel": deepcopy(self.response_channel),
+            "operating_system": deepcopy(self.operating_system),
+            "role": self.role,
+        }
+
+
+class CrossTransportDuplexRecoveryCoordinator:
+    """Restore one duplex hypervisor role into one shared in-memory transport."""
+
+    @staticmethod
+    def checkpoint(
+        request_transport: SocketTransport,
+        request_channel: ReliableChannel,
+        response_transport: SocketTransport,
+        response_channel: HypervisorOperationResultChannel,
+        operating_system: HeadlessOS,
+        agreement: RecoveryPolicyAgreement,
+        *,
+        role: DuplexOperationRole,
+    ) -> DuplexTransportMigrationCheckpoint:
+        """Mathematics: expose `capture(D,A)` as one agreement-bound request/result checkpoint."""
+
+        return DuplexTransportMigrationCheckpoint.capture(
+            request_transport,
+            request_channel,
+            response_transport,
+            response_channel,
+            operating_system,
+            agreement,
+            role=role,
+        )
+
+    @staticmethod
+    def migrate(
+        checkpoint: DuplexTransportMigrationCheckpoint,
+        agreement: RecoveryPolicyAgreement,
+        target_transport: InMemoryTransport,
+    ) -> HypervisorOperationDuplexRecoveryCoordinator:
+        """Mathematics: commit `D_target=restore(D_request,D_response,S,OS,import(Q_q∪Q_r))` only after one shadow proof."""
+
+        if not isinstance(checkpoint, DuplexTransportMigrationCheckpoint):
+            raise TransportMigrationError("duplex migration requires a DuplexTransportMigrationCheckpoint")
+        if not isinstance(agreement, RecoveryPolicyAgreement):
+            raise TransportMigrationError("duplex migration requires a RecoveryPolicyAgreement")
+        if not isinstance(target_transport, InMemoryTransport):
+            raise TransportMigrationError("duplex migration requires an in-memory target")
+        if checkpoint.role not in ("origin", "executor"):
+            raise TransportMigrationError("duplex migration checkpoint role is invalid")
+        try:
+            request_agreement = RecoveryPolicyAgreement.from_dict(checkpoint.request.agreement)
+            response_agreement = RecoveryPolicyAgreement.from_dict(checkpoint.response.agreement)
+        except RecoveryPolicyError as exc:
+            raise TransportMigrationError("duplex checkpoint contains an invalid recovery agreement") from exc
+        fingerprints = {request_agreement.fingerprint, response_agreement.fingerprint, agreement.fingerprint}
+        if len(fingerprints) != 1:
+            raise TransportMigrationError("duplex migration agreements do not match")
+        if (
+            checkpoint.request.source_transport_kind != "socket"
+            or checkpoint.response.source_transport_kind != "socket"
+            or checkpoint.request.target_transport_kind != "memory"
+            or checkpoint.response.target_transport_kind != "memory"
+            or agreement.source_transport != "socket"
+            or agreement.target_transport != "memory"
+        ):
+            raise TransportMigrationError("duplex migration agreement does not permit socket-to-memory movement")
+
+        try:
+            shadow = InMemoryTransport.from_snapshot(deepcopy(target_transport.snapshot()))
+            _import_messages(shadow, checkpoint.request.queued_messages)
+            _import_messages(shadow, checkpoint.response.queued_messages)
+            request_channel = ReliableChannel.from_snapshot(deepcopy(checkpoint.request.channel), shadow)
+            response_payload = deepcopy(checkpoint.response_channel)
+            response_payload["channel"] = deepcopy(checkpoint.response.channel)
+            response_channel = HypervisorOperationResultChannel.from_snapshot(response_payload, shadow)
+            operating_system = HeadlessOS.from_snapshot(deepcopy(checkpoint.operating_system))
+            HypervisorOperationDuplexRecoveryCoordinator(
+                shadow,
+                request_channel,
+                shadow,
+                response_channel,
+                operating_system,
+                role=checkpoint.role,
+            )
+        except (RecoveryCoordinatorError, HypervisorOperationTransportError, TypeError, ValueError, KeyError, OverflowError, AttributeError) as exc:
+            raise TransportMigrationError("duplex migration preflight rejected the target state") from exc
+
+        _import_messages(target_transport, checkpoint.request.queued_messages)
+        _import_messages(target_transport, checkpoint.response.queued_messages)
+        try:
+            request_channel = ReliableChannel.from_snapshot(deepcopy(checkpoint.request.channel), target_transport)
+            response_payload = deepcopy(checkpoint.response_channel)
+            response_payload["channel"] = deepcopy(checkpoint.response.channel)
+            response_channel = HypervisorOperationResultChannel.from_snapshot(response_payload, target_transport)
+            operating_system = HeadlessOS.from_snapshot(deepcopy(checkpoint.operating_system))
+            return HypervisorOperationDuplexRecoveryCoordinator(
+                target_transport,
+                request_channel,
+                target_transport,
+                response_channel,
+                operating_system,
+                role=checkpoint.role,
+            )
+        except (RecoveryCoordinatorError, HypervisorOperationTransportError, TypeError, ValueError, KeyError, OverflowError, AttributeError) as exc:
+            raise TransportMigrationError("duplex target cannot restore the operation product") from exc
 
 
 def _import_messages(target: InMemoryTransport, records: tuple[dict[str, Any], ...]) -> None:

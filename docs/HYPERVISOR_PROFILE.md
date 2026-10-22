@@ -597,3 +597,13 @@ there, and restores the reliable channel against that shadow. Invalid channel
 state therefore fails at the boundary without partially changing the real
 destination. The operation duplex and durable mailbox products remain above
 this foundation and are not represented as migrated by this stage.
+
+The next composition now moves one complete duplex role through the same
+agreement: request and result channels share one memory substrate, while the
+result semantic ledger and headless hypervisor snapshot move with them. A
+shadow target restores both reliable factors and validates the role before
+commit. A retransmitted result is recognized as replay, both lost-ACK paths are
+cleared, and the native process effect remains singular. Multiple emulated
+systems are not yet a typed namespace; their endpoint and channel labels still
+need a first-class system identity and incarnation envelope before shared
+hosting can be treated as collision-safe.
