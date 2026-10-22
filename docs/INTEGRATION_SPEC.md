@@ -649,6 +649,29 @@ retry or quorum protocol.
 
 Evidence tier: E1 for controlled multi-node persistence and relay admission.
 
+### 10.5 Cross-host recovery coordination
+
+Recovery composes the transport, reliable channel, durable mailbox, and
+hypervisor ledgers rather than creating a second delivery identity.
+
+- A peer reset is a closed-stream observation when no incomplete frame remains;
+  a partial frame still fails explicitly and cannot be checkpointed as a
+  message.
+- A restored reliable sender retains every pending frame `F_s`, while the
+  restored receiver retains delivered sequence set `D` and cursor `r`.
+- After a new stream is bound, retransmission of `F_s` produces `ACK(s)` even
+  when `s∈D`; the durable replica applies equal operation identity `o` as a
+  no-op, preserving one mailbox message.
+- The coordinator receipt becomes committed when `1+|A(o)|≥q`, and the
+  target-aware hypervisor relay then admits the proposal once through its
+  checkpointed identity ledger.
+
+The direct witness closes a real TCP connection after replica application and
+before sender acknowledgement processing, checkpoints both hosts, reconnects
+with `SocketTransport.from_snapshot`, retransmits the pending operation, and
+checks one durable message plus one intent revision admission. Evidence tier:
+E1.
+
 ## 11. Images and execution regimes
 
 ### 11.1 Source assembly and headless execution

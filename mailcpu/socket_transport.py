@@ -336,6 +336,13 @@ class SocketTransport:
                 chunk = self.socket.recv(_RECV_CHUNK)
             except BlockingIOError:
                 break
+            except ConnectionResetError:
+                self._closed = True
+                self.socket.close()
+                if self._receive_buffer:
+                    self._terminal_error = SocketTransportError("peer reset with incomplete frame")
+                    raise self._terminal_error
+                break
             except OSError as error:
                 raise SocketTransportError(f"socket receive failed: {error}") from error
             if not chunk:

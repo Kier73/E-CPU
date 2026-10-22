@@ -489,8 +489,8 @@ revision changes, replay identity, and checkpoint restore.
 
 The next connections are deliberately staged:
 
-1. cross-host recovery coordination for reconnect, duplicate delivery, and
-   receipt replay around the durable relay;
+1. an explicit recovery coordinator API for reconnect, duplicate delivery,
+   and receipt replay around the durable relay;
 2. typed classifier adapters for filesystem, network, service, process, and
    package operations;
 3. broader POSIX, foreign CPU, terminal, and public E2 integration.
@@ -499,8 +499,10 @@ Controlled external networking is now evidenced over an actual AF_INET
 loopback path for both durable revision relay and remote page-backed memory.
 The typed intent-model revision target is now also evidenced over that path,
 leaving a revision-bound candidate, held-out witnesses, and durable admission
-record. The next smallest extension is cross-host recovery coordination, so
-reconnect, duplicate delivery, and receipt replay preserve those target and
-authority laws while the system remains in motion. This keeps remote data,
-virtual time, energy receipt, and authority context on the same
-hypervisor-governed path.
+record. Cross-host recovery is now evidenced through a real disconnect,
+checkpoint, reconnect, lost-ACK retransmission, durable idempotence, and one
+remote admission. The next smallest extension is to expose that composition
+as an explicit recovery coordinator API, so callers receive pending,
+acknowledged, and semantically admitted states without rebuilding the layers
+manually. This keeps remote data, virtual time, energy receipt, and authority
+context on the same hypervisor-governed path.
