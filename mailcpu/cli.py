@@ -10,6 +10,7 @@ from typing import Mapping, Sequence
 from .environment import VirtualEnvironment
 from .headless import HeadlessOS
 from .image import ExecutableImage, ImageFile
+from .ingestion import ArtifactIngestionError, ingest_path
 from .model import DEFAULT_MAX_TICKS, Instruction, Op, Program
 from .trajectory import TrajectoryWriter
 from .vm import MailCPUVirtualMachine
@@ -43,6 +44,7 @@ branch one loop
 _COMMANDS = (
     "boot",
     "make-image",
+    "ingest",
     "run-image",
     "demo",
     "run-source",
@@ -95,6 +97,24 @@ def _command_make_image(arguments: argparse.Namespace) -> int:
     image.save(arguments.path)
     _print_report({"path": str(arguments.path), "digest": image.digest()})
     return 0
+
+
+def _command_ingest(arguments: argparse.Namespace) -> int:
+    """Mathematics: evaluate `ingest(path)` once, optionally publish its validated image/ELF bytes, and report both content identities."""
+
+    try:
+        artifact = ingest_path(arguments.path, arguments.format_hint)
+        output_path: str | None = None
+        if arguments.output:
+            artifact.save(arguments.output)
+            output_path = str(arguments.output)
+        report = artifact.report()
+        report.update({"status": "ok", "output": output_path})
+        _print_report(report)
+        return 0
+    except ArtifactIngestionError as error:
+        _print_report({"status": "error", "error": str(error)})
+        return 1
 
 
 def _command_run_image(arguments: argparse.Namespace) -> int:
@@ -498,6 +518,11 @@ def build_parser() -> argparse.ArgumentParser:
     make_image = subparsers.add_parser("make-image", help="write the deterministic demo image")
     make_image.add_argument("path")
     make_image.set_defaults(handler=_command_make_image)
+    ingest = subparsers.add_parser("ingest", help="validate and classify assembly, MailCPU bytecode, or ELF artifacts")
+    ingest.add_argument("path")
+    ingest.add_argument("--output", help="atomically publish the validated image or exact ELF payload")
+    ingest.add_argument("--format", dest="format_hint", help="explicit format: assembly, bytecode, or elf")
+    ingest.set_defaults(handler=_command_ingest)
     run_image = subparsers.add_parser("run-image", help="run a MailCPU executable image")
     run_image.add_argument("path")
     run_image.add_argument("--max-ticks", type=int, default=DEFAULT_MAX_TICKS)

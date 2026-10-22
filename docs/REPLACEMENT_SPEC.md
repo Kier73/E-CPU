@@ -110,6 +110,11 @@ reconstructs the program from bytes, checks it against the readable graph, and
 refuses corruption or disagreement before scheduling. v1 graph-only images
 remain migration-readable.
 
+The `ingest` command is the common compiler-artifact boundary. It detects and
+validates UTF-8 assembly, MCPB bytecode, and ELF payloads, reports source and
+content digests, writes an image or exact ELF payload only after validation,
+and keeps dynamic ELF metadata in the loader-artifact domain.
+
 **REQUIRED** A bounded run reaching its tick budget MUST remain explicitly
 `runnable`. An empty `WAIT` MUST remain `blocked`. Neither disposition is
 converted into a success.

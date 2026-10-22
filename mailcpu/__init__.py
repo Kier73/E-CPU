@@ -267,6 +267,7 @@ from .substrate_sim import (
 from .socket_transport import SocketTransport, SocketTransportClosed, SocketTransportError
 from .replicated_mailbox import ReplicatedMailboxError, ReplicatedMailboxNode, ReplicatedMailboxStore, ReplicationReceipt
 from .remote_memory import RemotePageError, RemotePageMissing, RemotePageStore, RemotePageTimeout
+from .ingestion import ArtifactIngestionError, ArtifactIngestor, ArtifactKind, IngestedArtifact, ingest_bytes, ingest_path
 
 __all__ = [
     "InMemoryTransport",
@@ -539,4 +540,10 @@ __all__ = [
     "RemotePageMissing",
     "RemotePageStore",
     "RemotePageTimeout",
+    "ArtifactIngestionError",
+    "ArtifactIngestor",
+    "ArtifactKind",
+    "IngestedArtifact",
+    "ingest_bytes",
+    "ingest_path",
 ]

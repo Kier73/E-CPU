@@ -101,6 +101,8 @@ def _operands(command: str) -> list[str]:
         return ["image.mcp.json"]
     if command == "run-image":
         return ["image.mcp.json"]
+    if command == "ingest":
+        return ["source.mca"]
     if command == "run-source":
         return ["source.mca", "--checkpoint-out", "state.mcpu.json", "--max-ticks", "50"]
     if command == "restore-run":

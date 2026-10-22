@@ -26,6 +26,15 @@ To support general-purpose programming languages (C, Rust, Zig, Go), the instruc
 
 $$\mathcal{P}_{\text{High}} \xrightarrow{\quad\text{Clang/Rustc}\quad} \text{WASM / LLVM-IR} \xrightarrow{\quad\text{Codegen}\quad} \text{MCPB (v2 Tagged Bytecode)}$$
 
+#### Stage 4 implemented
+
+`ArtifactIngestor` is the shared admission boundary for UTF-8 assembly,
+validated MCPB bytecode, and ELF payloads. It preserves source/content
+digests, produces the existing `ExecutableImage` for MailCPU artifacts, and
+retains ELF loader metadata without pretending that dynamic native binaries
+are already executable by the MailCPU scheduler. The `ingest` CLI command
+reports the same typed result and writes only validated outputs.
+
 #### Requirements
 1. **WASM-to-MailCPU Transpiler**: Map WebAssembly linear memory and typed control-flow operations to MailCPU content-addressed pages and mailbox queues $\mathcal{Q}$.
 2. **LLVM Architecture Target**: Implement a MailCPU code generator targeting the fundamental nine-instruction transition algebra (`SET`, `COPY`, `ADD`, `COMPARE`, `BRANCH`, `SEND`, `WAIT`, `SYSCALL`, `HALT`).

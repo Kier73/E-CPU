@@ -632,6 +632,13 @@ regime ∈ {MAILCPU, SENSE, LEAP, HDC, MDL}
 
 Image version 2 carries a bounded tagged `MCPB` bytecode payload in addition to its readable instruction graph. The loader reconstructs `Program` from the binary, reapplies all static validation, compares the resulting graph with the human-readable representation, and refuses corruption or disagreement. Version 1 graph-only images remain readable for migration, and image digests commit to the compiled bytes.
 
+`ArtifactIngestor` unifies the input path above the image loader. Magic-first
+detection admits UTF-8 assembly through `assemble`, MCPB through
+`BytecodeExecutable.from_bytes`, and ELF through `parse_elf`. Each result
+contains source and admitted-content SHA-256 identities. MailCPU formats
+produce `ExecutableImage`; ELF produces `ElfImage` and remains a staged loader
+artifact, including its interpreter and dynamic-segment metadata.
+
 ### 11.4 Native binary userland loader
 
 The virtual executable path admits readable assembly source and validated native `MCPB` bytecode.

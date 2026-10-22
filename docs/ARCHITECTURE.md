@@ -287,6 +287,11 @@ rules are `docs/ARCHITECTURE.md` clauses 3 and 5 and `docs/REPLACEMENT_SPEC.md`.
 
 ### 7.8 Images
 
+- `ArtifactIngestor` is the common admission path for UTF-8 MailCPU assembly,
+  validated MCPB bytecode, and ELF payloads. It preserves source and compiled
+  content digests, returns an installable image for MailCPU artifacts, and
+  returns a loader artifact for ELF without confusing native bytes with a
+  schedulable MailCPU program.
 - Executable images v2 carry a bounded tagged binary instruction stream. The
   loader decodes and validates it, compares it against the readable graph, and
   refuses mismatches before installation or scheduling. v1 graph-only images
