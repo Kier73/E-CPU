@@ -673,9 +673,53 @@ The executable boundary admits ELF payloads for virtual-memory staging.
 
 Evidence tier: E0.
 
-Dynamic planning is an E0 deterministic artifact operation. It does not yet
-load dependency providers or mutate staged memory; those operations are the
-next dynamic-linker boundary.
+Dynamic planning and provider application are E0 deterministic artifact
+operations. The transactional linker boundary loads named providers and
+mutates only a validated memory clone before commit; foreign instruction
+execution and interpreter handoff remain separate boundaries.
+
+### 11.6 Numbered POSIX boundary
+
+`PosixCompatibility` is the first standard-numbered userland boundary. For
+Linux x86-64 syscall number `n`, process `p`, and argument record `a`, it
+computes
+
+`Π(p,n,a) = (r,e)`
+
+with `e=0` and native result `r` on success, or `r=-e` with `e∈Errno` on
+failure. The adapter invokes the existing native transition for every backed
+case and records failure errno in the process record and journal.
+
+The current numbered domain is:
+
+| Number | Name | Native transition | Pointer contract |
+|---:|---|---|---|
+| 0 | `read` | `read_into` | destination bytes are preflighted before descriptor read |
+| 1 | `write` | `write_from` | source bytes are preflighted before descriptor write |
+| 2 | `open` | `open` + `fcntl` | pathname is a NUL-terminated virtual-memory string |
+| 3 | `close` | `close` | none |
+| 5 | `fstat` | `fstat` + `mem_write` | fixed 144-byte x86-64 record |
+| 8 | `lseek` | `lseek` | none |
+| 9 | `mmap` | `mmap` | anonymous private page interval |
+| 10 | `mprotect` | `mprotect` | aligned page interval |
+| 11 | `munmap` | `munmap` | aligned page interval |
+| 22 | `pipe` | `pipe_into` | two 32-bit descriptors are written atomically |
+| 32 | `dup` | `dup` | shared open description |
+| 33 | `dup2` | `dup2` | target replacement follows native descriptor law |
+| 39 | `getpid` | `getpid` | none |
+| 60 | `exit` | `exit` | process termination is native |
+| 61 | `wait4` | `waitpid` + `mem_write` | four-byte encoded exit status; `WNOHANG` supported |
+| 72 | `fcntl` | `fcntl` | descriptor-local and shared flags remain distinct |
+| 79 | `getcwd` | `getcwd_into` | NUL-terminated cwd is written to virtual memory |
+| 80 | `chdir` | `chdir` | pathname is a NUL-terminated virtual-memory string |
+
+The adapter currently admits private anonymous mappings and modeled read/write
+protection. `fork`, pointer-vector `execve`, `brk`, `rusage`, executable page
+permissions, sockets, and broader flag families require their own backed
+contracts. An unsupported number returns `ENOSYS`; an unsupported argument
+family returns `EINVAL`; no unsupported behavior is represented as success.
+
+Evidence tier: E0.
 
 ## 12. Control plane
 

@@ -312,6 +312,22 @@ rules are `docs/ARCHITECTURE.md` clauses 3 and 5 and `docs/REPLACEMENT_SPEC.md`.
   assigns deterministic page-aligned dependency bases, stages a clone, and
   commits relocation writes only after every image and target preflight passes.
 
+### 7.11 Numbered POSIX boundary
+
+- `PosixCompatibility` translates the Linux x86-64 syscall-number relation
+  into the already-backed kernel and memory transitions. The initial domain is
+  `read`, `write`, `open`, `close`, `fstat`, `lseek`, `mmap`, `mprotect`,
+  `munmap`, `pipe`, `dup`, `dup2`, `fcntl`, `getpid`, `exit`, `wait4`,
+  `getcwd`, and `chdir`.
+- Pointer arguments are read from or written to the process virtual memory
+  image. Compound destinations are preflighted before descriptor creation,
+  waiting, or file-position mutation, and failures return the negative errno
+  projection while recording the process errno.
+- `fstat` emits the fixed x86-64 144-byte record, `wait4` emits the encoded
+  exit status, and `pipe` emits its descriptor pair through the existing
+  memory-transfer law. Unsupported numbers and unsupported flag families
+  return explicit `ENOSYS` or `EINVAL` rather than fabricated behavior.
+
 ### 7.9 Control plane
 
 - The classifier hypervisor separates typed probabilistic evidence from
@@ -376,8 +392,8 @@ The following are **REQUIRED** staged obligations of the same machine.
 6. Migration compatibility for checkpoint and image formats, ELF relocations and
    dynamic linking, foreign CPU backends, and a package dependency graph above
    the digest registry.
-7. A POSIX-compatibility layer, admitted only after the semantic layer is
-   differential-tested.
+7. Broader POSIX compatibility, admitted incrementally above the numbered
+   syscall foundation and differential-tested at each new ABI surface.
 8. Evidence tier reporting is enforced at the native CLI and public result
    projection boundaries, per clause 6. Future result surfaces must use the
    same typed boundary before they are considered complete.

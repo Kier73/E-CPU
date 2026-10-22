@@ -82,6 +82,16 @@ system. Each entry has:
 | `E-1` | Dynamic ELF dependencies and relative relocations are decoded deterministically, while undefined symbols require explicit bindings. | `mailcpu/elf.py` | `tests/test_dynamic_elf.py::test_dynamic_elf_parses_dependencies_and_relative_relocation_plan`, `tests/test_dynamic_elf.py::test_dynamic_elf_requires_explicit_external_symbol_binding` | `INTEGRATION_SPEC.md` 11.5 |
 | `E-2` | Dynamic linking commits staged images and relocation writes only after provider, target, and relocation preconditions pass. | `mailcpu/linker.py`, `mailcpu/memory.py` | `tests/test_linker.py::test_dynamic_linker_missing_provider_and_readonly_target_preserve_memory`, `tests/test_linker.py::test_dynamic_linker_resolves_provider_and_applies_relocation_transactionally` | `INTEGRATION_SPEC.md` 11.5 |
 
+## Numbered POSIX boundary
+
+| ID | Statement | Establishes | Enforced by | Required by |
+|---|---|---|---|---|
+| `U-1` | Numbered pointer I/O uses the native virtual-memory transfer law and preserves byte cardinality on success. | `mailcpu/posix_abi.py` | `tests/test_posix_abi.py::test_posix_pointer_io_open_and_stat_follow_native_memory_laws` | `INTEGRATION_SPEC.md` 11.6 |
+| `U-2` | POSIX `mmap`, `mprotect`, and `pipe` translate into page and descriptor transitions without fabricating return values. | `mailcpu/posix_abi.py` | `tests/test_posix_abi.py::test_posix_mmap_protection_and_pipe_are_real_translations` | `INTEGRATION_SPEC.md` 11.6 |
+| `U-3` | `wait4(WNOHANG)` does not reap an unexited child, while a completed wait writes the encoded exit status before returning the child identity. | `mailcpu/posix_abi.py` | `tests/test_posix_abi.py::test_posix_wait4_encodes_status_and_wnohang_without_reaping_early` | `INTEGRATION_SPEC.md` 11.6 |
+| `U-4` | Unsupported numbers and invalid pointers return explicit errno results, and a failed pointer read leaves the descriptor projection unchanged. | `mailcpu/posix_abi.py` | `tests/test_posix_abi.py::test_posix_unsupported_and_invalid_transitions_are_explicit` | `INTEGRATION_SPEC.md` 11.6 |
+| `U-5` | `O_CLOEXEC` remains descriptor-local and is not confused with shared open-description flags. | `mailcpu/posix_abi.py`, `mailcpu/kernel.py` | `tests/test_posix_abi.py::test_posix_open_cloexec_sets_descriptor_local_flag` | `INTEGRATION_SPEC.md` 11.6 |
+
 ## Descriptors and blocking
 
 | ID | Statement | Establishes | Enforced by | Required by |

@@ -689,7 +689,13 @@ class VirtualKernel:
             process.environment[key] = value
             return 0
         if name == "open":
-            return self._open(process, args["path"], args.get("mode", "r"), args.get("create", False))
+            return self._open(
+                process,
+                args["path"],
+                args.get("mode", "r"),
+                args.get("create", False),
+                bool(args.get("exclusive", False)),
+            )
         if name == "close":
             return self._close(process, args["fd"])
         if name == "read":
@@ -829,10 +835,12 @@ class VirtualKernel:
             return FileStat(f"device:{device_name}", "device", 0o666, 0, 0)
         return self.fs.stat(handle.path)
 
-    def _open(self, process: Process, path: str, mode: str, create: bool) -> int:
-        """Mathematics: allocate the least unused descriptor `fd ≥ 3` and bind it to a validated access mode."""
+    def _open(self, process: Process, path: str, mode: str, create: bool, exclusive: bool = False) -> int:
+        """Mathematics: allocate the least unused `fd≥3` after authorized mode and `O_EXCL` existence predicates pass."""
 
         canonical = self._resolve_path(process, path)
+        if exclusive and not create:
+            raise KernelError("exclusive open requires create")
         readable = "r" in mode or "+" in mode
         writable = "w" in mode or "a" in mode or "+" in mode
         if not readable and not writable:
@@ -845,6 +853,8 @@ class VirtualKernel:
             # descriptor is requested read-only.
             self._authorize(process, canonical, "write")
         device_name = self.device_name_for_path(canonical)
+        if exclusive and device_name is not None:
+            raise KernelError(f"file exists: {canonical}")
         append_offset = 0
         try:
             self.fs.stat(canonical)
@@ -854,6 +864,8 @@ class VirtualKernel:
             if device_name is None:
                 self.fs.create_file(canonical, owner=process.pid)
         else:
+            if exclusive:
+                raise KernelError(f"file exists: {canonical}")
             if device_name is None and "w" in mode and "a" not in mode:
                 self.fs.write_file(canonical, b"", offset=0, truncate=True)
             if device_name is None and "a" in mode:

@@ -152,8 +152,19 @@ Provide complete binary and ABI compatibility so unmodified UNIX tools execute n
 
 $$\delta_{\text{syscall}} : \text{ABI}_{\text{standard}} \to \mathcal{K} \times \text{Receipt}$$
 
+#### Stage 7 implemented
+
+`PosixCompatibility` provides a numbered Linux x86-64 boundary over the
+existing MailCPU kernel. Pointer paths and buffers cross through the virtual
+memory ABI; `fstat` emits a fixed 144-byte x86-64 record; `wait4` encodes
+child status; `mmap`/`mprotect`/`munmap`, descriptor duplication and flags,
+file positioning, `pipe`, process identity, `exit`, `getcwd`, and `chdir` are
+translated through native transitions. Unsupported syscall numbers and
+unsupported flag/protection families return explicit errno results, and
+compound pointer destinations are preflighted before state mutation.
+
 #### Requirements
-1. **Standard C Runtime (Musl Libc)**: Port and validate a standard C runtime against native MailCPU syscall traps.
+1. **Standard C Runtime (Musl Libc)**: Port and validate a standard C runtime against the numbered foundation, adding pointer-vector `execve`, interpreter handoff, and broader errno/structure coverage.
 2. **Terminal & PTY Full Session Ecosystem**: Support complete job control, session switching, and ANSI line disciplines to run interactive shells (Bash, Dash, Zsh).
 3. **OCI Container Rootfs Importer**: Ingest standard container filesystem layers directly into content-addressed inode trees.
 
@@ -191,6 +202,7 @@ $$\delta_{\text{syscall}} : \text{ABI}_{\text{standard}} \to \mathcal{K} \times 
 │ JIT Law Lifter in Scheduler   │ PLANNED    │ Iteration 3                    │
 │ Adaptive Modulus Restriping   │ PLANNED    │ Iteration 3                    │
 │ Multi-Hop Distributed Delay   │ PLANNED    │ Iteration 3                    │
+│ POSIX syscall foundation      │ COMPLETE   │ Iteration 3                    │
 │ Musl Libc / POSIX Userland    │ PLANNED    │ Iteration 3                    │
 └───────────────────────────────┴────────────┴────────────────────────────────┘
 ```

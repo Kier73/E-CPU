@@ -33,6 +33,7 @@ from .kernel import (
 from .memory import VirtualMemoryError
 from .model import DEFAULT_MAX_TICKS, Program
 from .owned_network import NetworkAddress, NetworkFrame
+from .posix_abi import PosixCompatibility, PosixResponse
 from .scheduler import ScheduleEvent, SyscallBlocked, TaskStatus
 from .signals import DEFAULT_TERMINATION_EXIT_CODE, Signal, SignalError
 from .stream import StreamError
@@ -97,6 +98,7 @@ class HeadlessOS:
         self.vm.scheduler.wait_predicate = self._scheduler_wait_ready
         self.vm.scheduler.post_step = self._apply_deferred_exec
         self.hypervisor = ClassifierHypervisor(journal=self.environment.kernel.journal)
+        self.posix = PosixCompatibility(self)
         from .service import ServiceSupervisor
 
         self.services = ServiceSupervisor(self)
@@ -288,6 +290,11 @@ class HeadlessOS:
             {"pid": pid, "name": syscall_name, "result": self._memory_log_value(result)},
         )
         return result
+
+    def posix_syscall(self, pid: int, number: int, **args: Any) -> PosixResponse:
+        """Mathematics: expose the numbered ABI projection `Π(pid,number,args)` over this booted OS."""
+
+        return self.posix.invoke(pid, number, **args)
 
     def syscall_server(self):
         """Mathematics: bind bus endpoint `kernel` to the OS transition function `δ_os(pid,request)` for typed remote calls."""
