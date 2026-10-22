@@ -734,7 +734,7 @@ class PhaseObservation:
         logical_time: int,
         fold: ChronoFold,
     ) -> "PhaseObservation":
-        """Mathematics: project `F` into counters and `q(F.phase)=active_chronons mod 4` without replay claims."""
+        """Mathematics: project `F` into counters with phase sector `q(F.phase)=active_chronons mod 4` while retaining the source trajectory."""
 
         if not isinstance(fold, ChronoFold):
             raise ObservationError("phase observation requires ChronoFold")

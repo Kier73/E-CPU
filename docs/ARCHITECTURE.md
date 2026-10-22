@@ -94,26 +94,27 @@ may write every state.
 
 Every reportable result carries an **evidence tier**.
 
-| Tier | Provenance | Permitted claim |
+| Tier | Provenance | System role |
 |---|---|---|
-| `E0` | Captured frames, in-process emulation, or a deterministic fixture | The semantics execute as specified over the modelled substrate |
-| `E1` | A substrate wholly owned by the implementation | The semantics execute over a real fabric with controlled endpoints |
-| `E2` | Public or third-party infrastructure | The semantics execute over infrastructure outside implementation control |
+| `E0` | Captured frames, in-process emulation, or a deterministic fixture | Local semantic development and exact replay |
+| `E1` | A substrate wholly owned by the implementation | Controlled physical or owned network paths |
+| `E2` | Public or third-party infrastructure | Public Internet paths and externally operated infrastructure |
 
 **REQUIRED** Every reportable result MUST carry its tier.
 
-**REQUIRED** A tier MUST NOT be asserted for a result whose substrate is not
-present. Absence of a substrate is reported as a non-goal, not as an unmet
-tier.
+**REQUIRED** A tier MUST be attached only when its substrate is present. When a
+substrate is not yet attached, its execution stage remains an explicit build
+boundary rather than being silently inferred.
 
-MailCPU reports `E0` and `E1` results only. No `E2` result is produced, and no
-host socket is opened.
+MailCPU currently reports `E0` and `E1` results. The dedicated socket transport
+opens host sockets for controlled external paths; public E2 operation remains a
+later infrastructure stage.
 
 The report boundary is explicit: native CLI JSON records and public
 `to_dict()` result projections carry an `evidence_tier` field. Deterministic
 process, classifier, service, and E0 network-event projections use `E0`;
 owned-network frames and datagrams use `E1`. Checkpoint/image encodings remain
-state formats rather than evidence reports and do not infer a substrate claim.
+state formats rather than evidence reports and do not infer a substrate tier.
 
 ## 7. Implemented surfaces
 
@@ -271,7 +272,11 @@ rules are `docs/ARCHITECTURE.md` clauses 3 and 5 and `docs/REPLACEMENT_SPEC.md`.
   descriptors, `dup2` resource replacement, `fcntl` status flags, a unified
   immediate readiness vector, bounded write backpressure, and checkpointable
   scheduler waits.
-- No host socket is opened at any layer.
+- The semantic network layers remain host-socket-free. `SocketTransport` is the
+  explicit framed bridge from those layers to a real external stream.
+- `SocketTransport` preserves the typed message algebra over bounded TCP frames,
+  canonical tuple-preserving bodies, integrity receipts, peer identity binding,
+  partial-frame recovery, backpressure, and rebound checkpoint state.
 
 ### 7.8 Images
 
@@ -329,7 +334,7 @@ rules are `docs/ARCHITECTURE.md` clauses 3 and 5 and `docs/REPLACEMENT_SPEC.md`.
 
 ## 8. Obligations
 
-The following are **REQUIRED** and are not statements of present capability.
+The following are **REQUIRED** staged obligations of the same machine.
 
 1. Multi-tier eviction policy, durable remote page backing, execute permissions,
    and a broader memory ABI above the specified deterministic
@@ -361,16 +366,16 @@ The following are **REQUIRED** and are not statements of present capability.
    package operations, preserving deterministic policy and refusal when a model
    is unavailable or uncertain.
 
-## 9. Non-goals
+## 9. Current stage boundaries
 
-MailCPU does not implement, and does not claim, the following. These are not
-items of outstanding work.
+The following are the next infrastructure layers of the same system. They are
+not alternative machine models:
 
 1. Linux compatibility, distribution packaging, or host namespace sharing.
 2. Foreign CPU instruction execution. `parse_elf` validates and stages; it does
    not relocate, link, bind `libc`, or emulate.
-3. Public or host networking. No host socket is opened and no public
-   infrastructure is contacted. No `E2` result is produced.
+3. Public Internet infrastructure and E2 operation beyond the controlled
+   external socket transport.
 4. Multi-host durability, transactional cross-host commit, receiver-advertised
    windows, and congestion control.
 5. Reproduction of any undisclosed third-party internal architecture.
@@ -378,7 +383,7 @@ items of outstanding work.
 
 ## 10. Governing rule
 
-No compatibility claim is accepted until a workload passes against the
-reference semantics and the result is replayable from the recorded
+Every compatibility stage is admitted when its workload preserves the
+reference transition semantics and the result is replayable from the recorded
 communication trajectory.
 

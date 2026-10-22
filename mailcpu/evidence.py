@@ -8,7 +8,7 @@ from typing import Any
 
 
 class EvidenceTier(str, Enum):
-    """Mathematics: classify a result by provenance in the ordered set `E0 < E1`, with no `E2` claims admitted by MailCPU."""
+    """Mathematics: classify execution provenance in ordered substrate stages `E0 < E1`, with E2 reserved for public infrastructure."""
 
     E0 = "E0"
     E1 = "E1"

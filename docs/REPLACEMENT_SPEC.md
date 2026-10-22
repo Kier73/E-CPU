@@ -1,34 +1,33 @@
 # MailCPU Replacement Specification
 
-Normative specification of the claim MailCPU makes, the criteria by which that
-claim is evaluated, and the surfaces the claim covers.
+Normative specification of the MailCPU replacement system, the criteria by which
+its operation is evaluated, and the surfaces its transition algebra covers.
 
 Defined terms follow `docs/GLOSSARY.md`.
 
 ## 1. Purpose
 
-MailCPU states a replacement claim, not a reimplementation claim. The claim is
-that a native, portable, replayable virtual environment whose underlying machine
-is communication infrastructure renders a conventional Linux development
-environment unnecessary for the workflows in clause 3.
+MailCPU is a native, portable, replayable virtual environment whose underlying
+machine is communication infrastructure. It provides the workflows in clause 3
+through its own state, authority, memory, time, and communication algebra.
 
-No claim is made to reproduce any Linux implementation.
+Linux implementation internals are not the organizing model.
 
-## 2. Claim boundary
+## 2. System boundary
 
-A claim made under this document is bounded by:
+The system defined under this document is bounded by:
 
 1. the acceptance criteria in clause 3;
 2. the **evidence tier** of every result reported, per
    `docs/ARCHITECTURE.md` clause 6;
-3. the non-goals in clause 9;
+3. the staged obligations in clause 9;
 4. the governing rule in clause 10.
 
-A claim outside these bounds is not made.
+Future substrate stages extend these same boundaries through explicit builds.
 
 ## 3. Acceptance criteria
 
-MailCPU satisfies the replacement claim when all seven criteria hold.
+MailCPU satisfies the replacement system when all seven criteria hold.
 
 **AC-1** A project can boot a reproducible environment on the host without a
 Linux kernel.
@@ -85,8 +84,8 @@ python -m mailcpu registry-list work/registry
 
 ## 6. Conformance
 
-**REQUIRED** A workload MUST pass against the reference semantics before any
-compatibility claim is admitted for it, per clause 10.
+**REQUIRED** A workload MUST pass against the reference semantics before its
+compatibility stage is admitted, per clause 10.
 
 **REQUIRED** The result MUST be replayable from the recorded communication
 trajectory.
@@ -135,8 +134,7 @@ request state
 
 Model output does not possess authority over the host.
 
-No claim is made that the internal architecture of any external
-classifier has been reproduced.
+External classifier internals are not imported as the system's architecture.
 
 ### 7.3 Network
 
@@ -150,7 +148,9 @@ capability-gated memory transfers, process-owned typed datagram and bounded
 stream and port layers, exact-reap cleanup, and shared descriptor-backed socket
 I/O.
 
-**REQUIRED** No public or host network is claimed. No host socket is opened.
+**REQUIRED** Controlled external networking enters through the framed
+`SocketTransport` boundary. Public infrastructure is a later E2 stage; semantic
+network state remains independent of host socket details.
 
 ### 7.4 Processes
 
@@ -323,14 +323,14 @@ a relay, or a controlled mail path without altering its semantics.
 Identity, ordering, authority, persistence, acknowledgement, expiry, and replay
 are first-class parts of the virtual machine.
 
-## 9. Non-goals
+## 9. Staged obligations
 
-MailCPU does not implement, and does not claim:
+The following stages remain to be built into the same system:
 
-1. Linux compatibility, distribution packaging, or host namespace sharing.
-2. Foreign CPU instruction execution.
-3. Public or host networking. No `E2` result is produced.
-4. Multi-host durability and cross-host transactional commit.
+1. POSIX compatibility, distribution packaging, and host namespace integration.
+2. Foreign CPU instruction execution through dynamic ELF relocation and linking.
+3. Public infrastructure and E2 operation above controlled external networking.
+4. Replicated multi-host durability and cross-host transactional commit.
 5. Receiver-advertised windows and congestion control.
 6. Full `termios` compatibility: handler installation, signal masks, restart
    semantics, and signal-frame ABI.
@@ -339,6 +339,6 @@ MailCPU does not implement, and does not claim:
 
 ## 10. Governing rule
 
-No compatibility claim is accepted until the same workload passes against the
+No compatibility stage is admitted until the same workload passes against the
 reference semantics and the result is replayable from the recorded
 communication trajectory.

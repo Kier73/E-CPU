@@ -16,7 +16,7 @@ $$\mathcal{U}_2 = \langle \mathcal{S}_{\text{substrate}}, \; \mathcal{E}_{\text{
 
 Where:
 - $\mathcal{S}_{\text{substrate}}$: Physical in-flight network delay lines, Anantharam-Verdú timing channels, DNS TTL decaying latches, and TCP sliding-window arithmetic operators.
-- $\mathcal{E}_{\text{reversible}}$: Involutive gate micro-ops ($X$, `swap`), chronofolded periodicity metadata, and discrete geometric phase accumulation ($D = (-i)^{n_{\text{active}}}$) supporting exact thermodynamic backtracking in the model.
+- $\mathcal{E}_{\text{reversible}}$: Involutive gate micro-ops ($X$, `swap`), chronofolded periodicity metadata, and discrete geometric phase accumulation ($D = (-i)^{n_{\text{active}}}$) supporting exact virtual-energy backtracking in the model.
 - $\mathcal{L}_{\text{law\_lifter}}$: The $\Omega_5 = (\text{STATE}, \text{LIFT}, \text{NAVIGATE}, \text{DESCEND}, \text{VERIFY})$ loop that transforms raw message streams into certified closed-form algebraic laws, accelerating execution via logarithmic orbit leaps.
 - $\mathcal{T}_{\text{chemical}}$: A unified triple-time coordinate $\tau_{\text{system}} = \langle \lambda_{\text{event}}, \; \tau_{\text{chronon}}, \; \tau_{\text{chem}} \rangle$, where structural parsing difficulty is the currency of memory persistence bounded by the $t_{\text{horizon}} = \text{first\_bad}$ horizon.
 - $\mathcal{P}_{\text{capability}}$: Deterministic cryptographic authority boundary isolating advisory neural lifter proposals from execution dispatch.

@@ -39,7 +39,7 @@ system. Each entry has:
 | `D-1` | Logical time advances by exactly one per accepted event and is not derived from wall-clock time. | `mailcpu/journal.py` | `tests/test_runtime.py::test_logical_time_advances_exactly_one_per_accepted_event` | `README.md` 5 |
 | `D-2` | Canonical trace and result forms are invariant under transport message identity. | `mailcpu/model.py` | `tests/test_conformance.py::test_differential_random_program_corpus` | `README.md` 2 |
 | `D-3` | The canonical value algebra is injective and invariant under mapping-key permutation. | `mailcpu/_codec.py` | `tests/test_codec.py::test_canonical_algebra_distinguishes_container_types`, `tests/test_codec.py::test_canonical_encoding_is_permutation_invariant` | `REPLACEMENT_SPEC.md` 7.11 |
-| `D-4` | The transport value algebra preserves scalars and bytes and does not claim to preserve tuple identity. | `mailcpu/_codec.py` | `tests/test_codec.py::test_transport_algebra_round_trips_scalars_and_bytes`, `tests/test_codec.py::test_transport_algebra_does_not_conserve_tuple_identity` | `REPLACEMENT_SPEC.md` 7.11 |
+| `D-4` | The transport value algebra preserves scalars and bytes; canonical external paths preserve tuple identity. | `mailcpu/_codec.py`, `mailcpu/socket_transport.py` | `tests/test_codec.py::test_transport_algebra_round_trips_scalars_and_bytes`, `tests/test_socket_transport.py::test_tcp_loopback_transports_typed_messages_and_preserves_fifo` | `REPLACEMENT_SPEC.md` 7.11 |
 | `D-5` | A digest is never computed over a non-canonical encoding. | `mailcpu/durable_transport.py` | `tests/test_durable_transport.py::test_durable_mailbox_rejects_tampered_complete_records` | `REPLACEMENT_SPEC.md` 7.11 |
 
 ## Receipts, journal, and checkpoints
@@ -101,7 +101,7 @@ system. Each entry has:
 
 | ID | Statement | Establishes | Enforced by | Required by |
 |---|---|---|---|---|
-| `N-1` | No layer opens a host socket. | `mailcpu/network.py` | `tests/test_network.py::test_no_package_layer_imports_a_host_socket` | `ARCHITECTURE.md` 7.7 |
+| `N-1` | Host-socket access is confined to the explicit external transport boundary; semantic network layers remain host-socket-free. | `mailcpu/socket_transport.py`, `mailcpu/network.py` | `tests/test_network.py::test_host_socket_access_is_confined_to_external_transport` | `ARCHITECTURE.md` 7.7 |
 | `N-2` | A malformed frame is rejected and never reaches the journal as an accepted event. | `mailcpu/network.py` | `tests/test_network.py::test_e0_network_rejects_wire_errors_and_reports_http_errors` | `ARCHITECTURE.md` 7.7 |
 | `N-3**` | The owned fabric commits a frame only after the E0 decoder has emitted its journaled events. | `mailcpu/owned_network.py` | `tests/test_owned_network.py::test_owned_link_driver_commits_only_after_e0_accepts` | `INTEGRATION_SPEC.md` 8 |
 | `N-4` | Effective MTU is the minimum interface MTU along the selected route. | `mailcpu/owned_network.py` | `tests/test_owned_network.py::test_owned_fabric_routes_across_namespace_forwarding_interfaces` | `INTEGRATION_SPEC.md` 8 |

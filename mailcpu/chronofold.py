@@ -96,7 +96,7 @@ class ChronoFold:
         final_tape: int,
         gate_generator: Callable[[int], Sequence[ReversibleGate | tuple[int, int, int, int, int]]],
     ) -> tuple[int, int]:
-        r"""Mathematics: reverse replay `(T^N)^{-1}(s_N) = s_0` asserting zero thermodynamic dissipation."""
+        r"""Mathematics: reverse replay `(T^N)^{-1}(s_N) = s_0` while preserving the virtual transition energy encoded by reversible gates."""
 
         current_tape = final_tape
         accumulated_active = 0

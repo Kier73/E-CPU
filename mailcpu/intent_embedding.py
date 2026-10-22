@@ -18,12 +18,14 @@ For label prototype $d$ built from examples $X_d$,
  \quad s_d=\mu_d\cdot\phi(x),
  \quad p_d=\frac{e^{s_d/\theta}}{\sum_j e^{s_j/\theta}}.
 \]
-Virtual time is an E0 accounting identity, not a thermodynamic assertion:
+Virtual time is the system's declared energy-to-time translation for active
+representation and communication:
 \[
  E_v=\max\left(1,8|J(x)|+8|T(x)|+\lceil16\tau_{chem}(J(x))\rceil+1\right),
  \qquad \tau_v=\left\lceil\frac{E_v}{C}\right\rceil,
 \]
-where $J(x)$ is canonical JSON and $C$ is declared virtual capacity.
+where $J(x)$ is canonical JSON and $C$ is the declared virtual capacity of the
+current processing path.
 """
 
 from __future__ import annotations

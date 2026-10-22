@@ -39,6 +39,14 @@ Transition the execution substrate from local in-memory emulation ($E0$) to phys
 
 $$\text{Capacity } C = \sum_{p \in \text{Paths}} B_p \times \text{RTT}_p$$
 
+#### Stage 1 implemented
+
+`mailcpu/socket_transport.py` now provides a real TCP framed path for the
+existing typed MailCPU message algebra. Canonical receipts, partial-frame
+reassembly, peer identity binding, bounded backpressure, queue semantics, and
+rebound checkpoint state are exercised over loopback TCP. The next fabric slice
+is controlled reflector daemons and path profiling above this transport.
+
 #### Requirements
 1. **Echo Reflector Daemons**: Bare-metal, UDP, or eBPF packet-reflection services that circulate state packets with sequence and timestamp accounting.
 2. **Dynamic Jitter & Path Profiler**: Measure network path distributions in real time to establish safe slot allocations:

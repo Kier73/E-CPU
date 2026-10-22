@@ -27,13 +27,13 @@ without alteration.
 
 The target is a **finite-resource** universal emulator.
 
-**REQUIRED** No claim is made that any email provider, relay, or transport is
-itself Turing complete. Real services impose finite storage, rate limits, and
-expiry, and these bounds are part of every result reported under Programme A.
+**REQUIRED** Every external provider, relay, or transport is modeled with finite
+storage, rate limits, and expiry. Those bounds are part of every result reported
+under Programme A.
 
 ## 3. Programme A: hypotheses
 
-| ID | Claim | Pass condition | Diagnostic on failure |
+| ID | System statement | Pass condition | Diagnostic on failure |
 |---|---|---|---|
 | `H1` | The instruction primitives are computationally sufficient | A counter machine expressible as INC/DEC/JZ runs on them | Which primitive is missing or redundant |
 | `H2` | Semantics are substrate-independent | Identical final state and trace on every transport | Which transport leaks semantics |
@@ -109,7 +109,7 @@ backend MUST be recorded, whether or not its cause is identified. The failure ma
 is a deliverable.
 
 **REQUIRED** Phase `A7` results MUST satisfy `docs/REPLACEMENT_SPEC.md`
-clause 10 before any compatibility claim is admitted.
+clause 10 before any compatibility stage is admitted.
 
 ## 6. Programme A: constraints and risks
 
@@ -126,9 +126,9 @@ A machine whose memory, interconnect, clock, and a portion of its logic are
 properties of the Internet itself.
 
 The network supplies state, time, interconnect, entropy, and a bounded set of
-primitives. Arbitrary logic executes at endpoints. The full-scope claim is that
-the machine's state and time reside in the network, so the program's trajectory
-is carried by it.
+primitives. Arbitrary logic executes at endpoints. The full-scope system has its
+state and time reside in the network, so the program's trajectory is carried by
+it.
 
 **REQUIRED** Programme B results MUST carry an evidence tier per
 `docs/ARCHITECTURE.md` clause 6. A lower-tier pass MUST NOT be reported as a

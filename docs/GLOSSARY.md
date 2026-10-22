@@ -174,12 +174,12 @@ Registry of defined terms for this repository.
 : An algebraic representation encoding integer state across coprime moduli $(m_1, \dots, m_n)$,
   permitting exact Garner-free CRT state recovery from any $k \le n$ surviving residues.
 
-## Non-goals
+## Stage boundaries
 
-**non-goal**
-: A capability deliberately absent from the system. Non-goals are enumerated in
-  an explicit clause. A non-goal is not a deferral, and MUST NOT be described as
-  a limitation awaiting removal.
+**stage boundary**
+: A capability that has a defined place in the system's build order but is not
+  yet connected to the active execution path. Stage boundaries are recorded as
+  implementation obligations and MUST remain visible until built.
 
 **refusal**
 : An explicit, typed negative result. Distinct from an exception propagating

@@ -263,6 +263,7 @@ from .substrate_sim import (
     NetworkStats,
     WanSubstrateSimulator,
 )
+from .socket_transport import SocketTransport, SocketTransportClosed, SocketTransportError
 
 __all__ = [
     "InMemoryTransport",
@@ -523,4 +524,7 @@ __all__ = [
     "GilbertElliottChannel",
     "NetworkStats",
     "WanSubstrateSimulator",
+    "SocketTransport",
+    "SocketTransportClosed",
+    "SocketTransportError",
 ]

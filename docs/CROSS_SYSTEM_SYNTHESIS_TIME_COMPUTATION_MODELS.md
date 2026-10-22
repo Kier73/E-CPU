@@ -164,7 +164,7 @@ MailCPU serves as the foundational substrate (Iteration 1). By assimilating the 
 ### Actionable Integration Pipeline:
 
 1. **Adopt Chronofolding into the MailCPU Scheduler**:
-   Replace MailCPU's linearly expanding trajectory journals with a shift-periodic chronofold index. The current implementation retains the trace and records a bounded periodicity witness; storage reduction remains a future, verified build rather than a present claim.
+   Replace MailCPU's linearly expanding trajectory journals with a shift-periodic chronofold index. The current implementation retains the trace and records a bounded periodicity witness; storage reduction remains a future, verified build rather than a present implementation.
 2. **Embed the six-rung Law Lifter into Network Channels**:
    Deploy the six-rung classification on incoming network frame sequences. When an in-flight stream matches a known affine or LCG recurrence and its modulus is identified, a future execution adapter may use closed-form orbit jumping ($s_t = \Lambda(s_0, t)$ in $\mathcal{O}(\log t)$); the current lifter certifies and navigates only the recovered evidence horizon.
 3. **Unify Time Metrics**:

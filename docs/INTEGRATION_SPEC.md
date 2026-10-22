@@ -26,17 +26,20 @@ The module names in the table below record the mechanism from which each boundar
 | `gvm` | SENSE/LEAP/HDC/MDL execution regimes, DMA-shaped VFS access, attestation receipts | Optional execution backend and image regime metadata; MailCPU algebra remains the conformance oracle |
 | `gvm_asm` | Assembly/disassembly and labels for portable executable images | Image toolchain; assembler output must round-trip through the image loader |
 | `net` | Headless TCP state tracking, HTTP parsing, wire-to-semantic payload extraction | Device/transport adapter; E0 emulation first, E1 owned links before E2 public infrastructure |
-| GV unit/e2e/adversarial tests | Cross-language, invariant, corruption, boundary, and end-to-end acceptance patterns | New MailCPU acceptance tiers, with unverified claims marked explicitly |
+| GV unit/e2e/adversarial tests | Cross-language, invariant, corruption, boundary, and end-to-end acceptance patterns | New MailCPU acceptance tiers, with unmeasured statements marked explicitly |
 
 The module names carry no build-time and no run-time dependency. Clause 15 governs the disposition of any copied source.
 
 ### 1.3 Evidence tiers and substrate ordering
 
-**Evidence tier** is as defined in `docs/ARCHITECTURE.md` clause 6. MailCPU reports `E0` and `E1` results. No `E2` result is produced.
+**Evidence tier** is as defined in `docs/ARCHITECTURE.md` clause 6. MailCPU
+currently reports `E0` and `E1` results; E2 enters with public infrastructure.
 
 **REQUIRED** Conformance at a substrate tier MUST be recorded before a mechanism is attached to a higher tier. `E0` emulation precedes `E1` owned links, and `E1` owned links precede `E2` public infrastructure.
 
-**REQUIRED** A host socket MUST NOT be opened at any tier of an adopted network mechanism.
+**REQUIRED** Host-socket access MUST be confined to the explicit framed
+`SocketTransport` boundary. E0 and owned semantic network layers MUST remain
+independent of the host socket API.
 
 ### 1.4 Admission constraints
 
@@ -214,7 +217,7 @@ Demand zero-fill, allocation, protection, reclamation, and a VM-wide **resident 
 
 ### 5.2 Content-addressed reclamation
 
-`mem_reclaim` deterministically evicts selected private pages into existing content-addressed blobs. A later access admits the page and restores the exact bytes, and the reservation/backing relation is included in checkpoints. Backing is local deterministic state; an external durable swap service and Linux virtual-machine compatibility are outside the boundary. Evidence tier: E0.
+`mem_reclaim` deterministically evicts selected private pages into existing content-addressed blobs. A later access admits the page and restores the exact bytes, and the reservation/backing relation is included in checkpoints. Backing is currently local deterministic state; remote page backing is the next memory stage. Evidence tier: E0.
 
 ### 5.3 Demand paging and resident accounting
 
@@ -492,9 +495,12 @@ The device validates bounded IPv4 and TCP headers, tracks a finite RFC-shaped co
 - Frame identity, logical time, source and destination addresses, payload bytes, queue capacity, and topology are check pointable and restored.
 - `net_namespace_create`, `net_interface_create`, `net_connect`, `net_send`, `net_receive`, and `net_info` expose the external operating-system boundary.
 - `net_send_from` and `net_receive_into` move bytes through a scheduled program's own virtual memory, with capability checks and preflight before destructive dequeue.
-- All effects are journaled, malformed topology and over-MTU or over-capacity sends fail explicitly, and no host socket and no public network is opened.
+- All effects are journaled, malformed topology and over-MTU or over-capacity
+  sends fail explicitly. The owned fabric remains in-process; the explicit
+  `SocketTransport` boundary carries its typed message algebra to external
+  controlled peers.
 
-Evidence tier: E1. Linux network-namespace compatibility and public-infrastructure reachability are outside the boundary.
+Evidence tier: E1. Linux network-namespace compatibility and public-infrastructure reachability are later infrastructure stages.
 
 ### 8.3 Owned-link driver adapter
 
@@ -518,7 +524,7 @@ The owned fabric carries a forwarding plane across namespace interfaces.
 - The effective MTU is the minimum interface MTU along the route, so forwarding cannot accept a frame that an intermediate interface cannot carry.
 - `net_route_send` and `net_route_send_from` expose routed transmission at the operating-system and scheduled-program boundaries.
 
-Evidence tier: E1. Linux namespace implementation and public Internet claims are outside the boundary.
+Evidence tier: E1. Linux namespace implementation and public Internet reachability are later infrastructure stages.
 
 ## 9. Datagram and stream layers
 
@@ -533,7 +539,7 @@ Evidence tier: E1. Linux namespace implementation and public Internet claims are
 - `net_dgram_bind`, `net_dgram_send`, `net_dgram_receive`, `net_dgram_info`, `net_dgram_send_from`, and `net_dgram_receive_into` cross the headless operating-system boundary.
 - A scheduled program stages a datagram payload in virtual memory and retrieves it through the same native trap path.
 
-Evidence tier: E1. POSIX and BSD socket compatibility and public-network reachability are outside the boundary.
+Evidence tier: E1. POSIX and BSD socket compatibility and public-network reachability are later infrastructure stages.
 
 A diagnostic command, `python -m mailcpu network-demo`, boots a routed four-interface topology, binds source and destination ports, transmits a binary datagram, validates the receipt chain, and reports the selected route.
 
@@ -563,7 +569,10 @@ The communication substrate carries a persistence-backed transport independent o
 - Reliable-channel pending frames and acknowledgements continue across transport reopen, giving retry state a durable mailbox beneath it.
 - A single-writer lock serializes local append critical sections.
 
-The durability boundary is local. Evidence tier: E0. A replicated external mailbox, transactional multi-host commit, a sequence-window protocol below the channel, and network-provider durability guarantees are outside the boundary.
+The durability boundary is currently local. Evidence tier: E0. The replicated
+external mailbox, transactional multi-host commit, sequence-window negotiation
+below the channel, and network-provider durability guarantees are the next
+stage above `SocketTransport`.
 
 ### 10.2 Checkpointable reliable communication
 
@@ -715,9 +724,11 @@ Process environments are scoped to the process record, are inherited per the pro
 
 **REQUIRED** Additional per-subsystem obligations are stated at the point of use: the memory corpus of clause 5.1, the stream and datagram scheduled-program tests of clause 9.2, and the descriptor-flag domain validation of clause 6.5.
 
-## 14. Claims requiring independent verification
+## 14. Statements requiring independent verification
 
-The reference documents contain strong performance and universality claims, including large leap dividends, zero-storage "infinite" memory, and Linux scheduler replacement. These are useful hypotheses and not established facts for MailCPU. Each such claim MUST carry:
+The reference documents contain strong performance and universality statements,
+including large leap dividends, zero-storage "infinite" memory, and Linux
+scheduler replacement. Each such statement MUST carry:
 
 1. its mathematical domain and invariant;
 2. a reference implementation;
@@ -732,11 +743,11 @@ The reference corpus is not distributed with this repository, and its sources ar
 
 **REQUIRED** Ported code belongs in `mailcpu/` only after it carries MailCPU-native annotations, tests, and a clear semantic boundary.
 
-Reference-suite results do not certify the unported C, Rust, build, benchmark, or public-infrastructure claims.
+Reference-suite results do not certify the unported C, Rust, build, benchmark, or public-infrastructure statements.
 
 ## 16. Obligations
 
-The following are **REQUIRED** and are not statements of present capability. Each is stated relative to the mechanism it extends.
+The following are **REQUIRED** staged obligations. Each is stated relative to the mechanism it extends.
 
 1. Receipt accounting for procedural providers, and a `/proc` provider surface beyond the provider interface of clause 3.
 2. Signal and cancellation semantics beyond termination; migration compatibility for checkpoint and image formats; crash-recovery transaction boundaries.
@@ -760,17 +771,18 @@ The following are **REQUIRED** and are not statements of present capability. Eac
 20. A proven recurrence and leap adapter admitted separately from classification, such that model acceleration never changes exact process semantics silently.
 21. Differential conformance testing against the **reference interpreter** for every mechanism above `δ`.
 
-## 17. Non-goals
+## 17. Staged obligations
 
-The following capabilities are deliberately absent. They are not outstanding work, and they are not limitations to be removed.
+The following capabilities are the next stages of the same system and remain to
+be connected through the transition algebra.
 
-1. Public or host networking. No host socket is opened, no public infrastructure is contacted, and no `E2` result is produced at any layer of clauses 8, 9, and 10.
-2. Linux, BSD, or POSIX ABI compatibility as a product claim, for memory, processes, descriptors, syscalls, sockets, terminals, or images. A compatibility layer is admissible only after the semantic layer is differential-tested against the reference interpreter.
+1. Public infrastructure and E2 operation above the controlled socket transport.
+2. Linux, BSD, or POSIX ABI compatibility for memory, processes, descriptors, syscalls, sockets, terminals, or images. Each compatibility layer follows differential testing against the reference interpreter.
 3. Foreign CPU instruction execution. The ELF loader of clause 11.5 validates and stages; it does not relocate, link, bind `libc`, or emulate.
 4. Host terminal attachment. The terminal law of clause 7 is entirely inside the virtual state graph.
 5. Reproduction of any undisclosed third-party internal model architecture.
-6. Learned-intelligence semantics attributed to a procedural hash, and any claim that a high classifier confidence establishes correctness.
+6. Learned-intelligence semantics attributed to a procedural hash; high classifier confidence remains an advisory signal while exact policy establishes correctness.
 7. Cryptographic primitives.
 8. Dependency on, or distribution of, the reference corpus named in clause 1.2.
-9. Treating the reference corpus performance and universality claims of clause 14 as established fact.
+9. Treating the reference corpus performance and universality statements of clause 14 as completed system behavior.
 10. A verified drop-in kernel assembled from the reference corpus.

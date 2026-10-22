@@ -28,8 +28,8 @@ def _packet(src_ip: bytes, dst_ip: bytes, src_port: int, dst_port: int, flags: i
     return bytes(packet)
 
 
-def test_no_package_layer_imports_a_host_socket() -> None:
-    """Mathematics: every `mailcpu` module admits no `socket` import edge, so the network layers cannot reach the host socket API at all."""
+def test_host_socket_access_is_confined_to_external_transport() -> None:
+    """Mathematics: the host-socket import set is exactly the explicit external transport boundary, while semantic network modules remain socket-free."""
 
     package = Path(mailcpu.__file__).resolve().parent
     offenders: list[str] = []
@@ -44,7 +44,8 @@ def test_no_package_layer_imports_a_host_socket() -> None:
                 continue
             if "socket" in roots:
                 offenders.append(f"{module_path.name}:{node.lineno}")
-    assert offenders == []
+    assert offenders
+    assert {Path(item.split(":", 1)[0]).name for item in offenders} == {"socket_transport.py"}
 
 
 def test_e0_network_tracks_tcp_http_and_receipts() -> None:
