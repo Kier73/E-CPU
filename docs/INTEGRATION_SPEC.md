@@ -861,7 +861,12 @@ fingerprint and return the original admission or refusal receipt on
 retransmission. A stale incarnation, frontier regression, origin conflict,
 same-coordinate state conflict, or invalid restore leaves the current envelope
 unchanged. Checkpoint restore reconstructs both the current registry and the
-fingerprint ledger before the host resumes.
+fingerprint ledger before the host resumes. Seed-state projection neutralizes
+the admission registry and removes `hypervisor.seed.*` control records from all
+shared journal views, so Hypervisor bookkeeping does not create false logical
+state divergence.
+
+### 10.9 Event-aware input and atomic live commit
 
 `HypervisorSeedAdmissionCoordinator.advance_input` is the first live frontier
 advance path. It derives the next seed by injecting one typed external event at
@@ -872,6 +877,17 @@ its original receipt, and leaves the later authoritative envelope in place for
 the caller; a changed payload for the same source/sequence is a conflict. The
 resulting seed can be restored independently to inspect the new virtual state
 before a later host-commit layer applies it to a long-lived process.
+
+`HeadlessOS.commit_seed_input` closes that boundary for one admitted live host.
+It first requires the projected live digest to equal the current admitted seed,
+derives a candidate without mutating the registry, and executes the input on a
+shadow checkpoint. The live input is applied only after the shadow digest equals
+the candidate state digest. A post-transition mismatch or admission refusal
+restores the complete pre-commit checkpoint, while an exact duplicate returns
+its original receipt without re-injecting the input. This is an atomic local
+commit witness: trajectory writers checkpoint and truncate their suffix during
+rollback as well. Multi-host ownership and durable remote commit remain later
+composition layers.
 
 ## 11. Images and execution regimes
 

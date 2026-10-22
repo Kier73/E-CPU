@@ -31,6 +31,17 @@ class TrajectoryFrame:
     receipt: bytes
 
 
+@dataclass(frozen=True)
+class TrajectoryCheckpoint:
+    """Stable writer position `C=(data_offset,index_offset,n,t,H)` for transactional trace recovery."""
+
+    data_offset: int
+    index_offset: int
+    sequence: int
+    last_time: int
+    previous_receipt: bytes
+
+
 def _canonical_payload(payload: dict[str, Any]) -> bytes:
     """Mathematics: encode event payload as canonical bytes `c = JSON(sort_keys, compact)(payload)`."""
 
@@ -120,6 +131,38 @@ class TrajectoryWriter:
         self._last_time = clamped_time
         self._previous_receipt = receipt
         return frame
+
+    def checkpoint(self) -> TrajectoryCheckpoint:
+        """Mathematics: capture the append boundary `C=(|D|,|I|,n,t_n,H_n)` after flushing buffered bytes."""
+
+        if self._closed:
+            raise TrajectoryError("trajectory writer is closed")
+        self.flush()
+        return TrajectoryCheckpoint(
+            self._data.tell(),
+            self._index.tell(),
+            self._sequence,
+            self._last_time,
+            self._previous_receipt,
+        )
+
+    def rollback(self, checkpoint: TrajectoryCheckpoint) -> None:
+        """Mathematics: restore append-only trace state `W := C` by truncating data/index suffixes after checkpoint `C`."""
+
+        if self._closed:
+            raise TrajectoryError("trajectory writer is closed")
+        if not isinstance(checkpoint, TrajectoryCheckpoint):
+            raise TrajectoryError("invalid trajectory checkpoint")
+        if checkpoint.data_offset < TRAJECTORY_HEADER.size or checkpoint.index_offset < TRAJECTORY_HEADER.size:
+            raise TrajectoryError("trajectory checkpoint precedes stream header")
+        self.flush()
+        self._data.truncate(checkpoint.data_offset)
+        self._index.truncate(checkpoint.index_offset)
+        self._data.seek(checkpoint.data_offset)
+        self._index.seek(checkpoint.index_offset)
+        self._sequence = checkpoint.sequence
+        self._last_time = checkpoint.last_time
+        self._previous_receipt = checkpoint.previous_receipt
 
     def flush(self) -> None:
         """Mathematics: force the prefix of the append-only stream written so far to stable file buffers."""

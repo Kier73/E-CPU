@@ -51,7 +51,7 @@ from .kernel import (
 from .scheduler import DeterministicScheduler, ScheduleEvent, SyscallBlocked, TaskStatus
 from .transport import InMemoryTransport, Transport
 from .durable_transport import DurableMailboxTransport, DurableTransportError
-from .trajectory import TrajectoryError, TrajectoryFrame, TrajectoryReader, TrajectoryWriter
+from .trajectory import TrajectoryCheckpoint, TrajectoryError, TrajectoryFrame, TrajectoryReader, TrajectoryWriter
 from .protocol import SyscallClient, SyscallRequest, SyscallResponse, SyscallServer
 from .providers import ProceduralProvider, ProviderKind
 from .reliability import (
@@ -528,6 +528,7 @@ __all__ = [
     "TraceEvent",
     "Transport",
     "TrajectoryError",
+    "TrajectoryCheckpoint",
     "TrajectoryFrame",
     "TrajectoryReader",
     "TrajectoryWriter",

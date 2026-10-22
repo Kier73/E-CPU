@@ -268,7 +268,7 @@ class HypervisorSeedAdmissionCoordinator:
 
         return tuple(self._systems[key] for key in sorted(self._systems))
 
-    def advance_input(
+    def preview_input(
         self,
         system_id: str,
         source: str,
@@ -276,8 +276,8 @@ class HypervisorSeedAdmissionCoordinator:
         pid: int,
         mailbox: str,
         values: tuple[int, ...] | list[int],
-    ) -> tuple[SeedAdmissionResult, SystemSeedEnvelope]:
-        """Mathematics: derive `E'=(I,R,C,Σ.advance_input(e),F∪q(e))` and submit it to the same admission law."""
+    ) -> tuple[SystemSeedEnvelope, bool]:
+        """Mathematics: derive `(E',duplicate)` without mutating registry `R` or journal `H`, where duplicate means exact prior input identity."""
 
         current = self.current(system_id)
         if current is None:
@@ -301,6 +301,39 @@ class HypervisorSeedAdmissionCoordinator:
             )
             if retransmission.digest != existing_event.digest:
                 raise SeedAdmissionError("conflicting input retransmission")
+            return current, True
+        seed = current.seed.advance_input(source, sequence, pid, mailbox, values)
+        receipt = seed.input_receipts()[-1]
+        return (
+            SystemSeedEnvelope(
+                current.identity,
+                current.role,
+                current.channel,
+                seed,
+                current.input_frontier + (receipt,),
+            ),
+            False,
+        )
+
+    def advance_input(
+        self,
+        system_id: str,
+        source: str,
+        sequence: int,
+        pid: int,
+        mailbox: str,
+        values: tuple[int, ...] | list[int],
+    ) -> tuple[SeedAdmissionResult, SystemSeedEnvelope]:
+        """Mathematics: derive `E'=(I,R,C,Σ.advance_input(e),F∪q(e))` and submit it to the same admission law."""
+
+        current = self.current(system_id)
+        candidate, duplicate = self.preview_input(system_id, source, sequence, pid, mailbox, values)
+        if duplicate:
+            existing_event = next(
+                event
+                for event in current.seed.input_events
+                if event.source == source and event.sequence == sequence
+            )
             prefix_seed = current.seed.at(existing_event.coordinate)
             event_sources = {event.source for event in current.seed.input_events}
             prefix_maximums = {
@@ -324,16 +357,7 @@ class HypervisorSeedAdmissionCoordinator:
             if not replay_result.accepted:
                 raise SeedAdmissionError("input retransmission receipt is not recoverable")
             return replay_result, current
-        seed = current.seed.advance_input(source, sequence, pid, mailbox, values)
-        receipt = seed.input_receipts()[-1]
-        envelope = SystemSeedEnvelope(
-            current.identity,
-            current.role,
-            current.channel,
-            seed,
-            current.input_frontier + (receipt,),
-        )
-        return self.admit(envelope), envelope
+        return self.admit(candidate), candidate
 
     def snapshot(self) -> dict[str, object]:
         """Mathematics: serialize registry `R` and replay ledger `L` as finite sorted checkpoint products."""

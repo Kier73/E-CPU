@@ -657,3 +657,12 @@ reconstructs the original event-prefix receipt and returns the later
 authoritative envelope unchanged, while a changed payload at the same source
 sequence is refused. A future host-commit layer can now compare the restored
 logical state with a live process before making a durable in-place mutation.
+
+`HeadlessOS.commit_seed_input` now performs that comparison and local commit.
+The live projected digest must equal the admitted seed before any input is
+accepted. A shadow copy receives the event and advances to the target tick;
+only an equal candidate digest permits the live host transition and subsequent
+seed admission. A live mismatch or admission refusal restores the complete
+checkpoint, and an exact duplicate is answered from the existing receipt
+ledger without a second injection. The result is a local atomic host witness,
+not yet a multi-host ownership protocol.

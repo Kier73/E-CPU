@@ -29,6 +29,7 @@ from typing import Any, Mapping
 
 from ._codec import decode_canonical_value, encode_canonical_value
 from .headless import HeadlessOS
+from .journal import EventJournal
 from .model import Message
 
 
@@ -252,7 +253,36 @@ def _seed_state_snapshot(operating_system: HeadlessOS) -> dict[str, Any]:
     state = deepcopy(operating_system.snapshot())
     if isinstance(state.get("seed_admission"), Mapping):
         state["seed_admission"] = {"version": 1, "systems": [], "seen": []}
+    _remove_seed_control_events(state)
     return state
+
+
+def _remove_seed_control_events(state: dict[str, Any]) -> None:
+    """Mathematics: project every journal `J` to `J - {e : kind(e) startswith hypervisor.seed.}` and re-chain retained events."""
+
+    def visit(node: Any) -> None:
+        """Mathematics: recursively apply the journal projection homomorphism to every nested state product."""
+
+        if isinstance(node, dict):
+            for key, value in tuple(node.items()):
+                if key == "journal" and isinstance(value, list) and all(isinstance(record, Mapping) for record in value):
+                    retained = EventJournal()
+                    for record in value:
+                        kind = record.get("kind")
+                        payload = record.get("payload")
+                        if not isinstance(kind, str) or not isinstance(payload, Mapping):
+                            break
+                        if not kind.startswith("hypervisor.seed."):
+                            retained.append(kind, dict(payload))
+                    else:
+                        node[key] = retained.snapshot()
+                        continue
+                visit(value)
+        elif isinstance(node, list):
+            for value in node:
+                visit(value)
+
+    visit(state)
 
 
 @dataclass(frozen=True)

@@ -10,6 +10,8 @@ from mailcpu import (
     SystemIdentity,
     SystemSeed,
     SystemSeedEnvelope,
+    TrajectoryReader,
+    TrajectoryWriter,
 )
 from mailcpu.programs import wait_send_program
 
@@ -119,3 +121,123 @@ def test_hypervisor_seed_admission_retransmission_preserves_a_later_fifo_frontie
     assert duplicate.admission_receipt == first.admission_receipt
     assert returned.snapshot() == after_second.snapshot()
     assert coordinator.current("fifo-system").snapshot() == after_second.snapshot()
+
+
+def test_headless_seed_input_commit_matches_shadow_and_replays_duplicate() -> None:
+    """Mathematics: commit requires `π(live_after)=π(shadow_after)=Σ'.state`, while duplicate input leaves the frontier unchanged."""
+
+    machine, pid = _machine()
+    origin = SystemSeed.from_system(machine)
+    initial = SystemSeedEnvelope(SystemIdentity("commit-system", 1), "origin", "ops", origin)
+    assert machine.seed_admission.admit(initial).accepted
+
+    result, committed = machine.commit_seed_input("commit-system", "resolver", 1, pid, "inbox", iter((42,)))
+    assert result.accepted and not result.replayed
+    assert machine.vm.scheduler.tick == 1
+    assert machine.seed_admission.current("commit-system").snapshot() == committed.snapshot()
+    assert SystemSeed.from_system(machine).origin_digest == committed.seed.state_digest
+
+    replay, current = machine.commit_seed_input("commit-system", "resolver", 1, pid, "inbox", [42])
+    assert replay.accepted and replay.replayed
+    assert replay.admission_receipt == result.admission_receipt
+    assert current.snapshot() == committed.snapshot()
+    assert machine.vm.scheduler.tick == 1
+
+    second_result, second = machine.commit_seed_input("commit-system", "resolver", 2, pid, "inbox", [43])
+    old_replay, current_after_old_replay = machine.commit_seed_input(
+        "commit-system",
+        "resolver",
+        1,
+        pid,
+        "inbox",
+        [42],
+    )
+    assert second_result.accepted and not second_result.replayed
+    assert second.seed.coordinate == 2
+    assert old_replay.accepted and old_replay.replayed
+    assert old_replay.admission_receipt == result.admission_receipt
+    assert current_after_old_replay.snapshot() == second.snapshot()
+    assert machine.vm.scheduler.tick == 2
+
+
+def test_headless_seed_input_commit_refuses_live_drift_without_mutation() -> None:
+    """Mathematics: if `digest(π(live))≠digest(Σ.current)`, commit is refused before `live := live'`."""
+
+    machine, pid = _machine()
+    initial = SystemSeedEnvelope(
+        SystemIdentity("drift-system", 1),
+        "origin",
+        "ops",
+        SystemSeed.from_system(machine),
+    )
+    assert machine.seed_admission.admit(initial).accepted
+    machine.run(1)
+    before = machine.snapshot()
+    with pytest.raises(SeedAdmissionError, match="diverged"):
+        machine.commit_seed_input("drift-system", "resolver", 1, pid, "inbox", [42])
+    assert machine.snapshot() == before
+
+
+def test_headless_seed_input_commit_rolls_back_when_live_transition_diverges(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mathematics: a post-transition mismatch restores `live := snapshot_before` and preserves the admitted registry."""
+
+    machine, pid = _machine()
+    initial = SystemSeedEnvelope(
+        SystemIdentity("rollback-system", 1),
+        "origin",
+        "ops",
+        SystemSeed.from_system(machine),
+    )
+    assert machine.seed_admission.admit(initial).accepted
+    before = machine.snapshot()
+    original_run = machine.run
+
+    def corrupt_run(max_ticks: int = 0) -> tuple[object, ...]:
+        """Mathematics: model an invalid live transition `T'(S)=corrupt(T(S))` after the scheduler step."""
+
+        events = original_run(max_ticks)
+        machine.environment.kernel.journal.append("test.corruption", {"tick": machine.vm.scheduler.tick})
+        return events
+
+    monkeypatch.setattr(machine, "run", corrupt_run)
+    with pytest.raises(SeedAdmissionError, match="diverged"):
+        machine.commit_seed_input("rollback-system", "resolver", 1, pid, "inbox", [42])
+    assert machine.snapshot() == before
+    assert machine.seed_admission.current("rollback-system").seed.coordinate == 0
+
+
+def test_headless_seed_input_commit_rolls_back_trajectory_suffix(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mathematics: rollback restores both virtual state `S` and trace prefix `W[:n_before]` after a failed live step."""
+
+    data_path = tmp_path / "commit.mtrj"
+    index_path = tmp_path / "commit.mtrj.idx"
+    with TrajectoryWriter(data_path, index_path) as writer:
+        machine = HeadlessOS(trajectory=writer)
+        pid = machine.spawn(wait_send_program(), "trajectory-input")
+        initial = SystemSeedEnvelope(
+            SystemIdentity("trajectory-system", 1),
+            "origin",
+            "ops",
+            SystemSeed.from_system(machine),
+        )
+        assert machine.seed_admission.admit(initial).accepted
+        before = machine.snapshot()
+        original_run = machine.run
+
+        def corrupt_run(max_ticks: int = 0) -> tuple[object, ...]:
+            """Mathematics: append one invalid live trace suffix after the ordinary scheduler transition."""
+
+            events = original_run(max_ticks)
+            machine.environment.kernel.journal.append("test.corruption", {"tick": machine.vm.scheduler.tick})
+            return events
+
+        monkeypatch.setattr(machine, "run", corrupt_run)
+        with pytest.raises(SeedAdmissionError, match="diverged"):
+            machine.commit_seed_input("trajectory-system", "resolver", 1, pid, "inbox", [42])
+        assert machine.snapshot() == before
+        monkeypatch.undo()
+        result, committed = machine.commit_seed_input("trajectory-system", "resolver", 1, pid, "inbox", [42])
+        assert result.accepted and committed.seed.coordinate == 1
+        writer.flush()
+        with TrajectoryReader(data_path, index_path) as reader:
+            assert reader.verify() == 1

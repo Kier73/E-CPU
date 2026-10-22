@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 import shlex
 from dataclasses import asdict, dataclass
 from typing import Any, Callable, Iterable, Mapping, Sequence
@@ -1549,6 +1550,83 @@ class HeadlessOS:
         self._sync_kernel_processes()
         return events
 
+    def commit_seed_input(
+        self,
+        system_id: str,
+        source: str,
+        sequence: int,
+        pid: int,
+        mailbox: str,
+        values: Iterable[int],
+    ) -> tuple["SeedAdmissionResult", "SystemSeedEnvelope"]:
+        """Mathematics: commit `E'` only when `digest(π(live_after))=digest(Σ'.state)` after shadow and live transitions agree."""
+
+        from .seed import SystemSeed
+        from .seed_admission import SeedAdmissionError
+
+        input_values = tuple(values)
+        current = self.seed_admission.current(system_id)
+        if current is None:
+            raise SeedAdmissionError(f"unknown admitted system: {system_id}")
+        live_seed = SystemSeed.from_system(self)
+        if live_seed.origin_digest != current.seed.state_digest:
+            raise SeedAdmissionError("live system diverged from admitted seed")
+        candidate, duplicate = self.seed_admission.preview_input(
+            system_id,
+            source,
+            sequence,
+            pid,
+            mailbox,
+            input_values,
+        )
+        if duplicate:
+            return self.seed_admission.advance_input(
+                system_id,
+                source,
+                sequence,
+                pid,
+                mailbox,
+                input_values,
+            )
+
+        before = deepcopy(self.snapshot())
+        shadow = type(self).from_snapshot(deepcopy(before))
+        target_tick = candidate.seed.restore().vm.scheduler.tick
+        if target_tick != shadow.vm.scheduler.tick + 1:
+            raise SeedAdmissionError("seed input target is not the next live scheduler tick")
+        shadow.inject(pid, mailbox, input_values)
+        shadow.run(target_tick)
+        shadow_digest = SystemSeed.from_system(shadow).origin_digest
+        if shadow_digest != candidate.seed.state_digest:
+            raise SeedAdmissionError("shadow input transition diverged from seed replay")
+
+        trajectory_checkpoint = None if self.vm.trajectory is None else self.vm.trajectory.checkpoint()
+        rolled_back = False
+        try:
+            self.inject(pid, mailbox, input_values)
+            self.run(target_tick)
+            live_after_digest = SystemSeed.from_system(self).origin_digest
+            if live_after_digest != candidate.seed.state_digest:
+                self._restore_snapshot_in_place(before)
+                if trajectory_checkpoint is not None:
+                    self.vm.trajectory.rollback(trajectory_checkpoint)
+                rolled_back = True
+                raise SeedAdmissionError("live input transition diverged from shadow replay")
+            result = self.seed_admission.admit(candidate)
+            if not result.accepted:
+                self._restore_snapshot_in_place(before)
+                if trajectory_checkpoint is not None:
+                    self.vm.trajectory.rollback(trajectory_checkpoint)
+                rolled_back = True
+                raise SeedAdmissionError(result.reason or "seed input admission refused")
+            return result, candidate
+        except Exception:
+            if not rolled_back:
+                self._restore_snapshot_in_place(before)
+                if trajectory_checkpoint is not None:
+                    self.vm.trajectory.rollback(trajectory_checkpoint)
+            raise
+
     def run_source(
         self,
         source: str,
@@ -1599,6 +1677,26 @@ class HeadlessOS:
         self.vm.scheduler.inject(pid, mailbox, tuple(values))
         self._sync_kernel_processes()
         return self.process(pid)
+
+    def _restore_snapshot_in_place(self, payload: Mapping[str, object]) -> None:
+        """Mathematics: implement rollback `live := restore(snapshot(live))` while rebinding callbacks to this facade."""
+
+        from .service import ServiceSupervisor
+
+        restored = type(self).from_snapshot(deepcopy(dict(payload)), trajectory=self.vm.trajectory)
+        self.environment = restored.environment
+        self.vm = restored.vm
+        self._pending_exec = restored._pending_exec
+        self._pending_fork = restored._pending_fork
+        self.hypervisor = restored.hypervisor
+        self.hypervisor_arbitration = restored.hypervisor_arbitration
+        self.seed_admission = restored.seed_admission
+        self.posix = PosixCompatibility(self)
+        self.services = ServiceSupervisor.from_snapshot(self, restored.services.snapshot())
+        self.environment.kernel.terminal_signal_handler = self._handle_terminal_signal
+        self.vm.host_syscall_handler = self._dispatch_program_syscall
+        self.vm.scheduler.wait_predicate = self._scheduler_wait_ready
+        self.vm.scheduler.post_step = self._apply_deferred_exec
 
     def terminate(self, pid: int, exit_code: int = DEFAULT_TERMINATION_EXIT_CODE) -> ProcessReport:
         """Mathematics: apply the explicit control transition `terminate(pid, c): status := EXITED, code := c`."""
