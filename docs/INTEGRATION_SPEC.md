@@ -817,6 +817,15 @@ unchanged on any mismatch or shadow failure. Accepted revisions increment a
 checkpointed revision number and record the candidate identity and witness
 digest; refused revisions record their mismatch without changing authority.
 
+`HypervisorRevisionProposal` carries a checkpointable candidate snapshot and
+witness corpus through the same source/channel/sequence identity law as
+arbitration. `HypervisorArbitrationLoop.propose_revision` reconstructs only
+admitted deterministic model kinds, applies the revision gate once, stores the
+proposal fingerprint and admission result, and returns that result on an exact
+retransmission without a second promotion. A changed proposal under the same
+identity fails closed; malformed model reconstruction is a journaled refusal.
+The proposal ledger checkpoints with the headless OS.
+
 The hypervisor is a control plane and not an opaque authority. Operating-system surfaces remain callable as native APIs while their typed adapter boundaries are added. Each adapter MUST preserve `ALLOW ⇒ one authorized handler`, and a learned or remote model MUST pass the `E0` replay and adversarial corpus of clause 13 before **admission**.
 
 Evidence tier: E0.

@@ -16,6 +16,8 @@ from .classifier import (
     HypervisorArbitrationEvent,
     HypervisorArbitrationLoop,
     HypervisorArbitrationResult,
+    HypervisorRevisionArbitrationResult,
+    HypervisorRevisionProposal,
     HypervisorRequest,
 )
 from .environment import CommandResult, VirtualEnvironment
@@ -1688,6 +1690,11 @@ class HeadlessOS:
         """Mathematics: apply the checkpointable loop `R:=RSI(R,event)` and reuse exact transport identities without re-evaluation."""
 
         return self.hypervisor_arbitration.arbitrate(event)
+
+    def hypervisor_propose_revision(self, proposal: HypervisorRevisionProposal) -> HypervisorRevisionArbitrationResult:
+        """Mathematics: apply revision receive/stabilize/inspect `R_r:=RSI_r(R_r,proposal)` without double-admitting retransmissions."""
+
+        return self.hypervisor_arbitration.propose_revision(proposal)
 
     def hypervisor_dispatch(
         self,

@@ -334,6 +334,26 @@ The ledger is checkpointed with the headless OS. A legacy ledger entry without
 `decision_revision` is loaded as revision `0`, preserving the state format of
 the earlier arbitration stage.
 
+### 8.1 Revision proposal envelope
+
+`HypervisorRevisionProposal` carries a candidate model snapshot and semantic
+witnesses through a second identity-stable ledger:
+
+```text
+P = (source, channel, sequence, logical_time, candidate_snapshot, W)
+I(P) = (source, channel, sequence)
+f(P) = SHA256(JSON_sort(P))
+L_r[I] = (f(P), admission_result)
+```
+
+The first proposal reconstructs only known deterministic model kinds and
+passes the resulting model through the existing shadow witness gate. An exact
+proposal retransmission returns the stored admission without promoting again.
+A changed proposal under the same identity is refused. An unknown model kind
+is a journaled refusal and leaves the active classifier and revision unchanged.
+The proposal ledger checkpoints with the decision ledger, so a restored system
+does not repeat an already admitted revision.
+
 ## 9. Headless OS integration
 
 The OS exposes three control-plane entrypoints:
@@ -437,18 +457,16 @@ revision changes, replay identity, and checkpoint restore.
 
 The next connections are deliberately staged:
 
-1. revision proposal envelopes that carry candidate identity, witness digest,
-   source identity, and admission result through the arbitration path;
-2. controlled external networking that transports these envelopes while
+1. controlled external networking that transports revision proposals while
    preserving the local identity and receipt laws;
-3. replicated multi-host persistence and cross-host transaction commit over
+2. replicated multi-host persistence and cross-host transaction commit over
    the same revision-bound event vocabulary;
-4. typed classifier adapters for filesystem, network, service, process, and
+3. typed classifier adapters for filesystem, network, service, process, and
    package operations;
-5. broader POSIX, foreign CPU, terminal, and public E2 integration.
+4. broader POSIX, foreign CPU, terminal, and public E2 integration.
 
 The first of these is the next smallest extension because it can reuse the
-existing revision witness, arbitration identity, journal, and checkpoint
+existing proposal envelope, arbitration identity, journal, and checkpoint
 structures. It leaves a path for remote memory and distributed execution to
 carry not only data, but also the revision, virtual time, energy receipt, and
 authority context that gave the data meaning.

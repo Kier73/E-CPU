@@ -366,6 +366,10 @@ rules are `docs/ARCHITECTURE.md` clauses 3 and 5 and `docs/REPLACEMENT_SPEC.md`.
   active model only after reproducing every supplied policy witness. Accepted
   revision number and witness digest checkpoint with the policy; mismatches
   preserve the active model and produce an explicit refusal receipt.
+- Revision proposals carry candidate snapshots and witnesses through the same
+  identity-stable arbitration path. Exact proposal retransmission returns the
+  stored admission without a second promotion; changed identities and unknown
+  model kinds fail closed and journal their refusal.
 - Process signal dispositions checkpoint and are inherited. The integer-safe
   default and ignore ABI participates in explicit, group, and PTY-originated
   signal delivery. `SIGKILL` and `SIGSTOP` are non-ignorable.

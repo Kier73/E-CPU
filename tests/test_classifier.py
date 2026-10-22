@@ -13,6 +13,7 @@ from mailcpu import (
     HypervisorError,
     HypervisorDomain,
     HypervisorRequest,
+    HypervisorRevisionProposal,
     HypervisorRevisionWitness,
     LexicalDecisionModel,
     NoulAnswer,
@@ -398,6 +399,99 @@ def test_hypervisor_arbitration_binds_revision_across_replay_and_restore() -> No
     assert restored.hypervisor_arbitrate(first_event).decision_revision == 0
     assert restored.hypervisor_arbitrate(second_event).decision_revision == 1
     assert restored.environment.kernel.journal.verify()
+
+
+def test_hypervisor_revision_proposal_is_idempotent_and_checkpointable() -> None:
+    """Mathematics: `P` admits once, exact retransmission returns the stored result, and `restore(L_r)` preserves admission identity."""
+
+    operating_system = HeadlessOS()
+    request = HypervisorRequest(
+        "read filesystem file path descriptor",
+        "/home/file",
+        {"path": "/home/file"},
+        frozenset({"read"}),
+        frozenset({"read"}),
+    )
+    decision = operating_system.hypervisor_decide(request)
+    assert decision.revision == 0
+    candidate = ProceduralDecisionModel.from_snapshot(operating_system.hypervisor.classifier.snapshot())
+    proposal = HypervisorRevisionProposal.from_candidate(
+        "node-a",
+        "revisions",
+        1,
+        11,
+        candidate,
+        (HypervisorRevisionWitness.from_decision(request, decision),),
+    )
+
+    first = operating_system.hypervisor_propose_revision(proposal)
+    duplicate = operating_system.hypervisor_propose_revision(proposal)
+    assert first.replayed is False
+    assert first.admission.accepted is True
+    assert first.admission.revision == 1
+    assert duplicate.replayed is True
+    assert duplicate.admission == first.admission
+    assert operating_system.hypervisor.snapshot()["revision"] == 1
+    assert len([record for record in operating_system.environment.kernel.journal.records() if record.kind == "hypervisor.revision.admit"]) == 1
+
+    restored = HeadlessOS.from_snapshot(operating_system.snapshot())
+    restored_duplicate = restored.hypervisor_propose_revision(proposal)
+    assert restored_duplicate.replayed is True
+    assert restored_duplicate.admission == first.admission
+    assert restored.hypervisor.snapshot() == operating_system.hypervisor.snapshot()
+    assert restored.environment.kernel.journal.verify()
+
+
+def test_hypervisor_revision_proposal_refuses_conflict_and_bad_model_without_mutation() -> None:
+    """Mathematics: fixed proposal identity `I` is single-valued; invalid reconstruction yields refusal and never changes `H.revision`."""
+
+    operating_system = HeadlessOS()
+    request = HypervisorRequest(
+        "read filesystem file path descriptor",
+        "/home/file",
+        {"path": "/home/file"},
+        frozenset({"read"}),
+        frozenset({"read"}),
+    )
+    decision = operating_system.hypervisor_decide(request)
+    candidate = ProceduralDecisionModel.from_snapshot(operating_system.hypervisor.classifier.snapshot())
+    proposal = HypervisorRevisionProposal.from_candidate(
+        "node-a",
+        "revisions",
+        1,
+        11,
+        candidate,
+        (HypervisorRevisionWitness.from_decision(request, decision),),
+    )
+    assert operating_system.hypervisor_propose_revision(proposal).admission.accepted is True
+    conflicting_snapshot = dict(proposal.candidate_snapshot)
+    conflicting_snapshot["temperature"] = 2.0
+    conflicting = HypervisorRevisionProposal(
+        proposal.source,
+        proposal.channel,
+        proposal.sequence,
+        proposal.logical_time,
+        conflicting_snapshot,
+        proposal.witnesses,
+    )
+    with pytest.raises(HypervisorError, match="conflicting revision proposal"):
+        operating_system.hypervisor_propose_revision(conflicting)
+    invalid = HypervisorRevisionProposal(
+        "node-a",
+        "revisions",
+        2,
+        12,
+        {"kind": "unknown", "model": "unadmitted"},
+        proposal.witnesses,
+    )
+    refused = operating_system.hypervisor_propose_revision(invalid)
+    refused_duplicate = operating_system.hypervisor_propose_revision(invalid)
+    assert refused.admission.accepted is False
+    assert refused.admission.error is not None
+    assert refused_duplicate.replayed is True
+    assert refused_duplicate.admission == refused.admission
+    assert operating_system.hypervisor.snapshot()["revision"] == 1
+    assert operating_system.environment.kernel.journal.verify()
 
 
 def test_procedural_field_is_deterministic_bounded_and_sparse() -> None:
