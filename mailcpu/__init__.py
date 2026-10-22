@@ -170,7 +170,11 @@ from .intent_embedding import (
     structural_tokens,
 )
 from .revision_transport import HypervisorRevisionChannel, HypervisorRevisionTransportError
-from .hypervisor_transport import HypervisorOperationChannel, HypervisorOperationTransportError
+from .hypervisor_transport import (
+    HypervisorOperationChannel,
+    HypervisorOperationResultChannel,
+    HypervisorOperationTransportError,
+)
 from .procedural_model import ProceduralDecisionModel, ProceduralModelSpec, ProceduralWeightField
 from .reversible_gates import (
     ARM_NONE,
@@ -508,6 +512,7 @@ __all__ = [
     "HypervisorRevisionChannel",
     "HypervisorRevisionTransportError",
     "HypervisorOperationChannel",
+    "HypervisorOperationResultChannel",
     "HypervisorOperationTransportError",
     "LexicalDecisionModel",
     "NoulAnswer",

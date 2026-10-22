@@ -754,6 +754,14 @@ admission, the receiver invokes only its local digest-verified registry and
 returns `{"digest": h}` after the image files are present. Package authority is
 therefore receiver-local in the same way as process `execute` authority.
 
+`HypervisorOperationResultChannel` carries the typed execution result over a
+reverse reliable channel. The executor sends the result before acknowledging
+the request frame, so a response-send failure leaves the request retryable. The
+initiator deduplicates response frames by the operation identity rather than
+the response transport sequence, and checkpoints that semantic response
+ledger. Thus a repeated request or a lost response acknowledgement can create
+multiple transport frames while returning one effect.
+
 ## 11. Images and execution regimes
 
 ### 11.1 Source assembly and headless execution
