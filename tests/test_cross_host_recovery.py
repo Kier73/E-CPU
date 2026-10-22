@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from mailcpu import (
     HeadlessOS,
     HypervisorIntentRevisionWitness,
@@ -12,6 +14,9 @@ from mailcpu import (
     ReplicatedMailboxNode,
     ReplicatedMailboxStore,
     ReplicatedRevisionProposalRelay,
+    CrossHostRecoveryCoordinator,
+    RecoveryCheckpoint,
+    RecoveryCoordinatorError,
     SocketTransport,
 )
 
@@ -88,55 +93,83 @@ def test_external_recovery_reconnects_lost_ack_and_admits_one_intent_revision(tm
         assert primary_channel.pending_sequences() == (1,)
         primary_transport.close()
 
-        primary_transport_snapshot = primary_transport.snapshot()
-        primary_channel_snapshot = primary_channel.snapshot()
-        primary_node_snapshot = primary.snapshot()
-        replica_transport_snapshot = replica_transport.snapshot()
-        replica_channel_snapshot = replica_channel.snapshot()
-        replica_node_snapshot = replica.snapshot()
+        primary_checkpoint = CrossHostRecoveryCoordinator.checkpoint(primary_transport, primary_channel, primary)
+        replica_checkpoint = CrossHostRecoveryCoordinator.checkpoint(replica_transport, replica_channel, replica)
         replica_transport.close()
 
         rebound_primary, rebound_replica = _tcp_pair()
-        restored_primary_transport = SocketTransport.from_snapshot(rebound_primary.socket, primary_transport_snapshot)
-        restored_replica_transport = SocketTransport.from_snapshot(rebound_replica.socket, replica_transport_snapshot)
-        restored_primary_channel = ReliableChannel.from_snapshot(primary_channel_snapshot, restored_primary_transport)
-        restored_replica_channel = ReliableChannel.from_snapshot(replica_channel_snapshot, restored_replica_transport)
-        restored_primary = ReplicatedMailboxNode.from_snapshot(
-            primary_node_snapshot,
+        restored_primary = CrossHostRecoveryCoordinator.rebind(
+            primary_checkpoint,
+            rebound_primary.socket,
             ReplicatedMailboxStore(tmp_path / "primary.log", "P"),
-            outbound={"R": restored_primary_channel},
+            direction="outbound",
+            peer="R",
         )
-        restored_replica = ReplicatedMailboxNode.from_snapshot(
-            replica_node_snapshot,
+        restored_replica = CrossHostRecoveryCoordinator.rebind(
+            replica_checkpoint,
+            rebound_replica.socket,
             ReplicatedMailboxStore(tmp_path / "replica.log", "R"),
-            inbound={"P": restored_replica_channel},
+            direction="inbound",
+            peer="P",
+            arbitration=remote.hypervisor_arbitration,
+            mailbox=MAILBOX,
         )
         try:
-            assert restored_primary.tick() == ()
+            assert restored_primary.retry() == ()
             assert restored_replica.service() == 0
-            assert restored_primary.receipt(operation_id).committed is True
-            assert restored_primary_channel.pending_sequences() == ()
-            assert restored_replica.store.list(MAILBOX) == restored_primary.store.list(MAILBOX)
-            assert len(restored_replica.store.list(MAILBOX)) == 1
+            primary_status = restored_primary.status(operation_id, mailbox=MAILBOX)
+            assert primary_status.committed is True
+            assert primary_status.pending_sequences == ()
+            assert restored_replica.node.store.list(MAILBOX) == restored_primary.node.store.list(MAILBOX)
+            assert len(restored_replica.node.store.list(MAILBOX)) == 1
 
-            receiver = ReplicatedRevisionProposalRelay(
-                restored_replica,
-                MAILBOX,
-                remote.hypervisor_arbitration,
-            )
-            result = receiver.receive_and_arbitrate()
+            result = restored_replica.admit_next()
             assert result is not None
             assert result.target == "intent"
             assert result.admission.accepted is True
             assert remote.hypervisor.snapshot()["revision"] == 1
-            assert receiver.receive_and_arbitrate() is None
+            replica_status = restored_replica.status(mailbox=MAILBOX)
+            assert replica_status.semantic_admitted is True
+            assert replica_status.mailbox_pending == 0
+            assert restored_replica.admit_next() is None
             assert remote.environment.kernel.journal.verify()
-            assert restored_replica.store.verify()
+            assert restored_replica.node.store.verify()
         finally:
-            restored_primary_transport.close()
-            restored_replica_transport.close()
+            restored_primary.transport.close()
+            restored_replica.transport.close()
     finally:
         if not primary_transport.closed:
             primary_transport.close()
         if not replica_transport.closed:
             replica_transport.close()
+
+
+def test_recovery_checkpoint_roundtrip_and_direction_mismatch_fail_closed(tmp_path) -> None:
+    """Mathematics: `decode(encode(C))=C`, while `direction ≠ direction(C)` is rejected before binding."""
+
+    primary_transport, replica_transport = _tcp_pair()
+    policy = ReliabilityPolicy(lease_ticks=1, max_attempts=2, window_size=2)
+    primary_channel = ReliableChannel(primary_transport, "P", "R", "recovery-check", policy)
+    primary = ReplicatedMailboxNode(
+        ReplicatedMailboxStore(tmp_path / "primary.log", "P"),
+        outbound={"R": primary_channel},
+        quorum=2,
+    )
+    checkpoint = CrossHostRecoveryCoordinator.checkpoint(primary_transport, primary_channel, primary)
+    assert RecoveryCheckpoint.from_snapshot(checkpoint.snapshot()).snapshot() == checkpoint.snapshot()
+    primary_transport.close()
+    replica_transport.close()
+
+    rebound_primary, rebound_replica = _tcp_pair()
+    try:
+        with pytest.raises(RecoveryCoordinatorError, match="inbound channel identity"):
+            CrossHostRecoveryCoordinator.rebind(
+                checkpoint,
+                rebound_primary.socket,
+                ReplicatedMailboxStore(tmp_path / "primary.log", "P"),
+                direction="inbound",
+                peer="R",
+            )
+    finally:
+        rebound_primary.close()
+        rebound_replica.close()

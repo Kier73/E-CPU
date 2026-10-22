@@ -487,12 +487,20 @@ The hypervisor is a complete local control-plane mechanism with deterministic
 proposal, exact policy, virtual-time accounting, journal receipts, witnessed
 revision changes, replay identity, and checkpoint restore.
 
+The first recovery composition is now explicit. `CrossHostRecoveryCoordinator`
+captures and rebinds the product of socket, reliable-channel, and durable
+mailbox state; it validates peer direction before exposing a live binding and
+reports pending sequences, acknowledged peers, quorum commitment, mailbox
+cardinality, and the latest semantic admission without introducing a second
+delivery or authority ledger. The real TCP witness now uses this API, and the
+checkpoint product has its own round-trip and fail-closed identity witness.
+
 The next connections are deliberately staged:
 
-1. an explicit recovery coordinator API for reconnect, duplicate delivery,
-   and receipt replay around the durable relay;
-2. typed classifier adapters for filesystem, network, service, process, and
+1. typed classifier adapters for filesystem, network, service, process, and
    package operations;
+2. a multi-peer recovery coordinator over the same product algebra, with
+   explicit partial-peer and quorum-degradation state;
 3. broader POSIX, foreign CPU, terminal, and public E2 integration.
 
 Controlled external networking is now evidenced over an actual AF_INET
@@ -502,7 +510,9 @@ leaving a revision-bound candidate, held-out witnesses, and durable admission
 record. Cross-host recovery is now evidenced through a real disconnect,
 checkpoint, reconnect, lost-ACK retransmission, durable idempotence, and one
 remote admission. The next smallest extension is to expose that composition
-as an explicit recovery coordinator API, so callers receive pending,
+as an explicit recovery coordinator API, so callers now receive pending,
 acknowledged, and semantically admitted states without rebuilding the layers
 manually. This keeps remote data, virtual time, energy receipt, and authority
-context on the same hypervisor-governed path.
+context on the same hypervisor-governed path. The next smallest extension is
+the typed classifier-adapter boundary, because it can consume those same
+recovered operation states without changing transport or admission identity.

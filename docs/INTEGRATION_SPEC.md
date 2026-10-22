@@ -672,6 +672,19 @@ with `SocketTransport.from_snapshot`, retransmits the pending operation, and
 checks one durable message plus one intent revision admission. Evidence tier:
 E1.
 
+The public `CrossHostRecoveryCoordinator` now owns that composition. Its
+`checkpoint()` captures the product `(T,R,N)` of socket, reliable-channel, and
+durable-mailbox state; `rebind()` validates local/peer identity and inbound or
+outbound channel direction before returning a live binding. `retry()` and
+`service()` expose the existing lease and durable receive transitions, while
+`status()` reports pending sequences, acknowledged peers, quorum commitment,
+mailbox cardinality, and the latest semantic admission result. `admit_next()`
+uses the existing relay arbitration and does not create a second delivery or
+authority ledger.
+
+The coordinator witness also round-trips its composite checkpoint and refuses
+a direction mismatch before binding a socket. Evidence tier: E1.
+
 ## 11. Images and execution regimes
 
 ### 11.1 Source assembly and headless execution
