@@ -788,6 +788,16 @@ heads queued without acknowledgement. This stage negotiates readiness only;
 the later migration stage will bind the agreement to a target transport and
 checkpoint movement.
 
+`TransportMigrationCheckpoint` and `CrossTransportRecoveryCoordinator` now
+bind that agreement to the first actual handoff: a reliable channel can move
+from `SocketTransport` to a shared `InMemoryTransport` while preserving its
+pending sequence, queued mailbox messages, payload, and receive cursor. The
+source message storage identity is allowed to change because it is below the
+reliable protocol identity. Agreement mismatch, target-substrate mismatch, or
+invalid queue state refuses before the target is changed. This establishes
+single-channel migration; duplex operation/result migration and durable
+multi-host handoff remain subsequent compositions.
+
 ## 11. Images and execution regimes
 
 ### 11.1 Source assembly and headless execution

@@ -584,3 +584,16 @@ and effect-ledger support; the negotiated policy is the bounded intersection,
 not an expansion of either side. Unsupported migration remains refused before
 state movement. The agreement digest and selected reliability policy are the
 inputs for the next transport-handoff build.
+
+The first agreement-bound handoff now exists at the reliable-channel layer.
+`TransportMigrationCheckpoint` captures protocol-visible queued messages and
+the channel FIFO state, while `CrossTransportRecoveryCoordinator` restores
+them into a shared in-memory substrate after checking the exact agreement
+digest and target kind. A real socket frame survives the transition, is
+delivered once, and clears the original sender sequence through the target
+acknowledgement path. Before touching the destination, the coordinator now
+reconstructs a shadow copy of the destination mailbox, imports the checkpoint
+there, and restores the reliable channel against that shadow. Invalid channel
+state therefore fails at the boundary without partially changing the real
+destination. The operation duplex and durable mailbox products remain above
+this foundation and are not represented as migrated by this stage.

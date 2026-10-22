@@ -188,6 +188,11 @@ from .recovery_policy import (
     advertise_recovery_policy,
     negotiate_recovery_policy,
 )
+from .migration import (
+    CrossTransportRecoveryCoordinator,
+    TransportMigrationCheckpoint,
+    TransportMigrationError,
+)
 from .procedural_model import ProceduralDecisionModel, ProceduralModelSpec, ProceduralWeightField
 from .reversible_gates import (
     ARM_NONE,
@@ -541,6 +546,9 @@ __all__ = [
     "RecoveryPolicyOffer",
     "advertise_recovery_policy",
     "negotiate_recovery_policy",
+    "CrossTransportRecoveryCoordinator",
+    "TransportMigrationCheckpoint",
+    "TransportMigrationError",
     "LexicalDecisionModel",
     "NoulAnswer",
     "NoulQuestion",
