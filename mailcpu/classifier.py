@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable, Mapping, Protocol
 
+from .evidence import EvidenceTier, with_evidence_tier
 from .journal import EventJournal
 
 
@@ -151,7 +152,7 @@ class DecisionBatch:
                 }
             else:
                 encoded[key] = {"type": answer.kind.value, "noul": answer.noul}
-        return {"model": self.model, "answers": encoded}
+        return with_evidence_tier({"model": self.model, "answers": encoded}, EvidenceTier.E0)
 
 
 class ClassifierModel(Protocol):
@@ -275,15 +276,18 @@ class HypervisorDecision:
     def to_dict(self) -> dict[str, object]:
         """Mathematics: project decision `d` into a stable control-plane record."""
 
-        return {
-            "action": self.action.value,
-            "domain": self.domain.value,
-            "confidence": self.confidence,
-            "danger_probability": self.danger_probability,
-            "probabilities": dict(sorted(self.probabilities.items())),
-            "model": self.model,
-            "receipt": self.receipt,
-        }
+        return with_evidence_tier(
+            {
+                "action": self.action.value,
+                "domain": self.domain.value,
+                "confidence": self.confidence,
+                "danger_probability": self.danger_probability,
+                "probabilities": dict(sorted(self.probabilities.items())),
+                "model": self.model,
+                "receipt": self.receipt,
+            },
+            EvidenceTier.E0,
+        )
 
 
 @dataclass(frozen=True)

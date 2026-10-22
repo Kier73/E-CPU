@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from mailcpu import cli
@@ -56,6 +58,33 @@ def test_every_declared_command_returns_a_zero_exit_code(command, prerequisites,
     for prerequisite in prerequisites:
         assert _invoke(prerequisite, tmp_path) == 0
     assert _invoke(command, tmp_path) == 0
+
+
+@pytest.mark.parametrize("command", sorted(cli._COMMANDS))
+def test_every_cli_report_declares_its_evidence_tier(command, tmp_path, monkeypatch, capsys) -> None:
+    """Mathematics: every report `R` emitted by a declared command contains exactly one permitted tier `R.evidence_tier ∈ {E0,E1}`."""
+
+    monkeypatch.chdir(tmp_path)
+    _seed(tmp_path)
+    for prerequisite in _prerequisites(command):
+        assert _invoke(prerequisite, tmp_path) == 0
+        capsys.readouterr()
+    assert _invoke(command, tmp_path) == 0
+    output = capsys.readouterr().out.strip()
+    report = json.loads(output)
+    assert isinstance(report, dict)
+    assert report["evidence_tier"] == ("E1" if command == "network-demo" else "E0")
+
+
+def _prerequisites(command: str) -> tuple[str, ...]:
+    """Mathematics: return the minimal dependency path `P(command)` needed to materialize command operands."""
+
+    return {
+        "run-image": ("make-image",),
+        "restore-run": ("run-source",),
+        "registry-publish": ("make-image",),
+        "registry-list": ("make-image", "registry-publish"),
+    }.get(command, ())
 
 
 def _invoke(command: str, root) -> int:

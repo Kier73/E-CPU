@@ -10,6 +10,7 @@ from .memory import (
     VirtualMemoryError,
 )
 from .environment import CommandResult, VirtualEnvironment
+from .evidence import EvidenceTier, with_evidence_tier
 from .faults import FaultInjectingTransport, FaultObservation, FaultProfile
 from .fs import FsError
 from .model import (
@@ -283,6 +284,8 @@ __all__ = [
     "assemble",
     "disassemble",
     "CommandResult",
+    "EvidenceTier",
+    "with_evidence_tier",
     "DeterministicScheduler",
     "FaultInjectingTransport",
     "FaultObservation",

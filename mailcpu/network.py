@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
+from .evidence import EvidenceTier, with_evidence_tier
 from .journal import EventJournal
 
 
@@ -86,16 +87,19 @@ class NetworkEvent:
     def to_dict(self) -> dict[str, object]:
         """Mathematics: serialize event `e` while preserving payload identity and receipt `H_e`."""
 
-        return {
-            "kind": self.kind,
-            "logical_time": self.logical_time,
-            "connection": self.connection,
-            "state": None if self.state is None else self.state.value,
-            "payload_hex": self.payload.hex(),
-            "http": None if self.http is None else self.http.to_dict(),
-            "error": self.error,
-            "receipt": self.receipt,
-        }
+        return with_evidence_tier(
+            {
+                "kind": self.kind,
+                "logical_time": self.logical_time,
+                "connection": self.connection,
+                "state": None if self.state is None else self.state.value,
+                "payload_hex": self.payload.hex(),
+                "http": None if self.http is None else self.http.to_dict(),
+                "error": self.error,
+                "receipt": self.receipt,
+            },
+            EvidenceTier.E0,
+        )
 
 
 @dataclass

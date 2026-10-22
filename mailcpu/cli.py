@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Sequence
+from typing import Mapping, Sequence
 
 from .environment import VirtualEnvironment
 from .headless import HeadlessOS
@@ -23,6 +23,7 @@ from .reversible_gates import ReversibleProgram, set_bits
 from .delay_loop import DelayLoopEngine
 from .dns_cell import DnsLatchDevice
 from .timing_channel import CadenceDemodulator, CadenceModulator, TimingChannelConfig
+from .evidence import EvidenceTier, with_evidence_tier
 
 
 _HEADLESS_DEMO_SOURCE = """\
@@ -83,7 +84,7 @@ def _command_boot(_: argparse.Namespace) -> int:
     """Mathematics: expose the boot image projection `list(/) = sorted(dom(root.children))`."""
 
     environment = VirtualEnvironment.bootstrap()
-    print("\n".join(environment.kernel.fs.listdir("/")))
+    _print_report({"root": environment.kernel.fs.listdir("/")})
     return 0
 
 
@@ -92,7 +93,7 @@ def _command_make_image(arguments: argparse.Namespace) -> int:
 
     image = demo_image()
     image.save(arguments.path)
-    print(json.dumps({"path": str(arguments.path), "digest": image.digest()}, sort_keys=True))
+    _print_report({"path": str(arguments.path), "digest": image.digest()})
     return 0
 
 
@@ -119,20 +120,17 @@ def _command_run_image(arguments: argparse.Namespace) -> int:
         pid = vm.spawn_program(image.program, image.name)
         events = vm.run(arguments.max_ticks)
     task = vm.scheduler.tasks[pid]
-    print(
-        json.dumps(
-            {
-                "image": image.name,
-                "digest": image.digest(),
-                "pid": pid,
-                "ticks": len(events),
-                "status": task.status.value,
-                "registers": task.backend.snapshot_registers(),
-                "installed_files": [item.path for item in image.files],
-                "trajectory": trajectory_paths,
-            },
-            sort_keys=True,
-        )
+    _print_report(
+        {
+            "image": image.name,
+            "digest": image.digest(),
+            "pid": pid,
+            "ticks": len(events),
+            "status": task.status.value,
+            "registers": task.backend.snapshot_registers(),
+            "installed_files": [item.path for item in image.files],
+            "trajectory": trajectory_paths,
+        }
     )
     return 0 if task.status.value == "halted" else 1
 
@@ -147,16 +145,13 @@ def _command_demo(_: argparse.Namespace) -> int:
     pid = vm.spawn_program(image.program, image.name)
     vm.run()
     task = vm.scheduler.tasks[pid]
-    print(
-        json.dumps(
-            {
-                "root": environment.kernel.fs.listdir("/"),
-                "image": image.name,
-                "result": task.backend.registers.get("result"),
-                "status": task.status.value,
-            },
-            sort_keys=True,
-        )
+    _print_report(
+        {
+            "root": environment.kernel.fs.listdir("/"),
+            "image": image.name,
+            "result": task.backend.registers.get("result"),
+            "status": task.status.value,
+        }
     )
     return 0
 
@@ -198,17 +193,14 @@ def _command_run_source(arguments: argparse.Namespace) -> int:
             "path": str(arguments.checkpoint_out),
             "digest": operating_system.save_checkpoint(arguments.checkpoint_out),
         }
-    print(
-        json.dumps(
-            {
-                "source": str(source_path),
-                "virtual_path": virtual_path,
-                "process": report.to_dict(),
-                "trajectory": trajectory_paths,
-                "checkpoint": checkpoint_payload,
-            },
-            sort_keys=True,
-        )
+    _print_report(
+        {
+            "source": str(source_path),
+            "virtual_path": virtual_path,
+            "process": report.to_dict(),
+            "trajectory": trajectory_paths,
+            "checkpoint": checkpoint_payload,
+        }
     )
     return 0 if report.status == "exited" else 1
 
@@ -219,15 +211,12 @@ def _command_restore_run(arguments: argparse.Namespace) -> int:
     operating_system = HeadlessOS.restore_checkpoint(arguments.path)
     events = operating_system.run(arguments.max_ticks)
     reports = [report.to_dict() for report in operating_system.processes()]
-    print(
-        json.dumps(
-            {
-                "checkpoint": str(arguments.path),
-                "ticks": len(events),
-                "processes": reports,
-            },
-            sort_keys=True,
-        )
+    _print_report(
+        {
+            "checkpoint": str(arguments.path),
+            "ticks": len(events),
+            "processes": reports,
+        }
     )
     user_reports = [report for report in operating_system.processes() if report.pid != operating_system.environment.init_pid]
     return 0 if user_reports and all(report.status == "exited" for report in user_reports) else 1
@@ -239,7 +228,7 @@ def _command_os_demo(_: argparse.Namespace) -> int:
     operating_system = HeadlessOS()
     virtual_path = operating_system.install_source("/home/countdown.mca", _HEADLESS_DEMO_SOURCE)
     report = operating_system.run_file(virtual_path, name="countdown")
-    print(json.dumps({"virtual_path": virtual_path, "process": report.to_dict()}, sort_keys=True))
+    _print_report({"virtual_path": virtual_path, "process": report.to_dict()})
     return 0 if report.status == "exited" else 1
 
 
@@ -262,7 +251,7 @@ def _command_memory_demo(_: argparse.Namespace) -> int:
         "journal_valid": restored.environment.kernel.journal.verify(),
         "region_names": sorted(restored.vm.shared_regions),
     }
-    print(json.dumps(result, sort_keys=True))
+    _print_report(result)
     return 0 if before == after and result["journal_valid"] else 1
 
 
@@ -322,16 +311,14 @@ def _command_network_demo(_: argparse.Namespace) -> int:
     datagram = operating_system.syscall(pid, "net_dgram_receive", socket_id=destination_socket)
     if datagram is None:
         return 1
-    print(
-        json.dumps(
-            {
-                "payload": datagram.payload.decode("ascii"),
-                "route": [address.path() for address in datagram.route],
-                "journal_valid": operating_system.environment.kernel.journal.verify(),
-                "source": NetworkAddress("root", "eth0").path(),
-            },
-            sort_keys=True,
-        )
+    _print_report(
+        {
+            "payload": datagram.payload.decode("ascii"),
+            "route": [address.path() for address in datagram.route],
+            "journal_valid": operating_system.environment.kernel.journal.verify(),
+            "source": NetworkAddress("root", "eth0").path(),
+        },
+        EvidenceTier.E1,
     )
     return 0 if datagram.payload == b"mailcpu-datagram" and operating_system.environment.kernel.journal.verify() else 1
 
@@ -341,7 +328,7 @@ def _command_registry_publish(arguments: argparse.Namespace) -> int:
 
     image = ExecutableImage.load(arguments.image)
     record = ImageRegistry(arguments.root).publish(image)
-    print(json.dumps({"digest": record.digest, "name": record.name, "path": record.path}, sort_keys=True))
+    _print_report({"digest": record.digest, "name": record.name, "path": record.path})
     return 0
 
 
@@ -349,7 +336,7 @@ def _command_registry_list(arguments: argparse.Namespace) -> int:
     """Mathematics: enumerate validated finite registry domain `sort(dom(R))` as JSON records."""
 
     records = ImageRegistry(arguments.root).list()
-    print(json.dumps([record.__dict__ for record in records], sort_keys=True))
+    _print_report({"records": [record.__dict__ for record in records]})
     return 0
 
 
@@ -362,26 +349,20 @@ def _command_lift(arguments: argparse.Namespace) -> int:
         else:
             seq = [int(x.strip()) for x in raw.split(",") if x.strip()]
     except (ValueError, json.JSONDecodeError) as err:
-        print(
-            json.dumps(
-                {
-                    "error": f"invalid sequence input: {err}",
-                    "status": "error",
-                },
-                sort_keys=True,
-            )
+        _print_report(
+            {
+                "error": f"invalid sequence input: {err}",
+                "status": "error",
+            }
         )
         return 1
 
     if not seq:
-        print(
-            json.dumps(
-                {
-                    "error": "empty sequence input",
-                    "status": "error",
-                },
-                sort_keys=True,
-            )
+        _print_report(
+            {
+                "error": "empty sequence input",
+                "status": "error",
+            }
         )
         return 1
 
@@ -408,7 +389,7 @@ def _command_lift(arguments: argparse.Namespace) -> int:
         "is_ground": certified.is_ground,
         "confidence": prediction.confidence,
     }
-    print(json.dumps(output, sort_keys=True))
+    _print_report(output)
     return 0
 
 
@@ -449,7 +430,7 @@ def _command_bench(arguments: argparse.Namespace) -> int:
         "verification_failures": circ_stats["verification_failures"],
         "permanent_losses": circ_stats["permanent_losses"],
     }
-    print(json.dumps(output, sort_keys=True))
+    _print_report(output)
     return 0
 
 
@@ -482,7 +463,7 @@ def _command_substrate(arguments: argparse.Namespace) -> int:
         "verification_failures": circ_stats["verification_failures"],
         "permanent_losses": circ_stats["permanent_losses"],
     }
-    print(json.dumps(output, sort_keys=True))
+    _print_report(output)
     return 0
 
 
@@ -503,7 +484,7 @@ def _command_chronofold(arguments: argparse.Namespace) -> int:
         "sector_reads": fold.sector_reads,
         "geometric_phase": str(fold.phase),
     }
-    print(json.dumps(output, sort_keys=True))
+    _print_report(output)
     return 0
 
 
@@ -565,6 +546,12 @@ def build_parser() -> argparse.ArgumentParser:
     chronofold.add_argument("--ticks", type=int, default=4, help="number of execution ticks")
     chronofold.set_defaults(handler=_command_chronofold)
     return parser
+
+
+def _print_report(payload: Mapping[str, object], tier: EvidenceTier = EvidenceTier.E0) -> None:
+    """Mathematics: emit the canonical projection `JSON(sort_keys(R_t(payload)))` for a reportable command result."""
+
+    print(json.dumps(with_evidence_tier(payload, tier), sort_keys=True))
 
 
 def main(argv: Sequence[str] | None = None) -> int:

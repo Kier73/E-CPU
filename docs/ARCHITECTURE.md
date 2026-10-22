@@ -109,6 +109,12 @@ tier.
 MailCPU reports `E0` and `E1` results only. No `E2` result is produced, and no
 host socket is opened.
 
+The report boundary is explicit: native CLI JSON records and public
+`to_dict()` result projections carry an `evidence_tier` field. Deterministic
+process, classifier, service, and E0 network-event projections use `E0`;
+owned-network frames and datagrams use `E1`. Checkpoint/image encodings remain
+state formats rather than evidence reports and do not infer a substrate claim.
+
 ## 7. Implemented surfaces
 
 The following surfaces are specified. Each states its contract; the governing
@@ -348,7 +354,9 @@ The following are **REQUIRED** and are not statements of present capability.
    the digest registry.
 7. A POSIX-compatibility layer, admitted only after the semantic layer is
    differential-tested.
-8. Evidence tier reported for every result, per clause 6.
+8. Evidence tier reporting is enforced at the native CLI and public result
+   projection boundaries, per clause 6. Future result surfaces must use the
+   same typed boundary before they are considered complete.
 9. Typed classifier adapters for filesystem, network, service, process, and
    package operations, preserving deterministic policy and refusal when a model
    is unavailable or uncertain.

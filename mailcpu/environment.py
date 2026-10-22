@@ -9,6 +9,7 @@ from typing import Iterable
 from .kernel import Capability, KernelError, OpenFile, POLLERR, POLLHUP, POLLIN, POLLOUT, VirtualKernel
 from .network import HeadlessNetworkDevice
 from .datagram import DatagramError, NetworkDatagram, OwnedDatagramStack
+from .evidence import EvidenceTier
 from .owned_network import NetworkAddress, NetworkFrame, OwnedLinkDriver, OwnedNetworkFabric
 from .stream import OwnedStreamStack, StreamError
 from .providers import ProceduralProvider, ProviderKind
@@ -16,11 +17,12 @@ from .providers import ProceduralProvider, ProviderKind
 
 @dataclass(frozen=True)
 class CommandResult:
-    """Result of a built-in command invocation."""
+    """Result of a built-in command invocation with explicit substrate provenance."""
 
     exit_code: int
     stdout: str = ""
     stderr: str = ""
+    evidence_tier: EvidenceTier = EvidenceTier.E0
 
 
 class VirtualEnvironment:

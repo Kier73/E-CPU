@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 import re
 from typing import Any, Protocol
 
+from .evidence import EvidenceTier, with_evidence_tier
 from .journal import EventJournal
 
 
@@ -80,14 +81,17 @@ class NetworkFrame:
     def to_dict(self) -> dict[str, Any]:
         """Mathematics: serialize frame `f=(id,s,d,b,t,r)` with `b := hex(payload)` and route `r` explicit."""
 
-        return {
-            "frame_id": self.frame_id,
-            "source": self.source.to_dict(),
-            "destination": self.destination.to_dict(),
-            "payload_hex": self.payload.hex(),
-            "logical_time": self.logical_time,
-            "route": [address.to_dict() for address in self.route],
-        }
+        return with_evidence_tier(
+            {
+                "frame_id": self.frame_id,
+                "source": self.source.to_dict(),
+                "destination": self.destination.to_dict(),
+                "payload_hex": self.payload.hex(),
+                "logical_time": self.logical_time,
+                "route": [address.to_dict() for address in self.route],
+            },
+            EvidenceTier.E1,
+        )
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "NetworkFrame":

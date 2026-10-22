@@ -16,6 +16,7 @@ from .classifier import (
     HypervisorRequest,
 )
 from .environment import CommandResult, VirtualEnvironment
+from .evidence import EvidenceTier, with_evidence_tier
 from .elf import ElfLoadResult, parse_elf
 from .fs import FsError, normalize_path
 from .kernel import (
@@ -69,7 +70,7 @@ class ProcessReport:
     def to_dict(self) -> dict[str, object]:
         """Mathematics: project report `r` into a JSON-compatible record without changing observable fields."""
 
-        return asdict(self)
+        return with_evidence_tier(asdict(self), EvidenceTier.E0)
 
 
 class HeadlessOS:

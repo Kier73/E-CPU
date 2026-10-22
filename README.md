@@ -128,7 +128,9 @@ Logical time advances by one per accepted event, independent of host wall-clock
 time or thread scheduling.
 
 Results are reportable with an evidence tier as defined in `docs/ARCHITECTURE.md`
-clause 6.
+clause 6. Every JSON result emitted by the native CLI includes `evidence_tier`;
+local deterministic execution is `E0`, while `network-demo` is `E1` because its
+route is exercised over the implementation-owned fabric.
 
 Checkpointable components serialize deterministically, and checkpoint restore
 verifies state digest integrity.

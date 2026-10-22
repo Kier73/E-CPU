@@ -7,6 +7,7 @@ import struct
 from dataclasses import dataclass, field
 from typing import Any
 
+from .evidence import EvidenceTier, with_evidence_tier
 from .journal import EventJournal
 from .owned_network import NetworkAddress, NetworkFrame, OwnedNetworkError, OwnedNetworkFabric
 
@@ -75,16 +76,19 @@ class NetworkDatagram:
     def to_dict(self) -> dict[str, Any]:
         """Mathematics: serialize `d` with binary payload `b:=hex(payload)` and explicit route `r`."""
 
-        return {
-            "frame_id": self.frame_id,
-            "source": self.source.to_dict(),
-            "destination": self.destination.to_dict(),
-            "source_port": self.source_port,
-            "destination_port": self.destination_port,
-            "payload_hex": self.payload.hex(),
-            "logical_time": self.logical_time,
-            "route": [address.to_dict() for address in self.route],
-        }
+        return with_evidence_tier(
+            {
+                "frame_id": self.frame_id,
+                "source": self.source.to_dict(),
+                "destination": self.destination.to_dict(),
+                "source_port": self.source_port,
+                "destination_port": self.destination_port,
+                "payload_hex": self.payload.hex(),
+                "logical_time": self.logical_time,
+                "route": [address.to_dict() for address in self.route],
+            },
+            EvidenceTier.E1,
+        )
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "NetworkDatagram":

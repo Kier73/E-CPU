@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from .model import DEFAULT_MAX_TICKS
 from .kernel import KernelError, ProcessStatus
+from .evidence import EvidenceTier, with_evidence_tier
 
 if TYPE_CHECKING:
     from .headless import HeadlessOS, ProcessReport
@@ -54,14 +55,17 @@ class ServiceReport:
     def to_dict(self) -> dict[str, object]:
         """Mathematics: project service state `s` into a nested JSON-compatible record."""
 
-        return {
-            "name": self.name,
-            "state": self.state,
-            "pid": self.pid,
-            "restart_count": self.restart_count,
-            "exit_code": self.exit_code,
-            "process": None if self.process is None else self.process.to_dict(),
-        }
+        return with_evidence_tier(
+            {
+                "name": self.name,
+                "state": self.state,
+                "pid": self.pid,
+                "restart_count": self.restart_count,
+                "exit_code": self.exit_code,
+                "process": None if self.process is None else self.process.to_dict(),
+            },
+            EvidenceTier.E0,
+        )
 
 
 @dataclass
