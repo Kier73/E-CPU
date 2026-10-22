@@ -811,21 +811,27 @@ systems and durable multi-host duplex movement are subsequent obligations.
 
 `SystemSeed` provides the first state-space navigation boundary. It encodes a
 complete origin state `S_0`, its canonical digest `d_0`, a non-negative logical
-coordinate `k`, and the expected digest of `T^k(S_0)`, where `T` is the existing
-deterministic scheduler transition. Reading a seed reconstructs the origin and
-replays to `k`; rewind reconstructs the same origin at a lower coordinate.
-Unreachable coordinates, origin tampering, and replay-digest mismatch refuse
-explicitly. This is reversible navigation through a known deterministic orbit,
-not an assumed inverse for effectful OS transitions. Algebraic orbit leaps and
-reversible-gate descent remain separate certified navigators that may later
-replace replay only after their witnesses prove the same state digest.
+coordinate `k`, the expected digest of `T^k(S_0)`, and a strictly ordered input
+event prefix `E`, where `T` is the existing deterministic scheduler transition.
+An input event records its source/sequence, target process/mailbox, integer
+payload, target coordinate, and payload digest. Reading a seed reconstructs the
+origin, injects each event immediately before its target tick, and replays to
+`k`; rewind filters events after the requested coordinate and reconstructs the
+same origin. Unreachable coordinates, origin tampering, input-event tampering,
+and replay-digest mismatch refuse explicitly. Host admission metadata is held
+at its neutral checkpoint identity in the seed projection, so the Hypervisor
+can govern a seeded system without recursively changing the system state it
+verifies. Algebraic orbit leaps and reversible-gate descent remain separate
+certified navigators that may later replace replay only after their witnesses
+prove the same state digest.
 
 `SystemSeedEnvelope` lifts that seed boundary into a transport product for shared
 hosting. Its identity is `I=(system_id,incarnation)`, and its route is an
 injective namespace function of `(I,role,channel)`, so two systems or two
 incarnations cannot share a mailbox by endpoint-label coincidence. The envelope
 also carries the role, channel, complete `SystemSeed`, and a sorted frontier of
-external-input receipts `(source,sequence,digest)`. Its byte encoding uses the
+external-input receipts `(source,sequence,digest)` and the corresponding
+replayable input-event prefix inside the seed. Its byte encoding uses the
 repository's injective canonical value algebra, preserving tuples, lists,
 bytes, and mappings before hashing; this makes a decoded envelope state-equal to
 the source envelope rather than merely JSON-shaped like it. `to_message` and
@@ -856,6 +862,16 @@ retransmission. A stale incarnation, frontier regression, origin conflict,
 same-coordinate state conflict, or invalid restore leaves the current envelope
 unchanged. Checkpoint restore reconstructs both the current registry and the
 fingerprint ledger before the host resumes.
+
+`HypervisorSeedAdmissionCoordinator.advance_input` is the first live frontier
+advance path. It derives the next seed by injecting one typed external event at
+the next scheduler coordinate, appends the event's payload receipt to the
+frontier, and submits the resulting envelope through ordinary admission. An
+exact retransmission reconstructs the original event-prefix envelope, returns
+its original receipt, and leaves the later authoritative envelope in place for
+the caller; a changed payload for the same source/sequence is a conflict. The
+resulting seed can be restored independently to inspect the new virtual state
+before a later host-commit layer applies it to a long-lived process.
 
 ## 11. Images and execution regimes
 

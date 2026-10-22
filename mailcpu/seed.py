@@ -1,18 +1,22 @@
 r"""Canonical seeds for deterministic MailCPU system-state navigation.
 
 Mathematics:
-Let `S_0` be a complete `HeadlessOS` snapshot and `T` the deterministic
-scheduler transition operator. A seed is
+Let `S_0` be a complete `HeadlessOS` snapshot, `T` the deterministic scheduler
+transition operator, and `E` a strictly ordered sequence of external input
+events. A seed is
 
 \[
-  \Sigma = (S_0, d_0, k, d_k),
+  \Sigma = (S_0, d_0, k, d_k, E),
   \qquad d_i = SHA256(JSON_{canonical}(T^i(S_0))).
 \]
 
-Navigation evaluates `T^k(S_0)` from the immutable origin. Rewind is therefore
-exact replay from `S_0`, not an invented inverse for effects such as filesystem
-writes or process creation. A requested coordinate is admitted only when the
-restored scheduler reaches its target tick and its canonical digest matches.
+Navigation evaluates the event-augmented orbit from the immutable origin:
+each event is injected immediately before its recorded target tick and the
+scheduler then executes that tick. Rewind filters events after the requested
+coordinate and replays the remaining prefix. This is exact replay from `S_0`,
+not an invented inverse for effects such as filesystem writes or process
+creation. A requested coordinate is admitted only when the restored scheduler
+reaches its target tick and its canonical digest matches.
 """
 
 from __future__ import annotations
@@ -118,6 +122,88 @@ class SeedInputReceipt:
         return cls(payload.get("source"), payload.get("sequence"), payload.get("digest"))
 
 
+@dataclass(frozen=True)
+class SeedInputEvent:
+    """One deterministic external input transition `e=(source,sequence,pid,mailbox,values,coordinate)`."""
+
+    source: str
+    sequence: int
+    pid: int
+    mailbox: str
+    values: tuple[int, ...]
+    coordinate: int
+
+    def __post_init__(self) -> None:
+        """Mathematics: require `source,mailbox∈L`, `sequence,pid,coordinate∈N⁺`, and `values∈Z^n`."""
+
+        _validate_label(self.source, "input event source")
+        _validate_label(self.mailbox, "input event mailbox")
+        if "\x00" in self.mailbox:
+            raise SeedNavigationError("input event mailbox cannot contain NUL")
+        for name, value in (("sequence", self.sequence), ("pid", self.pid), ("coordinate", self.coordinate)):
+            if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+                raise SeedNavigationError(f"input event {name} must be a positive integer")
+        values = tuple(self.values)
+        if any(not isinstance(value, int) or isinstance(value, bool) for value in values):
+            raise SeedNavigationError("input event values must be integers")
+        object.__setattr__(self, "values", values)
+
+    @property
+    def digest(self) -> str:
+        """Mathematics: compute external payload identity `d(e)=SHA256(JSON_sort(source,sequence,pid,mailbox,values))`."""
+
+        payload = {
+            "mailbox": self.mailbox,
+            "pid": self.pid,
+            "sequence": self.sequence,
+            "source": self.source,
+            "values": list(self.values),
+        }
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        return hashlib.sha256(canonical).hexdigest()
+
+    @property
+    def receipt(self) -> SeedInputReceipt:
+        """Mathematics: project event identity to frontier receipt `q(e)=(source,sequence,d(e))`."""
+
+        return SeedInputReceipt(self.source, self.sequence, self.digest)
+
+    def snapshot(self) -> dict[str, object]:
+        """Mathematics: serialize `e` with its target coordinate and recomputable payload digest."""
+
+        return {
+            "format": "mailcpu-system-input/1",
+            "source": self.source,
+            "sequence": self.sequence,
+            "pid": self.pid,
+            "mailbox": self.mailbox,
+            "values": list(self.values),
+            "coordinate": self.coordinate,
+            "digest": self.digest,
+        }
+
+    @classmethod
+    def from_snapshot(cls, payload: Mapping[str, Any]) -> "SeedInputEvent":
+        """Mathematics: reconstruct `e` and refuse when its stored digest differs from recomputed payload identity."""
+
+        if not isinstance(payload, Mapping) or payload.get("format") != "mailcpu-system-input/1":
+            raise SeedNavigationError("unsupported system input event format")
+        raw_values = payload.get("values", ())
+        if not isinstance(raw_values, (list, tuple)):
+            raise SeedNavigationError("input event values must be a sequence")
+        event = cls(
+            payload.get("source"),
+            payload.get("sequence"),
+            payload.get("pid"),
+            payload.get("mailbox"),
+            tuple(raw_values),
+            payload.get("coordinate"),
+        )
+        if payload.get("digest") != event.digest:
+            raise SeedNavigationError("input event digest does not match payload")
+        return event
+
+
 def _canonical_state(state: Mapping[str, Any]) -> bytes:
     """Mathematics: encode state as `c=JSON(sort_keys,state)` so equal state products have equal bytes."""
 
@@ -160,6 +246,15 @@ def _validate_digest(value: Any, label: str) -> str:
     return digest
 
 
+def _seed_state_snapshot(operating_system: HeadlessOS) -> dict[str, Any]:
+    """Mathematics: project live OS state `π(OS)` while replacing host admission metadata with its neutral identity element."""
+
+    state = deepcopy(operating_system.snapshot())
+    if isinstance(state.get("seed_admission"), Mapping):
+        state["seed_admission"] = {"version": 1, "systems": [], "seen": []}
+    return state
+
+
 @dataclass(frozen=True)
 class SystemSeed:
     """An immutable origin-and-coordinate seed for predictable system-state replay."""
@@ -168,6 +263,23 @@ class SystemSeed:
     origin_digest: str
     coordinate: int
     state_digest: str
+    input_events: tuple[SeedInputEvent, ...] = ()
+
+    def __post_init__(self) -> None:
+        """Mathematics: enforce event sequence uniqueness and strict target order `0<e₁.coordinate<...<eₙ.coordinate`."""
+
+        events = tuple(self.input_events)
+        if any(not isinstance(event, SeedInputEvent) for event in events):
+            raise SeedNavigationError("system seed input event has an invalid type")
+        coordinates = [event.coordinate for event in events]
+        if any(coordinate > self.coordinate for coordinate in coordinates):
+            raise SeedNavigationError("system seed input event exceeds seed coordinate")
+        if coordinates != sorted(coordinates) or any(left == right for left, right in zip(coordinates, coordinates[1:])):
+            raise SeedNavigationError("system seed input event coordinates must increase strictly")
+        identities = [(event.source, event.sequence) for event in events]
+        if len(identities) != len(set(identities)):
+            raise SeedNavigationError("system seed input event identities must be unique")
+        object.__setattr__(self, "input_events", events)
 
     @classmethod
     def from_system(cls, operating_system: HeadlessOS) -> "SystemSeed":
@@ -175,7 +287,7 @@ class SystemSeed:
 
         if not isinstance(operating_system, HeadlessOS):
             raise SeedNavigationError("system seed requires a HeadlessOS")
-        state = deepcopy(operating_system.snapshot())
+        state = _seed_state_snapshot(operating_system)
         digest = _state_digest(state)
         return cls(state, digest, 0, digest)
 
@@ -202,7 +314,11 @@ class SystemSeed:
         if coordinate < 0:
             raise SeedNavigationError("system seed coordinate must be non-negative")
         state_digest = _validate_digest(payload.get("state_digest"), "state digest")
-        return cls(origin, origin_digest, coordinate, state_digest)
+        raw_events = payload.get("input_events", ())
+        if not isinstance(raw_events, (list, tuple)):
+            raise SeedNavigationError("system seed input_events must be a sequence")
+        events = tuple(SeedInputEvent.from_snapshot(item) for item in raw_events)
+        return cls(origin, origin_digest, coordinate, state_digest, events)
 
     def snapshot(self) -> dict[str, object]:
         """Mathematics: serialize `Σ` with copied origin state so seed storage cannot alias live execution state."""
@@ -213,6 +329,7 @@ class SystemSeed:
             "origin_digest": self.origin_digest,
             "coordinate": self.coordinate,
             "state_digest": self.state_digest,
+            "input_events": [event.snapshot() for event in self.input_events],
         }
 
     def restore(self) -> HeadlessOS:
@@ -234,7 +351,8 @@ class SystemSeed:
         digest = _state_digest(state)
         if expected_digest is not None and digest != _validate_digest(expected_digest, "state digest"):
             raise SeedNavigationError("state digest does not match replayed state")
-        return type(self)(deepcopy(self.origin_state), self.origin_digest, coordinate, digest)
+        events = tuple(event for event in self.input_events if event.coordinate <= coordinate)
+        return type(self)(deepcopy(self.origin_state), self.origin_digest, coordinate, digest, events)
 
     def advance(self, distance: int = 1) -> "SystemSeed":
         """Mathematics: move forward on the seed orbit `k↦k+distance` for non-negative integer distance."""
@@ -252,14 +370,57 @@ class SystemSeed:
             raise SeedNavigationError("seed rewind exceeds origin coordinate")
         return self.at(self.coordinate - distance)
 
+    def input_receipts(self) -> tuple[SeedInputReceipt, ...]:
+        """Mathematics: project event history `E` onto its ordered receipt sequence `(q(e₁),...,q(eₙ))`."""
+
+        return tuple(event.receipt for event in self.input_events)
+
+    def advance_input(
+        self,
+        source: str,
+        sequence: int,
+        pid: int,
+        mailbox: str,
+        values: tuple[int, ...] | list[int],
+    ) -> "SystemSeed":
+        """Mathematics: construct `Σ'` by injecting `e` before tick `k+1`, then evaluating `T_e(Σ)` exactly."""
+
+        prior_sequences = {event.source: event.sequence for event in self.input_events}
+        if source in prior_sequences and sequence <= prior_sequences[source]:
+            raise SeedNavigationError("input event sequence must advance its source frontier")
+        event = SeedInputEvent(source, sequence, pid, mailbox, tuple(values), self.coordinate + 1)
+        events = self.input_events + (event,)
+        candidate = type(self)(deepcopy(self.origin_state), self.origin_digest, event.coordinate, self.state_digest, events)
+        operating_system = candidate._replay(candidate.coordinate)
+        digest = _state_digest(operating_system.snapshot())
+        return type(self)(deepcopy(self.origin_state), self.origin_digest, candidate.coordinate, digest, events)
+
     def _replay(self, coordinate: int) -> HeadlessOS:
-        """Mathematics: evaluate `T^(τ(S_0)+k)(S_0)` and refuse if the scheduler cannot reach the requested coordinate."""
+        """Mathematics: evaluate event orbit `T^{τ(S_0)+k}(S_0;E≤k)` and refuse unreachable or malformed transitions."""
 
         target_tick = _scheduler_tick(self.origin_state) + coordinate
         try:
             operating_system = HeadlessOS.from_snapshot(deepcopy(self.origin_state))
+            origin_tick = _scheduler_tick(self.origin_state)
+            for event in self.input_events:
+                if event.coordinate > coordinate:
+                    break
+                pre_input_tick = origin_tick + event.coordinate - 1
+                operating_system.run(pre_input_tick)
+                if operating_system.vm.scheduler.tick != pre_input_tick:
+                    raise SeedNavigationError(
+                        f"seed input event {event.source}:{event.sequence} cannot reach pre-input tick {pre_input_tick}"
+                    )
+                operating_system.inject(event.pid, event.mailbox, event.values)
+                operating_system.run(origin_tick + event.coordinate)
+                if operating_system.vm.scheduler.tick != origin_tick + event.coordinate:
+                    raise SeedNavigationError(
+                        f"seed input event {event.source}:{event.sequence} cannot reach target coordinate {event.coordinate}"
+                    )
             operating_system.run(target_tick)
-        except (KeyError, TypeError, ValueError, OSError, OverflowError) as exc:
+        except (KeyError, TypeError, ValueError, OSError, OverflowError, SeedNavigationError) as exc:
+            if isinstance(exc, SeedNavigationError):
+                raise
             raise SeedNavigationError("seed origin cannot be replayed") from exc
         actual_tick = operating_system.vm.scheduler.tick
         if actual_tick != target_tick:

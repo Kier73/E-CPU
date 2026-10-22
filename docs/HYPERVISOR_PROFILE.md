@@ -645,3 +645,15 @@ This is the first active Hypervisor process for encoded system state: seed bytes
 are no longer only readable and routable, but are admitted into a persistent
 registry under a replayable temporal law. The next boundary is live frontier
 advancement from external inputs and shared scheduling of the admitted systems.
+
+`SystemSeed.advance_input` now records the missing transition material. An
+external event is a digest-bound `(source, sequence, pid, mailbox, values)`
+product placed immediately before its target scheduler tick. Seed restoration
+replays the event prefix from the origin; `at` and `rewind` remove only events
+after the requested coordinate. `HypervisorSeedAdmissionCoordinator.advance_input`
+derives that next state, appends its receipt frontier, and routes it through the
+same shadow restore and monotone admission law. Exact input retransmission
+reconstructs the original event-prefix receipt and returns the later
+authoritative envelope unchanged, while a changed payload at the same source
+sequence is refused. A future host-commit layer can now compare the restored
+logical state with a live process before making a durable in-place mutation.

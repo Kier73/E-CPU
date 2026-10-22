@@ -92,6 +92,7 @@ from .checkpoint import CheckpointError, load_checkpoint, save_checkpoint
 from .seed import (
     SYSTEM_SEED_ENVELOPE_KIND,
     SeedEnvelopeError,
+    SeedInputEvent,
     SeedInputReceipt,
     SeedNavigationError,
     SystemIdentity,
@@ -408,6 +409,7 @@ __all__ = [
     "CheckpointError",
     "SeedNavigationError",
     "SeedEnvelopeError",
+    "SeedInputEvent",
     "SeedInputReceipt",
     "SystemIdentity",
     "SystemSeed",

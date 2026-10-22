@@ -8,7 +8,7 @@ import json
 from typing import Any, Mapping
 
 from .journal import EventJournal
-from .seed import SeedEnvelopeError, SeedInputReceipt, SystemIdentity, SystemSeedEnvelope
+from .seed import SeedEnvelopeError, SeedInputEvent, SeedInputReceipt, SystemIdentity, SystemSeedEnvelope
 
 
 class SeedAdmissionError(SeedEnvelopeError):
@@ -267,6 +267,73 @@ class HypervisorSeedAdmissionCoordinator:
         """Mathematics: expose ordered registry projection `sort(R.values())` as immutable envelope references."""
 
         return tuple(self._systems[key] for key in sorted(self._systems))
+
+    def advance_input(
+        self,
+        system_id: str,
+        source: str,
+        sequence: int,
+        pid: int,
+        mailbox: str,
+        values: tuple[int, ...] | list[int],
+    ) -> tuple[SeedAdmissionResult, SystemSeedEnvelope]:
+        """Mathematics: derive `E'=(I,R,C,Σ.advance_input(e),F∪q(e))` and submit it to the same admission law."""
+
+        current = self.current(system_id)
+        if current is None:
+            raise SeedAdmissionError(f"unknown admitted system: {system_id}")
+        existing_event = next(
+            (
+                event
+                for event in current.seed.input_events
+                if event.source == source and event.sequence == sequence
+            ),
+            None,
+        )
+        if existing_event is not None:
+            retransmission = SeedInputEvent(
+                source,
+                sequence,
+                pid,
+                mailbox,
+                tuple(values),
+                existing_event.coordinate,
+            )
+            if retransmission.digest != existing_event.digest:
+                raise SeedAdmissionError("conflicting input retransmission")
+            prefix_seed = current.seed.at(existing_event.coordinate)
+            event_sources = {event.source for event in current.seed.input_events}
+            prefix_maximums = {
+                event.source: event.sequence
+                for event in prefix_seed.input_events
+            }
+            frontier = tuple(
+                receipt
+                for receipt in current.input_frontier
+                if receipt.source not in event_sources
+                or receipt.sequence <= prefix_maximums.get(receipt.source, 0)
+            )
+            replay_envelope = SystemSeedEnvelope(
+                current.identity,
+                current.role,
+                current.channel,
+                prefix_seed,
+                frontier,
+            )
+            replay_result = self.admit(replay_envelope)
+            if not replay_result.accepted:
+                raise SeedAdmissionError("input retransmission receipt is not recoverable")
+            return replay_result, current
+        seed = current.seed.advance_input(source, sequence, pid, mailbox, values)
+        receipt = seed.input_receipts()[-1]
+        envelope = SystemSeedEnvelope(
+            current.identity,
+            current.role,
+            current.channel,
+            seed,
+            current.input_frontier + (receipt,),
+        )
+        return self.admit(envelope), envelope
 
     def snapshot(self) -> dict[str, object]:
         """Mathematics: serialize registry `R` and replay ledger `L` as finite sorted checkpoint products."""
