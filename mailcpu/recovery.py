@@ -18,9 +18,17 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any, Literal, Mapping
+from typing import Any, Callable, Literal, Mapping
 
-from .classifier import HypervisorArbitrationLoop, HypervisorRevisionArbitrationResult
+from .classifier import (
+    HypervisorArbitrationEvent,
+    HypervisorArbitrationLoop,
+    HypervisorDomain,
+    HypervisorExecutionResult,
+    HypervisorRevisionArbitrationResult,
+)
+from .headless import HeadlessOS
+from .hypervisor_transport import HypervisorOperationChannel
 from .replicated_mailbox import ReplicatedMailboxNode, ReplicatedMailboxStore
 from .reliability import ReliableChannel
 from .revision_relay import ReplicatedRevisionProposalRelay
@@ -28,6 +36,26 @@ from .socket_transport import SocketTransport
 
 
 RecoveryDirection = Literal["outbound", "inbound"]
+
+
+def _validate_operation_binding(
+    transport: SocketTransport,
+    channel: ReliableChannel,
+    direction: RecoveryDirection,
+    peer: str,
+) -> None:
+    """Mathematics: enforce `direction=outbound⇒dest=peer` and `direction=inbound⇒dest=local` before operation recovery binding."""
+
+    if direction not in ("outbound", "inbound") or not peer:
+        raise RecoveryCoordinatorError("operation binding requires a valid direction and peer")
+    if transport.peer_endpoint != peer or channel.source != transport.local_endpoint or channel.peer != peer:
+        raise RecoveryCoordinatorError("operation transport identity does not match peer binding")
+    if direction == "outbound":
+        valid = channel.destination == peer
+    else:
+        valid = channel.destination == transport.local_endpoint
+    if not valid:
+        raise RecoveryCoordinatorError("operation channel direction does not match endpoint binding")
 
 
 class RecoveryCoordinatorError(RuntimeError):
@@ -265,6 +293,224 @@ class CrossHostRecoveryCoordinator:
         if result is not None:
             self._last_admission = result
         return result
+
+
+@dataclass(frozen=True)
+class OperationRecoveryCheckpoint:
+    """A versioned product of operation transport, reliable FIFO, and headless hypervisor state."""
+
+    transport: dict[str, Any]
+    channel: dict[str, Any]
+    operating_system: dict[str, Any]
+    direction: RecoveryDirection
+
+    @classmethod
+    def capture(
+        cls,
+        transport: SocketTransport,
+        channel: ReliableChannel,
+        operating_system: HeadlessOS,
+        *,
+        direction: RecoveryDirection,
+    ) -> "OperationRecoveryCheckpoint":
+        """Mathematics: capture `C_op=(T,R,OS,d)` only when `R.transport=T` and endpoint direction binds `OS` to the peer."""
+
+        if not isinstance(transport, SocketTransport):
+            raise RecoveryCoordinatorError("operation checkpoint requires a SocketTransport")
+        if not isinstance(channel, ReliableChannel) or channel.transport is not transport:
+            raise RecoveryCoordinatorError("operation checkpoint channel is not bound to transport")
+        if not isinstance(operating_system, HeadlessOS):
+            raise RecoveryCoordinatorError("operation checkpoint requires a HeadlessOS")
+        if direction not in ("outbound", "inbound"):
+            raise RecoveryCoordinatorError("operation checkpoint direction is invalid")
+        _validate_operation_binding(transport, channel, direction, transport.peer_endpoint)
+        return cls(
+            deepcopy(transport.snapshot()),
+            deepcopy(channel.snapshot()),
+            deepcopy(operating_system.snapshot()),
+            direction,
+        )
+
+    @classmethod
+    def from_snapshot(cls, payload: Mapping[str, Any]) -> "OperationRecoveryCheckpoint":
+        """Mathematics: reconstruct `C_op` only from complete mapping factors and one valid direction value."""
+
+        if int(payload.get("version", 1)) != 1:
+            raise RecoveryCoordinatorError("unsupported operation recovery checkpoint version")
+        transport = payload.get("transport")
+        channel = payload.get("channel")
+        operating_system = payload.get("operating_system")
+        direction = str(payload.get("direction", ""))
+        if (
+            not isinstance(transport, Mapping)
+            or not isinstance(channel, Mapping)
+            or not isinstance(operating_system, Mapping)
+            or direction not in ("outbound", "inbound")
+        ):
+            raise RecoveryCoordinatorError("operation recovery checkpoint is incomplete")
+        return cls(deepcopy(dict(transport)), deepcopy(dict(channel)), deepcopy(dict(operating_system)), direction)  # type: ignore[arg-type]
+
+    def snapshot(self) -> dict[str, object]:
+        """Mathematics: serialize `C_op=(T,R,OS,d)` without sharing mutable factor state."""
+
+        return {
+            "version": 1,
+            "transport": deepcopy(self.transport),
+            "channel": deepcopy(self.channel),
+            "operating_system": deepcopy(self.operating_system),
+            "direction": self.direction,
+        }
+
+
+@dataclass(frozen=True)
+class OperationRecoveryStatus:
+    """Observable operation-channel recovery state."""
+
+    direction: RecoveryDirection
+    peer: str
+    pending_sequences: tuple[int, ...]
+    next_receive_sequence: int
+    failed_sequences: tuple[int, ...]
+
+
+class HypervisorOperationRecoveryCoordinator:
+    """Own one rebound operation peer while preserving reliable delivery and hypervisor effect identity."""
+
+    def __init__(
+        self,
+        transport: SocketTransport,
+        channel: ReliableChannel,
+        operating_system: HeadlessOS,
+        *,
+        direction: RecoveryDirection,
+    ) -> None:
+        """Mathematics: bind `C_op=(T,R,OS,d)` with `R.transport=T` and direction-consistent endpoint identities."""
+
+        if not isinstance(transport, SocketTransport):
+            raise RecoveryCoordinatorError("operation coordinator requires a SocketTransport")
+        if not isinstance(channel, ReliableChannel) or channel.transport is not transport:
+            raise RecoveryCoordinatorError("operation coordinator channel is not bound to transport")
+        if not isinstance(operating_system, HeadlessOS):
+            raise RecoveryCoordinatorError("operation coordinator requires a HeadlessOS")
+        self._validate_binding(transport, channel, direction, transport.peer_endpoint)
+        self.transport = transport
+        self.channel = channel
+        self.operation_channel = HypervisorOperationChannel(channel)
+        self.operating_system = operating_system
+        self.direction = direction
+
+    @staticmethod
+    def _validate_binding(
+        transport: SocketTransport,
+        channel: ReliableChannel,
+        direction: RecoveryDirection,
+        peer: str,
+    ) -> None:
+        """Mathematics: delegate binding law `direction=outbound⇒dest=peer`, `direction=inbound⇒dest=local` to one validator."""
+
+        _validate_operation_binding(transport, channel, direction, peer)
+
+    @staticmethod
+    def checkpoint(
+        transport: SocketTransport,
+        channel: ReliableChannel,
+        operating_system: HeadlessOS,
+        *,
+        direction: RecoveryDirection,
+    ) -> OperationRecoveryCheckpoint:
+        """Mathematics: expose `capture(T,R,OS,d)` as the coordinator checkpoint boundary."""
+
+        return OperationRecoveryCheckpoint.capture(transport, channel, operating_system, direction=direction)
+
+    @classmethod
+    def rebind(
+        cls,
+        checkpoint: OperationRecoveryCheckpoint,
+        raw_socket: Any,
+        *,
+        direction: RecoveryDirection,
+        peer: str,
+    ) -> "HypervisorOperationRecoveryCoordinator":
+        """Mathematics: realize `bind(rebind(T),restore(R,T),restore(OS))` after direction and peer validation."""
+
+        if not isinstance(checkpoint, OperationRecoveryCheckpoint):
+            raise RecoveryCoordinatorError("operation rebind requires an OperationRecoveryCheckpoint")
+        if direction != checkpoint.direction:
+            raise RecoveryCoordinatorError("operation rebind direction does not match checkpoint")
+        if not all(callable(getattr(raw_socket, method, None)) for method in ("send", "recv", "close")):
+            raise RecoveryCoordinatorError("operation rebind requires a connected raw socket")
+        if not peer:
+            raise RecoveryCoordinatorError("operation rebind requires a non-empty peer")
+        transport: SocketTransport | None = None
+        try:
+            transport = SocketTransport.from_snapshot(raw_socket, deepcopy(checkpoint.transport))
+            if transport.peer_endpoint != peer:
+                raise RecoveryCoordinatorError("operation rebound transport peer does not match checkpoint")
+            channel = ReliableChannel.from_snapshot(deepcopy(checkpoint.channel), transport)
+            operating_system = HeadlessOS.from_snapshot(deepcopy(checkpoint.operating_system))
+            return cls(transport, channel, operating_system, direction=direction)
+        except Exception:
+            if transport is not None:
+                transport.close()
+            else:
+                try:
+                    raw_socket.close()
+                except OSError:
+                    pass
+            raise
+
+    def retry(self) -> tuple[int, ...]:
+        """Mathematics: advance reliable time `t:=t+1` and retransmit due pending operation frames."""
+
+        if self.direction != "outbound":
+            raise RecoveryCoordinatorError("only an outbound operation coordinator can retry")
+        return self.channel.tick()
+
+    def service(self) -> tuple[int, ...]:
+        """Mathematics: fold transport bytes into `Q` and remove acknowledged sender frames `P:=P\\ACK` without executing operations."""
+
+        return self.channel.process_ack()
+
+    def send(self, event: HypervisorArbitrationEvent) -> int:
+        """Mathematics: emit one outbound event frame `F_s` while retaining it in reliable pending set `P` until ACK."""
+
+        if self.direction != "outbound":
+            raise RecoveryCoordinatorError("only an outbound operation coordinator can send")
+        return self.operation_channel.send(event)
+
+    def receive_and_execute(
+        self,
+        pid: int,
+        handlers: Mapping[HypervisorDomain | str, Callable[[], Any]],
+        effect_encoder: Callable[[Any], Any] | None = None,
+    ) -> HypervisorExecutionResult | None:
+        """Mathematics: authorize from local `G(pid)` and apply `E[I]` before reliable consumption and ACK."""
+
+        if self.direction != "inbound":
+            raise RecoveryCoordinatorError("only an inbound operation coordinator can receive")
+
+        def authorize(event: HypervisorArbitrationEvent) -> HypervisorArbitrationEvent:
+            """Mathematics: project remote event authority through local capability relation `G(pid,resource)`."""
+
+            return self.operating_system.hypervisor_authorize_event(pid, event)
+
+        return self.operation_channel.receive_and_execute(
+            self.operating_system.hypervisor_arbitration,
+            authorize,
+            handlers,
+            effect_encoder,
+        )
+
+    def status(self) -> OperationRecoveryStatus:
+        """Mathematics: expose `P`, receive cursor `r`, and failed set `F` for this rebound operation factor."""
+
+        return OperationRecoveryStatus(
+            self.direction,
+            self.transport.peer_endpoint,
+            self.channel.pending_sequences(),
+            self.channel.next_receive_sequence,
+            tuple(self.channel.failed_sequences),
+        )
 
 
 @dataclass(frozen=True)

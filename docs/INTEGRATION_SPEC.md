@@ -740,6 +740,15 @@ reconnects, retransmits, and observes one child plus one replayed effect. A
 second event carrying a forged `execute` grant is denied by a receiver process
 that lacks that capability. Evidence tier: E1.
 
+`HypervisorOperationRecoveryCoordinator` owns the single-peer recovery product
+`(SocketTransport, ReliableChannel, HeadlessOS, direction, peer)`. Its
+checkpoint/rebind path validates endpoint direction before restoring the
+reliable FIFO and hypervisor effect ledger; `retry`, `service`, `send`, and
+`receive_and_execute` expose the existing transitions without introducing a
+second delivery or authority ledger. The coordinator witness produces the same
+one-child, one-effect result as the manual Log 84 path and clears the restored
+sender's pending sequence after the replay acknowledgement. Evidence tier: E1.
+
 ## 11. Images and execution regimes
 
 ### 11.1 Source assembly and headless execution

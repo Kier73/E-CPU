@@ -558,4 +558,6 @@ registry image. Remaining adapter work is generalization to future operation
 domains, not bypassing the established policy boundary. Operation events now
 cross the existing reliable AF_INET path; the receiver re-derives rights from
 its own process capabilities, and a lost acknowledgement replays one
-checkpointed process effect without launching a second child.
+checkpointed process effect without launching a second child. The operation
+recovery coordinator now owns that product's checkpoint, direction validation,
+retry, service, send, and receive transitions.
