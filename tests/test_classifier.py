@@ -355,6 +355,51 @@ def test_hypervisor_revision_gate_refuses_mismatch_without_replacing_active_mode
     assert operating_system.environment.kernel.journal.verify()
 
 
+def test_hypervisor_arbitration_binds_revision_across_replay_and_restore() -> None:
+    """Mathematics: `I↦(f,receipt,r)` remains fixed on replay even after the active revision advances to `r+1`."""
+
+    operating_system = HeadlessOS()
+    request = HypervisorRequest(
+        "read filesystem file path descriptor",
+        "/home/file",
+        {"path": "/home/file"},
+        frozenset({"read"}),
+        frozenset({"read"}),
+    )
+    first_event = HypervisorArbitrationEvent("node-a", "control", 1, 7, request)
+    first = operating_system.hypervisor_arbitrate(first_event)
+    assert first.decision is not None
+    assert first.decision_revision == 0
+    assert first.decision.revision == 0
+
+    candidate = ProceduralDecisionModel.from_snapshot(operating_system.hypervisor.classifier.snapshot())
+    witness = HypervisorRevisionWitness.from_decision(request, first.decision)
+    admission = operating_system.hypervisor.admit_classifier_revision(candidate, (witness,))
+    assert admission.accepted is True
+    assert admission.revision == 1
+
+    second_event = HypervisorArbitrationEvent("node-a", "control", 2, 8, request)
+    second = operating_system.hypervisor_arbitrate(second_event)
+    assert second.decision is not None
+    assert second.decision_revision == 1
+    assert second.decision.revision == 1
+    assert second.decision.to_dict()["revision"] == 1
+
+    old_replay = operating_system.hypervisor_arbitrate(first_event)
+    assert old_replay.replayed is True
+    assert old_replay.decision is None
+    assert old_replay.decision_receipt == first.decision_receipt
+    assert old_replay.decision_revision == 0
+    assert len([record for record in operating_system.environment.kernel.journal.records() if record.kind == "hypervisor.decision"]) == 2
+
+    snapshot = operating_system.snapshot()
+    restored = HeadlessOS.from_snapshot(snapshot)
+    assert restored.hypervisor_arbitration.snapshot() == operating_system.hypervisor_arbitration.snapshot()
+    assert restored.hypervisor_arbitrate(first_event).decision_revision == 0
+    assert restored.hypervisor_arbitrate(second_event).decision_revision == 1
+    assert restored.environment.kernel.journal.verify()
+
+
 def test_procedural_field_is_deterministic_bounded_and_sparse() -> None:
     """Mathematics: verify `W_F(a)` is repeatable, bounded, and generated without a stored dense tensor."""
 

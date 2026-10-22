@@ -283,6 +283,13 @@ class HypervisorDecision:
     intent_probabilities: dict[str, float] = field(default_factory=dict)
     intent_digest: str = ""
     virtual_cost: VirtualCost | None = None
+    revision: int = 0
+
+    def __post_init__(self) -> None:
+        """Mathematics: require the producing classifier revision `r∈ℕ₀` to be explicit and finite."""
+
+        if not isinstance(self.revision, int) or isinstance(self.revision, bool) or self.revision < 0:
+            raise ClassifierError("decision revision must be a non-negative integer")
 
     def to_dict(self) -> dict[str, object]:
         """Mathematics: project decision `d` and advisory/time receipts into a stable control-plane record."""
@@ -296,6 +303,7 @@ class HypervisorDecision:
                 "probabilities": dict(sorted(self.probabilities.items())),
                 "model": self.model,
                 "receipt": self.receipt,
+                "revision": self.revision,
                 "intent_embedding": {
                     "domain": self.intent_domain,
                     "confidence": self.intent_confidence,
@@ -445,16 +453,21 @@ class HypervisorArbitrationResult:
     decision_receipt: str
     decision: HypervisorDecision | None
     replayed: bool
+    decision_revision: int = 0
 
     def __post_init__(self) -> None:
-        """Mathematics: require `fingerprint` and `decision_receipt` to be 256-bit hexadecimal identities."""
+        """Mathematics: require hash identities and revision `r∈ℕ₀` for the accepted or replayed decision."""
 
         for name, value in (("fingerprint", self.fingerprint), ("decision_receipt", self.decision_receipt)):
             if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
                 raise ClassifierError(f"{name} must be lowercase SHA-256 hex")
+        if not isinstance(self.decision_revision, int) or isinstance(self.decision_revision, bool) or self.decision_revision < 0:
+            raise ClassifierError("decision revision must be a non-negative integer")
+        if self.decision is not None and self.decision.revision != self.decision_revision:
+            raise ClassifierError("arbitration result revision does not match decision revision")
 
     def to_dict(self) -> dict[str, object]:
-        """Mathematics: project result `R=(I,f,H,decision,replayed)` into a stable audit record."""
+        """Mathematics: project result `R=(I,f,H,r,decision,replayed)` into a stable audit record."""
 
         return {
             "source": self.source,
@@ -463,6 +476,7 @@ class HypervisorArbitrationResult:
             "logical_time": self.logical_time,
             "fingerprint": self.fingerprint,
             "decision_receipt": self.decision_receipt,
+            "decision_revision": self.decision_revision,
             "action": None if self.decision is None else self.decision.action.value,
             "domain": None if self.decision is None else self.decision.domain.value,
             "replayed": self.replayed,
@@ -581,6 +595,7 @@ class ClassifierHypervisor:
             "danger_probability": danger_answer.noul,
             "probabilities": domain_answer.probabilities,
             "model": batch.model,
+            "revision": self._revision,
             "intent_embedding": intent_prediction.to_dict(),
             "embedding_disagreement": disagreement,
             "virtual_cost": virtual_cost.to_dict(),
@@ -599,6 +614,7 @@ class ClassifierHypervisor:
             intent_prediction.probabilities,
             intent_prediction.digest,
             virtual_cost,
+            self._revision,
         )
 
     @staticmethod
@@ -765,7 +781,7 @@ class HypervisorArbitrationLoop:
         if not isinstance(hypervisor, ClassifierHypervisor):
             raise ClassifierError("arbitration loop requires a ClassifierHypervisor")
         self.hypervisor = hypervisor
-        self._seen: dict[tuple[str, str, int], tuple[str, str]] = {}
+        self._seen: dict[tuple[str, str, int], tuple[str, str, int]] = {}
         self._cycle = 0
 
     @staticmethod
@@ -785,7 +801,7 @@ class HypervisorArbitrationLoop:
         return hashlib.sha256(canonical).hexdigest()
 
     def arbitrate(self, event: HypervisorArbitrationEvent) -> HypervisorArbitrationResult:
-        """Mathematics: apply `L[I]` once, return the same receipt on exact replay, and refuse `I↦f'` when `f'≠f`."""
+        """Mathematics: apply `L[I]` once, return `(receipt,r_original)` on exact replay, and refuse `I↦f'` when `f'≠f`."""
 
         if not isinstance(event, HypervisorArbitrationEvent):
             raise ClassifierError("arbitration requires a HypervisorArbitrationEvent")
@@ -793,7 +809,7 @@ class HypervisorArbitrationLoop:
         fingerprint = self._fingerprint(event)
         previous = self._seen.get(identity)
         if previous is not None:
-            previous_fingerprint, decision_receipt = previous
+            previous_fingerprint, decision_receipt, decision_revision = previous
             if previous_fingerprint != fingerprint:
                 raise HypervisorError("conflicting arbitration retransmission")
             self.hypervisor.journal.append(
@@ -805,6 +821,7 @@ class HypervisorArbitrationLoop:
                     "logical_time": event.logical_time,
                     "fingerprint": fingerprint,
                     "decision_receipt": decision_receipt,
+                    "decision_revision": decision_revision,
                 },
             )
             return HypervisorArbitrationResult(
@@ -816,11 +833,12 @@ class HypervisorArbitrationLoop:
                 decision_receipt,
                 None,
                 True,
+                decision_revision,
             )
 
         decision = self.hypervisor.decide(event.request)
         self._cycle += 1
-        self._seen[identity] = (fingerprint, decision.receipt)
+        self._seen[identity] = (fingerprint, decision.receipt, decision.revision)
         self.hypervisor.journal.append(
             "hypervisor.arbitration.accept",
             {
@@ -830,6 +848,7 @@ class HypervisorArbitrationLoop:
                 "logical_time": event.logical_time,
                 "fingerprint": fingerprint,
                 "decision_receipt": decision.receipt,
+                "decision_revision": decision.revision,
                 "cycle": self._cycle,
             },
         )
@@ -842,10 +861,11 @@ class HypervisorArbitrationLoop:
             decision.receipt,
             decision,
             False,
+            decision.revision,
         )
 
     def snapshot(self) -> dict[str, object]:
-        """Mathematics: serialize finite ledger `L={(I,f,H)}` and cycle count `k` for exact duplicate recovery."""
+        """Mathematics: serialize finite ledger `L={(I,f,H,r)}` and cycle count `k` for exact duplicate recovery."""
 
         return {
             "version": 1,
@@ -857,8 +877,9 @@ class HypervisorArbitrationLoop:
                     "sequence": sequence,
                     "fingerprint": fingerprint,
                     "decision_receipt": decision_receipt,
+                    "decision_revision": decision_revision,
                 }
-                for (source, channel, sequence), (fingerprint, decision_receipt) in sorted(self._seen.items())
+                for (source, channel, sequence), (fingerprint, decision_receipt, decision_revision) in sorted(self._seen.items())
             ],
         }
 
@@ -868,7 +889,7 @@ class HypervisorArbitrationLoop:
         hypervisor: ClassifierHypervisor,
         payload: Mapping[str, Any],
     ) -> "HypervisorArbitrationLoop":
-        """Mathematics: reconstruct `L` only when identities are unique, receipts are hashes, and `k=|L|`."""
+        """Mathematics: reconstruct `L` only when identities are unique, receipts are hashes, revisions are `ℕ₀`, and `k=|L|`."""
 
         if int(payload.get("version", 1)) != 1:
             raise ClassifierError("unsupported hypervisor arbitration snapshot")
@@ -887,6 +908,7 @@ class HypervisorArbitrationLoop:
                 raise ClassifierError("invalid arbitration identity in snapshot")
             fingerprint = str(raw["fingerprint"])
             decision_receipt = str(raw["decision_receipt"])
+            decision_revision = int(raw.get("decision_revision", 0))
             HypervisorArbitrationResult(
                 source,
                 channel,
@@ -896,8 +918,9 @@ class HypervisorArbitrationLoop:
                 decision_receipt,
                 None,
                 True,
+                decision_revision,
             )
-            loop._seen[identity] = (fingerprint, decision_receipt)
+            loop._seen[identity] = (fingerprint, decision_receipt, decision_revision)
         if cycle != len(loop._seen):
             raise ClassifierError("arbitration cycle does not equal admitted event count")
         loop._cycle = cycle

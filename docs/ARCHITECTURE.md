@@ -358,8 +358,10 @@ rules are `docs/ARCHITECTURE.md` clauses 3 and 5 and `docs/REPLACEMENT_SPEC.md`.
 - The hypervisor arbitration loop receives distributed source/channel/sequence
   envelopes, stabilizes exact retransmissions by canonical fingerprint, and
   refuses same-identity payload changes. Its ledger and cycle count checkpoint
-  with the headless OS; learned revision remains a separately witnessed
-  proposal until admitted.
+  with the headless OS. Each ledger entry also binds the decision receipt to
+  the producing classifier revision, so an old duplicate keeps its original
+  revision after a newer revision is admitted; learned revision remains a
+  separately witnessed proposal until admitted.
 - Candidate classifier revisions run in a shadow hypervisor and replace the
   active model only after reproducing every supplied policy witness. Accepted
   revision number and witness digest checkpoint with the policy; mismatches

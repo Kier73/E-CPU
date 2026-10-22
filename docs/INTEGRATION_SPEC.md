@@ -801,6 +801,13 @@ idempotent arbitration boundary, not an authority-changing model promotion;
 future candidate revisions must pass a withheld witness corpus before
 promotion.
 
+Every admitted decision also records the hypervisor revision that produced it.
+The arbitration ledger therefore preserves `I ↦ (fingerprint, receipt,
+revision)`. A duplicate returns the original receipt and original revision even
+after a newer classifier revision is admitted; checkpoint restore preserves the
+same binding. A legacy ledger entry without this field is interpreted as
+revision `0`.
+
 `ClassifierHypervisor.admit_classifier_revision` is the first revision gate.
 It evaluates a candidate in a shadow hypervisor with the current policy,
 intent model, and virtual capacity. Promotion commits only when every supplied

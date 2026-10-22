@@ -70,6 +70,7 @@ system. Each entry has:
 
 | `A-7` | The arbitration loop admits one decision per `(source, channel, sequence)`, reuses the original receipt on an exact retransmission, and refuses a changed payload under that identity across checkpoint restore. | `mailcpu/classifier.py`, `mailcpu/headless.py` | `tests/test_classifier.py::test_hypervisor_rsi_loop_reuses_exact_retransmission_receipt`, `tests/test_classifier.py::test_hypervisor_rsi_loop_refuses_conflicting_retransmission`, `tests/test_classifier.py::test_hypervisor_rsi_loop_ledger_survives_checkpoint_restore` | `INTEGRATION_SPEC.md` 12.1 |
 | `A-8` | A candidate classifier replaces the active model only after reproducing every supplied policy witness in a shadow hypervisor; a mismatch preserves the active model and records refusal. | `mailcpu/classifier.py` | `tests/test_classifier.py::test_hypervisor_revision_gate_admits_witnessed_candidate_and_restores`, `tests/test_classifier.py::test_hypervisor_revision_gate_refuses_mismatch_without_replacing_active_model` | `INTEGRATION_SPEC.md` 12.1 |
+| `A-9` | Every arbitration decision and exact retransmission is bound to the classifier revision that produced the original receipt, including after checkpoint restore. | `mailcpu/classifier.py`, `mailcpu/headless.py` | `tests/test_classifier.py::test_hypervisor_arbitration_binds_revision_across_replay_and_restore` | `INTEGRATION_SPEC.md` 12.1 |
 
 ## Memory
 
