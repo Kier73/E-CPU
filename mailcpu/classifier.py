@@ -744,6 +744,83 @@ class HypervisorArbitrationResult:
 
 
 @dataclass(frozen=True)
+class HypervisorExecutionResult:
+    """One policy-approved operation effect or its exact retransmission."""
+
+    source: str
+    channel: str
+    sequence: int
+    logical_time: int
+    fingerprint: str
+    decision_receipt: str
+    action: HypervisorAction
+    domain: HypervisorDomain
+    effect: Any | None
+    replayed: bool
+    executed: bool
+
+    def __post_init__(self) -> None:
+        """Mathematics: require `I=(source,channel,sequence)`, `t≥0`, hash identities, and `effect∈JSON` with `executed∈{0,1}`."""
+
+        if not isinstance(self.source, str) or not self.source:
+            raise ClassifierError("execution source must be non-empty")
+        if not isinstance(self.channel, str) or not self.channel:
+            raise ClassifierError("execution channel must be non-empty")
+        if not isinstance(self.sequence, int) or isinstance(self.sequence, bool) or self.sequence <= 0:
+            raise ClassifierError("execution sequence must be positive")
+        if not isinstance(self.logical_time, int) or isinstance(self.logical_time, bool) or self.logical_time < 0:
+            raise ClassifierError("execution logical_time must be non-negative")
+        for name, value in (("fingerprint", self.fingerprint), ("decision_receipt", self.decision_receipt)):
+            if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
+                raise ClassifierError(f"{name} must be lowercase SHA-256 hex")
+        if not isinstance(self.action, HypervisorAction) or not isinstance(self.domain, HypervisorDomain):
+            raise ClassifierError("execution result requires typed policy action and domain")
+        if not isinstance(self.replayed, bool) or not isinstance(self.executed, bool):
+            raise ClassifierError("execution replay flags must be boolean")
+        _canonical_json_bytes(self.effect)
+
+    def to_dict(self) -> dict[str, object]:
+        """Mathematics: project durable effect `E[I]=(f,receipt,action,domain,effect)` into canonical JSON state."""
+
+        return {
+            "source": self.source,
+            "channel": self.channel,
+            "sequence": self.sequence,
+            "logical_time": self.logical_time,
+            "fingerprint": self.fingerprint,
+            "decision_receipt": self.decision_receipt,
+            "action": self.action.value,
+            "domain": self.domain.value,
+            "effect": self.effect,
+            "replayed": self.replayed,
+            "executed": self.executed,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any], *, replayed: bool) -> "HypervisorExecutionResult":
+        """Mathematics: invert durable effect projection `J(E[I])` while setting the local replay observation explicitly."""
+
+        if not isinstance(payload, Mapping):
+            raise ClassifierError("execution result snapshot must be a mapping")
+        executed = payload.get("executed", False)
+        if not isinstance(executed, bool):
+            raise ClassifierError("execution result executed flag must be boolean")
+        return cls(
+            str(payload["source"]),
+            str(payload["channel"]),
+            int(payload["sequence"]),
+            int(payload["logical_time"]),
+            str(payload["fingerprint"]),
+            str(payload["decision_receipt"]),
+            HypervisorAction(str(payload["action"])),
+            HypervisorDomain(str(payload["domain"])),
+            payload.get("effect"),
+            replayed,
+            executed,
+        )
+
+
+@dataclass(frozen=True)
 class HypervisorPolicy:
     """Risk thresholds separating autonomous action, review, and authority denial."""
 
@@ -1191,7 +1268,9 @@ class HypervisorArbitrationLoop:
             raise ClassifierError("arbitration loop requires a ClassifierHypervisor")
         self.hypervisor = hypervisor
         self._seen: dict[tuple[str, str, int], tuple[str, str, int]] = {}
+        self._decision_seen: dict[tuple[str, str, int], tuple[str, HypervisorAction, HypervisorDomain, str, int]] = {}
         self._revision_seen: dict[tuple[str, str, int], tuple[str, HypervisorRevisionResult]] = {}
+        self._execution_seen: dict[tuple[str, str, int], tuple[str, HypervisorExecutionResult]] = {}
         self._cycle = 0
 
     @staticmethod
@@ -1265,6 +1344,13 @@ class HypervisorArbitrationLoop:
         decision = self.hypervisor.decide(event.request)
         self._cycle += 1
         self._seen[identity] = (fingerprint, decision.receipt, decision.revision)
+        self._decision_seen[identity] = (
+            fingerprint,
+            decision.action,
+            decision.domain,
+            decision.receipt,
+            decision.revision,
+        )
         self.hypervisor.journal.append(
             "hypervisor.arbitration.accept",
             {
@@ -1289,6 +1375,144 @@ class HypervisorArbitrationLoop:
             False,
             decision.revision,
         )
+
+    @staticmethod
+    def _canonical_effect(effect: Any) -> Any:
+        """Mathematics: normalize operation effect `e` through `J⁻¹(J(e))` only for finite canonical JSON values."""
+
+        try:
+            return json.loads(_canonical_json_bytes(effect).decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise ClassifierError("operation effect is outside the canonical JSON domain") from exc
+
+    @staticmethod
+    def _execution_sort_key(item: tuple[str, HypervisorExecutionResult]) -> tuple[str, str, int]:
+        """Mathematics: order effect records lexicographically by their transport identity `(source,channel,sequence)`."""
+
+        result = item[1]
+        return result.source, result.channel, result.sequence
+
+    def execute(
+        self,
+        event: HypervisorArbitrationEvent,
+        handlers: Mapping[HypervisorDomain | str, Callable[[], Any]],
+        effect_encoder: Callable[[Any], Any] | None = None,
+    ) -> HypervisorExecutionResult:
+        """Mathematics: apply exactly-once effect law `E[I]` after `ALLOW`, replay `E[I]` for equal `f`, and refuse `f'≠f`."""
+
+        if not isinstance(event, HypervisorArbitrationEvent):
+            raise ClassifierError("execution requires a HypervisorArbitrationEvent")
+        if not isinstance(handlers, Mapping):
+            raise ClassifierError("execution handlers must be a mapping")
+        identity = event.identity
+        fingerprint = self._fingerprint(event)
+        previous = self._execution_seen.get(identity)
+        if previous is not None:
+            previous_fingerprint, stored = previous
+            if previous_fingerprint != fingerprint:
+                self.hypervisor.journal.append(
+                    "hypervisor.execution.conflict",
+                    {
+                        "source": event.source,
+                        "channel": event.channel,
+                        "sequence": event.sequence,
+                        "fingerprint": fingerprint,
+                        "previous_fingerprint": previous_fingerprint,
+                    },
+                )
+                raise HypervisorError("conflicting execution retransmission")
+            self.hypervisor.journal.append(
+                "hypervisor.execution.replay",
+                {
+                    "source": event.source,
+                    "channel": event.channel,
+                    "sequence": event.sequence,
+                    "fingerprint": fingerprint,
+                    "decision_receipt": stored.decision_receipt,
+                    "executed": stored.executed,
+                },
+            )
+            return HypervisorExecutionResult(
+                stored.source,
+                stored.channel,
+                stored.sequence,
+                stored.logical_time,
+                stored.fingerprint,
+                stored.decision_receipt,
+                stored.action,
+                stored.domain,
+                stored.effect,
+                True,
+                stored.executed,
+            )
+
+        decision_entry = self._decision_seen.get(identity)
+        if decision_entry is None:
+            arbitration = self.arbitrate(event)
+            if arbitration.decision is None:
+                raise HypervisorError("execution has no first-seen policy decision")
+            action = arbitration.decision.action
+            domain = arbitration.decision.domain
+            decision_receipt = arbitration.decision.receipt
+        else:
+            previous_fingerprint, action, domain, decision_receipt, _ = decision_entry
+            if previous_fingerprint != fingerprint:
+                raise HypervisorError("conflicting execution retransmission")
+
+        effect: Any | None = None
+        executed = False
+        if action is HypervisorAction.ALLOW:
+            handler = handlers.get(domain) or handlers.get(domain.value)
+            if handler is None or not callable(handler):
+                raise HypervisorError(f"no handler for domain: {domain.value}")
+            try:
+                raw_effect = handler()
+                effect = raw_effect if effect_encoder is None else effect_encoder(raw_effect)
+                effect = self._canonical_effect(effect)
+            except Exception as exc:
+                self.hypervisor.journal.append(
+                    "hypervisor.execution.failure",
+                    {
+                        "source": event.source,
+                        "channel": event.channel,
+                        "sequence": event.sequence,
+                        "fingerprint": fingerprint,
+                        "error": f"{type(exc).__name__}: {exc}",
+                    },
+                )
+                raise
+            executed = True
+
+        result = HypervisorExecutionResult(
+            event.source,
+            event.channel,
+            event.sequence,
+            event.logical_time,
+            fingerprint,
+            decision_receipt,
+            action,
+            domain,
+            effect,
+            False,
+            executed,
+        )
+        self._execution_seen[identity] = (fingerprint, result)
+        self.hypervisor.journal.append(
+            "hypervisor.execution.commit",
+            {
+                "source": event.source,
+                "channel": event.channel,
+                "sequence": event.sequence,
+                "logical_time": event.logical_time,
+                "fingerprint": fingerprint,
+                "decision_receipt": decision_receipt,
+                "action": action.value,
+                "domain": domain.value,
+                "executed": executed,
+                "effect": effect,
+            },
+        )
+        return result
 
     def propose_revision(self, proposal: HypervisorRevisionProposal) -> HypervisorRevisionArbitrationResult:
         """Mathematics: apply revision ledger `L_r[I]` once, replay exact `P`, and refuse `I↦f(P')` conflicts."""
@@ -1389,7 +1613,7 @@ class HypervisorArbitrationLoop:
         )
 
     def snapshot(self) -> dict[str, object]:
-        """Mathematics: serialize decision ledger `L` and revision ledger `L_r` with cycle count `k` for exact duplicate recovery."""
+        """Mathematics: serialize decision ledger `L`, decision projections, effect ledger `E`, revision ledger `L_r`, and cycle `k`."""
 
         return {
             "version": 1,
@@ -1404,6 +1628,24 @@ class HypervisorArbitrationLoop:
                     "decision_revision": decision_revision,
                 }
                 for (source, channel, sequence), (fingerprint, decision_receipt, decision_revision) in sorted(self._seen.items())
+            ],
+            "decisions": [
+                {
+                    "source": source,
+                    "channel": channel,
+                    "sequence": sequence,
+                    "fingerprint": fingerprint,
+                    "action": action.value,
+                    "domain": domain.value,
+                    "decision_receipt": decision_receipt,
+                    "decision_revision": decision_revision,
+                }
+                for (source, channel, sequence), (fingerprint, action, domain, decision_receipt, decision_revision)
+                in sorted(self._decision_seen.items())
+            ],
+            "executions": [
+                result.to_dict()
+                for _, result in sorted(self._execution_seen.values(), key=self._execution_sort_key)
             ],
             "revision_proposals": [
                 {
@@ -1457,6 +1699,48 @@ class HypervisorArbitrationLoop:
                 decision_revision,
             )
             loop._seen[identity] = (fingerprint, decision_receipt, decision_revision)
+        for raw in payload.get("decisions", ()):
+            source = str(raw["source"])
+            channel = str(raw["channel"])
+            sequence = int(raw["sequence"])
+            identity = (source, channel, sequence)
+            if identity in loop._decision_seen:
+                raise ClassifierError("duplicate decision identity in snapshot")
+            if identity not in loop._seen or not source or not channel or sequence <= 0:
+                raise ClassifierError("decision snapshot identity is not an admitted arbitration identity")
+            fingerprint = str(raw["fingerprint"])
+            if fingerprint != loop._seen[identity][0]:
+                raise ClassifierError("decision snapshot fingerprint does not match arbitration identity")
+            action = HypervisorAction(str(raw["action"]))
+            domain = HypervisorDomain(str(raw["domain"]))
+            decision_receipt = str(raw["decision_receipt"])
+            decision_revision = int(raw.get("decision_revision", 0))
+            HypervisorExecutionResult(
+                source,
+                channel,
+                sequence,
+                0,
+                fingerprint,
+                decision_receipt,
+                action,
+                domain,
+                None,
+                True,
+                False,
+            )
+            loop._decision_seen[identity] = (fingerprint, action, domain, decision_receipt, decision_revision)
+        for raw in payload.get("executions", ()):
+            result = HypervisorExecutionResult.from_dict(raw, replayed=False)
+            identity = (result.source, result.channel, result.sequence)
+            if identity in loop._execution_seen:
+                raise ClassifierError("duplicate execution identity in snapshot")
+            if identity not in loop._seen or result.fingerprint != loop._seen[identity][0]:
+                raise ClassifierError("execution snapshot identity does not match arbitration ledger")
+            loop._execution_seen[identity] = (result.fingerprint, result)
+            loop._decision_seen.setdefault(
+                identity,
+                (result.fingerprint, result.action, result.domain, result.decision_receipt, loop._seen[identity][2]),
+            )
         for raw in payload.get("revision_proposals", ()):
             source = str(raw["source"])
             channel = str(raw["channel"])

@@ -300,6 +300,188 @@ def test_hypervisor_rsi_loop_ledger_survives_checkpoint_restore() -> None:
     assert restored.environment.kernel.journal.verify()
 
 
+def test_hypervisor_effect_ledger_replays_process_launch_after_duplicate_and_restore() -> None:
+    """Mathematics: `I↦(f,e)` executes one child transition, while equal retransmissions preserve `|P|` and `e`."""
+
+    operating_system = HeadlessOS()
+    init_pid = operating_system.environment.init_pid
+    operating_system.install_source("/bin/child.mca", "HALT\n")
+    before = set(operating_system.environment.kernel.processes)
+    calls = {"count": 0}
+
+    def launch_handler() -> int:
+        """Mathematics: execute one native process transition `P↦P∪{child}` and return its identity."""
+
+        calls["count"] += 1
+        return operating_system.launch_file("/bin/child.mca", parent_pid=init_pid, loader_pid=init_pid)
+
+    def encode_pid(child_pid: int) -> dict[str, int]:
+        """Mathematics: encode process identity `p` as replayable effect `{"pid":p}`."""
+
+        return {"pid": int(child_pid)}
+
+    first = operating_system.hypervisor_dispatch_event(
+        init_pid,
+        "node-a",
+        "process",
+        1,
+        7,
+        "spawn process executable file child image",
+        "/bin/child.mca",
+        {"path": "/bin/child.mca"},
+        {HypervisorDomain.PROCESS: launch_handler},
+        frozenset({"execute"}),
+        effect_encoder=encode_pid,
+    )
+    after_first = set(operating_system.environment.kernel.processes)
+    duplicate = operating_system.hypervisor_dispatch_event(
+        init_pid,
+        "node-a",
+        "process",
+        1,
+        7,
+        "spawn process executable file child image",
+        "/bin/child.mca",
+        {"path": "/bin/child.mca"},
+        {HypervisorDomain.PROCESS: launch_handler},
+        frozenset({"execute"}),
+        effect_encoder=encode_pid,
+    )
+
+    assert first.executed is True
+    assert first.replayed is False
+    assert duplicate.replayed is True
+    assert duplicate.effect == first.effect
+    assert calls["count"] == 1
+    assert after_first == before | {first.effect["pid"]}
+    assert set(operating_system.environment.kernel.processes) == after_first
+
+    restored = HeadlessOS.from_snapshot(operating_system.snapshot())
+    restored_calls = {"count": 0}
+
+    def restored_handler() -> int:
+        """Mathematics: this handler would add a child, so its zero invocation count witnesses replay without mutation."""
+
+        restored_calls["count"] += 1
+        return restored.launch_file("/bin/child.mca", parent_pid=init_pid, loader_pid=init_pid)
+
+    restored_duplicate = restored.hypervisor_dispatch_event(
+        init_pid,
+        "node-a",
+        "process",
+        1,
+        7,
+        "spawn process executable file child image",
+        "/bin/child.mca",
+        {"path": "/bin/child.mca"},
+        {HypervisorDomain.PROCESS: restored_handler},
+        frozenset({"execute"}),
+        effect_encoder=encode_pid,
+    )
+    assert restored_duplicate.replayed is True
+    assert restored_duplicate.effect == first.effect
+    assert restored_calls["count"] == 0
+    assert set(restored.environment.kernel.processes) == after_first
+    assert restored.environment.kernel.journal.verify()
+
+    conflicting = HypervisorArbitrationEvent(
+        "node-a",
+        "process",
+        1,
+        7,
+        HypervisorRequest(
+            "spawn process executable file child image",
+            "/bin/other.mca",
+            {"path": "/bin/other.mca"},
+            frozenset({"execute"}),
+            frozenset({"execute"}),
+        ),
+    )
+    with pytest.raises(HypervisorError, match="conflicting execution retransmission"):
+        restored.hypervisor_arbitration.execute(conflicting, {HypervisorDomain.PROCESS: restored_handler})
+
+
+def test_hypervisor_effect_ledger_records_denial_without_invoking_handler() -> None:
+    """Mathematics: `action≠ALLOW⇒effect=∅∧Δstate=0`, and retransmission returns that refusal without handler invocation."""
+
+    operating_system = HeadlessOS()
+    init_pid = operating_system.environment.init_pid
+    limited_pid = operating_system.environment.kernel.spawn(
+        "limited-process-launcher",
+        capabilities=(Capability("/safe", frozenset({"read"})),),
+        parent_pid=init_pid,
+    )
+    calls = {"count": 0}
+
+    def forbidden_handler() -> dict[str, str]:
+        """Mathematics: any invocation would violate the denial witness `ΔP=0`, so the counter exposes accidental dispatch."""
+
+        calls["count"] += 1
+        return {"unexpected": "mutation"}
+
+    first = operating_system.hypervisor_dispatch_event(
+        limited_pid,
+        "node-a",
+        "process",
+        2,
+        8,
+        "spawn process executable file child image",
+        "/bin/child.mca",
+        {"path": "/bin/child.mca"},
+        {HypervisorDomain.PROCESS: forbidden_handler},
+        frozenset({"execute"}),
+    )
+    duplicate = operating_system.hypervisor_dispatch_event(
+        limited_pid,
+        "node-a",
+        "process",
+        2,
+        8,
+        "spawn process executable file child image",
+        "/bin/child.mca",
+        {"path": "/bin/child.mca"},
+        {HypervisorDomain.PROCESS: forbidden_handler},
+        frozenset({"execute"}),
+    )
+
+    assert first.executed is False
+    assert first.effect is None
+    assert duplicate.replayed is True
+    assert duplicate.effect is None
+    assert calls["count"] == 0
+    assert operating_system.environment.kernel.journal.verify()
+
+
+def test_hypervisor_effect_ledger_surfaces_handler_failure_without_fake_completion() -> None:
+    """Mathematics: `handler↦⊥` records failure and leaves `I∉dom(E)`, so no false completion can be replayed."""
+
+    operating_system = HeadlessOS()
+    init_pid = operating_system.environment.init_pid
+
+    def failing_handler() -> dict[str, str]:
+        """Mathematics: model an uncommitted native transition by returning no effect and raising `⊥`."""
+
+        raise RuntimeError("native operation failed")
+
+    with pytest.raises(RuntimeError, match="native operation failed"):
+        operating_system.hypervisor_dispatch_event(
+            init_pid,
+            "node-a",
+            "process",
+            3,
+            9,
+            "spawn process executable file child image",
+            "/bin/child.mca",
+            {"path": "/bin/child.mca"},
+            {HypervisorDomain.PROCESS: failing_handler},
+            frozenset({"execute"}),
+        )
+
+    assert operating_system.hypervisor_arbitration.snapshot()["executions"] == []
+    assert any(record.kind == "hypervisor.execution.failure" for record in operating_system.environment.kernel.journal.records())
+    assert operating_system.environment.kernel.journal.verify()
+
+
 def test_hypervisor_revision_gate_admits_witnessed_candidate_and_restores() -> None:
     """Mathematics: candidate promotion satisfies `∀w∈W:π(H_candidate(w))=π(H_current(w))` and preserves revision identity across restore."""
 

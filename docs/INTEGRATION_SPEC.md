@@ -898,6 +898,16 @@ idempotent arbitration boundary, not an authority-changing model promotion;
 future candidate revisions must pass a withheld witness corpus before
 promotion.
 
+`HypervisorArbitrationLoop.execute()` extends that boundary to native effects.
+For the same identity it stores
+`I ↦ (fingerprint, decision_receipt, action, domain, effect)`. An allowed
+handler runs once and commits a canonical JSON effect; a denied or reviewed
+operation commits an empty effect without invoking its handler; an exact
+retransmission returns the stored effect without mutation; and a changed
+payload is refused. The effect ledger participates in the same headless
+checkpoint, making a lost acknowledgement recoverable for process and package
+operations rather than merely recoverable for their policy decisions.
+
 Every admitted decision also records the hypervisor revision that produced it.
 The arbitration ledger therefore preserves `I ↦ (fingerprint, receipt,
 revision)`. A duplicate returns the original receipt and original revision even

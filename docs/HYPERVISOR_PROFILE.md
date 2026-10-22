@@ -352,7 +352,30 @@ The ledger is checkpointed with the headless OS. A legacy ledger entry without
 `decision_revision` is loaded as revision `0`, preserving the state format of
 the earlier arbitration stage.
 
-### 8.1 Revision proposal envelope
+### 8.1 Effect ledger
+
+Decision replay alone is not enough for a distributed operation: a lost
+acknowledgement after `ALLOW` must not launch a second process or repeat an
+unidentified mutation. `HypervisorArbitrationLoop.execute()` therefore adds a
+second ledger over the same event identity:
+
+```text
+E : I ↦ (fingerprint, decision_receipt, action, domain, effect)
+
+I ∉ dom(E) ∧ action=ALLOW  -> run handler once, canonicalize effect, commit E[I]
+I ∉ dom(E) ∧ action≠ALLOW -> commit E[I] with effect=∅
+I ∈ dom(E) ∧ f'=f          -> return E[I] without handler execution
+I ∈ dom(E) ∧ f'≠f         -> refuse conflicting retransmission
+```
+
+The effect is a finite canonical JSON value supplied by the adapter. Process
+launch exposes `{"pid": child_pid}` and package installation can expose the
+verified image digest, so a restored node can answer a retransmission without
+re-entering the native mutation path. Handler failures are journaled and do
+not receive a fabricated completion record. The effect ledger is checkpointed
+with the decision and revision ledgers.
+
+### 8.2 Revision proposal envelope
 
 `HypervisorRevisionProposal` carries a candidate model snapshot and semantic
 witnesses through a second identity-stable ledger:
@@ -397,6 +420,7 @@ The OS exposes these control-plane entrypoints:
 | `hypervisor_decide(request)` | Return a decision without executing an effect |
 | `hypervisor_arbitrate(event)` | Apply identity-stable receive/stabilize/inspect |
 | `hypervisor_dispatch(pid, ...)` | Derive rights from the process, attach epoch, and gate one handler |
+| `hypervisor_dispatch_event(pid, source, channel, sequence, ...)` | Gate one canonical operation effect and replay it without duplicate handler execution |
 | `HypervisorRevisionChannel` | Carry a validated revision proposal over the existing reliable/TCP path |
 | `ReplicatedRevisionProposalRelay` | Persist and deliver revision proposals through the controlled replicated mailbox |
 
@@ -476,6 +500,7 @@ principal witnesses are:
 - witnessed candidate revision admission and refusal;
 - revision-bound arbitration replay across admission and restore;
 - typed process and package adapters with capability-derived refusal;
+- checkpointed operation effects with duplicate process-launch suppression;
 - virtual-cost ceiling division and intent probability normalisation.
 
 The complete executable witness is run with:

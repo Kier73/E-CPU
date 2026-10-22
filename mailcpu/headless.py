@@ -16,6 +16,7 @@ from .classifier import (
     HypervisorArbitrationEvent,
     HypervisorArbitrationLoop,
     HypervisorArbitrationResult,
+    HypervisorExecutionResult,
     HypervisorRevisionArbitrationResult,
     HypervisorRevisionProposal,
     HypervisorRequest,
@@ -1707,7 +1708,21 @@ class HeadlessOS:
         required_rights: frozenset[str] = frozenset(),
         destructive: bool = False,
     ) -> tuple[HypervisorDecision, Any | None]:
-        """Mathematics: derive `G={r∈R | ∃c∈Caps(pid):c.allows(resource,r)}` and attach current epoch `τ=(λ,phase,τ_chem)`."""
+        """Mathematics: evaluate `H(Q(pid,operation,resource,payload))` and invoke one handler iff `action=ALLOW`."""
+
+        request = self._make_hypervisor_request(pid, operation, resource, payload, required_rights, destructive)
+        return self.hypervisor.dispatch(request, handlers)
+
+    def _make_hypervisor_request(
+        self,
+        pid: int,
+        operation: str,
+        resource: str,
+        payload: Mapping[str, Any],
+        required_rights: frozenset[str],
+        destructive: bool,
+    ) -> HypervisorRequest:
+        """Mathematics: construct `Q=(op,res,payload,R_req,R_granted,destructive,τ)` from process capabilities and scheduler epoch."""
 
         process = self.environment.kernel._process(pid)
         granted = frozenset(
@@ -1716,7 +1731,7 @@ class HeadlessOS:
             if any(capability.allows(resource, right) for capability in process.capabilities)
         )
         epoch = self.vm.scheduler.system_epoch
-        request = HypervisorRequest(
+        return HypervisorRequest(
             operation=operation,
             resource=resource,
             payload=dict(payload),
@@ -1730,7 +1745,40 @@ class HeadlessOS:
                 "chemical_tau": epoch.chemical_tau,
             },
         )
-        return self.hypervisor.dispatch(request, handlers)
+
+    def hypervisor_dispatch_event(
+        self,
+        pid: int,
+        source: str,
+        channel: str,
+        sequence: int,
+        logical_time: int,
+        operation: str,
+        resource: str,
+        payload: Mapping[str, Any],
+        handlers: Mapping[HypervisorDomain | str, Callable[[], Any]],
+        required_rights: frozenset[str] = frozenset(),
+        destructive: bool = False,
+        effect_encoder: Callable[[Any], Any] | None = None,
+    ) -> HypervisorExecutionResult:
+        """Mathematics: form event `e=(source,channel,sequence,logical_time,Q)` and commit at most one canonical effect `E[I]`."""
+
+        request = self._make_hypervisor_request(pid, operation, resource, payload, required_rights, destructive)
+        event = HypervisorArbitrationEvent(source, channel, sequence, logical_time, request)
+
+        def wrap_handler(handler: Callable[[], Any]) -> Callable[[], Any]:
+            """Mathematics: lift native result `x` into the replay domain `encode(x)` without executing before arbitration."""
+
+            def wrapped() -> Any:
+                """Mathematics: evaluate `encode(handler())` exactly when the effect ledger admits the first execution."""
+
+                raw = handler()
+                return raw if effect_encoder is None else effect_encoder(raw)
+
+            return wrapped
+
+        wrapped_handlers = {key: wrap_handler(handler) for key, handler in handlers.items()}
+        return self.hypervisor_arbitration.execute(event, wrapped_handlers)
 
     def hypervisor_read_file(
         self,
