@@ -403,6 +403,22 @@ class VirtualMemory:
         clone._shared_regions = dict(self._shared_regions)
         return clone
 
+    def commit_from(self, candidate: "VirtualMemory") -> None:
+        """Mathematics: replace this state by a validated clone `S:=S_candidate` only when page geometry and backing identity agree."""
+
+        if not isinstance(candidate, VirtualMemory):
+            raise VirtualMemoryError("memory commit candidate must be VirtualMemory")
+        if (
+            candidate.page_size != self.page_size
+            or candidate.max_pages != self.max_pages
+            or candidate._page_backing is not self._page_backing
+        ):
+            raise VirtualMemoryError("memory commit candidate has incompatible configuration")
+        self._mappings = dict(candidate._mappings)
+        self._reservations = dict(candidate._reservations)
+        self._blobs = dict(candidate._blobs)
+        self._shared_regions = dict(candidate._shared_regions)
+
     def mapped_pages(self) -> tuple[PageMapping, ...]:
         """Mathematics: expose the finite mapping relation `M` ordered by virtual page number."""
 

@@ -308,6 +308,9 @@ rules are `docs/ARCHITECTURE.md` clauses 3 and 5 and `docs/REPLACEMENT_SPEC.md`.
   records, and a digest-preserving `DynamicLinkPlan`. Relative actions and
   explicitly supplied symbol bindings produce typed write intents without
   mutating memory before a later linker stage admits them.
+- `DynamicLinker` resolves `DT_NEEDED` through an explicit provider relation,
+  assigns deterministic page-aligned dependency bases, stages a clone, and
+  commits relocation writes only after every image and target preflight passes.
 
 ### 7.9 Control plane
 

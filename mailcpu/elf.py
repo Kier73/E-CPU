@@ -299,6 +299,40 @@ class ElfImage:
             )
         return DynamicLinkPlan(base, dynamic.needed, tuple(actions))
 
+    def apply_relocations(self, memory: "VirtualMemory", plan: DynamicLinkPlan) -> None:
+        """Mathematics: preflight every `write(target,width)` then commit `bytes(value)` for the complete relocation action set."""
+
+        for action in plan.actions:
+            width = _relocation_width(self.machine, action.relocation_type)
+            if action.value < 0 or action.value >= 1 << (8 * width):
+                raise ElfError(f"relocation value does not fit {width * 8}-bit target: {action.value}")
+            try:
+                memory.validate_access(action.target_address, width, "write")
+            except Exception as error:
+                raise ElfError(f"relocation target is not writable: {action.target_address:#x}") from error
+        for action in plan.actions:
+            width = _relocation_width(self.machine, action.relocation_type)
+            try:
+                memory.write(action.target_address, int(action.value).to_bytes(width, self.endian))
+            except Exception as error:
+                raise ElfError(f"relocation write failed at {action.target_address:#x}") from error
+
+
+def _relocation_width(machine: int, relocation_type: int) -> int:
+    """Mathematics: map each admitted relocation family to its target word width `w∈{4,8}`."""
+
+    if machine == 62 and relocation_type in {1, 6, 7, 8}:
+        return 8
+    if machine == 3 and relocation_type in {1, 6, 7, 8}:
+        return 4
+    if machine == 183 and relocation_type in {257, 1025, 1026, 1027}:
+        return 8
+    if machine == 40 and relocation_type in {2, 21, 22, 23}:
+        return 4
+    if machine == 243 and relocation_type in {2, 3, 5, 6}:
+        return 8
+    raise ElfError(f"unsupported relocation width for machine {machine}, type {relocation_type}")
+
 
 def _page_runs(page_numbers: tuple[int, ...]) -> tuple[tuple[int, int], ...]:
     """Mathematics: factor sorted `P` into maximal consecutive intervals `(start,length)` whose union equals `P`."""

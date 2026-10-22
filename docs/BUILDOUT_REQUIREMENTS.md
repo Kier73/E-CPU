@@ -43,10 +43,18 @@ actions and requires explicit bindings for undefined symbols, producing a
 typed immutable `DynamicLinkPlan`; dependency loading and memory mutation are
 the next linker slice.
 
+#### Stage 6 implemented
+
+`DynamicLinker` now resolves named ELF providers, deduplicates dependency
+cycles, assigns deterministic page-aligned bases, builds a complete symbol map,
+and applies supported relocation words to a staging clone before committing it
+to virtual memory. Missing dependencies, unsupported relocation types, and
+read-only targets preserve the caller's memory state.
+
 #### Requirements
 1. **WASM-to-MailCPU Transpiler**: Map WebAssembly linear memory and typed control-flow operations to MailCPU content-addressed pages and mailbox queues $\mathcal{Q}$.
 2. **LLVM Architecture Target**: Implement a MailCPU code generator targeting the fundamental nine-instruction transition algebra (`SET`, `COPY`, `ADD`, `COMPARE`, `BRANCH`, `SEND`, `WAIT`, `SYSCALL`, `HALT`).
-3. **Dynamic ELF Loader & Relocation**: Extend static segment staging in `mailcpu/elf.py` to support dynamic linking, symbol tables, and relocations. **Dynamic metadata parsing and relocation planning are implemented; dependency loading and relocation application remain.**
+3. **Dynamic ELF Loader & Relocation**: Extend static segment staging in `mailcpu/elf.py` to support dynamic linking, symbol tables, and relocations. **Dynamic metadata parsing, relocation planning, provider resolution, and transactional application are implemented; broader ABI/linker coverage remains.**
 
 ---
 

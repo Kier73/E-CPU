@@ -661,6 +661,11 @@ The executable boundary admits ELF payloads for virtual-memory staging.
   dynamic-symbol, and REL/RELA records. `ElfImage.plan_relocations` emits
   relative and explicitly bound symbol write intents with load-bias arithmetic;
   unresolved symbols and unsupported relocation types remain typed failures.
+- `DynamicLinker` resolves named providers, deduplicates dependency cycles,
+  assigns deterministic page-aligned ET_DYN bases, stages all images into a
+  clone, and commits supported relocation writes only after target preflight.
+  Missing providers, incompatible sonames, read-only targets, and unsupported
+  relocation families preserve the caller memory image.
 - Load staging maps maximal page runs, copies file-backed bytes, preserves zero-filled BSS, and applies writable and non-writable page protections while exposing declared executable pages separately.
 - `HeadlessOS.load_elf_image` reads the payload through the virtual descriptor path, journals its digest, entry point, and load bias, and stages it into a process memory image.
 

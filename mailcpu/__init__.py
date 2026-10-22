@@ -279,6 +279,7 @@ from .socket_transport import SocketTransport, SocketTransportClosed, SocketTran
 from .replicated_mailbox import ReplicatedMailboxError, ReplicatedMailboxNode, ReplicatedMailboxStore, ReplicationReceipt
 from .remote_memory import RemotePageError, RemotePageMissing, RemotePageStore, RemotePageTimeout
 from .ingestion import ArtifactIngestionError, ArtifactIngestor, ArtifactKind, IngestedArtifact, ingest_bytes, ingest_path
+from .linker import DynamicLinkResult, DynamicLinker, ElfDependencyProvider, LinkerError, LoadedElf, MappingElfProvider
 
 __all__ = [
     "InMemoryTransport",
@@ -562,4 +563,10 @@ __all__ = [
     "IngestedArtifact",
     "ingest_bytes",
     "ingest_path",
+    "DynamicLinkResult",
+    "DynamicLinker",
+    "ElfDependencyProvider",
+    "LinkerError",
+    "LoadedElf",
+    "MappingElfProvider",
 ]

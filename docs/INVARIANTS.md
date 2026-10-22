@@ -80,6 +80,7 @@ system. Each entry has:
 | ID | Statement | Establishes | Enforced by | Required by |
 |---|---|---|---|---|
 | `E-1` | Dynamic ELF dependencies and relative relocations are decoded deterministically, while undefined symbols require explicit bindings. | `mailcpu/elf.py` | `tests/test_dynamic_elf.py::test_dynamic_elf_parses_dependencies_and_relative_relocation_plan`, `tests/test_dynamic_elf.py::test_dynamic_elf_requires_explicit_external_symbol_binding` | `INTEGRATION_SPEC.md` 11.5 |
+| `E-2` | Dynamic linking commits staged images and relocation writes only after provider, target, and relocation preconditions pass. | `mailcpu/linker.py`, `mailcpu/memory.py` | `tests/test_linker.py::test_dynamic_linker_missing_provider_and_readonly_target_preserve_memory`, `tests/test_linker.py::test_dynamic_linker_resolves_provider_and_applies_relocation_transactionally` | `INTEGRATION_SPEC.md` 11.5 |
 
 ## Descriptors and blocking
 
