@@ -563,3 +563,15 @@ its own process capabilities, and a lost acknowledgement replays one
 checkpointed process effect without launching a second child. The operation
 recovery coordinator now owns that product's checkpoint, direction validation,
 retry, service, send, and receive transitions.
+
+The operation result path is now composed into the same recovery product.
+`HypervisorOperationDuplexRecoveryCoordinator` checkpoints both socket
+transports, both reliable FIFOs, the headless hypervisor effect ledger, and the
+response channel's operation-identity ledger. Origin and executor roles have
+reciprocal direction laws, so a request path cannot be rebound as a response
+path or to the wrong peer. A real AF_INET witness loses both acknowledgement
+paths, restores both sides, replays the response and request without invoking
+the process handler twice, and leaves one child plus one canonical effect. The
+witness also derives an advisory process/package intent candidate from live
+operation states; held-out prediction and authority monotonicity are checked
+before the candidate is admitted.

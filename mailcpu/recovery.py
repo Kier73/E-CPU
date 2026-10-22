@@ -28,7 +28,7 @@ from .classifier import (
     HypervisorRevisionArbitrationResult,
 )
 from .headless import HeadlessOS
-from .hypervisor_transport import HypervisorOperationChannel
+from .hypervisor_transport import HypervisorOperationChannel, HypervisorOperationResultChannel
 from .replicated_mailbox import ReplicatedMailboxNode, ReplicatedMailboxStore
 from .reliability import ReliableChannel
 from .revision_relay import ReplicatedRevisionProposalRelay
@@ -36,6 +36,7 @@ from .socket_transport import SocketTransport
 
 
 RecoveryDirection = Literal["outbound", "inbound"]
+DuplexOperationRole = Literal["origin", "executor"]
 
 
 def _validate_operation_binding(
@@ -511,6 +512,334 @@ class HypervisorOperationRecoveryCoordinator:
             self.channel.next_receive_sequence,
             tuple(self.channel.failed_sequences),
         )
+
+
+@dataclass(frozen=True)
+class DuplexOperationRecoveryCheckpoint:
+    """A versioned checkpoint for both reliable operation directions and their hypervisor state."""
+
+    request_transport: dict[str, Any]
+    request_channel: dict[str, Any]
+    response_transport: dict[str, Any]
+    response_channel: dict[str, Any]
+    operating_system: dict[str, Any]
+    role: DuplexOperationRole
+
+    @classmethod
+    def capture(
+        cls,
+        request_transport: SocketTransport,
+        request_channel: ReliableChannel,
+        response_transport: SocketTransport,
+        response_channel: HypervisorOperationResultChannel,
+        operating_system: HeadlessOS,
+        *,
+        role: DuplexOperationRole,
+    ) -> "DuplexOperationRecoveryCheckpoint":
+        """Mathematics: capture `D=(T_q,R_q,T_r,R_r,OS,S,role)` only after both direction laws and bindings hold."""
+
+        _validate_duplex_binding(
+            request_transport,
+            request_channel,
+            response_transport,
+            response_channel,
+            role,
+            request_transport.peer_endpoint,
+        )
+        return cls(
+            deepcopy(request_transport.snapshot()),
+            deepcopy(request_channel.snapshot()),
+            deepcopy(response_transport.snapshot()),
+            deepcopy(response_channel.snapshot()),
+            deepcopy(operating_system.snapshot()),
+            role,
+        )
+
+    @classmethod
+    def from_snapshot(cls, payload: Mapping[str, Any]) -> "DuplexOperationRecoveryCheckpoint":
+        """Mathematics: reconstruct `D` only from six complete mapping factors and role `∈{origin,executor}`."""
+
+        if int(payload.get("version", 1)) != 1:
+            raise RecoveryCoordinatorError("unsupported duplex operation checkpoint version")
+        request_transport = payload.get("request_transport")
+        request_channel = payload.get("request_channel")
+        response_transport = payload.get("response_transport")
+        response_channel = payload.get("response_channel")
+        operating_system = payload.get("operating_system")
+        role = str(payload.get("role", ""))
+        factors = (
+            request_transport,
+            request_channel,
+            response_transport,
+            response_channel,
+            operating_system,
+        )
+        if any(not isinstance(factor, Mapping) for factor in factors) or role not in ("origin", "executor"):
+            raise RecoveryCoordinatorError("duplex operation checkpoint is incomplete")
+        return cls(
+            deepcopy(dict(request_transport)),
+            deepcopy(dict(request_channel)),
+            deepcopy(dict(response_transport)),
+            deepcopy(dict(response_channel)),
+            deepcopy(dict(operating_system)),
+            role,  # type: ignore[arg-type]
+        )
+
+    def snapshot(self) -> dict[str, object]:
+        """Mathematics: serialize `D` with independent deep copies so restore cannot alias mutable factors."""
+
+        return {
+            "version": 1,
+            "request_transport": deepcopy(self.request_transport),
+            "request_channel": deepcopy(self.request_channel),
+            "response_transport": deepcopy(self.response_transport),
+            "response_channel": deepcopy(self.response_channel),
+            "operating_system": deepcopy(self.operating_system),
+            "role": self.role,
+        }
+
+
+@dataclass(frozen=True)
+class DuplexOperationRecoveryStatus:
+    """Observable request/response recovery state for one duplex hypervisor product."""
+
+    role: DuplexOperationRole
+    peer: str
+    request_pending_sequences: tuple[int, ...]
+    response_pending_sequences: tuple[int, ...]
+    request_receive_sequence: int
+    response_receive_sequence: int
+    request_failed_sequences: tuple[int, ...]
+    response_failed_sequences: tuple[int, ...]
+
+
+class HypervisorOperationDuplexRecoveryCoordinator:
+    """Own request and response recovery as one peer-bound hypervisor state product."""
+
+    def __init__(
+        self,
+        request_transport: SocketTransport,
+        request_channel: ReliableChannel,
+        response_transport: SocketTransport,
+        response_channel: HypervisorOperationResultChannel,
+        operating_system: HeadlessOS,
+        *,
+        role: DuplexOperationRole,
+    ) -> None:
+        """Mathematics: bind `D=(T_q,R_q,T_r,R_r,OS,S,role)` and enforce reciprocal request/result directions."""
+
+        _validate_duplex_binding(
+            request_transport,
+            request_channel,
+            response_transport,
+            response_channel,
+            role,
+            request_transport.peer_endpoint,
+        )
+        if not isinstance(operating_system, HeadlessOS):
+            raise RecoveryCoordinatorError("duplex operation coordinator requires a HeadlessOS")
+        self.request_transport = request_transport
+        self.request_channel = request_channel
+        self.request_operation = HypervisorOperationChannel(request_channel)
+        self.response_transport = response_transport
+        self.response_channel = response_channel
+        self.operating_system = operating_system
+        self.role = role
+
+    @classmethod
+    def capture(
+        cls,
+        request_transport: SocketTransport,
+        request_channel: ReliableChannel,
+        response_transport: SocketTransport,
+        response_channel: HypervisorOperationResultChannel,
+        operating_system: HeadlessOS,
+        *,
+        role: DuplexOperationRole,
+    ) -> "DuplexOperationRecoveryCheckpoint":
+        """Mathematics: expose the complete checkpoint boundary `capture(D)` without creating another ledger."""
+
+        return DuplexOperationRecoveryCheckpoint.capture(
+            request_transport,
+            request_channel,
+            response_transport,
+            response_channel,
+            operating_system,
+            role=role,
+        )
+
+    def checkpoint(self) -> DuplexOperationRecoveryCheckpoint:
+        """Mathematics: snapshot the current product `D` after socket buffers and semantic ledgers are quiescent."""
+
+        return self.capture(
+            self.request_transport,
+            self.request_channel,
+            self.response_transport,
+            self.response_channel,
+            self.operating_system,
+            role=self.role,
+        )
+
+    @classmethod
+    def rebind(
+        cls,
+        checkpoint: DuplexOperationRecoveryCheckpoint,
+        request_socket: Any,
+        response_socket: Any,
+        *,
+        role: DuplexOperationRole,
+        peer: str,
+    ) -> "HypervisorOperationDuplexRecoveryCoordinator":
+        """Mathematics: realize `bind(rebind(T_q),restore(R_q),rebind(T_r),restore(R_r,S),restore(OS))` after identity checks."""
+
+        if not isinstance(checkpoint, DuplexOperationRecoveryCheckpoint):
+            raise RecoveryCoordinatorError("duplex rebind requires a DuplexOperationRecoveryCheckpoint")
+        if role != checkpoint.role:
+            raise RecoveryCoordinatorError("duplex rebind role does not match checkpoint")
+        if not peer:
+            raise RecoveryCoordinatorError("duplex rebind requires a non-empty peer")
+        for raw_socket in (request_socket, response_socket):
+            if not all(callable(getattr(raw_socket, method, None)) for method in ("send", "recv", "close")):
+                raise RecoveryCoordinatorError("duplex rebind requires two connected raw sockets")
+        if request_socket is response_socket:
+            raise RecoveryCoordinatorError("duplex rebind requires independent request and response sockets")
+        request_transport: SocketTransport | None = None
+        response_transport: SocketTransport | None = None
+        try:
+            request_transport = SocketTransport.from_snapshot(request_socket, deepcopy(checkpoint.request_transport))
+            response_transport = SocketTransport.from_snapshot(response_socket, deepcopy(checkpoint.response_transport))
+            if request_transport.peer_endpoint != peer or response_transport.peer_endpoint != peer:
+                raise RecoveryCoordinatorError("duplex rebound transport peer does not match checkpoint")
+            request_channel = ReliableChannel.from_snapshot(deepcopy(checkpoint.request_channel), request_transport)
+            response_channel = HypervisorOperationResultChannel.from_snapshot(
+                deepcopy(checkpoint.response_channel),
+                response_transport,
+            )
+            operating_system = HeadlessOS.from_snapshot(deepcopy(checkpoint.operating_system))
+            return cls(
+                request_transport,
+                request_channel,
+                response_transport,
+                response_channel,
+                operating_system,
+                role=role,
+            )
+        except Exception:
+            for transport in (request_transport, response_transport):
+                if transport is not None:
+                    transport.close()
+            if request_transport is None:
+                try:
+                    request_socket.close()
+                except OSError:
+                    pass
+            if response_transport is None:
+                try:
+                    response_socket.close()
+                except OSError:
+                    pass
+            raise
+
+    def retry(self) -> tuple[int, ...]:
+        """Mathematics: advance `t:=t+1` and retransmit only the product's outbound reliable factor."""
+
+        if self.role == "origin":
+            return self.request_channel.tick()
+        return self.response_channel.channel.tick()
+
+    def service(self) -> tuple[int, ...]:
+        """Mathematics: remove `ACK(s)` from the role's outbound pending set without executing a second effect."""
+
+        if self.role == "origin":
+            return self.request_channel.process_ack()
+        return self.response_channel.channel.process_ack()
+
+    def send(self, event: HypervisorArbitrationEvent) -> int:
+        """Mathematics: origin transition `F_s := send(event)` retains the request until `ACK(s)` is serviced."""
+
+        if self.role != "origin":
+            raise RecoveryCoordinatorError("only an origin duplex coordinator can send")
+        return self.request_operation.send(event)
+
+    def receive_and_reply(
+        self,
+        pid: int,
+        handlers: Mapping[HypervisorDomain | str, Callable[[], Any]],
+        effect_encoder: Callable[[Any], Any] | None = None,
+    ) -> HypervisorExecutionResult | None:
+        """Mathematics: executor transition `peek(request)→authorize→execute/replay→send(result)→ACK(request)`."""
+
+        if self.role != "executor":
+            raise RecoveryCoordinatorError("only an executor duplex coordinator can receive operations")
+
+        def authorize(event: HypervisorArbitrationEvent) -> HypervisorArbitrationEvent:
+            """Mathematics: replace remote authority with local capability projection `G(pid,resource)` while preserving `I(e)` and time."""
+
+            return self.operating_system.hypervisor_authorize_event(pid, event)
+
+        return self.request_operation.receive_and_reply(
+            self.operating_system.hypervisor_arbitration,
+            authorize,
+            handlers,
+            self.response_channel,
+            effect_encoder,
+        )
+
+    def receive_result(self) -> HypervisorExecutionResult | None:
+        """Mathematics: origin transition `peek(result)→semantic ledger→consume(result)→ACK(result)` returns one canonical effect."""
+
+        if self.role != "origin":
+            raise RecoveryCoordinatorError("only an origin duplex coordinator can receive results")
+        return self.response_channel.receive()
+
+    def status(self) -> DuplexOperationRecoveryStatus:
+        """Mathematics: expose both pending domains, FIFO cursors, and failed sets without changing `D`."""
+
+        return DuplexOperationRecoveryStatus(
+            self.role,
+            self.request_transport.peer_endpoint,
+            self.request_channel.pending_sequences(),
+            self.response_channel.channel.pending_sequences(),
+            self.request_channel.next_receive_sequence,
+            self.response_channel.channel.next_receive_sequence,
+            tuple(self.request_channel.failed_sequences),
+            tuple(self.response_channel.channel.failed_sequences),
+        )
+
+
+def _validate_duplex_binding(
+    request_transport: SocketTransport,
+    request_channel: ReliableChannel,
+    response_transport: SocketTransport,
+    response_channel: HypervisorOperationResultChannel,
+    role: DuplexOperationRole,
+    peer: str,
+) -> None:
+    """Mathematics: enforce reciprocal bindings `R_q` and `R_r` share `(local,peer)` and reverse direction by role."""
+
+    if not isinstance(request_transport, SocketTransport) or not isinstance(response_transport, SocketTransport):
+        raise RecoveryCoordinatorError("duplex binding requires two SocketTransports")
+    if request_transport is response_transport:
+        raise RecoveryCoordinatorError("duplex binding requires independent request and response transports")
+    if not isinstance(request_channel, ReliableChannel) or request_channel.transport is not request_transport:
+        raise RecoveryCoordinatorError("duplex request channel is not bound to request transport")
+    if not isinstance(response_channel, HypervisorOperationResultChannel) or response_channel.channel.transport is not response_transport:
+        raise RecoveryCoordinatorError("duplex response channel is not bound to response transport")
+    if role not in ("origin", "executor") or not peer:
+        raise RecoveryCoordinatorError("duplex binding requires role and peer")
+    if (
+        request_transport.local_endpoint != response_transport.local_endpoint
+        or request_transport.peer_endpoint != response_transport.peer_endpoint
+        or request_transport.peer_endpoint != peer
+    ):
+        raise RecoveryCoordinatorError("duplex transports do not share local and peer identities")
+    request_direction: RecoveryDirection = "outbound" if role == "origin" else "inbound"
+    response_direction: RecoveryDirection = "inbound" if role == "origin" else "outbound"
+    _validate_operation_binding(request_transport, request_channel, request_direction, peer)
+    _validate_operation_binding(response_transport, response_channel.channel, response_direction, peer)
+    expected_source = request_channel.source if role == "origin" else request_channel.peer
+    if response_channel.operation_source != expected_source or response_channel.operation_channel != request_channel.channel:
+        raise RecoveryCoordinatorError("duplex response identity does not match request operation identity")
 
 
 @dataclass(frozen=True)

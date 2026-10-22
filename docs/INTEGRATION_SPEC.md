@@ -762,6 +762,19 @@ the response transport sequence, and checkpoints that semantic response
 ledger. Thus a repeated request or a lost response acknowledgement can create
 multiple transport frames while returning one effect.
 
+`HypervisorOperationDuplexRecoveryCoordinator` composes both directions into
+one checkpoint product. An origin owns request-outbound and result-inbound
+factors; an executor owns request-inbound and result-outbound factors. Capture
+and rebind validate that both TCP peers, reliable channels, operation identity,
+role, and the headless effect ledger agree before exposing a live coordinator.
+Retry and acknowledgement service operate only on the role's outbound factor,
+while the executor's response semantic ledger remains part of the checkpoint.
+The AF_INET duplex witness loses both request and response acknowledgements,
+restores both sockets and FIFOs, returns replayed effects, and proves one
+native process mutation. The same witness forms a process/package advisory
+intent corpus from live operation states, checks held-out predictions, and
+promotes the candidate only through the typed intent revision gate.
+
 ## 11. Images and execution regimes
 
 ### 11.1 Source assembly and headless execution
