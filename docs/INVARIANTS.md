@@ -83,6 +83,8 @@ system. Each entry has:
 | `E-2` | Dynamic linking commits staged images and relocation writes only after provider, target, and relocation preconditions pass. | `mailcpu/linker.py`, `mailcpu/memory.py` | `tests/test_linker.py::test_dynamic_linker_missing_provider_and_readonly_target_preserve_memory`, `tests/test_linker.py::test_dynamic_linker_resolves_provider_and_applies_relocation_transactionally` | `INTEGRATION_SPEC.md` 11.5 |
 | `E-3` | An interpreted runtime loads main and interpreter graphs through one clone-then-commit transition and separates interpreter initial entry from main `AT_ENTRY`. | `mailcpu/linker.py`, `mailcpu/elf.py` | `tests/test_linker.py::test_dynamic_linker_runtime_loads_interpreter_and_builds_startup_handoff` | `INTEGRATION_SPEC.md` 11.5 |
 | `E-4` | Missing interpreter providers preserve caller memory before any runtime handoff commit. | `mailcpu/linker.py` | `tests/test_linker.py::test_dynamic_linker_missing_interpreter_preserves_memory` | `INTEGRATION_SPEC.md` 11.5 |
+| `E-5` | Startup stack materialization publishes aligned argc, argv, envp, auxiliary-vector, and string pointers inside one committed mapping. | `mailcpu/elf.py` | `tests/test_elf_startup.py::test_startup_stack_materializes_aligned_vectors_and_auxiliary_state` | `INTEGRATION_SPEC.md` 11.5 |
+| `E-6` | Startup stack overlap and invalid environment failures leave the original memory snapshot unchanged. | `mailcpu/elf.py` | `tests/test_elf_startup.py::test_startup_stack_failure_preserves_original_memory`, `tests/test_elf_startup.py::test_startup_stack_rejects_invalid_environment_before_mapping` | `INTEGRATION_SPEC.md` 11.5 |
 
 ## Numbered POSIX boundary
 

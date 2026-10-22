@@ -673,6 +673,10 @@ The executable boundary admits ELF payloads for virtual-memory staging.
   interpreter's initial entry and records `AT_BASE`, `AT_PHDR`, `AT_PHENT`,
   `AT_PHNUM`, `AT_PAGESZ`, `AT_FLAGS`, and `AT_NULL` wherever metadata is
   derivable.
+- `materialize_startup_stack` publishes argc, argv, environment, auxiliary
+  vector, and NUL-terminated strings in one aligned virtual-memory mapping.
+  Every pointer targets the same mapping, environment order is deterministic,
+  and the mapping is committed only after clone-local writes succeed.
 - Load staging maps maximal page runs, copies file-backed bytes, preserves zero-filled BSS, and applies writable and non-writable page protections while exposing declared executable pages separately.
 - `HeadlessOS.load_elf_image` reads the payload through the virtual descriptor path, journals its digest, entry point, and load bias, and stages it into a process memory image.
 
@@ -683,7 +687,7 @@ Evidence tier: E0.
 Dynamic planning, provider application, and runtime handoff are E0
 deterministic artifact operations. The transactional linker boundary loads
 named providers and mutates only a validated memory clone before commit.
-Foreign instruction execution, stack construction, and libc startup remain
+Foreign instruction execution, signal startup, and libc initialization remain
 separate boundaries.
 
 ### 11.6 Numbered POSIX boundary
@@ -732,8 +736,9 @@ family returns `EINVAL`; no unsupported behavior is represented as success.
 vector length and string length, rejects malformed or duplicated environment
 keys, and validates the complete replacement before image mutation. It admits
 the existing source and MCPB executable loader. Foreign ELF instruction
-execution, auxiliary-vector construction, and interpreter startup remain
-separate boundaries.
+execution and interpreter instruction startup remain separate boundaries;
+stack and auxiliary-vector materialization are provided by the ELF handoff
+surface.
 
 Evidence tier: E0.
 
@@ -847,7 +852,7 @@ The following are **REQUIRED** staged obligations. Each is stated relative to th
 6. Partial-write semantics for oversized atomic pipe payloads, and a complete Linux `PIPE_BUF` atomicity policy.
 7. Numerical Linux errno identity for every system call, signal interruption, `EINTR` restart policy, `SIGPIPE`, and a libc-compatible return ABI.
 8. Credential passing, multi-message ancillary vectors, and cross-host rights migration above the descriptor rights contract of clause 6.6.
-9. `fork`/`clone` completeness, copy-on-write image sharing across process snapshots, argument-vector construction from user memory, and ELF auxiliary-vector construction.
+9. `fork`/`clone` completeness, copy-on-write image sharing across process snapshots, startup-stack integration with process creation, and broader auxiliary-vector construction.
 10. A broader dynamic-loader ABI: interpreter loading, dynamic linking, relocations, and host binary passthrough.
 11. A foreign CPU and ABI backend for staged ELF images.
 12. A typed protocol and socket layer above raw routed frames, link-state negotiation, and differential conformance tests against native semantics, above clauses 9.1, 9.2, and 8.4.

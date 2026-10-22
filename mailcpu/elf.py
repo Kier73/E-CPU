@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import struct
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Mapping
+from typing import TYPE_CHECKING, Mapping, Sequence
 
 if TYPE_CHECKING:
     from .memory import VirtualMemory
@@ -134,6 +134,19 @@ class ElfStartupState:
     interpreter: str | None
     interpreter_base: int | None
     auxiliary_vector: tuple[tuple[int, int], ...]
+
+
+@dataclass(frozen=True)
+class ElfStackLayout:
+    """Addresses and extent of one materialized x86-64 ELF startup stack."""
+
+    stack_pointer: int
+    argc: int
+    argv_address: int
+    envp_address: int
+    auxiliary_address: int
+    mapping_start: int
+    mapping_length: int
 
 
 @dataclass(frozen=True)
@@ -309,6 +322,7 @@ class ElfImage:
             auxiliary_vector=tuple(auxiliary),
         )
 
+
     def plan_relocations(
         self,
         base: int = 0,
@@ -381,6 +395,108 @@ class ElfImage:
                 memory.write(action.target_address, int(action.value).to_bytes(width, self.endian))
             except Exception as error:
                 raise ElfError(f"relocation write failed at {action.target_address:#x}") from error
+
+
+def materialize_startup_stack(
+    memory: "VirtualMemory",
+    startup: ElfStartupState,
+    argv: Sequence[str] = (),
+    environment: Mapping[str, str] | None = None,
+    *,
+    stack_top: int = 0x7FFF_FFFF_F000,
+) -> ElfStackLayout:
+    """Mathematics: publish `[argc,argv,NULL,envp,NULL,auxv,strings]` through clone-then-commit memory state with `sp mod 16 = 0`."""
+
+    if not isinstance(startup, ElfStartupState):
+        raise ElfError("startup state has the wrong type")
+    page_size = int(memory.page_size)
+    if page_size <= 0 or stack_top <= 0 or stack_top % page_size:
+        raise ElfError("startup stack top must be positive and page-aligned")
+    process_argv = tuple(argv)
+    if any(not isinstance(value, str) or "\x00" in value for value in process_argv):
+        raise ElfError("startup argv contains a non-string or NUL")
+    env_map = dict(environment or {})
+    for key, value in env_map.items():
+        if (
+            not isinstance(key, str)
+            or not key
+            or not (key[0].isalpha() or key[0] == "_")
+            or not all(character.isalnum() or character == "_" for character in key)
+            or not isinstance(value, str)
+            or "\x00" in value
+        ):
+            raise ElfError("startup environment is invalid")
+    auxiliary = tuple(startup.auxiliary_vector)
+    if not auxiliary or auxiliary[-1] != (AT_NULL, 0) or any(tag == AT_NULL for tag, _value in auxiliary[:-1]):
+        raise ElfError("startup auxiliary vector must terminate exactly once")
+    if any(
+        isinstance(tag, bool)
+        or isinstance(value, bool)
+        or not isinstance(tag, int)
+        or not isinstance(value, int)
+        or tag < 0
+        or value < 0
+        for tag, value in auxiliary
+    ):
+        raise ElfError("startup auxiliary vector contains an invalid word")
+    environment_entries = tuple(f"{key}={env_map[key]}" for key in sorted(env_map))
+    strings = process_argv + environment_entries
+    string_bytes = tuple(value.encode("utf-8") + b"\x00" for value in strings)
+    table_bytes = (
+        8
+        + 8 * (len(process_argv) + 1)
+        + 8 * (len(environment_entries) + 1)
+        + 16 * len(auxiliary)
+    )
+    string_length = sum(len(value) for value in string_bytes)
+    raw_start = stack_top - table_bytes - string_length
+    stack_pointer = _align_down(raw_start, 16)
+    if stack_pointer < 0:
+        raise ElfError("startup stack does not fit below stack top")
+    mapping_start = _align_down(stack_pointer, page_size)
+    mapping_length = stack_top - mapping_start
+    if mapping_length <= 0:
+        raise ElfError("startup stack mapping is empty")
+    argv_address = stack_pointer + 8
+    envp_address = argv_address + 8 * (len(process_argv) + 1)
+    auxiliary_address = envp_address + 8 * (len(environment_entries) + 1)
+    strings_address = auxiliary_address + 16 * len(auxiliary)
+    staged = memory.clone()
+    staged.map(mapping_start, mapping_length, writable=True)
+    staged.write(stack_pointer, struct.pack("<Q", len(process_argv)))
+    for index, _value in enumerate(process_argv):
+        address = strings_address + sum(len(item) for item in string_bytes[:index])
+        staged.write(argv_address + index * 8, struct.pack("<Q", address))
+    staged.write(argv_address + len(process_argv) * 8, b"\x00" * 8)
+    environment_start = strings_address + sum(len(item) for item in string_bytes[: len(process_argv)])
+    for index, _value in enumerate(environment_entries):
+        address = environment_start + sum(len(item) for item in string_bytes[len(process_argv) : len(process_argv) + index])
+        staged.write(envp_address + index * 8, struct.pack("<Q", address))
+    staged.write(envp_address + len(environment_entries) * 8, b"\x00" * 8)
+    for index, (tag, value) in enumerate(auxiliary):
+        staged.write(auxiliary_address + index * 16, struct.pack("<QQ", tag, value))
+    cursor = strings_address
+    for payload in string_bytes:
+        staged.write(cursor, payload)
+        cursor += len(payload)
+    memory.commit_from(staged)
+    return ElfStackLayout(
+        stack_pointer,
+        len(process_argv),
+        argv_address,
+        envp_address,
+        auxiliary_address,
+        mapping_start,
+        mapping_length,
+    )
+
+
+def _align_down(value: int, alignment: int) -> int:
+    """Mathematics: compute the greatest multiple `⌊value/alignment⌋·alignment` for positive `alignment`."""
+
+    if alignment <= 0:
+        raise ElfError("alignment must be positive")
+    return (value // alignment) * alignment
 
 
 def _relocation_width(machine: int, relocation_type: int) -> int:

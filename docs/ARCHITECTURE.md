@@ -315,6 +315,10 @@ rules are `docs/ARCHITECTURE.md` clauses 3 and 5 and `docs/REPLACEMENT_SPEC.md`.
   `PT_INTERP` image. `ElfStartupState` records the main entry, interpreter
   entry, interpreter base, and derivable auxiliary-vector values; startup
   metadata is validated before the shared memory clone commits.
+- `materialize_startup_stack` turns that handoff into a 16-byte-aligned
+  x86-64 `[argc,argv,NULL,envp,NULL,auxv,strings]` mapping with deterministic
+  environment order. The mapping is published only after all words and
+  strings are written to a clone.
 
 ### 7.11 Numbered POSIX boundary
 

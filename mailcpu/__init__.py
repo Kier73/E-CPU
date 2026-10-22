@@ -119,8 +119,10 @@ from .elf import (
     ElfRelocation,
     ElfSegment,
     ElfStartupState,
+    ElfStackLayout,
     ElfSymbol,
     RelocationAction,
+    materialize_startup_stack,
     parse_elf,
 )
 from .image import ExecutionRegime, ExecutableImage, UnsupportedRegimeError
@@ -418,9 +420,11 @@ __all__ = [
     "ElfRelocation",
     "ElfSegment",
     "ElfStartupState",
+    "ElfStackLayout",
     "ElfSymbol",
     "DynamicLinkPlan",
     "RelocationAction",
+    "materialize_startup_stack",
     "parse_elf",
     "SyscallClient",
     "SyscallRequest",
