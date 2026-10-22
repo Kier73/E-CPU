@@ -113,7 +113,7 @@ c_score = max(0, 1 - Σ_i p_i |i - m| / MAD_uniform)
 The current hypervisor asks two questions over every request:
 
 1. Which execution domain owns the operation: CPU, filesystem, network,
-   service, or review?
+   process, package, service, or review?
 2. Is the operation destructive or externally consequential?
 
 ### 3.2 Procedural classifier
@@ -160,12 +160,16 @@ Intent prediction is advisory. It can force `REVIEW` when it strongly
 disagrees with an otherwise allowed classifier domain, but it cannot grant a
 capability or execute a handler.
 
-Observed network, filesystem, and service operation states can fit a candidate
-prototype and can be checked on held-out states. That is a training signal for
-the hypervisor, not an implicit mutation of its active authority: the running
-intent model remains checkpointed state until a typed intent-model revision
-target has passed the same witness, transport, persistence, and arbitration
-gates as every other revision.
+The default prototype corpus now includes process launch/exec and package
+registry/deployment states alongside CPU, filesystem, network, service, and
+review. Held-out process and package states route to their own advisory labels
+while exact policy remains authoritative. Observed network, filesystem, and
+service operation states can fit a candidate prototype and can be checked on
+held-out states. That is a training signal for the hypervisor, not an implicit
+mutation of its active authority: the running intent model remains
+checkpointed state until a typed intent-model revision target has passed the
+same witness, transport, persistence, and arbitration gates as every other
+revision.
 
 The typed intent revision witness carries a candidate prediction and the
 current baseline action. Admission checks the prediction on held-out request

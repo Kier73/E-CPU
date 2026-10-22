@@ -219,6 +219,7 @@ system. Each entry has:
 |---|---|---|---|---|
 | `Q-1` | Advisory neural routing outputs are dispatched if and only if they reproduce 100% of withheld witness probes. | `mailcpu/neural_lifter.py` | `tests/test_neural_lifter.py::test_policy_gate_isolation_truth_preservation`, `tests/test_neural_lifter.py::test_policy_gate_fallback_on_model_mismatch` | `ITERATION_2_BUILD_PLAN.md` 4.6 |
 | `Q-2` | A structural intent candidate can be fitted from observed operation states and classify held-out states without changing the active hypervisor model; activation remains a typed revision-gate obligation. | `mailcpu/intent_embedding.py`, `mailcpu/classifier.py` | `tests/test_external_connections.py::test_external_operation_states_form_advisory_hypervisor_training_corpus` | `HYPERVISOR_PROFILE.md` 3.3 |
+| `Q-3` | The default structural intent corpus contains distinct process and package domains and classifies held-out states into those labels with normalized probabilities while preserving exact model checkpoint identity. | `mailcpu/intent_embedding.py` | `tests/test_intent_embedding.py::test_prototype_model_routes_held_out_typed_requests_and_round_trips` | `HYPERVISOR_PROFILE.md` 3.3 |
 
 ## Marking an invariant
 

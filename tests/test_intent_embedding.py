@@ -52,6 +52,8 @@ def test_prototype_model_routes_held_out_typed_requests_and_round_trips() -> Non
     held_out = {
         "filesystem": {"operation": "inspect filesystem descriptor file", "resource": "/srv/data", "payload": {"path": "/srv/data"}},
         "network": {"operation": "receive network packet socket", "resource": "/network/2", "payload": {"route": "remote"}},
+        "process": {"operation": "spawn process executable child image", "resource": "/bin/worker", "payload": {"path": "/bin/worker"}},
+        "package": {"operation": "install package registry image digest", "resource": "/package/worker", "payload": {"digest": "verified"}},
         "service": {"operation": "stop service process supervisor", "resource": "/service/worker", "payload": {"service": "worker"}},
     }
     for expected, state in held_out.items():

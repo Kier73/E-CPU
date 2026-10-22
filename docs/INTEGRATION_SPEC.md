@@ -876,7 +876,7 @@ It does not license assumptions about private model internals. `mailcpu/classifi
 - bounded `Choice`, `Score`, and `Noul` question and result types;
 - a deterministic lexical `E0` reference model behind a pluggable classifier boundary;
 - Choice and Score confidence formulas;
-- a **hypervisor** that selects CPU, filesystem, network, service, and review domains;
+- a **hypervisor** that selects CPU, filesystem, network, process, package, service, and review domains;
 - hard missing-**right** denial, confidence review gates, destructive-operation review, and explicit handler dispatch;
 - hash-chained `hypervisor.decision` receipts and check pointable model identity and policy thresholds.
 
