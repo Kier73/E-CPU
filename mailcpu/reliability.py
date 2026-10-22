@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 from ._codec import decode_transport_value as _decode_value
 from ._codec import encode_transport_value as _encode_value
@@ -115,8 +115,8 @@ class ReliableChannel:
 
         return self._next_receive_sequence
 
-    def receive(self) -> tuple[int, Any] | None:
-        """Mathematics: selectively consume `F_s` with `s=r` or `s<r`, advance `r` only for `s=r`, ACK every consumed frame, and suppress duplicates."""
+    def receive(self, commit: Callable[[int, Any], None] | None = None) -> tuple[int, Any] | None:
+        """Mathematics: commit new `F_s` before dequeue and `ACK(s)`, then advance `r`; duplicate `s<r` is acknowledged without reapplication."""
 
         peeked = self.peek()
         if peeked is None:
@@ -130,7 +130,11 @@ class ReliableChannel:
             ),
             None,
         )
-        if message is None or not self.transport.consume(message):
+        if message is None:
+            raise ValueError("reliable frame disappeared between validation and consume")
+        if sequence == self._next_receive_sequence and commit is not None:
+            commit(sequence, payload)
+        if not self.transport.consume(message):
             raise ValueError("reliable frame disappeared between validation and consume")
         self.transport.send(
             self.ack_address_for(message.sender),

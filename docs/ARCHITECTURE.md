@@ -277,6 +277,9 @@ rules are `docs/ARCHITECTURE.md` clauses 3 and 5 and `docs/REPLACEMENT_SPEC.md`.
 - `SocketTransport` preserves the typed message algebra over bounded TCP frames,
   canonical tuple-preserving bodies, integrity receipts, peer identity binding,
   partial-frame recovery, backpressure, and rebound checkpoint state.
+- `ReplicatedMailboxStore` and `ReplicatedMailboxNode` persist enqueue,
+  dequeue, and consume operations on each node, deduplicate operation identities,
+  and expose quorum receipts whose acknowledgements follow durable application.
 
 ### 7.8 Images
 

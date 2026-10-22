@@ -61,6 +61,15 @@ Enable distributed multi-node coordination without centralized single-points-of-
 
 $$\mathcal{H}_n^{(i)} = \mathcal{H}_n^{(j)} \quad \forall i, j \in \text{ActiveNodes}$$
 
+#### Stage 2 implemented
+
+`ReplicatedMailboxStore` provides per-node hash-chained operation persistence,
+FIFO mailbox replay, operation-id deduplication, and torn-final-record repair.
+`ReplicatedMailboxNode` sends those operations through the Stage 1 socket path
+and emits acknowledgements only after durable replica application. Quorum
+receipts are explicit; full consensus election, receiver-window negotiation,
+and public provider durability remain subsequent slices.
+
 #### Requirements
 1. **Replicated Journal Log**: Implement distributed consensus (Raft or Paxos variants) over addressable mailbox streams.
 2. **Coprime Loop Striping & CRT Decoding**: Exploit coprime loop periods $(L_1, \dots, L_k)$ with $\gcd(L_i, L_j) = 1$:

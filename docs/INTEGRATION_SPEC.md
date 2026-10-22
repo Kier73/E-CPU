@@ -569,10 +569,12 @@ The communication substrate carries a persistence-backed transport independent o
 - Reliable-channel pending frames and acknowledgements continue across transport reopen, giving retry state a durable mailbox beneath it.
 - A single-writer lock serializes local append critical sections.
 
-The durability boundary is currently local. Evidence tier: E0. The replicated
-external mailbox, transactional multi-host commit, sequence-window negotiation
-below the channel, and network-provider durability guarantees are the next
-stage above `SocketTransport`.
+The local durable mailbox and the replicated external mailbox are both explicit
+stages. `ReplicatedMailboxStore` persists operation records on each controlled
+node, and `ReplicatedMailboxNode` requires durable replica application before
+acknowledgement and reports quorum receipts. Evidence tier: E1 for controlled
+multi-node paths. Sequence-window negotiation below the channel and
+network-provider durability guarantees remain the next stage.
 
 ### 10.2 Checkpointable reliable communication
 
