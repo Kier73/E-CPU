@@ -505,6 +505,7 @@ principal witnesses are:
 - revision-bound arbitration replay across admission and restore;
 - typed process and package adapters with capability-derived refusal;
 - checkpointed operation effects with duplicate process-launch suppression;
+- peer-bound package deployment with receiver-local digest verification;
 - virtual-cost ceiling division and intent probability normalisation.
 
 The complete executable witness is run with:

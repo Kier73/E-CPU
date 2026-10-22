@@ -749,6 +749,11 @@ second delivery or authority ledger. The coordinator witness produces the same
 one-child, one-effect result as the manual Log 84 path and clears the restored
 sender's pending sequence after the replay acknowledgement. Evidence tier: E1.
 
+The same path also carries a `PACKAGE` event. Under explicit destructive-policy
+admission, the receiver invokes only its local digest-verified registry and
+returns `{"digest": h}` after the image files are present. Package authority is
+therefore receiver-local in the same way as process `execute` authority.
+
 ## 11. Images and execution regimes
 
 ### 11.1 Source assembly and headless execution
