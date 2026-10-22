@@ -167,6 +167,13 @@ intent model remains checkpointed state until a typed intent-model revision
 target has passed the same witness, transport, persistence, and arbitration
 gates as every other revision.
 
+The typed intent revision witness carries a candidate prediction and the
+current baseline action. Admission checks the prediction on held-out request
+states and enforces the monotone safety order
+`DENY < REVIEW < ALLOW` in permissiveness: a candidate can increase review,
+but cannot expand authority. The target and witness identity travel through
+the existing proposal fingerprint, durable relay, and checkpoint ledger.
+
 ## 4. Virtual time and energy accounting
 
 Inside the system, time is the direct translation of active virtual energy:
@@ -482,18 +489,18 @@ revision changes, replay identity, and checkpoint restore.
 
 The next connections are deliberately staged:
 
-1. a typed intent-model revision target carried through the existing witness,
-   reliable transport, replicated mailbox, and checkpoint laws;
-2. cross-host recovery coordination for reconnect, duplicate delivery, and
+1. cross-host recovery coordination for reconnect, duplicate delivery, and
    receipt replay around the durable relay;
-3. typed classifier adapters for filesystem, network, service, process, and
+2. typed classifier adapters for filesystem, network, service, process, and
    package operations;
-4. broader POSIX, foreign CPU, terminal, and public E2 integration.
+3. broader POSIX, foreign CPU, terminal, and public E2 integration.
 
 Controlled external networking is now evidenced over an actual AF_INET
 loopback path for both durable revision relay and remote page-backed memory.
-The next smallest extension is the typed intent-model revision target: it will
-leave behind a revision-bound candidate, held-out witnesses, and a durable
-admission record that later adapters and distributed execution can reuse. This
-keeps remote data, virtual time, energy receipt, and authority context on the
-same hypervisor-governed path.
+The typed intent-model revision target is now also evidenced over that path,
+leaving a revision-bound candidate, held-out witnesses, and durable admission
+record. The next smallest extension is cross-host recovery coordination, so
+reconnect, duplicate delivery, and receipt replay preserve those target and
+authority laws while the system remains in motion. This keeps remote data,
+virtual time, energy receipt, and authority context on the same
+hypervisor-governed path.

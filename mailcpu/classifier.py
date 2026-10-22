@@ -11,7 +11,7 @@ from enum import Enum
 from typing import Any, Callable, Mapping, Protocol, Sequence
 
 from .evidence import EvidenceTier, with_evidence_tier
-from .intent_embedding import IntentPrototypeModel, VirtualCost, estimate_virtual_cost
+from .intent_embedding import IntentPrediction, IntentPrototypeModel, VirtualCost, estimate_virtual_cost
 from .journal import EventJournal
 
 
@@ -162,6 +162,15 @@ class ClassifierModel(Protocol):
 
     def evaluate(self, state: Mapping[str, Any], questions: Mapping[str, Question]) -> DecisionBatch:
         """Mathematics: evaluate `f(state, {q_i}) = {answer_i}` with question independence under one shared state."""
+
+        ...
+
+
+class RevisionCandidate(Protocol):
+    """Checkpointable candidate boundary shared by classifier and intent revisions."""
+
+    def snapshot(self) -> Mapping[str, Any]:
+        """Mathematics: expose candidate state `m'` as a finite canonical mapping `S(m')`."""
 
         ...
 
@@ -411,6 +420,66 @@ class HypervisorRevisionWitness:
 
 
 @dataclass(frozen=True)
+class HypervisorIntentRevisionWitness:
+    """Held-out intent prediction bound to the current authority action."""
+
+    request: HypervisorRequest
+    expected: Mapping[str, Any]
+    baseline_action: HypervisorAction
+
+    def __post_init__(self) -> None:
+        """Mathematics: require witness `w=(x, M'(x), a)` to be typed and canonically representable."""
+
+        if not isinstance(self.request, HypervisorRequest) or not isinstance(self.expected, Mapping):
+            raise ClassifierError("intent revision witness requires a request and prediction mapping")
+        if not isinstance(self.baseline_action, HypervisorAction):
+            raise ClassifierError("intent revision witness baseline action is invalid")
+        _canonical_json_bytes(dict(self.expected))
+
+    @classmethod
+    def from_prediction(
+        cls,
+        request: HypervisorRequest,
+        prediction: IntentPrediction,
+        baseline: HypervisorDecision,
+    ) -> "HypervisorIntentRevisionWitness":
+        """Mathematics: derive `w=(x,M'(x),a_current)` from a held-out prediction and current decision."""
+
+        if not isinstance(prediction, IntentPrediction) or not isinstance(baseline, HypervisorDecision):
+            raise ClassifierError("intent revision witness requires a prediction and baseline decision")
+        return cls(request, prediction.to_dict(), baseline.action)
+
+    def to_dict(self) -> dict[str, object]:
+        """Mathematics: serialize the typed relation `w=(request,expected_prediction,baseline_action)`."""
+
+        return {
+            "request": self.request.state(),
+            "expected": dict(self.expected),
+            "baseline_action": self.baseline_action.value,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "HypervisorIntentRevisionWitness":
+        """Mathematics: reconstruct `w` only when request, prediction, and baseline action retain their domains."""
+
+        if (
+            not isinstance(payload, Mapping)
+            or not isinstance(payload.get("request"), Mapping)
+            or not isinstance(payload.get("expected"), Mapping)
+            or not isinstance(payload.get("baseline_action"), str)
+        ):
+            raise ClassifierError("intent revision witness snapshot has invalid fields")
+        try:
+            baseline = HypervisorAction(payload["baseline_action"])
+        except ValueError as exc:
+            raise ClassifierError("intent revision witness baseline action is invalid") from exc
+        return cls(HypervisorRequest.from_state(payload["request"]), dict(payload["expected"]), baseline)
+
+
+RevisionWitness = HypervisorRevisionWitness | HypervisorIntentRevisionWitness
+
+
+@dataclass(frozen=True)
 class HypervisorRevisionResult:
     """Outcome of one shadow-evaluated classifier revision proposal."""
 
@@ -420,6 +489,7 @@ class HypervisorRevisionResult:
     candidate_model: str
     mismatch_index: int | None = None
     error: str | None = None
+    target: str = "classifier"
 
     def __post_init__(self) -> None:
         """Mathematics: require revision `r≥0` and witness identity `d∈{0,1}^{256}`."""
@@ -428,7 +498,7 @@ class HypervisorRevisionResult:
             character not in "0123456789abcdef" for character in self.witness_digest
         ):
             raise ClassifierError("invalid hypervisor revision result")
-        if not self.candidate_model:
+        if not self.candidate_model or self.target not in {"classifier", "intent"}:
             raise ClassifierError("revision result candidate model must be non-empty")
 
     def to_dict(self) -> dict[str, object]:
@@ -441,6 +511,7 @@ class HypervisorRevisionResult:
             "candidate_model": self.candidate_model,
             "mismatch_index": self.mismatch_index,
             "error": self.error,
+            "target": self.target,
         }
 
 
@@ -453,7 +524,8 @@ class HypervisorRevisionProposal:
     sequence: int
     logical_time: int
     candidate_snapshot: Mapping[str, Any]
-    witnesses: tuple[HypervisorRevisionWitness, ...]
+    witnesses: tuple[RevisionWitness, ...]
+    target: str = "classifier"
 
     def __post_init__(self) -> None:
         """Mathematics: require `P=(I,m',W)` to have valid identity, canonical snapshot, and nonempty typed witness set."""
@@ -466,9 +538,12 @@ class HypervisorRevisionProposal:
             raise ClassifierError("revision proposal sequence must be positive")
         if not isinstance(self.logical_time, int) or isinstance(self.logical_time, bool) or self.logical_time < 0:
             raise ClassifierError("revision proposal logical_time must be non-negative")
+        if self.target not in {"classifier", "intent"}:
+            raise ClassifierError("revision proposal target is invalid")
         if not isinstance(self.candidate_snapshot, Mapping) or not self.witnesses:
             raise ClassifierError("revision proposal requires a snapshot and witnesses")
-        if any(not isinstance(witness, HypervisorRevisionWitness) for witness in self.witnesses):
+        witness_type = HypervisorRevisionWitness if self.target == "classifier" else HypervisorIntentRevisionWitness
+        if any(not isinstance(witness, witness_type) for witness in self.witnesses):
             raise ClassifierError("revision proposal witnesses have an invalid type")
         _canonical_json_bytes(self.to_dict())
 
@@ -485,10 +560,12 @@ class HypervisorRevisionProposal:
         channel: str,
         sequence: int,
         logical_time: int,
-        candidate: ClassifierModel,
-        witnesses: Sequence[HypervisorRevisionWitness],
+        candidate: RevisionCandidate,
+        witnesses: Sequence[RevisionWitness],
+        *,
+        target: str = "classifier",
     ) -> "HypervisorRevisionProposal":
-        """Mathematics: lift checkpointable model `m'` into envelope `P=(I,snapshot(m'),tuple(W))`."""
+        """Mathematics: lift checkpointable model `m'` into typed envelope `P=(I,target,snapshot(m'),tuple(W))`."""
 
         snapshot = getattr(candidate, "snapshot", None)
         if not callable(snapshot):
@@ -496,7 +573,7 @@ class HypervisorRevisionProposal:
         candidate_snapshot = snapshot()
         if not isinstance(candidate_snapshot, Mapping):
             raise ClassifierError("revision proposal candidate snapshot must be a mapping")
-        return cls(source, channel, sequence, logical_time, dict(candidate_snapshot), tuple(witnesses))
+        return cls(source, channel, sequence, logical_time, dict(candidate_snapshot), tuple(witnesses), target)
 
     def to_dict(self) -> dict[str, object]:
         """Mathematics: serialize proposal `P` into the canonical wire relation used by its fingerprint."""
@@ -506,6 +583,7 @@ class HypervisorRevisionProposal:
             "channel": self.channel,
             "sequence": self.sequence,
             "logical_time": self.logical_time,
+            "target": self.target,
             "candidate_snapshot": dict(self.candidate_snapshot),
             "witnesses": [witness.to_dict() for witness in self.witnesses],
         }
@@ -516,17 +594,20 @@ class HypervisorRevisionProposal:
 
         if not isinstance(payload, Mapping):
             raise ClassifierError("revision proposal snapshot must be a mapping")
+        target = str(payload.get("target", "classifier"))
         raw_candidate = payload.get("candidate_snapshot")
         raw_witnesses = payload.get("witnesses")
         if not isinstance(raw_candidate, Mapping) or not isinstance(raw_witnesses, (list, tuple)):
             raise ClassifierError("revision proposal snapshot has invalid candidate or witnesses")
+        witness_factory = HypervisorRevisionWitness.from_dict if target == "classifier" else HypervisorIntentRevisionWitness.from_dict
         return cls(
             payload.get("source"),
             payload.get("channel"),
             payload.get("sequence"),
             payload.get("logical_time"),
             dict(raw_candidate),
-            tuple(HypervisorRevisionWitness.from_dict(raw) for raw in raw_witnesses),
+            tuple(witness_factory(raw) for raw in raw_witnesses),
+            target,
         )
 
 
@@ -541,6 +622,7 @@ class HypervisorRevisionArbitrationResult:
     fingerprint: str
     admission: HypervisorRevisionResult
     replayed: bool
+    target: str = "classifier"
 
     def __post_init__(self) -> None:
         """Mathematics: require valid proposal identity, `f(P)∈{0,1}^{256}`, and typed admission result."""
@@ -555,6 +637,10 @@ class HypervisorRevisionArbitrationResult:
             raise ClassifierError("revision proposal fingerprint must be lowercase SHA-256 hex")
         if not isinstance(self.admission, HypervisorRevisionResult):
             raise ClassifierError("revision arbitration requires a revision result")
+        if self.target not in {"classifier", "intent"}:
+            raise ClassifierError("revision arbitration target is invalid")
+        if self.admission.target != self.target:
+            raise ClassifierError("revision arbitration target does not match admission target")
 
     def to_dict(self) -> dict[str, object]:
         """Mathematics: project result `R=(I,f,admission,replayed)` for stable audit and checkpoint state."""
@@ -567,6 +653,7 @@ class HypervisorRevisionArbitrationResult:
             "fingerprint": self.fingerprint,
             "admission": self.admission.to_dict(),
             "replayed": self.replayed,
+            "target": self.target,
         }
 
 
@@ -795,7 +882,7 @@ class ClassifierHypervisor:
         return str(getattr(candidate, "model", candidate.__class__.__name__))
 
     @staticmethod
-    def _witness_digest(witnesses: Sequence[HypervisorRevisionWitness]) -> str:
+    def _witness_digest(witnesses: Sequence[RevisionWitness]) -> str:
         """Mathematics: calculate witness identity `d(W)=SHA256(JSON_sort([w.to_dict()]))` over the immutable semantic corpus."""
 
         return hashlib.sha256(_canonical_json_bytes([witness.to_dict() for witness in witnesses])).hexdigest()
@@ -877,14 +964,131 @@ class ClassifierHypervisor:
         )
         return HypervisorRevisionResult(True, self._revision, witness_digest, candidate_model)
 
+    @staticmethod
+    def _action_rank(action: HypervisorAction) -> int:
+        """Mathematics: order actions by permissiveness `rank(DENY)=0 < rank(REVIEW)=1 < rank(ALLOW)=2`."""
+
+        return {
+            HypervisorAction.DENY: 0,
+            HypervisorAction.REVIEW: 1,
+            HypervisorAction.ALLOW: 2,
+        }[action]
+
+    def _intent_revision_refusal(
+        self,
+        candidate_model: str,
+        witness_digest: str,
+        mismatch_index: int,
+        error: str,
+    ) -> HypervisorRevisionResult:
+        """Mathematics: record `¬G(M',W)` while preserving `(classifier,intent,revision)` exactly."""
+
+        self.journal.append(
+            "hypervisor.revision.refuse",
+            {
+                "target": "intent",
+                "candidate_model": candidate_model,
+                "witness_digest": witness_digest,
+                "mismatch_index": mismatch_index,
+                "error": error,
+            },
+        )
+        return HypervisorRevisionResult(
+            False,
+            self._revision,
+            witness_digest,
+            candidate_model,
+            mismatch_index,
+            error,
+            "intent",
+        )
+
+    def admit_intent_revision(
+        self,
+        candidate: IntentPrototypeModel,
+        witnesses: Sequence[HypervisorIntentRevisionWitness],
+    ) -> HypervisorRevisionResult:
+        """Mathematics: commit `H.intent_model:=M'` iff held-out predictions match and `rank(a')≤rank(a)` for every witness."""
+
+        if not isinstance(candidate, IntentPrototypeModel):
+            raise ClassifierError("intent revision candidate must be an IntentPrototypeModel")
+        witness_tuple = tuple(witnesses)
+        if not witness_tuple or any(not isinstance(witness, HypervisorIntentRevisionWitness) for witness in witness_tuple):
+            raise ClassifierError("intent revision requires typed witnesses")
+        witness_digest = self._witness_digest(witness_tuple)
+        candidate_model = candidate.model
+        current_shadow = ClassifierHypervisor(
+            classifier=self.classifier,
+            journal=EventJournal(),
+            policy=self.policy,
+            intent_model=self.intent_model,
+            virtual_capacity=self.virtual_capacity,
+        )
+        candidate_shadow = ClassifierHypervisor(
+            classifier=self.classifier,
+            journal=EventJournal(),
+            policy=self.policy,
+            intent_model=candidate,
+            virtual_capacity=self.virtual_capacity,
+        )
+        for index, witness in enumerate(witness_tuple):
+            try:
+                observed_prediction = candidate.predict(witness.request.state()).to_dict()
+                current_decision = current_shadow.decide(witness.request)
+                candidate_decision = candidate_shadow.decide(witness.request)
+            except Exception as exc:
+                return self._intent_revision_refusal(
+                    candidate_model,
+                    witness_digest,
+                    index,
+                    f"{type(exc).__name__}: {exc}",
+                )
+            if observed_prediction != dict(witness.expected):
+                return self._intent_revision_refusal(
+                    candidate_model,
+                    witness_digest,
+                    index,
+                    "intent witness mismatch",
+                )
+            if current_decision.action is not witness.baseline_action:
+                return self._intent_revision_refusal(
+                    candidate_model,
+                    witness_digest,
+                    index,
+                    "intent witness baseline is stale",
+                )
+            if self._action_rank(candidate_decision.action) > self._action_rank(current_decision.action):
+                return self._intent_revision_refusal(
+                    candidate_model,
+                    witness_digest,
+                    index,
+                    "intent candidate expands authority",
+                )
+        self.intent_model = candidate
+        self._revision += 1
+        self.journal.append(
+            "hypervisor.revision.admit",
+            {
+                "target": "intent",
+                "candidate_model": candidate_model,
+                "witness_digest": witness_digest,
+                "witness_count": len(witness_tuple),
+                "revision": self._revision,
+            },
+        )
+        return HypervisorRevisionResult(True, self._revision, witness_digest, candidate_model, target="intent")
+
     def admit_classifier_revision_proposal(
         self,
         proposal: HypervisorRevisionProposal,
     ) -> HypervisorRevisionResult:
-        """Mathematics: reconstruct `m'` from proposal `P` and apply the same witnessed admission law without trusting transport metadata."""
+        """Mathematics: reconstruct the typed candidate in `P` and apply its target-specific witnessed admission law."""
 
         if not isinstance(proposal, HypervisorRevisionProposal):
             raise ClassifierError("classifier revision proposal has an invalid type")
+        if proposal.target == "intent":
+            candidate = self._intent_from_snapshot(proposal.candidate_snapshot)
+            return self.admit_intent_revision(candidate, proposal.witnesses)
         candidate = self._classifier_from_snapshot(proposal.candidate_snapshot)
         return self.admit_classifier_revision(candidate, proposal.witnesses)
 
@@ -938,6 +1142,14 @@ class ClassifierHypervisor:
         if payload.get("kind") == "lexical":
             return LexicalDecisionModel(str(payload.get("model", "mailcpu-lexical-e0")))
         raise ClassifierError("unsupported classifier snapshot kind")
+
+    @staticmethod
+    def _intent_from_snapshot(payload: Mapping[str, Any]) -> IntentPrototypeModel:
+        """Mathematics: invert target `intent` only through the checkpointed `IntentPrototypeModel` constructor."""
+
+        if not isinstance(payload, Mapping) or payload.get("kind") != "intent-prototype":
+            raise ClassifierError("unsupported intent model snapshot kind")
+        return IntentPrototypeModel.from_snapshot(payload)
 
     @classmethod
     def from_snapshot(cls, payload: Mapping[str, Any], journal: EventJournal) -> "ClassifierHypervisor":
@@ -1117,6 +1329,7 @@ class HypervisorArbitrationLoop:
                 fingerprint,
                 admission,
                 True,
+                proposal.target,
             )
 
         try:
@@ -1133,6 +1346,7 @@ class HypervisorArbitrationLoop:
                 int(self.hypervisor.snapshot()["revision"]),
                 ClassifierHypervisor._witness_digest(proposal.witnesses),
                 candidate_model,
+                target=proposal.target,
                 error=f"{type(exc).__name__}: {exc}",
             )
             self.hypervisor.journal.append(
@@ -1167,6 +1381,7 @@ class HypervisorArbitrationLoop:
             fingerprint,
             admission,
             False,
+            proposal.target,
         )
 
     def snapshot(self) -> dict[str, object]:
@@ -1194,6 +1409,7 @@ class HypervisorArbitrationLoop:
                     "logical_time": 0,
                     "fingerprint": fingerprint,
                     "admission": admission.to_dict(),
+                    "target": admission.target,
                 }
                 for (source, channel, sequence), (fingerprint, admission) in sorted(self._revision_seen.items())
             ],
@@ -1257,6 +1473,7 @@ class HypervisorArbitrationLoop:
                 str(admission_payload["candidate_model"]),
                 None if admission_payload.get("mismatch_index") is None else int(admission_payload["mismatch_index"]),
                 None if admission_payload.get("error") is None else str(admission_payload["error"]),
+                str(admission_payload.get("target", raw.get("target", "classifier"))),
             )
             HypervisorRevisionArbitrationResult(
                 source,
@@ -1266,6 +1483,7 @@ class HypervisorArbitrationLoop:
                 fingerprint,
                 admission,
                 False,
+                admission.target,
             )
             loop._revision_seen[identity] = (fingerprint, admission)
         if cycle != len(loop._seen):

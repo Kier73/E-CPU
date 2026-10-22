@@ -3,6 +3,7 @@ from __future__ import annotations
 from mailcpu import (
     ClassifierHypervisor,
     HeadlessOS,
+    HypervisorIntentRevisionWitness,
     HypervisorRequest,
     HypervisorRevisionProposal,
     HypervisorRevisionWitness,
@@ -185,3 +186,56 @@ def test_external_operation_states_form_advisory_hypervisor_training_corpus() ->
     assert decision.intent_domain == "network"
     assert operating_system.hypervisor.intent_model.snapshot() == before
     assert isinstance(ClassifierHypervisor(intent_model=candidate).intent_model, IntentPrototypeModel)
+
+
+def test_external_tcp_intent_revision_training_reaches_remote_hypervisor(tmp_path) -> None:
+    """Mathematics: `decode(encode(P_intent))=P_intent` and remote admission preserves held-out predictions plus authority monotonicity."""
+
+    primary, replica, primary_transport, replica_transport = _external_replicated_pair(tmp_path)
+    sender = ReplicatedRevisionProposalRelay(primary, MAILBOX)
+    remote = HeadlessOS()
+    receiver = ReplicatedRevisionProposalRelay(replica, MAILBOX, remote.hypervisor_arbitration)
+    candidate = IntentPrototypeModel.fit(
+        (
+            IntentExample("network", {"operation": "receive network packet socket", "resource": "/network/remote"}),
+            IntentExample("filesystem", {"operation": "read filesystem file", "resource": "/srv/data"}),
+            IntentExample("service", {"operation": "restart service supervisor", "resource": "/service/worker"}),
+        )
+    )
+    requests = (
+        HypervisorRequest("receive network packet socket", "/network/remote", {"transport": "tcp"}),
+        HypervisorRequest("read filesystem file", "/srv/data", {"path": "/srv/data"}),
+    )
+    witnesses = tuple(
+        HypervisorIntentRevisionWitness.from_prediction(
+            request,
+            candidate.predict(request.state()),
+            remote.hypervisor_decide(request),
+        )
+        for request in requests
+    )
+    proposal = HypervisorRevisionProposal.from_candidate(
+        "P",
+        "external-intent-training",
+        1,
+        37,
+        candidate,
+        witnesses,
+        target="intent",
+    )
+    classifier_before = remote.hypervisor.classifier.snapshot()
+    try:
+        operation_id = sender.submit(proposal)
+        assert replica.pending(MAILBOX) == 1
+        assert sender.receipt(operation_id).committed is True
+        result = receiver.receive_and_arbitrate()
+        assert result is not None
+        assert result.target == "intent"
+        assert result.admission.accepted is True
+        assert remote.hypervisor.intent_model.snapshot() == candidate.snapshot()
+        assert remote.hypervisor.classifier.snapshot() == classifier_before
+        assert receiver.pending() == 0
+        assert remote.environment.kernel.journal.verify()
+    finally:
+        primary_transport.close()
+        replica_transport.close()

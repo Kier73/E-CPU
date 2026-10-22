@@ -12,9 +12,12 @@ from mailcpu import (
     HypervisorAction,
     HypervisorError,
     HypervisorDomain,
+    HypervisorIntentRevisionWitness,
     HypervisorRequest,
     HypervisorRevisionProposal,
     HypervisorRevisionWitness,
+    IntentExample,
+    IntentPrototypeModel,
     LexicalDecisionModel,
     NoulAnswer,
     NoulQuestion,
@@ -491,6 +494,88 @@ def test_hypervisor_revision_proposal_refuses_conflict_and_bad_model_without_mut
     assert refused_duplicate.replayed is True
     assert refused_duplicate.admission == refused.admission
     assert operating_system.hypervisor.snapshot()["revision"] == 1
+    assert operating_system.environment.kernel.journal.verify()
+
+
+def test_hypervisor_intent_revision_is_typed_witnessed_and_checkpointable() -> None:
+    """Mathematics: `M'` admits iff `M'(x)=w.expected` and `rank(a')≤rank(a)` for every held-out witness, then replays exactly."""
+
+    operating_system = HeadlessOS()
+    candidate = IntentPrototypeModel.fit(
+        (
+            IntentExample("network", {"operation": "receive network packet socket", "resource": "/network/remote"}),
+            IntentExample("filesystem", {"operation": "read filesystem file", "resource": "/srv/data"}),
+            IntentExample("service", {"operation": "restart service supervisor", "resource": "/service/worker"}),
+        )
+    )
+    requests = (
+        HypervisorRequest("receive network packet socket", "/network/remote", {"transport": "tcp"}),
+        HypervisorRequest("read filesystem file", "/srv/data", {"path": "/srv/data"}),
+        HypervisorRequest("restart service supervisor", "/service/worker", {"service": "worker"}),
+    )
+    witnesses = tuple(
+        HypervisorIntentRevisionWitness.from_prediction(
+            request,
+            candidate.predict(request.state()),
+            operating_system.hypervisor_decide(request),
+        )
+        for request in requests
+    )
+    classifier_before = operating_system.hypervisor.classifier.snapshot()
+    proposal = HypervisorRevisionProposal.from_candidate(
+        "node-a",
+        "intent-training",
+        1,
+        19,
+        candidate,
+        witnesses,
+        target="intent",
+    )
+
+    first = operating_system.hypervisor_propose_revision(proposal)
+    assert first.admission.accepted is True
+    assert first.admission.target == "intent"
+    assert first.admission.revision == 1
+    assert operating_system.hypervisor.classifier.snapshot() == classifier_before
+    assert operating_system.hypervisor.intent_model.snapshot() == candidate.snapshot()
+
+    restored = HeadlessOS.from_snapshot(operating_system.snapshot())
+    duplicate = restored.hypervisor_propose_revision(proposal)
+    assert duplicate.replayed is True
+    assert duplicate.target == "intent"
+    assert duplicate.admission == first.admission
+    assert restored.hypervisor.snapshot() == operating_system.hypervisor.snapshot()
+    assert restored.environment.kernel.journal.verify()
+
+
+def test_hypervisor_intent_revision_refuses_stale_baseline_without_mutation() -> None:
+    """Mathematics: `baseline(w)≠π(H_current,w)` implies refusal and preserves `(classifier,intent,revision)` exactly."""
+
+    operating_system = HeadlessOS()
+    candidate = IntentPrototypeModel.default()
+    request = HypervisorRequest("read filesystem file", "/srv/data", {"path": "/srv/data"})
+    prediction = candidate.predict(request.state())
+    witness = HypervisorIntentRevisionWitness(
+        request,
+        prediction.to_dict(),
+        HypervisorAction.DENY,
+    )
+    proposal = HypervisorRevisionProposal.from_candidate(
+        "node-a",
+        "intent-training",
+        1,
+        20,
+        candidate,
+        (witness,),
+        target="intent",
+    )
+    before = operating_system.hypervisor.snapshot()
+
+    result = operating_system.hypervisor_propose_revision(proposal)
+    assert result.admission.accepted is False
+    assert result.admission.target == "intent"
+    assert "baseline" in (result.admission.error or "")
+    assert operating_system.hypervisor.snapshot() == before
     assert operating_system.environment.kernel.journal.verify()
 
 

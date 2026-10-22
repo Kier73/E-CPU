@@ -837,23 +837,37 @@ after a newer classifier revision is admitted; checkpoint restore preserves the
 same binding. A legacy ledger entry without this field is interpreted as
 revision `0`.
 
-`ClassifierHypervisor.admit_classifier_revision` is the first revision gate.
-It evaluates a candidate in a shadow hypervisor with the current policy,
-intent model, and virtual capacity. Promotion commits only when every supplied
-witness reproduces the policy projection `(action, domain, probabilities,
-confidence, risk, intent, virtual_cost)`. The active classifier remains
-unchanged on any mismatch or shadow failure. Accepted revisions increment a
-checkpointed revision number and record the candidate identity and witness
-digest; refused revisions record their mismatch without changing authority.
+`ClassifierHypervisor.admit_classifier_revision` is the classifier revision
+gate. It evaluates a classifier candidate in a shadow hypervisor with the
+current policy, intent model, and virtual capacity. Promotion commits only
+when every supplied witness reproduces the policy projection `(action, domain,
+probabilities, confidence, risk, intent, virtual_cost)`. The active classifier
+remains unchanged on any mismatch or shadow failure. Accepted revisions
+increment a checkpointed revision number and record the candidate identity and
+witness digest; refused revisions record their mismatch without changing
+authority.
+
+`ClassifierHypervisor.admit_intent_revision` is the typed advisory-model gate.
+It reconstructs only an `IntentPrototypeModel`, checks every held-out
+prediction, and evaluates current and candidate intent models in isolated
+shadow hypervisors. With action permissiveness ordered by
+`rank(DENY)=0 < rank(REVIEW)=1 < rank(ALLOW)=2`, promotion requires
+`rank(action_candidate) ≤ rank(action_current)` for every witness. Intent
+training may increase review, but cannot grant an operation that the current
+hypervisor would deny or review. The active classifier and intent model remain
+unchanged on any mismatch, stale baseline, or authority expansion.
 
 `HypervisorRevisionProposal` carries a checkpointable candidate snapshot and
 witness corpus through the same source/channel/sequence identity law as
-arbitration. `HypervisorArbitrationLoop.propose_revision` reconstructs only
-admitted deterministic model kinds, applies the revision gate once, stores the
-proposal fingerprint and admission result, and returns that result on an exact
+arbitration. Its explicit target selects `classifier` or `intent`; envelopes
+without a target remain classifier proposals for compatibility.
+`HypervisorArbitrationLoop.propose_revision` reconstructs only the admitted
+target-specific model kinds, applies the target gate once, stores the proposal
+fingerprint and admission result, and returns that result on an exact
 retransmission without a second promotion. A changed proposal under the same
 identity fails closed; malformed model reconstruction is a journaled refusal.
-The proposal ledger checkpoints with the headless OS.
+The target, proposal ledger, and admission result checkpoint with the headless
+OS.
 
 `HypervisorRevisionChannel` carries the canonical envelope over the existing
 `ReliableChannel` and therefore over the framed TCP implementation without
