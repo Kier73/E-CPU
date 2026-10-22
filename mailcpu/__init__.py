@@ -89,7 +89,15 @@ from .bytecode import BytecodeError, BytecodeExecutable
 from .headless import HeadlessOS, ProcessReport
 from .service import RestartPolicy, ServiceReport, ServiceSpec, ServiceSupervisor
 from .checkpoint import CheckpointError, load_checkpoint, save_checkpoint
-from .seed import SeedNavigationError, SystemSeed
+from .seed import (
+    SYSTEM_SEED_ENVELOPE_KIND,
+    SeedEnvelopeError,
+    SeedInputReceipt,
+    SeedNavigationError,
+    SystemIdentity,
+    SystemSeed,
+    SystemSeedEnvelope,
+)
 from .network import (
     HeadlessNetworkDevice,
     HttpMessage,
@@ -394,7 +402,12 @@ __all__ = [
     "SyscallBlocked",
     "CheckpointError",
     "SeedNavigationError",
+    "SeedEnvelopeError",
+    "SeedInputReceipt",
+    "SystemIdentity",
     "SystemSeed",
+    "SystemSeedEnvelope",
+    "SYSTEM_SEED_ENVELOPE_KIND",
     "AssemblyError",
     "BytecodeError",
     "BytecodeExecutable",

@@ -23,11 +23,99 @@ import json
 from dataclasses import dataclass
 from typing import Any, Mapping
 
+from ._codec import decode_canonical_value, encode_canonical_value
 from .headless import HeadlessOS
+from .model import Message
+
+
+SYSTEM_SEED_ENVELOPE_KIND = "mailcpu.system.seed.v1"
 
 
 class SeedNavigationError(ValueError):
     """A seed is malformed, tampered with, unreachable, or inconsistent with its expected digest."""
+
+
+class SeedEnvelopeError(SeedNavigationError):
+    """A seed envelope is malformed, misrouted, tampered with, or stale for its system identity."""
+
+
+def _validate_label(value: Any, label: str) -> str:
+    """Mathematics: restrict a namespace label to the non-empty string domain `L={x∈String:|x|>0}`."""
+
+    if not isinstance(value, str) or not value:
+        raise SeedEnvelopeError(f"{label} must be a non-empty string")
+    return value
+
+
+@dataclass(frozen=True)
+class SystemIdentity:
+    """A namespace identity `I=(system_id,incarnation)` for one hosted emulated system."""
+
+    system_id: str
+    incarnation: int
+
+    def __post_init__(self) -> None:
+        """Mathematics: enforce `system_id∈L` and `incarnation∈N⁺` before routing or admission."""
+
+        _validate_label(self.system_id, "system_id")
+        if not isinstance(self.incarnation, int) or isinstance(self.incarnation, bool) or self.incarnation <= 0:
+            raise SeedEnvelopeError("incarnation must be a positive integer")
+
+    def route(self, role: str, channel: str) -> str:
+        """Mathematics: encode injective mailbox route `ρ(I,r,c)=len(id):id:inc:len(r):r:len(c):c`."""
+
+        role = _validate_label(role, "role")
+        channel = _validate_label(channel, "channel")
+        return (
+            f"sys:{len(self.system_id)}:{self.system_id}:{self.incarnation}:"
+            f"{len(role)}:{role}:{len(channel)}:{channel}"
+        )
+
+    def snapshot(self) -> dict[str, object]:
+        """Mathematics: serialize identity product `I` without storage-specific fields."""
+
+        return {"system_id": self.system_id, "incarnation": self.incarnation}
+
+    @classmethod
+    def from_snapshot(cls, payload: Mapping[str, Any]) -> "SystemIdentity":
+        """Mathematics: reconstruct `I` only from a complete typed namespace mapping."""
+
+        if not isinstance(payload, Mapping):
+            raise SeedEnvelopeError("system identity must be a mapping")
+        return cls(payload.get("system_id"), payload.get("incarnation"))
+
+
+@dataclass(frozen=True)
+class SeedInputReceipt:
+    """One monotone external-input receipt `q=(source,sequence,digest)` at a seed frontier."""
+
+    source: str
+    sequence: int
+    digest: str
+
+    def __post_init__(self) -> None:
+        """Mathematics: enforce `source∈L`, `sequence∈N⁺`, and `digest∈SHA256(String)`."""
+
+        _validate_label(self.source, "input receipt source")
+        if not isinstance(self.sequence, int) or isinstance(self.sequence, bool) or self.sequence <= 0:
+            raise SeedEnvelopeError("input receipt sequence must be a positive integer")
+        try:
+            _validate_digest(self.digest, "input receipt digest")
+        except SeedNavigationError as exc:
+            raise SeedEnvelopeError("input receipt digest is invalid") from exc
+
+    def snapshot(self) -> dict[str, object]:
+        """Mathematics: serialize receipt `q` as canonical frontier data."""
+
+        return {"source": self.source, "sequence": self.sequence, "digest": self.digest}
+
+    @classmethod
+    def from_snapshot(cls, payload: Mapping[str, Any]) -> "SeedInputReceipt":
+        """Mathematics: reconstruct one receipt only from its complete source, sequence, and digest coordinates."""
+
+        if not isinstance(payload, Mapping):
+            raise SeedEnvelopeError("input receipt must be a mapping")
+        return cls(payload.get("source"), payload.get("sequence"), payload.get("digest"))
 
 
 def _canonical_state(state: Mapping[str, Any]) -> bytes:
@@ -179,3 +267,163 @@ class SystemSeed:
                 f"seed cannot reach coordinate {coordinate}: scheduler stopped at tick {actual_tick}"
             )
         return operating_system
+
+
+@dataclass(frozen=True)
+class SystemSeedEnvelope:
+    """A canonical transit product `E=(I,role,channel,Σ,F)` for one hosted system state."""
+
+    identity: SystemIdentity
+    role: str
+    channel: str
+    seed: SystemSeed
+    input_frontier: tuple[SeedInputReceipt, ...] = ()
+
+    def __post_init__(self) -> None:
+        """Mathematics: enforce typed namespace, seed, and unique receipt-frontier factors before encoding."""
+
+        if not isinstance(self.identity, SystemIdentity):
+            raise SeedEnvelopeError("seed envelope identity is invalid")
+        _validate_label(self.role, "seed envelope role")
+        _validate_label(self.channel, "seed envelope channel")
+        if not isinstance(self.seed, SystemSeed):
+            raise SeedEnvelopeError("seed envelope seed is invalid")
+        frontier = tuple(self.input_frontier)
+        object.__setattr__(self, "input_frontier", frontier)
+        if any(not isinstance(receipt, SeedInputReceipt) for receipt in frontier):
+            raise SeedEnvelopeError("seed envelope input frontier contains an invalid receipt")
+        keys = [(receipt.source, receipt.sequence) for receipt in frontier]
+        if len(keys) != len(set(keys)):
+            raise SeedEnvelopeError("seed envelope input frontier contains duplicate receipts")
+
+    @property
+    def state_digest(self) -> str:
+        """Mathematics: project the seeded state identity `d(E)=d(Σ)` without decoding transit bytes."""
+
+        return self.seed.state_digest
+
+    def route(self) -> str:
+        """Mathematics: project the namespace mailbox `ρ(E)=ρ(identity,role,channel)` with incarnation separation."""
+
+        return self.identity.route(self.role, self.channel)
+
+    def snapshot(self) -> dict[str, object]:
+        """Mathematics: serialize payload `P(E)` with sorted receipt frontier and no transport-local message identity."""
+
+        return {
+            "format": "mailcpu-system-seed-envelope/1",
+            "identity": self.identity.snapshot(),
+            "role": self.role,
+            "channel": self.channel,
+            "seed": self.seed.snapshot(),
+            "input_frontier": [
+                receipt.snapshot()
+                for receipt in sorted(self.input_frontier, key=lambda item: (item.source, item.sequence))
+            ],
+        }
+
+    def to_bytes(self) -> bytes:
+        """Mathematics: encode `B=JSON(encode_canonical(P(E))) || SHA256(JSON(encode_canonical(P(E))))` as transit bytes."""
+
+        payload = self.snapshot()
+        canonical_value = encode_canonical_value(payload)
+        canonical = json.dumps(canonical_value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        document = {
+            "format": SYSTEM_SEED_ENVELOPE_KIND,
+            "payload": canonical_value,
+            "digest": hashlib.sha256(canonical).hexdigest(),
+        }
+        return json.dumps(document, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
+    @classmethod
+    def from_bytes(cls, encoded: bytes) -> "SystemSeedEnvelope":
+        """Mathematics: decode `E` only when UTF-8, envelope format, canonical payload, and digest all agree."""
+
+        if not isinstance(encoded, bytes):
+            raise SeedEnvelopeError("seed envelope encoding must be bytes")
+        try:
+            document = json.loads(encoded.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise SeedEnvelopeError("seed envelope is not valid UTF-8 JSON") from exc
+        if not isinstance(document, Mapping) or document.get("format") != SYSTEM_SEED_ENVELOPE_KIND:
+            raise SeedEnvelopeError("unsupported seed envelope format")
+        encoded_payload = document.get("payload")
+        if not isinstance(encoded_payload, Mapping):
+            raise SeedEnvelopeError("seed envelope payload must be a mapping")
+        try:
+            received_digest = _validate_digest(document.get("digest"), "seed envelope digest")
+        except SeedNavigationError as exc:
+            raise SeedEnvelopeError("seed envelope digest is invalid") from exc
+        canonical = json.dumps(encoded_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        expected_digest = hashlib.sha256(canonical).hexdigest()
+        if received_digest != expected_digest:
+            raise SeedEnvelopeError("seed envelope digest mismatch")
+        try:
+            payload = decode_canonical_value(encoded_payload)
+        except (KeyError, TypeError, ValueError, IndexError) as exc:
+            raise SeedEnvelopeError("seed envelope canonical payload is malformed") from exc
+        if not isinstance(payload, Mapping):
+            raise SeedEnvelopeError("decoded seed envelope payload must be a mapping")
+        if encode_canonical_value(payload) != encoded_payload:
+            raise SeedEnvelopeError("seed envelope canonical payload is not normalized")
+        try:
+            return cls._from_payload(payload)
+        except SeedEnvelopeError:
+            raise
+        except SeedNavigationError as exc:
+            raise SeedEnvelopeError("seed envelope seed payload is invalid") from exc
+
+    @classmethod
+    def _from_payload(cls, payload: Mapping[str, Any]) -> "SystemSeedEnvelope":
+        """Mathematics: reconstruct `E` from verified payload coordinates and preserve the frontier as a finite set."""
+
+        identity_payload = payload.get("identity")
+        seed_payload = payload.get("seed")
+        raw_frontier = payload.get("input_frontier", ())
+        if not isinstance(identity_payload, Mapping) or not isinstance(seed_payload, Mapping):
+            raise SeedEnvelopeError("seed envelope identity or seed is incomplete")
+        if not isinstance(raw_frontier, (list, tuple)):
+            raise SeedEnvelopeError("seed envelope input frontier must be a sequence")
+        identity = SystemIdentity.from_snapshot(identity_payload)
+        seed = SystemSeed.from_snapshot(seed_payload)
+        frontier = tuple(SeedInputReceipt.from_snapshot(item) for item in raw_frontier)
+        return cls(identity, payload.get("role"), payload.get("channel"), seed, frontier)
+
+    def to_message(self, sender: str) -> Message:
+        """Mathematics: lift envelope bytes into transport message `m=(sender,ρ(E),SEED,(kind,B))`."""
+
+        _validate_label(sender, "seed envelope sender")
+        route = self.route()
+        return Message(
+            sender=sender,
+            recipient=route,
+            op=SYSTEM_SEED_ENVELOPE_KIND,
+            addr=route,
+            body=(SYSTEM_SEED_ENVELOPE_KIND, self.to_bytes()),
+        )
+
+    @classmethod
+    def from_message(cls, message: Message) -> "SystemSeedEnvelope":
+        """Mathematics: invert the message lift only for exact operation kind and envelope body identity."""
+
+        if not isinstance(message, Message):
+            raise SeedEnvelopeError("seed envelope message must be a Message")
+        if message.op != SYSTEM_SEED_ENVELOPE_KIND or len(message.body) != 2:
+            raise SeedEnvelopeError("seed envelope message kind is invalid")
+        kind, encoded = message.body
+        if kind != SYSTEM_SEED_ENVELOPE_KIND or not isinstance(encoded, bytes):
+            raise SeedEnvelopeError("seed envelope message body is invalid")
+        envelope = cls.from_bytes(encoded)
+        if message.recipient != envelope.route() or message.addr != envelope.route():
+            raise SeedEnvelopeError("seed envelope message route does not match identity")
+        return envelope
+
+    def restore(self, expected_identity: SystemIdentity | None = None) -> HeadlessOS:
+        """Mathematics: admit `restore(Σ)` only when an optional host identity equals `I`; then verify the seed digest."""
+
+        if expected_identity is not None and expected_identity != self.identity:
+            raise SeedEnvelopeError("seed envelope identity does not match host identity")
+        try:
+            return self.seed.restore()
+        except SeedNavigationError as exc:
+            raise SeedEnvelopeError("seed envelope seed cannot be restored") from exc

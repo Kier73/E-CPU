@@ -616,3 +616,15 @@ when the scheduler cannot reach the requested coordinate or when the resulting
 state digest differs. This lets the hypervisor read and verify encoded system
 states before later navigators—law-certified leaps, reversible gate descent,
 or transit-derived state—are admitted as accelerations of the same seed law.
+
+`SystemSeedEnvelope` now makes that seed readable as a hosted-system transit
+object. `SystemIdentity(system_id, incarnation)` gives the hypervisor a typed
+namespace epoch; the derived `(identity, role, channel)` route separates shared
+mailboxes even when endpoint labels are reused. The envelope carries the full
+seed and a canonical external-input frontier, and its injective encoding keeps
+tuple/list/bytes distinctions intact through memory and AF_INET transport. A
+receiver verifies the envelope digest, reconstructs the typed frontier, checks
+the message route against the identity, and only then restores the seeded
+system. This is the first system-level substrate for several emulated systems;
+the next hypervisor boundary is authoritative admission of frontier progress,
+stale-incarnation refusal, and live multi-system scheduling over these routes.

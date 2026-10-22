@@ -820,6 +820,22 @@ not an assumed inverse for effectful OS transitions. Algebraic orbit leaps and
 reversible-gate descent remain separate certified navigators that may later
 replace replay only after their witnesses prove the same state digest.
 
+`SystemSeedEnvelope` lifts that seed boundary into a transport product for shared
+hosting. Its identity is `I=(system_id,incarnation)`, and its route is an
+injective namespace function of `(I,role,channel)`, so two systems or two
+incarnations cannot share a mailbox by endpoint-label coincidence. The envelope
+also carries the role, channel, complete `SystemSeed`, and a sorted frontier of
+external-input receipts `(source,sequence,digest)`. Its byte encoding uses the
+repository's injective canonical value algebra, preserving tuples, lists,
+bytes, and mappings before hashing; this makes a decoded envelope state-equal to
+the source envelope rather than merely JSON-shaped like it. `to_message` and
+`from_message` bind the envelope bytes to the derived route, and host restore
+requires the expected identity before the seed is replayed. Real in-memory and
+AF_INET transport tests exercise the same envelope bytes, while duplicate
+frontier receipts, digest changes, and forged routes refuse before state
+restoration. This leaves admission policy, authoritative frontier advancement,
+and durable multi-host ownership as the next composition over the typed boundary.
+
 ## 11. Images and execution regimes
 
 ### 11.1 Source assembly and headless execution
