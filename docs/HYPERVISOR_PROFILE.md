@@ -160,6 +160,13 @@ Intent prediction is advisory. It can force `REVIEW` when it strongly
 disagrees with an otherwise allowed classifier domain, but it cannot grant a
 capability or execute a handler.
 
+Observed network, filesystem, and service operation states can fit a candidate
+prototype and can be checked on held-out states. That is a training signal for
+the hypervisor, not an implicit mutation of its active authority: the running
+intent model remains checkpointed state until a typed intent-model revision
+target has passed the same witness, transport, persistence, and arbitration
+gates as every other revision.
+
 ## 4. Virtual time and energy accounting
 
 Inside the system, time is the direct translation of active virtual energy:
@@ -475,17 +482,18 @@ revision changes, replay identity, and checkpoint restore.
 
 The next connections are deliberately staged:
 
-1. controlled external networking that transports revision proposals while
-   preserving the local identity and receipt laws;
-2. replicated multi-host persistence and cross-host transaction commit over
-   the same revision-bound event vocabulary;
+1. a typed intent-model revision target carried through the existing witness,
+   reliable transport, replicated mailbox, and checkpoint laws;
+2. cross-host recovery coordination for reconnect, duplicate delivery, and
+   receipt replay around the durable relay;
 3. typed classifier adapters for filesystem, network, service, process, and
    package operations;
 4. broader POSIX, foreign CPU, terminal, and public E2 integration.
 
-The first of these is now implemented over the existing reliable/TCP path. The
-next smallest extension is controlled external networking or a multi-host
-proposal relay that preserves the same envelope, arbitration identity,
-journal, and checkpoint structures. This leaves a path for remote memory and
-distributed execution to carry not only data, but also the revision, virtual
-time, energy receipt, and authority context that gave the data meaning.
+Controlled external networking is now evidenced over an actual AF_INET
+loopback path for both durable revision relay and remote page-backed memory.
+The next smallest extension is the typed intent-model revision target: it will
+leave behind a revision-bound candidate, held-out witnesses, and a durable
+admission record that later adapters and distributed execution can reuse. This
+keeps remote data, virtual time, energy receipt, and authority context on the
+same hypervisor-governed path.

@@ -518,7 +518,10 @@ The device validates bounded IPv4 and TCP headers, tracks a finite RFC-shaped co
 - All effects are journaled, malformed topology and over-MTU or over-capacity
   sends fail explicitly. The owned fabric remains in-process; the explicit
   `SocketTransport` boundary carries its typed message algebra to external
-  controlled peers.
+  controlled peers. The external loopback witness also carries a durable
+  hypervisor proposal relay and a remote page provider over a real
+  `AF_INET` connection; public-infrastructure reachability remains a separate
+  obligation.
 
 Evidence tier: E1. Linux network-namespace compatibility and public-infrastructure reachability are later infrastructure stages.
 
@@ -636,6 +639,13 @@ retry or quorum protocol.
 - FIFO proposals remain recoverable after remote store reopen. Malformed or
   same-identity conflicting proposals remain at the mailbox head for diagnosis
   and retry rather than being silently discarded.
+- The same envelope is exercised over an actual `SocketTransport.listen` /
+  `connect` pair: the canonical body is compared after durable decode and
+  before remote admission, so framing and mailbox persistence cannot silently
+  alter the proposal.
+- A remote page provider on that external path supplies a reclaimed page by
+  content digest; virtual-memory fault recovery verifies the exact original
+  bytes rather than merely successful transport.
 
 Evidence tier: E1 for controlled multi-node persistence and relay admission.
 

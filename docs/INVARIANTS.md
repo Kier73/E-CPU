@@ -42,6 +42,7 @@ system. Each entry has:
 | `D-3` | The canonical value algebra is injective and invariant under mapping-key permutation. | `mailcpu/_codec.py` | `tests/test_codec.py::test_canonical_algebra_distinguishes_container_types`, `tests/test_codec.py::test_canonical_encoding_is_permutation_invariant` | `REPLACEMENT_SPEC.md` 7.11 |
 | `D-4` | The transport value algebra preserves scalars and bytes; canonical external paths preserve tuple identity. | `mailcpu/_codec.py`, `mailcpu/socket_transport.py` | `tests/test_codec.py::test_transport_algebra_round_trips_scalars_and_bytes`, `tests/test_socket_transport.py::test_tcp_loopback_transports_typed_messages_and_preserves_fifo` | `REPLACEMENT_SPEC.md` 7.11 |
 | `D-5` | A digest is never computed over a non-canonical encoding. | `mailcpu/durable_transport.py` | `tests/test_durable_transport.py::test_durable_mailbox_rejects_tampered_complete_records` | `REPLACEMENT_SPEC.md` 7.11 |
+| `D-6` | An externally connected revision relay preserves the canonical proposal body through TCP framing, durable mailbox decode, quorum replication, and remote hypervisor admission. | `mailcpu/socket_transport.py`, `mailcpu/revision_relay.py` | `tests/test_external_connections.py::test_external_tcp_revision_encoding_and_hypervisor_admission` | `INTEGRATION_SPEC.md` 10.4 |
 
 ## Receipts, journal, and checkpoints
 
@@ -87,6 +88,7 @@ system. Each entry has:
 | `M-5** | An undersized destination returns `-ERANGE` before memory mutation. | `mailcpu/headless.py` | `tests/test_headless.py::test_scheduled_process_context_abi_packs_argv_environment_and_cwd_atomically` | `REPLACEMENT_SPEC.md` 7.4 |
 | `M-6` | A read is non-consuming with respect to the register mailbox it observes. | `mailcpu/interpreter.py` | `tests/test_conformance.py::test_queue_register_read_is_non_consuming` | `PLAN.md` 4.5 |
 | `M-7` | Remote-backed reclaim publishes a page identity before reservation, and a later fault restores exact bytes through the same digest. | `mailcpu/memory.py`, `mailcpu/remote_memory.py` | `tests/test_remote_memory.py::test_virtual_memory_reclaim_faults_through_remote_page_backing` | `ARCHITECTURE.md` 7.3 |
+| `M-8` | Remote-backed reclaim and fault recovery restore exact page bytes through the same content identity when the page provider is reached over an external TCP path. | `mailcpu/memory.py`, `mailcpu/remote_memory.py`, `mailcpu/socket_transport.py` | `tests/test_external_connections.py::test_external_tcp_remote_page_backing_drives_virtual_memory_fault` | `INTEGRATION_SPEC.md` 10.4 |
 
 ## Dynamic ELF planning
 
@@ -210,6 +212,7 @@ system. Each entry has:
 | ID | Statement | Establishes | Enforced by | Required by |
 |---|---|---|---|---|
 | `Q-1` | Advisory neural routing outputs are dispatched if and only if they reproduce 100% of withheld witness probes. | `mailcpu/neural_lifter.py` | `tests/test_neural_lifter.py::test_policy_gate_isolation_truth_preservation`, `tests/test_neural_lifter.py::test_policy_gate_fallback_on_model_mismatch` | `ITERATION_2_BUILD_PLAN.md` 4.6 |
+| `Q-2` | A structural intent candidate can be fitted from observed operation states and classify held-out states without changing the active hypervisor model; activation remains a typed revision-gate obligation. | `mailcpu/intent_embedding.py`, `mailcpu/classifier.py` | `tests/test_external_connections.py::test_external_operation_states_form_advisory_hypervisor_training_corpus` | `HYPERVISOR_PROFILE.md` 3.3 |
 
 ## Marking an invariant
 
