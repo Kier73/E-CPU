@@ -175,6 +175,19 @@ from .hypervisor_transport import (
     HypervisorOperationResultChannel,
     HypervisorOperationTransportError,
 )
+from .recovery_policy import (
+    DEFAULT_CHECKPOINT_KIND,
+    RECOVERY_POLICY_ADVERTISEMENT_KIND,
+    RECOVERY_POLICY_AGREEMENT_KIND,
+    RECOVERY_POLICY_OFFER_KIND,
+    RecoveryPolicyAdvertisement,
+    RecoveryPolicyAgreement,
+    RecoveryPolicyChannel,
+    RecoveryPolicyError,
+    RecoveryPolicyOffer,
+    advertise_recovery_policy,
+    negotiate_recovery_policy,
+)
 from .procedural_model import ProceduralDecisionModel, ProceduralModelSpec, ProceduralWeightField
 from .reversible_gates import (
     ARM_NONE,
@@ -517,6 +530,17 @@ __all__ = [
     "HypervisorOperationChannel",
     "HypervisorOperationResultChannel",
     "HypervisorOperationTransportError",
+    "DEFAULT_CHECKPOINT_KIND",
+    "RECOVERY_POLICY_ADVERTISEMENT_KIND",
+    "RECOVERY_POLICY_AGREEMENT_KIND",
+    "RECOVERY_POLICY_OFFER_KIND",
+    "RecoveryPolicyAdvertisement",
+    "RecoveryPolicyAgreement",
+    "RecoveryPolicyChannel",
+    "RecoveryPolicyError",
+    "RecoveryPolicyOffer",
+    "advertise_recovery_policy",
+    "negotiate_recovery_policy",
     "LexicalDecisionModel",
     "NoulAnswer",
     "NoulQuestion",

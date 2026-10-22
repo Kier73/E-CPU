@@ -575,3 +575,12 @@ the process handler twice, and leaves one child plus one canonical effect. The
 witness also derives an advisory process/package intent candidate from live
 operation states; held-out prediction and authority monotonicity are checked
 before the candidate is admitted.
+
+The receiver-advertised recovery policy is now an explicit control-plane
+surface. `RecoveryPolicyChannel` carries advertisements, offers, and
+agreements over reliable peer-bound frames. The receiver constrains checkpoint
+kind, target substrate, window, lease, retry budget, cross-transport movement,
+and effect-ledger support; the negotiated policy is the bounded intersection,
+not an expansion of either side. Unsupported migration remains refused before
+state movement. The agreement digest and selected reliability policy are the
+inputs for the next transport-handoff build.

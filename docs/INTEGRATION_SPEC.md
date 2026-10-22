@@ -775,6 +775,19 @@ native process mutation. The same witness forms a process/package advisory
 intent corpus from live operation states, checks held-out predictions, and
 promotes the candidate only through the typed intent revision gate.
 
+`RecoveryPolicyAdvertisement`, `RecoveryPolicyOffer`, and
+`RecoveryPolicyAgreement` establish the receiver's recovery boundary before a
+future handoff. The receiver advertises checkpoint kinds, target transport
+substrates, maximum window, minimum lease, retry budget, cross-transport
+permission, and effect-ledger support. The sender offers its requested source
+and target; the receiver computes the bounded intersection
+`W=min(W_sender,W_max)`, `L=max(L_sender,L_min)`, and
+`R=min(R_sender,R_max)`. The policy channel carries these typed frames over
+the existing reliable peer-bound path, leaving malformed or incompatible
+heads queued without acknowledgement. This stage negotiates readiness only;
+the later migration stage will bind the agreement to a target transport and
+checkpoint movement.
+
 ## 11. Images and execution regimes
 
 ### 11.1 Source assembly and headless execution
