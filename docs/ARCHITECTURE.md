@@ -372,8 +372,9 @@ rules are `docs/ARCHITECTURE.md` clauses 3 and 5 and `docs/REPLACEMENT_SPEC.md`.
 - Scheduler trajectory frames retain the semantic instruction projection
   `(step, pc_before, op, args, pc_after, registers, output_delta)` alongside
   scheduler identity and receipt metadata. This makes single-task machine
-  traces comparable with the reference interpreter while leaving complete
-  process, filesystem, and multi-host replay as separate state relations.
+  traces comparable with the reference interpreter and preserves multi-task
+  event order for checkpoint differential replay, while leaving complete
+  filesystem and multi-host replay as separate state relations.
 - Ambient communication substrates store in-flight memory across physical delay loops
   without host RAM residency. Dynamic slot clamping enforces $\Delta_{\text{slot}} \ge 3 \sigma_{\text{jitter}}$,
   and Redundant Residue Number Systems (RRNS) guarantee exact Garner-free CRT state reconstruction

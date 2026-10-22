@@ -71,6 +71,51 @@ def test_checkpoint_resume_matches_uninterrupted_semantic_trajectory(tmp_path: P
     assert uninterrupted == resumed
 
 
+def test_multitask_checkpoint_resume_preserves_causal_mailbox_trajectory(tmp_path: Path) -> None:
+    """Mathematics: for producer/consumer state `S`, `π(T^k(S)) = π(T^k(restore(save(S))))` while FIFO delivery and task order remain equal."""
+
+    consumer_source = "wait proc:2 received\nadd result received received\nhalt\n"
+    producer_source = "set value 7\nsend proc:2 value\nhalt\n"
+    uninterrupted_data = tmp_path / "multitask-uninterrupted.mtrj"
+    uninterrupted_index = tmp_path / "multitask-uninterrupted.mtrj.idx"
+    resumed_data = tmp_path / "multitask-resumed.mtrj"
+    resumed_index = tmp_path / "multitask-resumed.mtrj.idx"
+    checkpoint = tmp_path / "multitask.mcpu.json"
+
+    with TrajectoryWriter(uninterrupted_data, uninterrupted_index) as writer:
+        uninterrupted = HeadlessOS(trajectory=writer)
+        consumer = uninterrupted.launch_source(consumer_source, "consumer")
+        producer = uninterrupted.launch_source(producer_source, "producer")
+        assert (consumer, producer) == (2, 3)
+        prefix = uninterrupted.run(2)
+        assert [(event.tick, event.pid, event.op, event.status_after) for event in prefix] == [
+            (0, consumer, "WAIT", "blocked"),
+            (1, producer, "SET", "runnable"),
+        ]
+        uninterrupted.save_checkpoint(checkpoint)
+        uninterrupted.run(20)
+        uninterrupted_snapshot = uninterrupted.snapshot()
+
+    with TrajectoryWriter(resumed_data, resumed_index) as writer:
+        prefix_os = HeadlessOS(trajectory=writer)
+        prefix_os.launch_source(consumer_source, "consumer")
+        prefix_os.launch_source(producer_source, "producer")
+        assert prefix_os.run(2) == prefix
+
+    with TrajectoryWriter.resume(resumed_data, resumed_index) as writer:
+        restored = load_checkpoint(checkpoint)
+        restored.vm.trajectory = writer
+        restored.run(20)
+        restored_snapshot = restored.snapshot()
+
+    assert restored_snapshot == uninterrupted_snapshot
+    assert _trajectory_payloads(uninterrupted_data, uninterrupted_index) == _trajectory_payloads(
+        resumed_data, resumed_index
+    )
+    assert restored.environment.kernel.bus.pending() == 0
+    assert restored.process(consumer).registers["result"] == 14
+
+
 def test_checkpoint_preserves_subreaper_and_session_identity(tmp_path: Path) -> None:
     """Mathematics: `restore(save(S))` fixes `(session_id, group_id, subreaper)` at their pre-checkpoint values, so adoption and grouping survive persistence."""
 

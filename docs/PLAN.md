@@ -105,9 +105,10 @@ Phase identifiers are `Phase A0` through `Phase A7`.
 | `A7` | Trajectory capture | A recorded trajectory alone reconstructs and replays the run |
 
 The current A7 slice captures the machine-level instruction projection in each
-scheduler trajectory frame and checks it against the reference interpreter.
-Complete replay of process memory, filesystem state, and multi-host substrate
-state remains a subsequent obligation.
+scheduler trajectory frame, checks single-task traces against the reference
+interpreter, and checks multi-task checkpoint continuation through blocked
+mailboxes against uninterrupted execution. Complete replay of filesystem
+state and multi-host substrate state remains a subsequent obligation.
 
 **REQUIRED** A divergence between the reference interpreter and any other
 backend MUST be recorded, whether or not its cause is identified. The failure map

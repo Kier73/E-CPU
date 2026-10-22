@@ -55,6 +55,7 @@ system. Each entry has:
 | `C-4` | A persisted single-task scheduler trajectory preserves the semantic instruction projection and matches the reference interpreter trace. | `mailcpu/vm.py`, `mailcpu/scheduler.py` | `tests/test_trajectory.py::test_vm_semantic_trajectory_replays_reference_trace` | `INTEGRATION_SPEC.md` 2.3 |
 | `C-5` | A digest-checked checkpoint restore produces the same post-checkpoint semantic trajectory as uninterrupted execution. | `mailcpu/checkpoint.py`, `mailcpu/headless.py` | `tests/test_checkpoint.py::test_checkpoint_resume_matches_uninterrupted_semantic_trajectory` | `INTEGRATION_SPEC.md` 4.2 |
 | `C-6` | Trajectory resume verifies the existing prefix and preserves its sequence, logical time, sparse-index stride, and receipt-chain identity without truncation. | `mailcpu/trajectory.py` | `tests/test_trajectory.py::test_trajectory_resume_appends_one_verified_receipt_chain`, `tests/test_trajectory.py::test_trajectory_resume_refuses_tampered_prefix` | `INTEGRATION_SPEC.md` 2.3 |
+| `C-7` | A checkpoint taken with one task blocked and another task ready preserves the ready order, FIFO mailbox causality, per-task semantic trajectory, and terminal state across restore. | `mailcpu/scheduler.py`, `mailcpu/bus.py`, `mailcpu/checkpoint.py` | `tests/test_checkpoint.py::test_multitask_checkpoint_resume_preserves_causal_mailbox_trajectory` | `INTEGRATION_SPEC.md` 4.2 |
 
 ## Authority
 
