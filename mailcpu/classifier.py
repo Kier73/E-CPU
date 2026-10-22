@@ -700,6 +700,23 @@ class HypervisorArbitrationEvent:
             "request": self.request.state(),
         }
 
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "HypervisorArbitrationEvent":
+        """Mathematics: invert event projection `J(e)` only when identity and `HypervisorRequest.from_state` validation both succeed."""
+
+        if not isinstance(payload, Mapping):
+            raise ClassifierError("arbitration event must be a mapping")
+        request_payload = payload.get("request")
+        if not isinstance(request_payload, Mapping):
+            raise ClassifierError("arbitration event request must be a mapping")
+        return cls(
+            str(payload.get("source", "")),
+            str(payload.get("channel", "")),
+            int(payload.get("sequence", 0)),
+            int(payload.get("logical_time", -1)),
+            HypervisorRequest.from_state(request_payload),
+        )
+
 
 @dataclass(frozen=True)
 class HypervisorArbitrationResult:

@@ -1746,6 +1746,39 @@ class HeadlessOS:
             },
         )
 
+    def hypervisor_authorize_event(
+        self,
+        pid: int,
+        event: HypervisorArbitrationEvent,
+    ) -> HypervisorArbitrationEvent:
+        """Mathematics: replace remote authority fact `R_granted` with local `G(pid,resource)` while preserving event identity and time."""
+
+        if not isinstance(event, HypervisorArbitrationEvent):
+            raise TypeError("hypervisor operation authorization requires a HypervisorArbitrationEvent")
+        process = self.environment.kernel._process(pid)
+        request = event.request
+        granted = frozenset(
+            right
+            for right in request.required_rights
+            if any(capability.allows(request.resource, right) for capability in process.capabilities)
+        )
+        authorized_request = HypervisorRequest(
+            operation=request.operation,
+            resource=request.resource,
+            payload=dict(request.payload),
+            required_rights=request.required_rights,
+            granted_rights=granted,
+            destructive=request.destructive,
+            temporal=None if request.temporal is None else dict(request.temporal),
+        )
+        return HypervisorArbitrationEvent(
+            event.source,
+            event.channel,
+            event.sequence,
+            event.logical_time,
+            authorized_request,
+        )
+
     def hypervisor_dispatch_event(
         self,
         pid: int,

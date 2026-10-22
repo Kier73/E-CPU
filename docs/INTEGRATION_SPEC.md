@@ -717,6 +717,29 @@ existing policy returns `ALLOW`.
 The process and package witnesses exercise both allowed and refused paths,
 including exact no-side-effect checks. Evidence tier: E0.
 
+### 10.7 Hypervisor operation transport
+
+`HypervisorOperationChannel` carries `HypervisorArbitrationEvent` through the
+existing reliable channel and TCP frame codec. It validates the operation kind,
+peer-bound source, channel, typed request, and transport sequence while the
+frame is still peeked. `receive_and_execute` applies a receiver authority
+function before `HypervisorArbitrationLoop.execute`, and consumes/acknowledges
+the frame only after a typed effect result exists.
+
+The receiver authority function reconstructs `granted_rights` from its local
+process capability graph and preserves the event identity and temporal state;
+remote authority claims are therefore inputs to inspect, not proof of local
+access. A duplicate reliable frame after a lost acknowledgement may be
+consumed and acknowledged again, but the effect ledger returns the stored
+canonical effect without invoking the native handler. A malformed frame,
+changed identity, or authority-construction failure is not acknowledged.
+
+The AF_INET witness sends a process launch, closes the origin before processing
+its acknowledgement, checkpoints both channels and the replica hypervisor,
+reconnects, retransmits, and observes one child plus one replayed effect. A
+second event carrying a forged `execute` grant is denied by a receiver process
+that lacks that capability. Evidence tier: E1.
+
 ## 11. Images and execution regimes
 
 ### 11.1 Source assembly and headless execution

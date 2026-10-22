@@ -480,6 +480,10 @@ hypervisor_arbitration:
     cycle
     seen[(source, channel, sequence)] =
         fingerprint, decision_receipt, decision_revision
+    decisions[(source, channel, sequence)] =
+        fingerprint, action, domain, decision_receipt, decision_revision
+    executions[(source, channel, sequence)] =
+        fingerprint, decision_receipt, action, domain, effect
 ```
 
 The shared kernel journal is restored with the machine environment. Restore
@@ -551,4 +555,7 @@ typed and capability-gated. Package installation is now represented as a typed
 destructive adapter: default policy reviews it without filesystem mutation,
 while an explicitly permissive policy can invoke only the digest-verified
 registry image. Remaining adapter work is generalization to future operation
-domains, not bypassing the established policy boundary.
+domains, not bypassing the established policy boundary. Operation events now
+cross the existing reliable AF_INET path; the receiver re-derives rights from
+its own process capabilities, and a lost acknowledgement replays one
+checkpointed process effect without launching a second child.
