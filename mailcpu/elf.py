@@ -26,6 +26,14 @@ PF_R = 0x4
 ET_EXEC = 2
 ET_DYN = 3
 ELF_PAGE_SIZE = 4096
+AT_PHDR = 3
+AT_PHENT = 4
+AT_PHNUM = 5
+AT_PAGESZ = 6
+AT_BASE = 7
+AT_FLAGS = 8
+AT_ENTRY = 9
+AT_NULL = 0
 MAX_PROGRAM_HEADERS = 4096
 MAX_INTERPRETER_BYTES = 4096
 MACHINE_NAMES = {
@@ -118,6 +126,17 @@ class ElfLoadResult:
 
 
 @dataclass(frozen=True)
+class ElfStartupState:
+    """Deterministic ELF handoff metadata for a future instruction backend."""
+
+    main_entry: int
+    initial_entry: int
+    interpreter: str | None
+    interpreter_base: int | None
+    auxiliary_vector: tuple[tuple[int, int], ...]
+
+
+@dataclass(frozen=True)
 class ElfSymbol:
     """One dynamic symbol-table record with its resolved string-table name."""
 
@@ -197,6 +216,10 @@ class ElfImage:
     has_dynamic_segment: bool
     digest: str
     dynamic: ElfDynamicInfo | None = None
+    program_header_offset: int = 0
+    program_header_entry_size: int = 0
+    program_header_count: int = 0
+    program_header_address: int | None = None
 
     @property
     def machine_name(self) -> str:
@@ -242,6 +265,48 @@ class ElfImage:
             mapped_pages=target_pages,
             writable_pages=tuple(sorted(page for page, writable in page_writable.items() if writable)),
             executable_pages=tuple(sorted(page for page, executable in page_executable.items() if executable)),
+        )
+
+    def startup_state(
+        self,
+        load: ElfLoadResult,
+        *,
+        interpreter_entry: int | None = None,
+        interpreter_base: int | None = None,
+    ) -> ElfStartupState:
+        """Mathematics: construct auxiliary vector `A` and select `entry₀=interp_entry` iff `PT_INTERP` exists, else `entry₀=main_entry`."""
+
+        if load.load_bias < 0 or load.load_bias % ELF_PAGE_SIZE:
+            raise ElfError("startup load bias is not page-aligned")
+        if load.entry != load.load_bias + self.entry:
+            raise ElfError("startup load result does not match ELF entry")
+        if self.interpreter is None:
+            if interpreter_entry is not None or interpreter_base is not None:
+                raise ElfError("interpreter handoff was supplied for a static ELF image")
+            initial_entry = load.entry
+        else:
+            if interpreter_entry is None or interpreter_base is None:
+                raise ElfError("interpreter entry and base are required for PT_INTERP handoff")
+            if interpreter_entry < 0 or interpreter_base < 0 or interpreter_base % ELF_PAGE_SIZE:
+                raise ElfError("interpreter handoff is not page-aligned")
+            initial_entry = int(interpreter_entry)
+        auxiliary: list[tuple[int, int]] = []
+        if self.program_header_address is not None:
+            auxiliary.append((AT_PHDR, load.load_bias + self.program_header_address))
+        if self.program_header_entry_size > 0:
+            auxiliary.append((AT_PHENT, self.program_header_entry_size))
+        if self.program_header_count > 0:
+            auxiliary.append((AT_PHNUM, self.program_header_count))
+        auxiliary.extend(((AT_PAGESZ, ELF_PAGE_SIZE), (AT_FLAGS, 0), (AT_ENTRY, load.entry)))
+        if self.interpreter is not None:
+            auxiliary.append((AT_BASE, int(interpreter_base)))
+        auxiliary.append((AT_NULL, 0))
+        return ElfStartupState(
+            main_entry=load.entry,
+            initial_entry=initial_entry,
+            interpreter=self.interpreter,
+            interpreter_base=None if interpreter_base is None else int(interpreter_base),
+            auxiliary_vector=tuple(auxiliary),
         )
 
     def plan_relocations(
@@ -617,6 +682,7 @@ def parse_elf(payload: bytes) -> ElfImage:
     interpreter: str | None = None
     has_dynamic = False
     dynamic_header: tuple[int, int] | None = None
+    program_header_address: int | None = None
     program_header = struct.Struct(endian + ("IIIIIIII" if bits == 32 else "IIQQQQQQ"))
     for index in range(phnum):
         raw = program_header.unpack_from(data, phoff + index * phentsize)
@@ -628,6 +694,8 @@ def parse_elf(payload: bytes) -> ElfImage:
         if segment_type == PT_DYNAMIC:
             has_dynamic = True
             dynamic_header = (int(offset), int(file_size))
+        if segment_type == PT_PHDR:
+            program_header_address = int(virtual_address)
         if segment_type == PT_INTERP:
             if file_size <= 1 or file_size > MAX_INTERPRETER_BYTES:
                 raise ElfError("invalid ELF interpreter size")
@@ -671,6 +739,12 @@ def parse_elf(payload: bytes) -> ElfImage:
             raise ElfError("PT_LOAD memory intervals overlap")
     if not any(segment.virtual_address <= entry < segment.virtual_address + segment.memory_size for segment in ordered):
         raise ElfError("ELF entry point is outside PT_LOAD memory")
+    if program_header_address is None:
+        table_end = int(phoff) + int(phentsize) * int(phnum)
+        for segment in ordered:
+            if segment.offset <= phoff and table_end <= segment.offset + segment.file_size:
+                program_header_address = segment.virtual_address + (int(phoff) - segment.offset)
+                break
     dynamic = None
     if dynamic_header is not None and dynamic_header[1] > 0:
         dynamic = _parse_dynamic(data, dynamic_header[0], dynamic_header[1], bits, endian, tuple(ordered))
@@ -685,4 +759,8 @@ def parse_elf(payload: bytes) -> ElfImage:
         has_dynamic,
         hashlib.sha256(data).hexdigest(),
         dynamic,
+        int(phoff),
+        int(phentsize),
+        int(phnum),
+        program_header_address,
     )

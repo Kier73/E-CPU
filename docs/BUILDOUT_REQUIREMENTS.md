@@ -48,7 +48,10 @@ the next linker slice.
 `DynamicLinker` now resolves named ELF providers, deduplicates dependency
 cycles, assigns deterministic page-aligned bases, builds a complete symbol map,
 and applies supported relocation words to a staging clone before committing it
-to virtual memory. Missing dependencies, unsupported relocation types, and
+to virtual memory. `link_runtime` additionally resolves a `PT_INTERP`
+provider, stages the combined main/dependency/interpreter graph, and emits
+deterministic startup auxiliary-vector state before the same commit. Missing
+dependencies, unsupported relocation types, invalid handoff metadata, and
 read-only targets preserve the caller's memory state.
 
 #### Requirements

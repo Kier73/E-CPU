@@ -311,6 +311,10 @@ rules are `docs/ARCHITECTURE.md` clauses 3 and 5 and `docs/REPLACEMENT_SPEC.md`.
 - `DynamicLinker` resolves `DT_NEEDED` through an explicit provider relation,
   assigns deterministic page-aligned dependency bases, stages a clone, and
   commits relocation writes only after every image and target preflight passes.
+- `DynamicLinker.link_runtime` extends that transaction to a provider-backed
+  `PT_INTERP` image. `ElfStartupState` records the main entry, interpreter
+  entry, interpreter base, and derivable auxiliary-vector values; startup
+  metadata is validated before the shared memory clone commits.
 
 ### 7.11 Numbered POSIX boundary
 

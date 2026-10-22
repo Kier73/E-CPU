@@ -105,6 +105,8 @@ def test_elf_parser_accepts_32_and_64_bit_images_and_stages_permissions() -> Non
     image = parse_elf(_elf64_fixture())
     assert image.bits == 64
     assert image.machine_name == "x86_64"
+    assert image.program_header_entry_size == 56
+    assert image.program_header_count == 2
     memory = VirtualMemory()
     result = image.load_into(memory, base=0x400000)
     assert result.entry == 0x400100
@@ -117,6 +119,13 @@ def test_elf_parser_accepts_32_and_64_bit_images_and_stages_permissions() -> Non
         memory.write(0x400000, b"X")
     memory.write(0x402000, b"OK")
     assert memory.read(0x402000, 2) == b"OK"
+    startup = image.startup_state(result)
+    assert startup.main_entry == 0x400100
+    assert startup.initial_entry == 0x400100
+    assert dict(startup.auxiliary_vector)[4] == 56
+    assert dict(startup.auxiliary_vector)[5] == 2
+    assert dict(startup.auxiliary_vector)[9] == 0x400100
+    assert startup.auxiliary_vector[-1] == (0, 0)
 
 
 def test_headless_os_loads_elf_segments_into_process_memory_without_fake_execution() -> None:

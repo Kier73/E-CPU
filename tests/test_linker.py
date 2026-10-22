@@ -83,3 +83,32 @@ def test_dynamic_linker_rejects_unsupported_relocation_before_memory_commit() ->
     with pytest.raises(LinkerError, match="unsupported relocation"):
         DynamicLinker({"libdep.so": _static_provider()}).link(unsupported, memory, base=0x400000)
     assert memory.snapshot() == before
+
+
+def test_dynamic_linker_runtime_loads_interpreter_and_builds_startup_handoff() -> None:
+    """Mathematics: `link_runtime` stages `G(main)∪G(interpreter)` and selects interpreter entry while `AT_ENTRY` remains the main entry."""
+
+    main = replace(_static_provider(), interpreter="/lib/ld.so")
+    interpreter = _static_provider()
+    memory = VirtualMemory()
+    result = DynamicLinker({"/lib/ld.so": interpreter}).link_runtime(main, memory, name="app", base=0x400000)
+    assert result.interpreter is not None
+    assert result.interpreter.name == "/lib/ld.so"
+    assert result.interpreter.base == 0x403000
+    assert result.startup is not None
+    assert result.startup.main_entry == 0x400100
+    assert result.startup.initial_entry == 0x403100
+    assert dict(result.startup.auxiliary_vector)[7] == 0x403000
+    assert dict(result.startup.auxiliary_vector)[9] == 0x400100
+
+
+def test_dynamic_linker_missing_interpreter_preserves_memory() -> None:
+    """Mathematics: missing `PT_INTERP` provider leaves `M_after=M_before` because graph admission precedes clone commit."""
+
+    main = replace(_static_provider(), interpreter="/lib/missing.so")
+    memory = VirtualMemory()
+    memory.map(0, 4096)
+    before = memory.snapshot()
+    with pytest.raises(LinkerError, match="missing ELF dependency provider"):
+        DynamicLinker({}).link_runtime(main, memory, name="app", base=0x400000)
+    assert memory.snapshot() == before

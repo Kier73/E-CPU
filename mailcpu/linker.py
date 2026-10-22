@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Mapping, Protocol
 
-from .elf import ELF_PAGE_SIZE, DynamicLinkPlan, ElfError, ElfImage, ElfLoadResult
+from .elf import ELF_PAGE_SIZE, DynamicLinkPlan, ElfError, ElfImage, ElfLoadResult, ElfStartupState
 from .memory import VirtualMemory
 
 
@@ -54,6 +54,8 @@ class DynamicLinkResult:
     main: LoadedElf
     dependencies: tuple[LoadedElf, ...]
     plans: tuple[tuple[str, DynamicLinkPlan], ...]
+    interpreter: LoadedElf | None = None
+    startup: ElfStartupState | None = None
 
 
 class DynamicLinker:
@@ -80,25 +82,76 @@ class DynamicLinker:
             raise LinkerError("main ELF base must be non-negative and page-aligned")
         try:
             graph = self._resolve_graph(image, name)
-            loaded_images = self._assign_bases(graph, base)
-            bindings = self._bindings(loaded_images)
-            plans = tuple(
-                (loaded_name, loaded_image.plan_relocations(loaded_base, bindings))
-                for loaded_name, loaded_image, loaded_base in loaded_images
-            )
-            staged = memory.clone()
-            loaded: list[LoadedElf] = []
-            for loaded_name, loaded_image, loaded_base in loaded_images:
-                load = loaded_image.load_into(staged, loaded_base)
-                loaded.append(LoadedElf(loaded_name, loaded_image, loaded_base, load))
-            for loaded_name, plan in plans:
-                loaded_image = next(item.image for item in loaded if item.name == loaded_name)
-                loaded_image.apply_relocations(staged, plan)
+            loaded, plans, staged = self._stage_graph(graph, memory, base)
         except (ElfError, LinkerError, ValueError) as error:
             raise LinkerError(str(error)) from error
+        startup = None if image.interpreter is not None else image.startup_state(loaded[0].load)
         memory.commit_from(staged)
         main = loaded[0]
-        return DynamicLinkResult(main, tuple(loaded[1:]), plans)
+        return DynamicLinkResult(main, tuple(loaded[1:]), plans, startup=startup)
+
+    def link_runtime(
+        self,
+        image: ElfImage,
+        memory: VirtualMemory,
+        *,
+        name: str = "main",
+        base: int = 0,
+    ) -> DynamicLinkResult:
+        """Mathematics: resolve and commit one combined graph `G(main) ∪ G(interpreter)` and construct its typed startup handoff."""
+
+        if image.interpreter is None:
+            return self.link(image, memory, name=name, base=base)
+        try:
+            interpreter_image = self.provider.resolve(image.interpreter)
+            main_graph = self._resolve_graph(image, name)
+            interpreter_graph = self._resolve_graph(interpreter_image, image.interpreter)
+            graph: list[tuple[str, ElfImage]] = list(main_graph)
+            seen = {graph_name for graph_name, _image in graph}
+            for graph_name, graph_image in interpreter_graph:
+                if graph_name not in seen:
+                    graph.append((graph_name, graph_image))
+                    seen.add(graph_name)
+            loaded, plans, staged = self._stage_graph(tuple(graph), memory, base)
+            loaded_by_name = {item.name: item for item in loaded}
+            main = loaded_by_name[name]
+            interpreter = loaded_by_name[image.interpreter]
+            dependencies = tuple(
+                item for item in loaded if item.name not in {name, image.interpreter}
+            )
+            startup = image.startup_state(
+                main.load,
+                interpreter_entry=interpreter.load.entry,
+                interpreter_base=interpreter.base,
+            )
+        except (ElfError, LinkerError, ValueError, KeyError) as error:
+            raise LinkerError(str(error)) from error
+        memory.commit_from(staged)
+        return DynamicLinkResult(main, dependencies, plans, interpreter, startup)
+
+    def _stage_graph(
+        self,
+        graph: tuple[tuple[str, ElfImage], ...],
+        memory: VirtualMemory,
+        base: int,
+    ) -> tuple[tuple[LoadedElf, ...], tuple[tuple[str, DynamicLinkPlan], ...], VirtualMemory]:
+        """Mathematics: evaluate `M' = apply(relocate(stage(assign(graph))))` on a clone, returning it before one caller-controlled commit."""
+
+        loaded_images = self._assign_bases(graph, base)
+        bindings = self._bindings(loaded_images)
+        plans = tuple(
+            (loaded_name, loaded_image.plan_relocations(loaded_base, bindings))
+            for loaded_name, loaded_image, loaded_base in loaded_images
+        )
+        staged = memory.clone()
+        loaded: list[LoadedElf] = []
+        for loaded_name, loaded_image, loaded_base in loaded_images:
+            load = loaded_image.load_into(staged, loaded_base)
+            loaded.append(LoadedElf(loaded_name, loaded_image, loaded_base, load))
+        for loaded_name, plan in plans:
+            loaded_image = next(item.image for item in loaded if item.name == loaded_name)
+            loaded_image.apply_relocations(staged, plan)
+        return tuple(loaded), plans, staged
 
     def _resolve_graph(self, main: ElfImage, main_name: str) -> tuple[tuple[str, ElfImage], ...]:
         """Mathematics: depth-first fold `G=(main,DT_NEEDED...)` with visited-name deduplication and cycle termination."""

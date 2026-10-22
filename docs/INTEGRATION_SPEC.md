@@ -666,6 +666,13 @@ The executable boundary admits ELF payloads for virtual-memory staging.
   clone, and commits supported relocation writes only after target preflight.
   Missing providers, incompatible sonames, read-only targets, and unsupported
   relocation families preserve the caller memory image.
+- `DynamicLinker.link_runtime` resolves the `PT_INTERP` path through the same
+  provider relation, adds its dependency graph in deterministic order, and
+  commits the main image, dependencies, and interpreter together. The
+  resulting `ElfStartupState` separates the main `AT_ENTRY` from the
+  interpreter's initial entry and records `AT_BASE`, `AT_PHDR`, `AT_PHENT`,
+  `AT_PHNUM`, `AT_PAGESZ`, `AT_FLAGS`, and `AT_NULL` wherever metadata is
+  derivable.
 - Load staging maps maximal page runs, copies file-backed bytes, preserves zero-filled BSS, and applies writable and non-writable page protections while exposing declared executable pages separately.
 - `HeadlessOS.load_elf_image` reads the payload through the virtual descriptor path, journals its digest, entry point, and load bias, and stages it into a process memory image.
 
@@ -673,10 +680,11 @@ The executable boundary admits ELF payloads for virtual-memory staging.
 
 Evidence tier: E0.
 
-Dynamic planning and provider application are E0 deterministic artifact
-operations. The transactional linker boundary loads named providers and
-mutates only a validated memory clone before commit; foreign instruction
-execution and interpreter handoff remain separate boundaries.
+Dynamic planning, provider application, and runtime handoff are E0
+deterministic artifact operations. The transactional linker boundary loads
+named providers and mutates only a validated memory clone before commit.
+Foreign instruction execution, stack construction, and libc startup remain
+separate boundaries.
 
 ### 11.6 Numbered POSIX boundary
 
