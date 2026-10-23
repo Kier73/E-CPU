@@ -288,6 +288,10 @@ rules are `docs/ARCHITECTURE.md` clauses 3 and 5 and `docs/REPLACEMENT_SPEC.md`.
 - `ReplicatedMailboxStore` and `ReplicatedMailboxNode` persist enqueue,
   dequeue, and consume operations on each node, deduplicate operation identities,
   and expose quorum receipts whose acknowledgements follow durable application.
+- Fixed-membership seed quorum now has a composite service checkpoint for one
+  client ingress and the owner's connected peer mesh. Rebind restores both
+  paths onto one exact `HeadlessOS` instance, so a queued request can resume
+  through quorum without splitting ingress from publication authority.
 
 ### 7.8 Images
 
@@ -430,11 +434,10 @@ The following are **REQUIRED** staged obligations of the same machine.
    ignore dispositions, arguments, inheritance, subreapers, sessions, group
    signals, bounded pipes, `execve`, `waitpid`, native traps, descriptor
    aliasing, byte-buffer I/O, and the v2 bytecode format.
-3. Transactional multi-host acknowledgement commits, quorum ownership,
-   receiver-advertised and congestion windows, and multi-host crash-recovery
-   transaction boundaries, above the specified replicated durable mailbox,
-   checkpointable channel, sender-side sequence window, and locally durable
-   remote seed-commit boundary.
+3. Extend the now-connected fixed-membership seed prepare/commit path with
+   durable channel-session recovery across process loss, receiver-advertised
+   and congestion windows, and multi-host crash recovery. Owner failover and
+   dynamic membership remain later stages above those foundations.
 4. Replay checking, sequence-window negotiation, and cross-transport migration
    around the reliable channel.
 5. Typed protocol drivers, link-state negotiation, and evidence-bearing adapters

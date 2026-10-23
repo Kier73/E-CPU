@@ -938,8 +938,9 @@ result delivery, restore both roles from independent checkpoints, retry the
 request/result path, and verify one accepted result, one scheduler transition,
 empty pending domains, checkpoint round-trip, and role/peer refusal. This
 section covers checkpointed socket replacement; crash-durable result storage
-is specified in clause 10.12, while quorum ownership remains the next
-composition over this boundary.
+is specified in clause 10.12. The durable participant ledger is specified in
+clause 10.13; network orchestration and host publication over its decisions
+remain the next composition.
 
 ### 10.12 Durable remote seed result and host recovery
 
@@ -965,9 +966,175 @@ Tests exercise loopback AF_INET recovery after result loss, a real executor
 child exit after fsync and before response delivery followed by origin retry on
 a fresh TCP connection, strict corruption handling, torn-suffix recovery, and
 rollback on publication failure. This establishes process-loss recovery for
-one durable executor. It does not yet establish multi-host transactional
-ownership, quorum commitment, or owner failover; those require the next
-protocol stage.
+one durable executor. Clauses 10.13–10.16 extend it to fixed-membership
+transactional ownership, quorum commitment, owner publication, and one-ingress
+service recovery. Owner failover, dynamic membership, and arbitrary multi-host
+connection-loss recovery remain beyond those clauses.
+
+### 10.13 Fixed-membership seed prepare and decision ledger
+
+`SeedCommitMembership` fixes `(system_id, incarnation, sorted member IDs,
+owner ID, owner term, genesis state digest, quorum)`. Its canonical digest
+binds the entire configuration, and an admissible quorum is a strict majority
+`2q>|N|`. The initial protocol has one configured owner and one fixed term;
+membership replacement and automatic owner election are outside this clause.
+
+`SeedCommitProposal` binds the seed transition coordinate
+`(system, incarnation, membership digest, owner, term, slot)` to the
+predecessor state digest, request fingerprint, result state digest, and—when a
+recoverable host transition is present—the content digest of its complete
+result-plus-host-state artifact. Each `DurableSeedCommitLedger` serializes
+records under a cross-process file lock and appends/fsyncs the hash-chain event
+and artifact before returning its prepare vote. A participant votes once per
+slot: retransmission of the same proposal and artifact returns the stored vote,
+while any changed proposal or artifact at that coordinate is refused. Slot one
+must extend the configured genesis digest; each later slot must be the
+immediate successor of a committed slot and extend its result digest. Legacy
+version-1 metadata-only journals remain readable and never receive fabricated
+recovery artifacts.
+
+A participant records a commit decision only after its own matching durable
+prepare and a certificate containing at least `q` distinct configured voter
+identities, including the configured owner. Since `2q>|N|`, any two quorums
+intersect: `|Q₁∩Q₂|≥2q−|N|>0`; the participant's single-vote law blocks that
+intersection from endorsing two different proposals at the same slot. Replay
+reconstructs prepared and committed state; only an incomplete final line may
+be truncated. Complete malformed records, chain mismatches, conflicting slot
+histories, stale predecessors, foreign voters, and non-majority certificates
+fail closed.
+
+This clause defines the durable participant state machine. Clause 10.14
+connects it to reliable peer channels and host publication. Votes are not
+cryptographically signed; the channel's configured endpoint label is an
+application identity, not cryptographic peer authentication. The tested model
+is fixed membership under crash/retry faults, not Byzantine peers, dynamic
+membership, or owner election.
+
+### 10.14 Peer-channel seed quorum and publication barrier
+
+`SeedCommitQuorumCoordinator.propose_seed_input` executes the accepted input on
+a shadow `HeadlessOS`, constructs the typed `SeedCommitResult` and complete
+candidate host snapshot, and binds their digest into `SeedCommitProposal`.
+Participants validate the artifact against the result, admitted seed envelope,
+membership, and projected host state before `prepare` can fsync and return a
+vote. A changed artifact cannot reuse the proposal's vote.
+
+The owner drives two reliable FIFO phases. It includes its own durable vote in
+a certificate only after collecting the strict-majority prepare threshold,
+then fsyncs its commit decision before sending commit messages. Each participant
+requires its own prepare and the matching certificate, fsyncs its decision,
+records the candidate result and full host state through
+`DurableSeedCommitJournal`, installs that state, and only then emits its
+decision response and allows the reliable receive path to acknowledge the
+request. A participant reuses the same response sequence for repeated
+`(proposal,phase)` replies; exact request retries therefore cannot allocate a
+second semantic result. Before acknowledging a remote prepare response, the
+owner fsyncs that peer's exact vote receipt in its own ledger. A partial prepare
+quorum therefore survives owner-coordinator recreation without relying on an
+already-acknowledged vote remaining in a peer's memory. It applies the same
+write-before-ACK rule to each remote commit decision, so the owner can resume
+from a partial decision set after that peer's response has been consumed.
+
+The owner counts its own durable decision and publishes only after receiving
+the configured number of peer decisions. Its own result-plus-host journal is
+fsynced before live host replacement. If decision delivery is interrupted,
+the owner remains at its predecessor state and returns a typed timeout; after
+the peer paths become available, `resume` recovers the owner certificate and
+transition artifact from the ledger, re-drives commit, and then completes
+publication. The direct oracle is three loopback TCP-connected members with a
+delayed third peer, durable per-member ledgers, byte-identical installed host
+snapshots, a deliberately withheld decision response, and recreation of the
+owner coordinator from its fsynced journal before recovery. Five-member quorum
+runs with only two connected peers persist partial prepare-vote or commit-
+decision sets, recreate the owner coordinator, then complete when the delayed
+peer arrives without needing an already-acknowledged response from the first
+peer. A subprocess cut
+immediately after artifact fsync separately verifies durable artifact replay.
+
+This composition uses configured endpoint labels and stream integrity
+receipts; it does not add signatures, cryptographic peer authentication, owner
+failover, dynamic membership, or Byzantine tolerance. Recovery after owner
+process loss currently requires the reliable peer-channel session/checkpoint
+to be rebound by its caller; durable channel-state integration across arbitrary
+process and connection loss, receiver-advertised windows, congestion control,
+and public Internet/E2 operation remain subsequent steps. Evidence tier: E1
+for controlled loopback peer channels.
+
+The normal seed-request recovery facade can attach this fixed-membership owner
+with `HypervisorSeedCommitRecoveryCoordinator.attach_quorum_coordinator`.
+Once attached, `receive_and_commit(timeout=...)` routes inbound requests through
+the quorum barrier; request ACK follows durable outcome and response emission.
+An unavailable quorum leaves the same request at the receive cursor, and the
+next call resumes the exact artifact found by `(request source, channel,
+transport sequence)`. A fresh transport frame carrying a previously committed
+input identity returns a semantic replay without advancing the replicated host
+or virtual time. After rebinding a socket checkpoint, the caller must recreate
+the owner coordinator over the rebound host and durable ledgers, then attach it
+before serving requests. The recovery facade without an attached quorum
+coordinator retains its existing single-host execution mode; it does not imply
+fixed-membership authority.
+
+### 10.15 Composite owner quorum checkpoint
+
+`SeedCommitQuorumRecoveryCheckpoint.capture` records the owner membership,
+owner host, ledger and publication-journal paths/cursors, retry interval, and
+for every currently connected member one shared `SocketTransport` snapshot
+with its request and response `ReliableChannel` snapshots. It takes two
+successive projections and refuses a moving cut. Rebind requires exactly the
+captured peer socket set, distinct live socket objects, and durable ledger and
+journal cursors equal to the captured prefix before it reconstructs any
+coordinator. Every restored pair is recreated on one shared transport and is
+checked again against the captured owner host and durable identities.
+
+A checkpoint may represent an in-flight certified decision whose owner host is
+still at the predecessor: the publication journal must then be exactly one
+slot behind the owner ledger, and the saved proposal artifact must extend the
+saved host digest. Rebinding preserves this recoverable state; `resume` obtains
+the missing peer decisions and publishes only after the existing quorum rule.
+The direct oracle rebinds all three TCP peer channel products, changes a durable
+ledger after capture and proves the mismatch is refused, then checkpoints an
+owner held behind a missing peer decision and resumes that decision after
+rebind. Evidence tier: E1 for controlled loopback sockets and fixed-membership
+crash/retry state.
+
+This checkpoint's direct product covers the quorum owner's peer mesh. A service
+restore that also needs one client ingress uses the composition in clause
+10.16; `SeedCommitRecoveryCheckpoint` remains independently usable for
+single-ingress recovery. Atomic filesystem persistence of the composite
+envelope, cross-host path relocation, peer authentication, and owner failover
+remain deferred.
+
+### 10.16 Composite owner service recovery
+
+`SeedCommitServiceRecoveryCheckpoint` composes one executor-side client ingress
+checkpoint with the owner peer-mesh checkpoint of clause 10.15. Its state is
+the product `C=(C_quorum,C_ingress)` subject to exact host equality
+`OS_quorum=OS_ingress` and route equality between the client ingress owner and
+the fixed-membership quorum owner. Capture brackets the quorum checkpoint with
+two ingress projections and refuses if the ingress product moves; each
+component retains its own moving-cut and durable-prefix checks. The versioned
+snapshot envelope is one serializable recovery unit; filesystem-level atomic
+storage of that envelope remains the caller's responsibility.
+
+Rebind restores quorum authority first, then reconstructs the ingress channels
+against the very same `HeadlessOS` instance, and attaches that restored
+authority before returning a serviceable ingress facade. A mismatched host
+snapshot, owner route, ingress peer, or durable quorum prefix fails closed.
+The direct oracle places an actual request in the ingress FIFO before capture,
+rebinds both the ingress socket and the full peer mesh, commits that recovered
+request through quorum, waits for each configured peer's durable decision and
+host state to converge, and sends a new transport frame for the same semantic
+input to prove replay does not apply a second host transition. A mixed-host
+checkpoint is rejected before socket rebind. A known-bad rebind that restores a
+second host is rejected by the pre-existing `attach_quorum_coordinator`
+identity guard. Evidence tier: E1 for controlled loopback TCP and
+fixed-membership persistence.
+
+This composition covers one executor ingress and the peers present in the
+checkpoint. It does not provide one atomic cut across multiple client ingress
+sockets, arbitrary filesystem persistence, peer authentication, dynamic
+membership, owner failover, or arbitrary process/connection-loss session
+recovery.
 
 ## 11. Images and execution regimes
 
@@ -1306,7 +1473,7 @@ The following are **REQUIRED** staged obligations. Each is stated relative to th
 12. A typed protocol and socket layer above raw routed frames, link-state negotiation, and differential conformance tests against native semantics, above clauses 9.1, 9.2, and 8.4.
 13. An evidence-bearing adapter for an owned real link, admitted only after recorded `E0` conformance per clause 8.1.
 14. Retransmission over loss, receiver-advertised windows, congestion control, and loss-recovery policy above the bounded native stream layer of clause 9.2.
-15. Transactional multi-host acknowledgement commits, sequence-window negotiation below the channel, and quorum ownership above the replicated durable mailbox, reliable channel, and durable remote seed-commit boundaries of clauses 10.1, 10.3, and 10.12. Owner failover and recovery across partial multi-host commit decisions remain part of this obligation.
+15. Durable peer-channel session rebind across arbitrary process loss, receiver-advertised and congestion windows, and complete multi-host crash-cut recovery beyond the single-ingress composition of clause 10.16. Owner failover and dynamic membership remain separate obligations above the fixed-membership participant ledger.
 16. Terminal and session integration breadth: configurable control-character tables, window geometry, packet mode, alternate line disciplines, `SA_RESTART`, user signal handlers, signal masks, `sigaction` structures, and alternate signal stacks.
 17. Typed classifier adapters for filesystem, network, service, process, and package operations are established by clause 10.6; future adapters must preserve the same deterministic policy and refusal boundary.
 18. A bounded procedural feature registry whose addresses are named by operating-system ABI fields rather than free text alone.

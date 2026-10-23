@@ -37,6 +37,8 @@ from .seed_commit_transport import (
     HypervisorSeedCommitResultChannel,
     SeedCommitResult,
 )
+from .seed_commit_coordinator import SeedCommitQuorumCoordinator, SeedCommitQuorumRecoveryCheckpoint
+from .seed_commit_quorum import SeedCommitMembership
 from .socket_transport import SocketTransport
 from .transport import InMemoryTransport
 
@@ -961,6 +963,117 @@ class SeedCommitRecoveryCheckpoint:
 
 
 @dataclass(frozen=True)
+class SeedCommitServiceRecoveryCheckpoint:
+    """One executor service cut composing inbound client transport with owner quorum authority."""
+
+    quorum: SeedCommitQuorumRecoveryCheckpoint
+    ingress: SeedCommitRecoveryCheckpoint
+
+    def __post_init__(self) -> None:
+        """Mathematics: require `OS_quorum=OS_ingress`, executor role, and ingress endpoint/operation bindings to owner `O`."""
+
+        if not isinstance(self.quorum, SeedCommitQuorumRecoveryCheckpoint):
+            raise RecoveryCoordinatorError("service recovery requires an owner quorum checkpoint")
+        if not isinstance(self.ingress, SeedCommitRecoveryCheckpoint) or self.ingress.role != "executor":
+            raise RecoveryCoordinatorError("service recovery requires an executor ingress checkpoint")
+        if self.ingress.operating_system != self.quorum.operating_system:
+            raise RecoveryCoordinatorError("service recovery ingress and quorum host snapshots differ")
+        membership = SeedCommitMembership.from_snapshot(self.quorum.membership)
+        transport = self.ingress.transport
+        request_outer = self.ingress.request_channel
+        response_outer = self.ingress.response_channel
+        request = request_outer.get("channel") if isinstance(request_outer, Mapping) else None
+        response = response_outer.get("channel") if isinstance(response_outer, Mapping) else None
+        if not all(isinstance(value, Mapping) for value in (transport, request, response)):
+            raise RecoveryCoordinatorError("service recovery ingress channel factors are malformed")
+        if (
+            transport.get("local_endpoint") != membership.owner_id
+            or transport.get("peer_endpoint") != request.get("peer")
+            or request.get("source") != membership.owner_id
+            or request.get("destination") != membership.owner_id
+            or response.get("source") != membership.owner_id
+            or response.get("destination") != transport.get("peer_endpoint")
+            or response_outer.get("operation_source") != request.get("peer")
+            or response_outer.get("operation_channel") != request.get("channel")
+        ):
+            raise RecoveryCoordinatorError("service recovery ingress is not bound to the owner quorum endpoint")
+
+    @classmethod
+    def capture(
+        cls,
+        ingress: "HypervisorSeedCommitRecoveryCoordinator",
+    ) -> "SeedCommitServiceRecoveryCheckpoint":
+        """Mathematics: accept `C=(C_quorum,C_ingress)` only when ingress projections bracket a stable quorum cut."""
+
+        if not isinstance(ingress, HypervisorSeedCommitRecoveryCoordinator):
+            raise RecoveryCoordinatorError("service recovery capture requires a seed commit ingress coordinator")
+        quorum_coordinator = ingress.quorum_coordinator
+        if quorum_coordinator is None:
+            raise RecoveryCoordinatorError("service recovery capture requires attached owner quorum authority")
+        before = ingress.checkpoint()
+        quorum = SeedCommitQuorumRecoveryCheckpoint.capture(quorum_coordinator)
+        after = ingress.checkpoint()
+        if before.snapshot() != after.snapshot():
+            raise RecoveryCoordinatorError("service recovery capture crossed a moving ingress boundary")
+        return cls(quorum, before)
+
+    def snapshot(self) -> dict[str, Any]:
+        """Mathematics: serialize both factors under one versioned envelope, preserving the equality constraint on their host cut."""
+
+        return {"version": 1, "quorum": self.quorum.snapshot(), "ingress": self.ingress.snapshot()}
+
+    @classmethod
+    def from_snapshot(cls, payload: Mapping[str, Any]) -> "SeedCommitServiceRecoveryCheckpoint":
+        """Mathematics: reconstruct the product iff its exact envelope version and component checkpoint laws hold."""
+
+        if not isinstance(payload, Mapping) or set(payload) != {"version", "quorum", "ingress"} or payload.get("version") != 1:
+            raise RecoveryCoordinatorError("service recovery checkpoint fields or version are invalid")
+        if not isinstance(payload.get("quorum"), Mapping) or not isinstance(payload.get("ingress"), Mapping):
+            raise RecoveryCoordinatorError("service recovery checkpoint components are malformed")
+        try:
+            return cls(
+                SeedCommitQuorumRecoveryCheckpoint.from_snapshot(payload["quorum"]),
+                SeedCommitRecoveryCheckpoint.from_snapshot(payload["ingress"]),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            if isinstance(exc, RecoveryCoordinatorError):
+                raise
+            raise RecoveryCoordinatorError("service recovery checkpoint factors are invalid") from exc
+
+    def rebind(
+        self,
+        peer_sockets: Mapping[str, Any],
+        ingress_socket: Any,
+        *,
+        peer: str,
+    ) -> "HypervisorSeedCommitRecoveryCoordinator":
+        """Mathematics: bind quorum first, then reconstruct ingress over the identical host object `OS`; reject any factor that cannot reproduce the cut."""
+
+        if not isinstance(peer, str) or not peer:
+            raise RecoveryCoordinatorError("service recovery rebind requires a non-empty ingress peer")
+        quorum = self.quorum.rebind(peer_sockets)
+        ingress: HypervisorSeedCommitRecoveryCoordinator | None = None
+        try:
+            ingress = HypervisorSeedCommitRecoveryCoordinator.rebind(
+                self.ingress,
+                ingress_socket,
+                role="executor",
+                peer=peer,
+                operating_system=quorum.operating_system,
+            )
+            ingress.attach_quorum_coordinator(quorum)
+            if ingress.operating_system is not quorum.operating_system:
+                raise RecoveryCoordinatorError("rebound ingress and quorum do not share one live host instance")
+            return ingress
+        except Exception:
+            if ingress is not None:
+                ingress.transport.close()
+            for link in quorum.peers.values():
+                link.requests.transport.close()
+            raise
+
+
+@dataclass(frozen=True)
 class SeedCommitRecoveryStatus:
     """Observable reconnect state for one remote seed request/result product."""
 
@@ -985,8 +1098,9 @@ class HypervisorSeedCommitRecoveryCoordinator:
         operating_system: HeadlessOS,
         *,
         role: SeedCommitRecoveryRole,
+        quorum_coordinator: SeedCommitQuorumCoordinator | None = None,
     ) -> None:
-        """Mathematics: bind `C=(T,Q,R,OS,u)` and enforce one-stream reciprocal routes before operation use."""
+        """Mathematics: bind `C=(T,Q,R,OS,u)` and, when supplied, route executor effects through `quorum_coordinator` before ACK."""
 
         _validate_seed_commit_binding(transport, request_channel, response_channel, role, transport.peer_endpoint)
         if not isinstance(operating_system, HeadlessOS):
@@ -996,6 +1110,29 @@ class HypervisorSeedCommitRecoveryCoordinator:
         self.response_channel = response_channel
         self.operating_system = operating_system
         self.role = role
+        self.quorum_coordinator: SeedCommitQuorumCoordinator | None = None
+        if quorum_coordinator is not None:
+            self.attach_quorum_coordinator(quorum_coordinator)
+
+    def attach_quorum_coordinator(self, coordinator: SeedCommitQuorumCoordinator) -> None:
+        """Mathematics: bind executor ingress only when `OS`, local owner, and request/result operation identities coincide."""
+
+        if self.role != "executor":
+            raise RecoveryCoordinatorError("only an executor seed receiver can attach a quorum coordinator")
+        if not isinstance(coordinator, SeedCommitQuorumCoordinator):
+            raise RecoveryCoordinatorError("seed quorum binding requires a SeedCommitQuorumCoordinator")
+        if coordinator.operating_system is not self.operating_system:
+            raise RecoveryCoordinatorError("seed quorum coordinator must publish into the recovery host instance")
+        if coordinator.membership.owner_id != self.transport.local_endpoint:
+            raise RecoveryCoordinatorError("seed quorum owner does not match the local recovery endpoint")
+        if self.request_channel.channel.destination != coordinator.membership.owner_id:
+            raise RecoveryCoordinatorError("seed quorum owner does not match the inbound request route")
+        if (
+            self.response_channel.operation_source != self.request_channel.channel.peer
+            or self.response_channel.operation_channel != self.request_channel.channel.channel
+        ):
+            raise RecoveryCoordinatorError("seed quorum result channel is not bound to the inbound request identity")
+        self.quorum_coordinator = coordinator
 
     @classmethod
     def rebind(
@@ -1005,8 +1142,9 @@ class HypervisorSeedCommitRecoveryCoordinator:
         *,
         role: SeedCommitRecoveryRole,
         peer: str,
+        operating_system: HeadlessOS | None = None,
     ) -> "HypervisorSeedCommitRecoveryCoordinator":
-        """Mathematics: realize `bind(rebind(T),restore(Q,T),restore(R,T),restore(OS))` after role and peer checks."""
+        """Mathematics: realize `bind(rebind(T),restore(Q,T),restore(R,T),OS)`; supplied `OS` must equal the captured state exactly."""
 
         if not isinstance(checkpoint, SeedCommitRecoveryCheckpoint):
             raise RecoveryCoordinatorError("seed commit rebind requires a SeedCommitRecoveryCheckpoint")
@@ -1029,7 +1167,10 @@ class HypervisorSeedCommitRecoveryCoordinator:
                 deepcopy(checkpoint.response_channel),
                 transport,
             )
-            operating_system = HeadlessOS.from_snapshot(deepcopy(checkpoint.operating_system))
+            if operating_system is None:
+                operating_system = HeadlessOS.from_snapshot(deepcopy(checkpoint.operating_system))
+            elif not isinstance(operating_system, HeadlessOS) or operating_system.snapshot() != checkpoint.operating_system:
+                raise RecoveryCoordinatorError("supplied recovery host does not match the ingress checkpoint state")
             return cls(
                 transport,
                 request_channel,
@@ -1079,11 +1220,24 @@ class HypervisorSeedCommitRecoveryCoordinator:
             raise RecoveryCoordinatorError("only an origin seed commit coordinator can send")
         return self.request_channel.send(request)
 
-    def receive_and_commit(self, durable_journal: Any | None = None) -> SeedCommitResult | None:
-        """Mathematics: executor transition `peek(q)→durable commit/replay→send(r)→ACK(q)` preserves one host effect."""
+    def receive_and_commit(
+        self,
+        durable_journal: Any | None = None,
+        *,
+        timeout: float = 10.0,
+    ) -> SeedCommitResult | None:
+        """Mathematics: executor transition `peek(q)→durable local/quorum commit→send(r)→ACK(q)` preserves one host effect."""
 
         if self.role != "executor":
             raise RecoveryCoordinatorError("only an executor seed commit coordinator can receive requests")
+        if self.quorum_coordinator is not None:
+            if durable_journal is not None and durable_journal is not self.quorum_coordinator.durable_journal:
+                raise RecoveryCoordinatorError("explicit durable journal differs from the quorum publication journal")
+            return self.quorum_coordinator.receive_and_commit(
+                self.request_channel,
+                self.response_channel,
+                timeout=timeout,
+            )
         return self.request_channel.receive_and_commit(self.operating_system, self.response_channel, durable_journal)
 
     def receive_result(self) -> SeedCommitResult | None:

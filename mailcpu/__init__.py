@@ -114,6 +114,29 @@ from .seed_commit_transport import (
     SeedCommitTransportError,
 )
 from .durable_seed_commit import DurableSeedCommitJournal, SeedCommitJournalError
+from .seed_commit_quorum import (
+    DurableSeedCommitLedger,
+    SeedCommitCertificate,
+    SeedCommitDecision,
+    SeedCommitLedgerError,
+    SeedCommitMembership,
+    SeedCommitProposal,
+    SeedCommitTransitionArtifact,
+    SeedPrepareVote,
+)
+from .seed_commit_coordinator import (
+    SEED_QUORUM_COMMIT_KIND,
+    SEED_QUORUM_DECISION_KIND,
+    SEED_QUORUM_PREPARE_KIND,
+    SEED_QUORUM_REQUEST_CHANNEL,
+    SEED_QUORUM_RESPONSE_CHANNEL,
+    SEED_QUORUM_VOTE_KIND,
+    SeedCommitPeerLink,
+    SeedCommitQuorumCoordinator,
+    SeedCommitQuorumError,
+    SeedCommitQuorumParticipant,
+    SeedCommitQuorumRecoveryCheckpoint,
+)
 from .network import (
     HeadlessNetworkDevice,
     HttpMessage,
@@ -359,6 +382,7 @@ from .recovery import (
     RecoveryStatus,
     SeedCommitRecoveryCheckpoint,
     SeedCommitRecoveryStatus,
+    SeedCommitServiceRecoveryCheckpoint,
 )
 from .remote_memory import RemotePageError, RemotePageMissing, RemotePageStore, RemotePageTimeout
 from .ingestion import ArtifactIngestionError, ArtifactIngestor, ArtifactKind, IngestedArtifact, ingest_bytes, ingest_path
@@ -440,6 +464,25 @@ __all__ = [
     "SeedCommitTransportError",
     "DurableSeedCommitJournal",
     "SeedCommitJournalError",
+    "DurableSeedCommitLedger",
+    "SeedCommitCertificate",
+    "SeedCommitDecision",
+    "SeedCommitLedgerError",
+    "SeedCommitMembership",
+    "SeedCommitProposal",
+    "SeedCommitTransitionArtifact",
+    "SeedPrepareVote",
+    "SEED_QUORUM_COMMIT_KIND",
+    "SEED_QUORUM_DECISION_KIND",
+    "SEED_QUORUM_PREPARE_KIND",
+    "SEED_QUORUM_REQUEST_CHANNEL",
+    "SEED_QUORUM_RESPONSE_CHANNEL",
+    "SEED_QUORUM_VOTE_KIND",
+    "SeedCommitPeerLink",
+    "SeedCommitQuorumCoordinator",
+    "SeedCommitQuorumError",
+    "SeedCommitQuorumParticipant",
+    "SeedCommitQuorumRecoveryCheckpoint",
     "AssemblyError",
     "BytecodeError",
     "BytecodeExecutable",
@@ -734,6 +777,7 @@ __all__ = [
     "HypervisorSeedCommitRecoveryCoordinator",
     "SeedCommitRecoveryCheckpoint",
     "SeedCommitRecoveryStatus",
+    "SeedCommitServiceRecoveryCheckpoint",
     "ReplicatedMailboxError",
     "ReplicatedMailboxNode",
     "ReplicatedMailboxStore",

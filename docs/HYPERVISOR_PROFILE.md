@@ -707,12 +707,68 @@ does not replace continuous scheduler checkpoint or trajectory capture for
 later host transitions.
 
 This closes the single-executor process-loss boundary, not multi-host ownership.
-The next high-leverage build is a transaction protocol over the existing
-replicated durable mailbox: first bind a seed operation to a fixed membership,
-owner term, and predecessor digest; then make prepare votes and the commit
-decision durable and replayable before the Hypervisor exposes the new seed.
-The first implementation stage must characterize every crash cut and prove
-that a conflicting operation at the same system coordinate cannot be accepted
-by two histories. Owner election/failover and arbitrary membership changes
-remain outside that first stage until the fixed-membership safety law is
-demonstrated.
+The fixed-membership participant ledger below advances that boundary with a
+typed system/slot/predecessor identity and a per-slot single-vote law; peer
+orchestration and publication now connect that durable substrate to the
+Hypervisor's live seed transition. Owner election/failover and arbitrary
+membership changes remain outside the current fixed-membership safety
+boundary.
+
+### Fixed-membership seed decision substrate
+
+`SeedCommitMembership` now gives one emulated system and incarnation a
+canonical fixed set of members, one owner identity and term, a genesis seed
+digest, and a strict-majority threshold. `SeedCommitProposal` binds each slot
+to its predecessor state, request bytes, and next state digest. A participant
+ledger fsyncs one vote per slot and rejects changed proposals at that same
+coordinate. It commits only after its own matching prepare and a unique
+majority certificate that includes the configured owner. A later seed slot
+cannot pass a missing commit or substitute a different predecessor digest.
+
+This deterministic policy is the Hypervisor's safety floor for distributed
+seed work: classifier or learned routing may advise placement and resource
+selection, but it cannot choose the authoritative vote, bypass fixed
+membership, or publish an uncommitted seed. The participant journal now stores
+the exact candidate result and full host snapshot before its vote; the proposal
+binds that artifact by digest. The quorum coordinator uses reliable peer
+channels, persists owner decisions before commit fanout, and gates each host's
+publication on its durable journal and the owner's publication on a majority
+of durable decisions. The owner fsyncs each received remote vote and decision
+before acknowledging its FIFO frame, so partial prepare and decision quorums
+survive coordinator recreation. Retries reuse semantic decisions, including
+after a lost decision response. Controlled loopback tests cover delayed FIFO
+responses, two sequential slots, replica installation, owner publication
+withholding, and recovery from reloaded owner decision, vote, and artifact
+records.
+
+The existing inbound seed-request recovery facade can be explicitly bound to
+the quorum owner. In that mode, remote seed inputs use the same durable
+prepare/decision/publication sequence as replica transitions. The facade holds
+the request at its reliable FIFO head until completion; exact transport retries
+resume their prepared artifact, while a new frame for an already committed
+input returns its original admission receipt and the current replicated
+envelope without changing scheduler or host state. This authority is opt-in per
+fixed-membership owner binding. Restored recovery channels must be connected to
+the reconstructed durable owner coordinator before request servicing resumes.
+
+`SeedCommitQuorumRecoveryCheckpoint` binds the owner host, fixed membership,
+the exact owner ledger and publication-journal cursors, and every connected
+peer's shared transport and duplex reliable channels into one validated cut.
+`SeedCommitServiceRecoveryCheckpoint` now composes that peer mesh with one
+executor-side client ingress. It requires equal host snapshots and owner-route
+identity, restores both products onto the same live `HeadlessOS` object, and
+attaches quorum authority before returning a serviceable ingress. A queued
+pre-capture request survives rebind, commits through quorum, and semantic replay
+does not apply its host effect twice. Rebind refuses a moved durable prefix or
+mixed-host cut. The owner checkpoint still preserves a durable decision whose
+host publication is pending, allowing ordinary `resume` to finish after
+reconnection.
+
+This is not owner failover or public-network security. Peer IDs come from
+configured channel labels rather than cryptographic authentication; the
+fixed-membership model does not cover Byzantine members or dynamic membership.
+The composite envelope covers one ingress and the peer links in its captured
+mesh, not multiple client sockets in a globally atomic cut; durable atomic
+filesystem storage and arbitrary process/connection-loss session continuity
+remain integration obligations. See `INTEGRATION_SPEC.md` clauses 10.13–10.16
+for the boundaries and acceptance evidence.
