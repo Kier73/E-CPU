@@ -263,8 +263,9 @@ class HypervisorSeedCommitChannel:
         self,
         operating_system: HeadlessOS,
         response: "HypervisorSeedCommitResultChannel",
+        durable_journal: Any | None = None,
     ) -> SeedCommitResult | None:
-        """Mathematics: compute `cache(q); reply(cache(q)); ACK(q)` so retransmission cannot repeat `T_q` or its journal effect."""
+        """Mathematics: compute `durable(cache(q)); reply(cache(q)); ACK(q)` so retry cannot repeat `T_q`."""
 
         if not isinstance(operating_system, HeadlessOS):
             raise SeedCommitTransportError("seed commit receiver requires a HeadlessOS")
@@ -282,7 +283,25 @@ class HypervisorSeedCommitChannel:
                 raise SeedCommitTransportError("conflicting seed commit request at transport identity")
             result = replace(cached, replayed=True)
         else:
-            result = self._execute(request, transport_sequence, operating_system)
+            result = None if durable_journal is None else durable_journal.lookup(identity, request.fingerprint)
+            if result is not None:
+                result = replace(result, replayed=True)
+            else:
+                before = None if durable_journal is None else operating_system.snapshot()
+                trajectory_checkpoint = (
+                    None
+                    if durable_journal is None or operating_system.vm.trajectory is None
+                    else operating_system.vm.trajectory.checkpoint()
+                )
+                result = self._execute(request, transport_sequence, operating_system)
+                if durable_journal is not None:
+                    try:
+                        durable_journal.record(identity, request.fingerprint, result, operating_system)
+                    except Exception:
+                        operating_system._restore_snapshot_in_place(before)
+                        if trajectory_checkpoint is not None:
+                            operating_system.vm.trajectory.rollback(trajectory_checkpoint)
+                        raise
             self._seen[identity] = result
         response.send(result)
         received = self.channel.receive()

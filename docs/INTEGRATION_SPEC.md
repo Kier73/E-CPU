@@ -912,9 +912,8 @@ checkpointable rather than hidden as transport errors.
 Real AF_INET tests exercise the request and result encodings, forced response
 loss, reliable result retransmission, stale-precondition refusal, conflicting
 input refusal, and both semantic ledgers' checkpoint round-trip. This creates
-the remote execution boundary above reliable transport; multi-host ownership,
-durable result storage, and quorum commit can now compose over the same local
-commit oracle.
+the remote execution boundary above reliable transport; multi-host ownership
+and quorum commit can now compose over the same local commit oracle.
 
 ### 10.11 Remote seed commit reconnect recovery
 
@@ -937,9 +936,38 @@ commit and the host remains at one virtual transition.
 Loopback AF_INET tests close both sockets after executor commit and before
 result delivery, restore both roles from independent checkpoints, retry the
 request/result path, and verify one accepted result, one scheduler transition,
-empty pending domains, checkpoint round-trip, and role/peer refusal. This is
-checkpointed socket replacement, not yet crash-durable result storage or
-quorum ownership; those remain the next composition over this boundary.
+empty pending domains, checkpoint round-trip, and role/peer refusal. This
+section covers checkpointed socket replacement; crash-durable result storage
+is specified in clause 10.12, while quorum ownership remains the next
+composition over this boundary.
+
+### 10.12 Durable remote seed result and host recovery
+
+`DurableSeedCommitJournal` binds each executor's typed result ledger and full
+`HeadlessOS` snapshot into one append-only JSONL record. Its receipt chain is
+
+`H₀=0³²; Hᵢ=SHA256(Hᵢ₋₁ || JSON_canonical(Rᵢ))`.
+
+The executor flushes and fsyncs the record before sending the result or
+acknowledging the request. The record's operation identity and request
+fingerprint make an exact retry return the original typed result with
+`replayed=true`; reusing the transport identity for different request bytes is
+refused. Reopening the executor journal reconstructs the latest host snapshot
+and result cache at that recorded seed-commit boundary. This is not a continuous
+per-scheduler-tick host checkpoint; later host transitions require their own
+checkpoint or trajectory continuation evidence. Only an incomplete final line
+is recoverable by truncation;
+complete malformed, reordered, conflicting, or receipt-mismatched records fail
+closed. A failed journal append restores the live host snapshot and leaves the
+reliable request pending.
+
+Tests exercise loopback AF_INET recovery after result loss, a real executor
+child exit after fsync and before response delivery followed by origin retry on
+a fresh TCP connection, strict corruption handling, torn-suffix recovery, and
+rollback on publication failure. This establishes process-loss recovery for
+one durable executor. It does not yet establish multi-host transactional
+ownership, quorum commitment, or owner failover; those require the next
+protocol stage.
 
 ## 11. Images and execution regimes
 
@@ -1278,7 +1306,7 @@ The following are **REQUIRED** staged obligations. Each is stated relative to th
 12. A typed protocol and socket layer above raw routed frames, link-state negotiation, and differential conformance tests against native semantics, above clauses 9.1, 9.2, and 8.4.
 13. An evidence-bearing adapter for an owned real link, admitted only after recorded `E0` conformance per clause 8.1.
 14. Retransmission over loss, receiver-advertised windows, congestion control, and loss-recovery policy above the bounded native stream layer of clause 9.2.
-15. Transactional multi-host acknowledgement commits, sequence-window negotiation below the channel, crash-recovery transaction boundaries, and quorum ownership above the existing replicated durable mailbox, reliable channel, and remote seed-commit boundaries of clauses 10.1, 10.3, and 10.10.
+15. Transactional multi-host acknowledgement commits, sequence-window negotiation below the channel, and quorum ownership above the replicated durable mailbox, reliable channel, and durable remote seed-commit boundaries of clauses 10.1, 10.3, and 10.12. Owner failover and recovery across partial multi-host commit decisions remain part of this obligation.
 16. Terminal and session integration breadth: configurable control-character tables, window geometry, packet mode, alternate line disciplines, `SA_RESTART`, user signal handlers, signal masks, `sigaction` structures, and alternate signal stacks.
 17. Typed classifier adapters for filesystem, network, service, process, and package operations are established by clause 10.6; future adapters must preserve the same deterministic policy and refusal boundary.
 18. A bounded procedural feature registry whose addresses are named by operating-system ABI fields rather than free text alone.

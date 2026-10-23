@@ -1079,12 +1079,12 @@ class HypervisorSeedCommitRecoveryCoordinator:
             raise RecoveryCoordinatorError("only an origin seed commit coordinator can send")
         return self.request_channel.send(request)
 
-    def receive_and_commit(self) -> SeedCommitResult | None:
-        """Mathematics: executor transition `peek(q)→commit/replay→send(r)→ACK(q)` preserves one host effect."""
+    def receive_and_commit(self, durable_journal: Any | None = None) -> SeedCommitResult | None:
+        """Mathematics: executor transition `peek(q)→durable commit/replay→send(r)→ACK(q)` preserves one host effect."""
 
         if self.role != "executor":
             raise RecoveryCoordinatorError("only an executor seed commit coordinator can receive requests")
-        return self.request_channel.receive_and_commit(self.operating_system, self.response_channel)
+        return self.request_channel.receive_and_commit(self.operating_system, self.response_channel, durable_journal)
 
     def receive_result(self) -> SeedCommitResult | None:
         """Mathematics: origin transition `peek(r)→semantic ledger→consume(r)→ACK(r)` returns one typed outcome."""

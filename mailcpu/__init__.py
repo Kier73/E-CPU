@@ -113,6 +113,7 @@ from .seed_commit_transport import (
     SeedCommitResult,
     SeedCommitTransportError,
 )
+from .durable_seed_commit import DurableSeedCommitJournal, SeedCommitJournalError
 from .network import (
     HeadlessNetworkDevice,
     HttpMessage,
@@ -437,6 +438,8 @@ __all__ = [
     "SeedCommitRequest",
     "SeedCommitResult",
     "SeedCommitTransportError",
+    "DurableSeedCommitJournal",
+    "SeedCommitJournalError",
     "AssemblyError",
     "BytecodeError",
     "BytecodeExecutable",

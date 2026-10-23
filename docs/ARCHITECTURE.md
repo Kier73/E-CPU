@@ -431,9 +431,10 @@ The following are **REQUIRED** staged obligations of the same machine.
    signals, bounded pipes, `execve`, `waitpid`, native traps, descriptor
    aliasing, byte-buffer I/O, and the v2 bytecode format.
 3. Transactional multi-host acknowledgement commits, quorum ownership,
-   receiver-advertised and congestion windows, and crash-recovery transaction
-   boundaries, above the specified replicated durable mailbox, checkpointable
-   channel, sender-side sequence window, and typed remote seed-commit boundary.
+   receiver-advertised and congestion windows, and multi-host crash-recovery
+   transaction boundaries, above the specified replicated durable mailbox,
+   checkpointable channel, sender-side sequence window, and locally durable
+   remote seed-commit boundary.
 4. Replay checking, sequence-window negotiation, and cross-transport migration
    around the reliable channel.
 5. Typed protocol drivers, link-state negotiation, and evidence-bearing adapters

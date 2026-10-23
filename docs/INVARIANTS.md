@@ -177,6 +177,7 @@ system. Each entry has:
 | `R-2**` | Capacity is released only through acknowledgement or explicit retry failure. | `mailcpu/reliability.py` | `tests/test_reliability.py::test_reliable_channel_failed_sequence_releases_window_slot`, `tests/test_reliability.py::test_reliable_channel_enforces_bounded_inflight_window_and_reopens_after_ack` | `REPLACEMENT_SPEC.md` 7.11 |
 | `R-3` | A tampered complete record is refused; only an incomplete final append is truncated. | `mailcpu/durable_transport.py` | `tests/test_durable_transport.py::test_durable_mailbox_rejects_tampered_complete_records`, `tests/test_durable_transport.py::test_durable_mailbox_recovers_only_an_incomplete_final_append` | `REPLACEMENT_SPEC.md` 7.11 |
 | `R-4` | Reliable control state restores across a transport reopen. | `mailcpu/reliability.py` | `tests/test_durable_transport.py::test_reliable_channel_continues_across_durable_transport_reopen` | `REPLACEMENT_SPEC.md` 7.11 |
+| `R-5` | A seed-commit result and its complete hosted-OS state share one fsynced record; process restart restores both and exact retry does not advance the host twice. | `mailcpu/durable_seed_commit.py` | `tests/test_durable_seed_commit.py::test_durable_seed_result_and_host_state_survive_executor_process_loss`, `tests/test_durable_seed_commit.py::test_durable_seed_commit_survives_abrupt_executor_process_exit` | `INTEGRATION_SPEC.md` 10.12 |
 
 ## Images and execution regimes
 

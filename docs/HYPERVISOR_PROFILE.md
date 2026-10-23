@@ -693,7 +693,26 @@ blocked behind a newly allocated response and the host remains at one virtual
 transition. Real AF_INET recovery tests verify this cut, including role and
 peer refusal.
 
-The next high-leverage boundary is durable result storage: the semantic commit
-ledger must survive process loss rather than only checkpointed socket
-replacement. Quorum ownership can then compose over a receiver whose local
-commit and reconnect laws are already explicit.
+`DurableSeedCommitJournal` now binds the executor's semantic result and full
+host snapshot in one hash-chained append. The record is fsynced before the
+result is emitted; restart restores both the latest host and exact-result cache.
+An exact retry returns the durable answer as replay, so a process cut after
+commit but before delivery cannot make the origin's retry execute as a new
+host transition. A failed publication restores the live host and preserves the
+pending reliable request. Loopback AF_INET recovery, strict corruption and
+torn-tail handling, rollback, and a child process terminated immediately after
+fsync followed by a fresh TCP retry are covered by direct tests. The recovered
+snapshot is the one at the latest recorded seed-commit boundary; this journal
+does not replace continuous scheduler checkpoint or trajectory capture for
+later host transitions.
+
+This closes the single-executor process-loss boundary, not multi-host ownership.
+The next high-leverage build is a transaction protocol over the existing
+replicated durable mailbox: first bind a seed operation to a fixed membership,
+owner term, and predecessor digest; then make prepare votes and the commit
+decision durable and replayable before the Hypervisor exposes the new seed.
+The first implementation stage must characterize every crash cut and prove
+that a conflicting operation at the same system coordinate cannot be accepted
+by two histories. Owner election/failover and arbitrary membership changes
+remain outside that first stage until the fixed-membership safety law is
+demonstrated.

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import socket
+from pathlib import Path
+import subprocess
+import sys
 
 import pytest
 
@@ -111,6 +114,47 @@ def test_lost_ack_retransmission_is_idempotent_at_replica(tmp_path) -> None:
     finally:
         primary_transport.close()
         replica_transport.close()
+
+
+def test_replica_process_loss_after_durable_apply_replays_one_operation(tmp_path) -> None:
+    """Mathematics: after replica `fsync(ENQUEUE(o,m))` and before ACK, restart preserves `Q=[m]` and replay is idempotent."""
+
+    journal_path = tmp_path / "replica-crash.log"
+    child = r'''# Mathematics: durably apply one replicated FIFO event, then stop before any ACK or interpreter cleanup.
+import os
+import sys
+from pathlib import Path
+from mailcpu import Message, ReplicatedMailboxStore
+from mailcpu.replicated_mailbox import _message_to_record
+
+store = ReplicatedMailboxStore(Path(sys.argv[1]), "R")
+message = Message(
+    sender="P", recipient="inbox", op="DATA", value=9, message_id="P:msg:1"
+)
+store.apply_replica(
+    "P:op:1",
+    "enqueue",
+    {"addr": "inbox", "message": _message_to_record(message)},
+)
+os._exit(29)
+'''
+    process = subprocess.run(
+        [sys.executable, "-c", child, str(journal_path)],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert process.returncode == 29, process.stderr
+
+    recovered = ReplicatedMailboxStore(journal_path, "R")
+    message = Message(sender="P", recipient="inbox", op="DATA", value=9, message_id="P:msg:1")
+    payload = {"addr": "inbox", "message": _message_to_record(message)}
+    assert recovered.list("inbox") == (message,)
+    assert recovered.apply_replica("P:op:1", "enqueue", payload) is False
+    assert recovered.list("inbox") == (message,)
+    assert recovered.verify()
 
 
 def test_reliable_commit_callback_runs_before_dequeue_and_ack() -> None:
