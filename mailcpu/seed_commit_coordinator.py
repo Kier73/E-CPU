@@ -381,32 +381,27 @@ class SeedCommitQuorumParticipant:
         self._response_sequences: dict[tuple[str, str], tuple[dict[str, Any], int]] = {}
 
     def service_once(self) -> bool:
-        """Mathematics: process FIFO head as `durable_effect; response; ACK`; a retry repeats only idempotent ledger projections."""
+        """Mathematics: reconcile outbound `ACKS`, then atomically apply chosen FIFO frame `F_s` before consume/ACK(s)."""
 
-        peeked = self.inbound.peek()
         self.outbound.process_ack()
         self._tick_outbound_if_due()
-        if peeked is None:
-            return False
-        sequence, payload = peeked
-        if not isinstance(payload, Mapping):
-            raise SeedCommitQuorumError("peer request payload must be a mapping")
 
         def apply_before_ack(received_sequence: int, received_payload: Any) -> None:
-            """Mathematics: execute `f(request)` before reliable receive's consume/ACK transition."""
+            """Mathematics: commit `f(F_s)` on the exact frame selected by receive before advancing `r` and emitting ACK(s)."""
 
-            if received_sequence != sequence or received_payload != payload:
-                raise SeedCommitQuorumError("peer request changed between validation and commit")
-            kind = payload.get("kind")
+            if not isinstance(received_payload, Mapping):
+                raise SeedCommitQuorumError("peer request payload must be a mapping")
+            kind = received_payload.get("kind")
             if kind == SEED_QUORUM_PREPARE_KIND:
-                self._handle_prepare(payload)
+                self._handle_prepare(received_payload)
             elif kind == SEED_QUORUM_COMMIT_KIND:
-                self._handle_commit(payload)
+                self._handle_commit(received_payload)
             else:
                 raise SeedCommitQuorumError("peer request kind is unsupported")
 
-        self.inbound.receive(commit=apply_before_ack)
-        return True
+        # ReliableChannel selects the inbound head once, runs the durable handler for
+        # that selected frame, and only then consumes and acknowledges that same frame.
+        return self.inbound.receive(commit=apply_before_ack) is not None
 
     def _handle_prepare(self, payload: Mapping[str, Any]) -> None:
         """Mathematics: validate artifact `A`, persist `PREPARE(p,A)`, then emit its exact durable vote `v_i`."""

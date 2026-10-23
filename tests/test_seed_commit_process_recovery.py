@@ -64,7 +64,7 @@ def persist(path, value):
         stream.flush()
         os.fsync(stream.fileno())
 
-if mode == "crash":
+if mode != "recover":
     machine = HeadlessOS.from_snapshot(config["initial_os"])
     fixed_membership = __import__("mailcpu").SeedCommitMembership.from_snapshot(membership)
     owner_ledger = DurableSeedCommitLedger(config["ledger_paths"]["A"], "A", fixed_membership)
@@ -93,12 +93,10 @@ if mode == "crash":
         quorum_coordinator=quorum,
     )
     print("READY", flush=True)
-    original_send = ingress.response_channel.send
 
-    def pause_after_response(result):
-        # Mathematics: place the cut after durable `J_k` and reliable `R_s`, before request `ACK(q)`.
-        original_send(result)
-        print("CUT response_send", flush=True)
+    def pause_at_cut():
+        # Mathematics: serialize one stationary service state `C_k` before terminating the owner process.
+        print("CUT " + mode, flush=True)
         if sys.stdin.readline().strip() != "capture":
             os._exit(92)
         checkpoint = SeedCommitServiceRecoveryCheckpoint.capture(ingress)
@@ -106,7 +104,40 @@ if mode == "crash":
         print("CHECKPOINT", flush=True)
         os._exit(87)
 
-    ingress.response_channel.send = pause_after_response
+    if mode == "owner_decision":
+        def pause_before_publication(_proposal, _result, _candidate):
+            # Mathematics: cut at `decision quorum=1, publication slot=0, OS=OS₀`.
+            pause_at_cut()
+
+        quorum._publish_owner = pause_before_publication
+    elif mode == "owner_publication":
+        def pause_before_response(result):
+            # Mathematics: cut after `fsync(J₁,OS₁)` and before emitting response frame `R₁`.
+            pause_at_cut()
+
+        ingress.response_channel.send = pause_before_response
+    elif mode == "response_send":
+        original_send = ingress.response_channel.send
+
+        def pause_after_response(result):
+            # Mathematics: cut after emitting `R₁`, before request receive advances cursor `r:1→2`.
+            original_send(result)
+            pause_at_cut()
+
+        ingress.response_channel.send = pause_after_response
+    elif mode == "request_ack":
+        original_receive = ingress.request_channel.channel.receive
+
+        def pause_after_request_ack():
+            # Mathematics: cut after `receive(q)` emits `ACK(q)` and advances cursor `r:1→2`.
+            received = original_receive()
+            if received is not None:
+                pause_at_cut()
+            return received
+
+        ingress.request_channel.channel.receive = pause_after_request_ack
+    else:
+        raise AssertionError("unsupported owner process cut: " + mode)
     deadline = time.monotonic() + 30.0
     while ingress.request_channel.channel.peek() is None and time.monotonic() < deadline:
         time.sleep(0.002)
@@ -125,8 +156,12 @@ ingress = checkpoint.rebind(peer_sockets, ingress_socket, peer="client")
 print("READY", flush=True)
 if sys.stdin.readline().strip() != "resume":
     os._exit(94)
-result = ingress.receive_and_commit(timeout=30.0)
-assert result is not None and result.accepted and result.replayed
+if ingress.request_channel.channel.peek() is not None:
+    result = ingress.receive_and_commit(timeout=30.0)
+    assert result is not None and result.accepted and result.replayed
+else:
+    # Mathematics: an ACKed request has `r=2`; recovery must not manufacture a second request effect.
+    assert ingress.request_channel.channel.next_receive_sequence == 2
 assert ingress.operating_system.vm.scheduler.tick == 1
 deadline = time.monotonic() + 10.0
 while ingress.response_channel.channel.pending_sequences() and time.monotonic() < deadline:
@@ -135,6 +170,8 @@ while ingress.response_channel.channel.pending_sequences() and time.monotonic() 
     time.sleep(0.005)
 assert ingress.response_channel.channel.pending_sequences() == ()
 print("DONE", flush=True)
+if sys.stdin.readline().strip() != "finish":
+    os._exit(95)
 ingress.close()
 for link in ingress.quorum_coordinator.peers.values():
     link.requests.transport.close()
@@ -218,8 +255,9 @@ def _read_canonical(path: Path) -> object:
     return decode_canonical_value(json.loads(path.read_text(encoding="utf-8")))
 
 
-def test_quorum_owner_process_restart_rebinds_new_tcp_and_replays_one_operation(tmp_path) -> None:
-    """Mathematics: across owner death, `same request → same fingerprint/result`, one slot, and one published state edge."""
+@pytest.mark.parametrize("cut", ("owner_decision", "owner_publication", "response_send", "request_ack"))
+def test_quorum_owner_process_restart_rebinds_new_tcp_and_replays_one_operation(tmp_path, cut) -> None:
+    """Mathematics: across each owner death cut, preserve one quorum slot, one publication, and the expected FIFO cursor."""
 
     initial, pid = _admitted_machine()
     genesis = SystemSeed.from_system(initial).origin_digest
@@ -241,7 +279,7 @@ def test_quorum_owner_process_restart_rebinds_new_tcp_and_replays_one_operation(
     }
     _write_canonical(config_path, config)
     first = subprocess.Popen(
-        [sys.executable, "-c", _OWNER_PROCESS, str(config_path), str(checkpoint_path), "crash"],
+        [sys.executable, "-c", _OWNER_PROCESS, str(config_path), str(checkpoint_path), cut],
         cwd=Path(__file__).resolve().parents[1],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
@@ -288,14 +326,22 @@ def test_quorum_owner_process_restart_rebinds_new_tcp_and_replays_one_operation(
             "process-quorum", "resolver", 1, pid, "inbox", (42,), admitted.state_digest
         )
         assert origin.send(request) == 1
-        assert first.stdout.readline().strip() == "CUT response_send"
+        assert first.stdout.readline().strip() == "CUT " + cut
         first_result = None
-        deadline = time.monotonic() + 10.0
-        while first_result is None and time.monotonic() < deadline:
-            first_result = origin.receive_result()
-            if first_result is None:
+        if cut in ("response_send", "request_ack"):
+            deadline = time.monotonic() + 10.0
+            while first_result is None and time.monotonic() < deadline:
+                first_result = origin.receive_result()
+                if first_result is None:
+                    time.sleep(0.002)
+            assert first_result is not None and first_result.accepted and not first_result.replayed
+        if cut == "request_ack":
+            # Mathematics: observe the already emitted `ACK(q)` before saving the requester cut.
+            deadline = time.monotonic() + 5.0
+            while origin.status().request_pending_sequences and time.monotonic() < deadline:
+                origin.service()
                 time.sleep(0.002)
-        assert first_result is not None and first_result.accepted and not first_result.replayed
+            assert origin.status().request_pending_sequences == ()
         requester_checkpoint = origin.checkpoint()
         requester_checkpoint = type(requester_checkpoint).from_snapshot(requester_checkpoint.snapshot())
 
@@ -312,7 +358,8 @@ def test_quorum_owner_process_restart_rebinds_new_tcp_and_replays_one_operation(
             }
             for member, node in peer_nodes.items()
         }
-        assert all(node["ledger"].committed_state() == (1, first_result.state_digest) for node in peer_nodes.values())
+        expected_digest = next(iter(peer_nodes.values()))["ledger"].committed_state()[1]
+        assert all(node["ledger"].committed_state() == (1, expected_digest) for node in peer_nodes.values())
         assert all(node["journal"].snapshot()["operations"] == 1 for node in peer_nodes.values())
 
         assert first.stdin is not None
@@ -324,13 +371,22 @@ def test_quorum_owner_process_restart_rebinds_new_tcp_and_replays_one_operation(
         owner_checkpoint_payload = _read_canonical(checkpoint_path)
         owner_checkpoint = SeedCommitServiceRecoveryCheckpoint.from_snapshot(owner_checkpoint_payload)
         assert owner_checkpoint.quorum.ledger_state["committed_state"]["slot"] == 1
-        assert owner_checkpoint.quorum.publication_state["operations"] == 1
-        assert owner_checkpoint.ingress.request_channel["channel"]["next_receive_sequence"] == 1
+        expected_publications = 0 if cut == "owner_decision" else 1
+        expected_request_cursor = 2 if cut == "request_ack" else 1
+        expected_result_cursor = 2 if cut in ("response_send", "request_ack") else 1
+        assert owner_checkpoint.quorum.publication_state["operations"] == expected_publications
+        assert owner_checkpoint.ingress.request_channel["channel"]["next_receive_sequence"] == expected_request_cursor
+        assert requester_checkpoint.request_channel["channel"]["next_sequence"] == 2
+        assert requester_checkpoint.response_channel["channel"]["next_receive_sequence"] == expected_result_cursor
+        assert bool(requester_checkpoint.request_channel["channel"]["pending"]) is (cut != "request_ack")
+        assert SystemSeed.from_system(HeadlessOS.from_snapshot(owner_checkpoint.quorum.operating_system)).origin_digest == (
+            membership.genesis_state_digest if cut == "owner_decision" else expected_digest
+        )
 
         # Mathematics: mutate one durable-head coordinate; checkpoint validation must reject the known-bad cut.
         corrupted = json.loads(json.dumps(encode_canonical_value(owner_checkpoint_payload)))
         decoded_corrupt = decode_canonical_value(corrupted)
-        decoded_corrupt["quorum"]["ledger_state"]["committed_state"]["state_digest"] = "0" * 64
+        decoded_corrupt["quorum"]["ledger_state"]["membership_digest"] = "0" * 64
         with pytest.raises(SeedCommitQuorumError):
             SeedCommitServiceRecoveryCheckpoint.from_snapshot(decoded_corrupt)
 
@@ -362,7 +418,7 @@ def test_quorum_owner_process_restart_rebinds_new_tcp_and_replays_one_operation(
             journal = DurableSeedCommitJournal(paths["journal_paths"][member], member)
             restored_host = journal.restore_host()
             assert restored_host is not None
-            assert SystemSeed.from_system(restored_host).origin_digest == first_result.state_digest
+            assert SystemSeed.from_system(restored_host).origin_digest == expected_digest
             participant = SeedCommitQuorumParticipant(ledger, inbound, outbound, restored_host, journal)
 
             def serve_restored(current=participant, current_stop=recovered_stop):
@@ -391,19 +447,30 @@ def test_quorum_owner_process_restart_rebinds_new_tcp_and_replays_one_operation(
         second.stdin.write("resume\n")
         second.stdin.flush()
         duplicate_result = None
-        deadline = time.monotonic() + 10.0
-        while duplicate_result is None and time.monotonic() < deadline:
-            duplicate_result = recovered_origin.receive_result()
-            recovered_origin.service()
-            if duplicate_result is None:
-                time.sleep(0.002)
-        assert duplicate_result is not None and duplicate_result.accepted and duplicate_result.replayed
-        assert duplicate_result.request_fingerprint == first_result.request_fingerprint
-        assert duplicate_result.state_digest == first_result.state_digest
-
+        if cut != "request_ack":
+            deadline = time.monotonic() + 10.0
+            while duplicate_result is None and time.monotonic() < deadline:
+                duplicate_result = recovered_origin.receive_result()
+                recovered_origin.service()
+                if duplicate_result is None:
+                    time.sleep(0.002)
+            assert duplicate_result is not None and duplicate_result.accepted and duplicate_result.replayed
+            assert duplicate_result.request_fingerprint == request.fingerprint
+            assert duplicate_result.state_digest == expected_digest
+        assert second.stdout.readline().strip() == "DONE"
+        if cut == "request_ack":
+            assert recovered_origin.status().request_pending_sequences == ()
+            assert recovered_origin.response_channel.channel.next_receive_sequence == 2
+        # Mathematics: quiesce all peer transition functions before releasing the owner's close transition.
+        recovered_stop.set()
+        for node in restored_nodes.values():
+            node["worker"].join(timeout=2)
+            assert not node["worker"].is_alive()
+        assert second.stdin is not None
+        second.stdin.write("finish\n")
+        second.stdin.flush()
         second_output, second_error = second.communicate(timeout=20)
         assert second.returncode == 0, (second_output, second_error)
-        assert "DONE" in second_output
         deadline = time.monotonic() + 5.0
         while recovered_origin.status().request_pending_sequences and time.monotonic() < deadline:
             recovered_origin.service()
@@ -414,11 +481,11 @@ def test_quorum_owner_process_restart_rebinds_new_tcp_and_replays_one_operation(
         owner_ledger = DurableSeedCommitLedger(paths["ledger_paths"]["A"], "A", membership)
         assert owner_journal.verify()
         assert owner_journal.snapshot()["operations"] == 1
-        assert owner_ledger.committed_state() == (1, first_result.state_digest)
+        assert owner_ledger.committed_state() == (1, expected_digest)
         for node in restored_nodes.values():
-            assert node["ledger"].committed_state() == (1, first_result.state_digest)
+            assert node["ledger"].committed_state() == (1, expected_digest)
             assert node["journal"].snapshot()["operations"] == 1
-            assert SystemSeed.from_system(node["operating_system"]).origin_digest == first_result.state_digest
+            assert SystemSeed.from_system(node["operating_system"]).origin_digest == expected_digest
             assert node["operating_system"].vm.scheduler.tick == 1
     finally:
         for stop in peer_stops:
