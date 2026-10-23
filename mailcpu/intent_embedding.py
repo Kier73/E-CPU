@@ -364,6 +364,9 @@ class IntentPrototypeModel:
             IntentExample("package", {"operation": "stage package artifact registry verified", "resource": "/package/staged", "payload": {"artifact": "image"}}),
             IntentExample("service", {"operation": "start service supervisor process lifecycle", "resource": "/service/example", "payload": {"service": "example"}}),
             IntentExample("service", {"operation": "restart service process supervisor", "resource": "/service/demo", "payload": {"service": "demo"}}),
+            IntentExample("service", {"operation": "resume seed commit after durable quorum decision before host publication", "resource": "/service/seed-commit/recovery", "payload": {"recovery_phase": "committed_unpublished", "ledger_slot": 1, "journal_operations": 0}}),
+            IntentExample("service", {"operation": "replay durable client result after publication before request fifo acknowledgement", "resource": "/service/seed-commit/recovery", "payload": {"recovery_phase": "published_unacknowledged", "result_durable": True, "request_acknowledged": False}}),
+            IntentExample("service", {"operation": "reconcile seed commit after lost client response and retry the same request identity", "resource": "/service/seed-commit/recovery", "payload": {"recovery_phase": "result_replay", "duplicate": True, "host_effect_count": 1}}),
             IntentExample("review", {"operation": "unknown ambiguous human review", "resource": "/unknown", "payload": {}}),
             IntentExample("review", {"operation": "unclassified uncertain manual approval", "resource": "/review", "payload": {"reason": "unclear"}}),
         )

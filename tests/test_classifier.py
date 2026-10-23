@@ -739,6 +739,77 @@ def test_hypervisor_intent_revision_is_typed_witnessed_and_checkpointable() -> N
     assert restored.environment.kernel.journal.verify()
 
 
+def test_seed_recovery_intent_training_improves_held_out_routing_without_authority_change() -> None:
+    """Mathematics: adding phase evidence raises held-out service accuracy `2/3→3/3` while preserving every exact policy action."""
+
+    examples = IntentPrototypeModel.default_examples()
+    recovery_examples = tuple(
+        example for example in examples if example.state.get("resource") == "/service/seed-commit/recovery"
+    )
+    assert len(recovery_examples) == 3
+    baseline = IntentPrototypeModel.fit(tuple(example for example in examples if example not in recovery_examples))
+    candidate = IntentPrototypeModel.fit(examples)
+    requests = (
+        HypervisorRequest(
+            "recover seed service after durable decision but before host publication",
+            "/service/seed-commit/recovery",
+            {"recovery_phase": "committed_unpublished", "slot": 1},
+        ),
+        HypervisorRequest(
+            "recover published seed result before request fifo acknowledgement",
+            "/service/seed-commit/recovery",
+            {"recovery_phase": "published_unacknowledged", "ack": False},
+        ),
+        HypervisorRequest(
+            "retry seed request after lost client response",
+            "/service/seed-commit/recovery",
+            {"recovery_phase": "result_replay", "duplicate": True},
+        ),
+    )
+    old_predictions = tuple(baseline.predict(request.state()) for request in requests)
+    new_predictions = tuple(candidate.predict(request.state()) for request in requests)
+    assert sum(prediction.domain == "service" for prediction in old_predictions) == 2
+    assert all(prediction.domain == "service" for prediction in new_predictions)
+    assert all(
+        new.confidence > old.confidence
+        for old, new in zip(old_predictions, new_predictions)
+    )
+
+    operating_system = HeadlessOS()
+    operating_system.hypervisor.intent_model = baseline
+    classifier_before = operating_system.hypervisor.classifier.snapshot()
+    decisions_before = tuple(operating_system.hypervisor_decide(request) for request in requests)
+    witnesses = tuple(
+        HypervisorIntentRevisionWitness.from_prediction(request, prediction, decision)
+        for request, prediction, decision in zip(requests, new_predictions, decisions_before)
+    )
+    proposal = HypervisorRevisionProposal.from_candidate(
+        "hypervisor-training",
+        "seed-recovery-intent",
+        1,
+        101,
+        candidate,
+        witnesses,
+        target="intent",
+    )
+    result = operating_system.hypervisor_propose_revision(proposal)
+    assert result.admission.accepted is True
+    assert result.admission.target == "intent"
+    assert operating_system.hypervisor.classifier.snapshot() == classifier_before
+    assert operating_system.hypervisor.intent_model.snapshot() == candidate.snapshot()
+
+    decisions_after = tuple(operating_system.hypervisor_decide(request) for request in requests)
+    assert tuple(decision.action for decision in decisions_after) == tuple(
+        decision.action for decision in decisions_before
+    )
+    assert all(decision.intent_domain == "service" for decision in decisions_after)
+    restored = HeadlessOS.from_snapshot(operating_system.snapshot())
+    replay = restored.hypervisor_propose_revision(proposal)
+    assert replay.replayed is True
+    assert replay.admission == result.admission
+    assert restored.hypervisor.snapshot() == operating_system.hypervisor.snapshot()
+
+
 def test_hypervisor_intent_revision_refuses_stale_baseline_without_mutation() -> None:
     """Mathematics: `baseline(w)≠π(H_current,w)` implies refusal and preserves `(classifier,intent,revision)` exactly."""
 

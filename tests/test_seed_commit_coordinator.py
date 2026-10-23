@@ -478,6 +478,171 @@ def test_seed_commit_service_checkpoint_rejects_mixed_host_cut(tmp_path) -> None
         _close_pair(context)
 
 
+@pytest.mark.parametrize(
+    "cut",
+    ("owner_decision", "owner_publication", "response_send", "request_ack"),
+)
+def test_seed_commit_service_checkpoint_recovers_each_commit_response_ack_cut(tmp_path, monkeypatch, cut) -> None:
+    """Mathematics: across four injected cuts, recover one durable state edge and preserve `effect_count(request)=1`."""
+
+    context = _live_pair(tmp_path)
+    ingress_transport, client_transport, sender, _typed_requests, _typed_results, result_reader, ingress = _client_seed_channels(context)
+    rebound = None
+    request = _request(context["owner"], context["pid"])
+    sender.send(request)
+    coordinator = context["coordinator"]
+
+    if cut == "owner_decision":
+        def crash_before_publish(_proposal, _result, _candidate):
+            """Mathematics: terminate after durable decision quorum `q` but before owner journal publication `J_k`."""
+
+            raise SystemExit(81)
+
+        monkeypatch.setattr(coordinator, "_publish_owner", crash_before_publish)
+    elif cut == "owner_publication":
+        def crash_before_response(_result):
+            """Mathematics: terminate after `fsync(J_k,OS_k)` but before any client result frame is emitted."""
+
+            raise SystemExit(82)
+
+        monkeypatch.setattr(ingress.response_channel, "send", crash_before_response)
+    elif cut == "response_send":
+        original_send = ingress.response_channel.send
+
+        def crash_after_response(_result):
+            """Mathematics: emit reliable result `R_s`, then cut execution before consuming and ACKing request `Q_r`."""
+
+            original_send(_result)
+            raise SystemExit(83)
+
+        monkeypatch.setattr(ingress.response_channel, "send", crash_after_response)
+    elif cut == "request_ack":
+        original_receive = ingress.request_channel.channel.receive
+
+        def crash_after_request_ack():
+            """Mathematics: commit receive transition `r→r+1` and emit `ACK(r)`, then cut before service return."""
+
+            received = original_receive()
+            if received is not None:
+                raise SystemExit(84)
+            return received
+
+        monkeypatch.setattr(ingress.request_channel.channel, "receive", crash_after_request_ack)
+    else:
+        raise AssertionError(f"unknown crash cut: {cut}")
+
+    try:
+        with pytest.raises(SystemExit):
+            ingress.receive_and_commit(timeout=4.0)
+
+        proposal = context["owner_ledger"].proposal_at(1)
+        assert proposal is not None
+        assert context["owner_ledger"].decision(proposal) is not None
+        if cut == "owner_decision":
+            assert context["owner_journal"].snapshot()["operations"] == 0
+            assert SystemSeed.from_system(context["owner"]).origin_digest == proposal.predecessor_state_digest
+            assert ingress.request_channel.channel.next_receive_sequence == 1
+        else:
+            assert context["owner_journal"].snapshot()["operations"] == 1
+            assert SystemSeed.from_system(context["owner"]).origin_digest == proposal.result_state_digest
+            expected_cursor = 2 if cut == "request_ack" else 1
+            assert ingress.request_channel.channel.next_receive_sequence == expected_cursor
+
+        first_delivery = None
+        if cut == "response_send":
+            first_delivery = result_reader.receive()
+            assert first_delivery is not None and first_delivery.accepted and not first_delivery.replayed
+
+        # Freeze remote participants so the two-cut checkpoint captures one exact distributed boundary.
+        context["stopping"].set()
+        for node in context["peer_nodes"].values():
+            node["worker"].join(timeout=1)
+        checkpoint = SeedCommitServiceRecoveryCheckpoint.from_snapshot(
+            SeedCommitServiceRecoveryCheckpoint.capture(ingress).snapshot()
+        )
+        peer_sockets = {
+            member: node["owner_transport"].socket
+            for member, node in context["peer_nodes"].items()
+        }
+        rebound = checkpoint.rebind(peer_sockets, ingress_transport.socket, peer="client")
+
+        context["stopping"].clear()
+        for node in context["peer_nodes"].values():
+            participant = node["participant"]
+
+            def serve(current_participant=participant):
+                """Mathematics: iterate peer transition `Pₙ₊₁=service_once(Pₙ)` until the test's recovery interval ends."""
+
+                while not context["stopping"].is_set():
+                    try:
+                        if not current_participant.service_once():
+                            time.sleep(0.001)
+                    except Exception as error:
+                        context["failures"].append(error)
+                        time.sleep(0.001)
+
+            worker = threading.Thread(target=serve, daemon=True)
+            node["worker"] = worker
+            worker.start()
+
+        recovered_result = rebound.receive_and_commit(timeout=4.0)
+        if cut == "request_ack":
+            assert recovered_result is None
+        else:
+            assert recovered_result is not None and recovered_result.accepted
+
+        if cut == "response_send":
+            delivered = result_reader.receive()
+            assert delivered is not None and delivered.accepted and delivered.replayed
+            assert delivered.request_fingerprint == first_delivery.request_fingerprint
+        else:
+            deadline = time.monotonic() + 2.0
+            delivered = None
+            while delivered is None and time.monotonic() < deadline:
+                delivered = result_reader.receive()
+                if delivered is None:
+                    time.sleep(0.002)
+            assert delivered is not None and delivered.accepted
+            assert delivered.replayed is (cut != "request_ack")
+
+        deadline = time.monotonic() + 2.0
+        expected_commit = (proposal.slot, proposal.result_state_digest)
+        while any(
+            node["ledger"].committed_state() != expected_commit
+            for node in context["peer_nodes"].values()
+        ) and time.monotonic() < deadline:
+            time.sleep(0.002)
+        assert all(
+            node["ledger"].committed_state() == expected_commit
+            for node in context["peer_nodes"].values()
+        )
+        assert all(
+            node["operating_system"].snapshot() == rebound.operating_system.snapshot()
+            for node in context["peer_nodes"].values()
+        )
+        assert SystemSeed.from_system(rebound.operating_system).origin_digest == proposal.result_state_digest
+        assert rebound.operating_system.vm.scheduler.tick == 1
+        assert not context["failures"]
+
+        sender.channel.process_ack()
+        rebound.service()
+        assert sender.channel.pending_sequences() == ()
+        assert rebound.response_channel.channel.pending_sequences() == ()
+    finally:
+        context["stopping"].set()
+        for node in context["peer_nodes"].values():
+            node["worker"].join(timeout=1)
+        if rebound is not None:
+            rebound.transport.close()
+            if rebound.quorum_coordinator is not None:
+                for link in rebound.quorum_coordinator.peers.values():
+                    link.requests.transport.close()
+        else:
+            ingress_transport.close()
+        client_transport.close()
+        _close_pair(context)
+
+
 def test_seed_commit_quorum_checkpoint_rejects_durable_prefix_mismatch_before_rebind(tmp_path) -> None:
     """Mathematics: captured cut `(L₀,J₀)` cannot reconstruct from a later durable ledger `L₁≠L₀`."""
 

@@ -254,3 +254,12 @@ withdrew them.
 An entry is added when a specification clause states an obligation that no
 existing entry enforces. An entry MUST name a test that exists. An entry with no
 resolvable test is rejected by `scripts/verify_invariants.py`.
+
+## Newly established recovery and training entries
+
+| ID | Statement | Establishes | Enforced by | Required by |
+|---|---|---|---|---|
+| `R-6` | Version-4 reliable-channel snapshots preserve exact nested tuple/list identity in pending frames while versions 1–3 remain readable. | `mailcpu/reliability.py` | `tests/test_reliability.py::test_reliable_channel_snapshot_preserves_nested_tuple_and_list_identity`, `tests/test_reliability.py::test_reliable_channel_reads_legacy_pending_frame_snapshots` | `INTEGRATION_SPEC.md` 10.2 |
+| `R-7` | A late copy of an already-delivered sequence is consumed and acknowledged without a second delivery; a frame for an explicitly failed sequence remains a recovery contradiction. | `mailcpu/reliability.py` | `tests/test_reliability.py::test_reliable_channel_recovery_acknowledges_stale_duplicate_after_delivery`, `tests/test_durable_transport.py::test_reliable_channel_rejects_queued_frame_for_failed_sequence` | `INTEGRATION_SPEC.md` 10.2 |
+| `A-40` | Across owner-decision, owner-publication, response-send, and request-ACK cuts, service recovery resumes one durable state edge, converges connected peers, and eventually clears request/result pending sequences; response replay preserves the original typed result across channel checkpoint/rebind. | `mailcpu/recovery.py`, `mailcpu/reliability.py`, `mailcpu/seed_commit_coordinator.py` | `tests/test_seed_commit_coordinator.py::test_seed_commit_service_checkpoint_recovers_each_commit_response_ack_cut` | `INTEGRATION_SPEC.md` 10.17 |
+| `Q-4` | Phase-shaped seed-recovery examples improve held-out service routing from `2/3` to `3/3` with higher prototype confidence; the candidate crosses the typed intent revision gate without changing the procedural classifier or any exact policy action. | `mailcpu/intent_embedding.py`, `mailcpu/classifier.py` | `tests/test_classifier.py::test_seed_recovery_intent_training_improves_held_out_routing_without_authority_change` | `HYPERVISOR_PROFILE.md` 3.3 |

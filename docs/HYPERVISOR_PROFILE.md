@@ -178,6 +178,20 @@ states and enforces the monotone safety order
 but cannot expand authority. The target and witness identity travel through
 the existing proposal fingerprint, durable relay, and checkpoint ledger.
 
+Seed-commit recovery contributes phase-shaped service examples to this advisory
+corpus: a quorum decision awaiting publication, a published result awaiting the
+request FIFO acknowledgement, and a lost-response retry. On three held-out
+recovery requests, the prior corpus routes two to the service domain and one
+elsewhere; the expanded corpus routes all three to service with higher
+prototype confidence. A typed intent revision witness admits that candidate
+without changing the procedural classifier or any exact policy action. The
+operational insight is that recovery intent has a lifecycle phase as well as a
+domain: durable decision, live publication, response delivery, and request
+acknowledgement are separate coordinates that must not be collapsed into one
+generic retry. Current training improves service-domain recognition only; the
+durable quorum, publication, response, and ACK state machines remain the
+authority for what may advance.
+
 ## 4. Virtual time and energy accounting
 
 Inside the system, time is the direct translation of active virtual energy:

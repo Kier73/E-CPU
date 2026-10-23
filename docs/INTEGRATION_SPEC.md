@@ -604,10 +604,12 @@ network-provider durability guarantees remain the next stage.
 The reliable channel and its transport substrate persist together.
 
 - `ReliableChannel.snapshot/from_snapshot` preserves pending frames, sequence allocation, receiver deduplication, retry leases, tick state, and failed sequences.
+- Snapshot version 4 stores pending message bodies in the injective canonical value algebra, preserving nested tuple/list identity; versions 1–3 remain readable.
 - Message bodies use recursive binary-safe tags, so bytes remain bytes after restore.
 - `InMemoryTransport` persists FIFO queues, message identities, and counters.
 - `FaultInjectingTransport` persists staged delayed copies, clock, send index, fault observations, and its inner FIFO.
 - A dropped frame is restored and retried to one delivered payload with one acknowledgement.
+- A late at-least-once duplicate with `sequence < next_receive_sequence` is consumed and acknowledged without another semantic delivery, including after recovery.
 
 Evidence tier: E0.
 
@@ -1135,6 +1137,30 @@ checkpoint. It does not provide one atomic cut across multiple client ingress
 sockets, arbitrary filesystem persistence, peer authentication, dynamic
 membership, owner failover, or arbitrary process/connection-loss session
 recovery.
+
+### 10.17 Seed service commit/response/acknowledgement crash cuts
+
+The service boundary is exercised at four ordered cuts: after the owner has a
+durable quorum decision but before host publication; after publication but
+before response emission; after the response frame is emitted but before the
+request FIFO acknowledgement; and after request acknowledgement but before the
+service call returns. Each cut uses a queued request, durable owner ledgers,
+loopback TCP peer channels, checkpoint/rebind, and assertions over the owner
+and peer state digests, scheduler coordinate, and outstanding reliable frames.
+Exactly one committed state edge is observable across every cut.
+
+The response-before-request-ack cut exposed two recovery-boundary defects.
+First, the pending-frame checkpoint used a sequence codec that folded tuples
+into lists. Version 4 now preserves the exact typed body, so the resent response
+is the same operation result as its first delivery. Second, a previously
+delivered frame can arrive late under at-least-once delivery; recovery now leaves
+that stale duplicate for the receive path to consume and acknowledge without
+redelivery. Failed sequences remain contradictions and are still rejected.
+
+Evidence tier: E1 for injected service-boundary cuts over controlled loopback
+TCP with durable files and same-process checkpoint/rebind. The test does not
+simulate killing and restarting the owner process or replacing every TCP
+connection; those remain the next stronger integration oracle.
 
 ## 11. Images and execution regimes
 

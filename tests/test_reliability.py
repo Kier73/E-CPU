@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from mailcpu._codec import message_to_record
 from mailcpu.faults import FaultInjectingTransport, FaultProfile
 from mailcpu.model import Message
 from mailcpu.reliability import ReliabilityPolicy, ReliableChannel, ReliableChannelWouldBlock
@@ -139,6 +140,71 @@ def test_reliable_channel_snapshot_restores_pending_binary_state() -> None:
         assert "next sequence" in str(exc)
     else:
         raise AssertionError("invalid next sequence was accepted")
+
+
+def test_reliable_channel_snapshot_preserves_nested_tuple_and_list_identity() -> None:
+    """Mathematics: exact checkpoint round-trip requires `decode(encode(x))=x`, including `tuple≠list` at every nested coordinate."""
+
+    transport = InMemoryTransport()
+    sender = ReliableChannel(transport, "sender", "receiver", "typed")
+    payload = {"tuple": (1, [2, (3,)]), "list": [4, (5,)]}
+    assert sender.send(payload) == 1
+
+    restored = ReliableChannel.from_snapshot(sender.snapshot(), transport)
+    restored_frame = restored._pending[1].frame
+    assert restored_frame.body[2] == payload
+    assert type(restored_frame.body[2]["tuple"]) is tuple
+    assert type(restored_frame.body[2]["tuple"][1]) is list
+    assert type(restored_frame.body[2]["tuple"][1][1]) is tuple
+    assert type(restored_frame.body[2]["list"]) is list
+    assert restored.retransmit(1) is True
+
+    receiver = ReliableChannel(transport, "receiver", "receiver", "typed", peer="sender")
+    delivered = receiver.receive()
+    assert delivered == (1, payload)
+    assert type(delivered[1]["tuple"]) is tuple
+    assert type(delivered[1]["list"]) is list
+
+
+@pytest.mark.parametrize("version", (1, 2, 3))
+def test_reliable_channel_reads_legacy_pending_frame_snapshots(version: int) -> None:
+    """Mathematics: each legacy codec version `v∈{1,2,3}` reconstructs a valid pending frame with unchanged sequence identity."""
+
+    transport = InMemoryTransport()
+    sender = ReliableChannel(transport, "sender", "receiver", "legacy")
+    assert sender.send({"blob": b"legacy"}) == 1
+    snapshot = sender.snapshot()
+    snapshot["version"] = version
+    snapshot["pending"]["1"]["frame"] = message_to_record(sender._pending[1].frame)
+    if version < 3:
+        snapshot.pop("next_receive_sequence")
+    if version == 1:
+        snapshot.pop("peer")
+        snapshot["policy"].pop("window_size")
+        snapshot.pop("delivered")
+        snapshot.pop("failed_sequences")
+
+    restored = ReliableChannel.from_snapshot(snapshot, transport)
+    assert restored.pending_sequences() == (1,)
+    receiver = ReliableChannel(transport, "receiver", "receiver", "legacy", peer="sender")
+    assert receiver.receive() == (1, {"blob": b"legacy"})
+
+
+def test_reliable_channel_recovery_acknowledges_stale_duplicate_after_delivery() -> None:
+    """Mathematics: for delivered `s<r`, late retransmission is consumed and ACKed while semantic delivery remains `0` additional times."""
+
+    transport = InMemoryTransport()
+    sender = ReliableChannel(transport, "sender", "receiver", "late-duplicate")
+    receiver = ReliableChannel(transport, "receiver", "receiver", "late-duplicate", peer="sender")
+    assert sender.send({"effect": (1, 2)}) == 1
+    original = sender._pending[1].frame
+    assert receiver.receive() == (1, {"effect": (1, 2)})
+
+    transport.send("receiver", original)
+    restored = ReliableChannel.from_snapshot(receiver.snapshot(), transport)
+    assert restored.receive() is None
+    assert sender.process_ack() == (1,)
+    assert sender.pending_sequences() == ()
 
 
 def test_reliable_channel_and_fault_transport_resume_as_one_state() -> None:

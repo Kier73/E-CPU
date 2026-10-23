@@ -5,10 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from ._codec import decode_transport_value as _decode_value
-from ._codec import encode_transport_value as _encode_value
+from ._codec import decode_canonical_value, encode_canonical_value
 from ._codec import message_from_record as _message_from_snapshot
-from ._codec import message_to_record as _message_snapshot
 from .model import Message
 from .transport import Transport
 
@@ -256,11 +254,56 @@ class ReliableChannel:
 
         return f"ack:{len(sender)}:{sender}:{len(self.channel)}:{self.channel}"
 
-    def snapshot(self) -> dict[str, Any]:
-        """Mathematics: serialize reliable state `(source,destination,peer,channel,W,P,D,r,t,F,next)` for continuation."""
+    @staticmethod
+    def _snapshot_pending_frame(frame: Message) -> dict[str, Any]:
+        """Mathematics: store `F=(s,r,op,a,v,q,b,id)` with injective `encode_canonical_value(b)`, preserving `tuple≠list`."""
 
         return {
-            "version": 3,
+            "format": "mailcpu-reliable-frame/1",
+            "sender": frame.sender,
+            "recipient": frame.recipient,
+            "op": frame.op,
+            "addr": frame.addr,
+            "value": frame.value,
+            "seq": frame.seq,
+            "body": encode_canonical_value(frame.body),
+            "message_id": frame.message_id,
+        }
+
+    @staticmethod
+    def _restore_pending_frame(payload: dict[str, Any]) -> Message:
+        """Mathematics: invert the exact frame product iff its schema is complete and `decode(encode(body))=body`."""
+
+        fields = {"format", "sender", "recipient", "op", "addr", "value", "seq", "body", "message_id"}
+        if not isinstance(payload, dict) or set(payload) != fields or payload.get("format") != "mailcpu-reliable-frame/1":
+            raise ValueError("reliable pending frame fields or format are invalid")
+        body = decode_canonical_value(payload["body"])
+        if not isinstance(body, tuple):
+            raise ValueError("reliable pending frame body must preserve tuple identity")
+        if any(not isinstance(payload[key], str) for key in ("sender", "recipient", "op", "addr", "message_id")):
+            raise ValueError("reliable pending frame labels are invalid")
+        value = payload["value"]
+        sequence = payload["seq"]
+        if value is not None and (not isinstance(value, int) or isinstance(value, bool)):
+            raise ValueError("reliable pending frame value is invalid")
+        if not isinstance(sequence, int) or isinstance(sequence, bool):
+            raise ValueError("reliable pending frame sequence is invalid")
+        return Message(
+            sender=payload["sender"],
+            recipient=payload["recipient"],
+            op=payload["op"],
+            addr=payload["addr"],
+            value=value,
+            seq=sequence,
+            body=body,
+            message_id=payload["message_id"],
+        )
+
+    def snapshot(self) -> dict[str, Any]:
+        """Mathematics: serialize `(source,destination,peer,channel,W,P,D,r,t,F,next)` with exact pending-frame value identity."""
+
+        return {
+            "version": 4,
             "source": self.source,
             "destination": self.destination,
             "channel": self.channel,
@@ -275,7 +318,7 @@ class ReliableChannel:
             "tick": self._tick,
             "pending": {
                 str(sequence): {
-                    "frame": _message_snapshot(pending.frame),
+                    "frame": self._snapshot_pending_frame(pending.frame),
                     "attempts": pending.attempts,
                     "last_sent_tick": pending.last_sent_tick,
                 }
@@ -290,7 +333,7 @@ class ReliableChannel:
         """Mathematics: reconstruct channel state, restore cursor `r`, reconcile queued `RDATA`, and validate `P,D,F` sequence domains before continuation."""
 
         version = int(payload.get("version", 1))
-        if version not in (1, 2, 3):
+        if version not in (1, 2, 3, 4):
             raise ValueError("unsupported reliable channel snapshot version")
         policy_payload = dict(payload.get("policy", {}))
         channel = cls(
@@ -318,7 +361,11 @@ class ReliableChannel:
             last_sent_tick = int(raw["last_sent_tick"])
             if attempts <= 0 or attempts > channel.policy.max_attempts or last_sent_tick < 0 or last_sent_tick > channel._tick:
                 raise ValueError(f"invalid pending state: {sequence}")
-            frame = _message_from_snapshot(dict(raw["frame"]))
+            frame = (
+                cls._restore_pending_frame(dict(raw["frame"]))
+                if version >= 4
+                else _message_from_snapshot(dict(raw["frame"]))
+            )
             if (
                 frame.sender != channel.source
                 or frame.recipient != channel.destination
@@ -365,7 +412,7 @@ class ReliableChannel:
         return channel
 
     def _reconcile_outbound_queue(self) -> None:
-        """Mathematics: for each queued exact-channel frame `F_s`, enforce `s∈P∪D∪F` and recover omitted `s` into `P` with `attempts=1` and `last_sent_tick=t`."""
+        """Mathematics: restore omitted queued `s` into `P`; leave `s∈D, s<r` for duplicate ACK, and reject `s∈F`."""
 
         for message in self.transport.list(self.destination):
             if message.sender != self.source or message.op != "RDATA":
@@ -381,8 +428,17 @@ class ReliableChannel:
             _, sequence, _ = message.body
             if not isinstance(sequence, int) or isinstance(sequence, bool) or sequence <= 0:
                 raise ValueError("queued reliable frame sequence must be a positive integer")
-            if sequence in self._delivered or sequence in self.failed_sequences:
-                raise ValueError("queued reliable frame contradicts delivered or failed state")
+            if sequence in self.failed_sequences:
+                raise ValueError(
+                    "queued reliable frame contradicts delivered or failed state: "
+                    f"sequence {sequence} is failed"
+                )
+            if sequence in self._delivered:
+                if sequence >= self._next_receive_sequence:
+                    raise ValueError("queued reliable frame contradicts the receive cursor")
+                # At-least-once delivery permits a previously delivered frame to arrive late again.
+                # Leave it queued: receive() will consume it, emit ACK(sequence), and return None.
+                continue
             restored = self._pending.get(sequence)
             if restored is None:
                 self._pending[sequence] = PendingFrame(message, 1, self._tick)
