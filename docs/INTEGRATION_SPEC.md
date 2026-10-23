@@ -886,8 +886,35 @@ the candidate state digest. A post-transition mismatch or admission refusal
 restores the complete pre-commit checkpoint, while an exact duplicate returns
 its original receipt without re-injecting the input. This is an atomic local
 commit witness: trajectory writers checkpoint and truncate their suffix during
-rollback as well. Multi-host ownership and durable remote commit remain later
-composition layers.
+rollback as well.
+
+### 10.10 Remote seed commit transport
+
+`HypervisorSeedCommitChannel` carries a typed `SeedCommitRequest` over an
+existing `ReliableChannel`. The request binds a hosted system, input
+source/sequence, process and mailbox target, integer values, and the expected
+pre-input state digest. The receiver checks that digest against its admitted
+envelope before invoking `HeadlessOS.commit_seed_input`, so the remote path
+inherits the shadow/live equality and rollback law rather than defining a
+second input transition.
+
+The receiver stores the result under the reliable request identity
+`(requester,request-channel,transport-sequence)` before sending its response.
+If the response send fails, the request remains retryable; a retransmission
+returns the cached result and cannot inject the input a second time. The
+result channel separately stores the semantic identity
+`(request-source,request-channel,request-sequence)`, so a retransmitted result
+is observable as a replay while its accepted envelope, state digest, frontier
+digest, and admission receipt remain unchanged. Refusals for stale state,
+unknown systems, and conflicting input payloads are typed, delivered, and
+checkpointable rather than hidden as transport errors.
+
+Real AF_INET tests exercise the request and result encodings, forced response
+loss, reliable result retransmission, stale-precondition refusal, conflicting
+input refusal, and both semantic ledgers' checkpoint round-trip. This creates
+the remote execution boundary above reliable transport; multi-host ownership,
+durable result storage, and quorum commit can now compose over the same local
+commit oracle.
 
 ## 11. Images and execution regimes
 
@@ -1226,7 +1253,7 @@ The following are **REQUIRED** staged obligations. Each is stated relative to th
 12. A typed protocol and socket layer above raw routed frames, link-state negotiation, and differential conformance tests against native semantics, above clauses 9.1, 9.2, and 8.4.
 13. An evidence-bearing adapter for an owned real link, admitted only after recorded `E0` conformance per clause 8.1.
 14. Retransmission over loss, receiver-advertised windows, congestion control, and loss-recovery policy above the bounded native stream layer of clause 9.2.
-15. A replicated durable mailbox backend, transactional multi-host acknowledgement commits, sequence-window negotiation below the channel, and cross-transport migration, above clauses 10.1 and 10.3.
+15. Transactional multi-host acknowledgement commits, sequence-window negotiation below the channel, crash-recovery transaction boundaries, and quorum ownership above the existing replicated durable mailbox, reliable channel, and remote seed-commit boundaries of clauses 10.1, 10.3, and 10.10.
 16. Terminal and session integration breadth: configurable control-character tables, window geometry, packet mode, alternate line disciplines, `SA_RESTART`, user signal handlers, signal masks, `sigaction` structures, and alternate signal stacks.
 17. Typed classifier adapters for filesystem, network, service, process, and package operations are established by clause 10.6; future adapters must preserve the same deterministic policy and refusal boundary.
 18. A bounded procedural feature registry whose addresses are named by operating-system ABI fields rather than free text alone.

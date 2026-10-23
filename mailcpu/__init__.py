@@ -104,6 +104,15 @@ from .seed_admission import (
     SeedAdmissionError,
     SeedAdmissionResult,
 )
+from .seed_commit_transport import (
+    SEED_COMMIT_REQUEST_KIND,
+    SEED_COMMIT_RESULT_KIND,
+    HypervisorSeedCommitChannel,
+    HypervisorSeedCommitResultChannel,
+    SeedCommitRequest,
+    SeedCommitResult,
+    SeedCommitTransportError,
+)
 from .network import (
     HeadlessNetworkDevice,
     HttpMessage,
@@ -418,6 +427,13 @@ __all__ = [
     "HypervisorSeedAdmissionCoordinator",
     "SeedAdmissionError",
     "SeedAdmissionResult",
+    "SEED_COMMIT_REQUEST_KIND",
+    "SEED_COMMIT_RESULT_KIND",
+    "HypervisorSeedCommitChannel",
+    "HypervisorSeedCommitResultChannel",
+    "SeedCommitRequest",
+    "SeedCommitResult",
+    "SeedCommitTransportError",
     "AssemblyError",
     "BytecodeError",
     "BytecodeExecutable",

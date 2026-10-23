@@ -460,8 +460,9 @@ The table shows the separation of proposal and authority: the missing-rights
 request has the same strong filesystem proposal as the allowed read, but exact
 authority changes the action to `DENY`. The destructive request is confidently
 identified yet still reviewed. The network request is locally admitted because
-it is a controlled ingestion adapter with the required right; public transport
-and multi-host persistence remain separate staged connections.
+it is a controlled ingestion adapter with the required right; AF_INET transport
+and typed remote seed execution are now connected, while quorum ownership and
+durable multi-host persistence remain separate staged connections.
 
 ## 11. Checkpoint state
 
@@ -664,5 +665,26 @@ accepted. A shadow copy receives the event and advances to the target tick;
 only an equal candidate digest permits the live host transition and subsequent
 seed admission. A live mismatch or admission refusal restores the complete
 checkpoint, and an exact duplicate is answered from the existing receipt
-ledger without a second injection. The result is a local atomic host witness,
-not yet a multi-host ownership protocol.
+ledger without a second injection. The result is a local atomic host witness
+that can now serve as the execution oracle for a remote host.
+
+`HypervisorSeedCommitChannel` adds the first remote execution composition. A
+typed request carries the hosted system identity, input event, and expected
+pre-input state digest through a reliable ordered channel. The receiver checks
+the precondition, invokes the local atomic commit, and places the typed outcome
+in a semantic ledger before acknowledging the request. A lost response leaves
+the request retryable but the committed effect cached; the next delivery
+returns the same envelope, state digest, frontier digest, and admission receipt
+without a second scheduler transition. The result channel has its own ledger,
+so a retransmitted result is exposed as a replay and does not become a new
+remote state transition. Both ledgers are checkpointable, and the implementation
+has loopback AF_INET evidence for response loss, result retransmission, stale
+state refusal, and conflicting input payload refusal.
+
+This makes encoded system state executable across an external connection while
+keeping the system's time law intact: the request advances the hosted seed by
+one admitted virtual coordinate only after the remote live state, shadow
+replay, and returned envelope agree. The next high-leverage boundary is a
+reconnect coordinator that restores these request/result ledgers across a
+socket replacement; after that, durable multi-host ownership can use quorum
+receipts around the same semantic commit.
