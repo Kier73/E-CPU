@@ -406,12 +406,25 @@ class HypervisorSeedCommitResultChannel:
         self.operation_source = _label(operation_source, "seed commit result operation source")
         self.operation_channel = _label(operation_channel, "seed commit result operation channel")
         self._seen: dict[tuple[str, str, int], SeedCommitResult] = {}
+        self._sent: dict[tuple[str, str, int], tuple[str, int]] = {}
 
     def send(self, result: SeedCommitResult) -> int:
         """Mathematics: emit one typed `RDATA(seed_result,r)` and retain it until the requester acknowledges it."""
 
         self._validate_result(result)
-        return self.channel.send({"kind": SEED_COMMIT_RESULT_KIND, "result": result.to_dict()})
+        identity = (result.request_source, result.request_channel, result.request_sequence)
+        previous = self._sent.get(identity)
+        if previous is not None:
+            previous_fingerprint, previous_sequence = previous
+            if previous_fingerprint != result.request_fingerprint:
+                raise SeedCommitTransportError("conflicting seed commit result identity")
+            if previous_sequence in self.channel.pending_sequences():
+                if not self.channel.retransmit(previous_sequence):
+                    raise SeedCommitTransportError("seed commit result pending frame disappeared")
+                return previous_sequence
+        sequence = self.channel.send({"kind": SEED_COMMIT_RESULT_KIND, "result": result.to_dict()})
+        self._sent[identity] = (result.request_fingerprint, sequence)
+        return sequence
 
     def receive(self) -> SeedCommitResult | None:
         """Mathematics: return first result `r` or `replay(r)` while consuming and acknowledging each reliable frame."""
@@ -444,6 +457,16 @@ class HypervisorSeedCommitResultChannel:
             "operation_source": self.operation_source,
             "operation_channel": self.operation_channel,
             "seen": [result.to_dict() for result in self._seen.values()],
+            "sent": [
+                {
+                    "request_source": source,
+                    "request_channel": channel,
+                    "request_sequence": sequence,
+                    "request_fingerprint": fingerprint,
+                    "transport_sequence": transport_sequence,
+                }
+                for (source, channel, sequence), (fingerprint, transport_sequence) in sorted(self._sent.items())
+            ],
         }
 
     @classmethod
@@ -467,6 +490,21 @@ class HypervisorSeedCommitResultChannel:
             if identity in adapter._seen:
                 raise SeedCommitTransportError("duplicate seed commit result identity in snapshot")
             adapter._seen[identity] = replace(result, replayed=False)
+        for raw_sent in payload.get("sent", ()):
+            if not isinstance(raw_sent, Mapping):
+                raise SeedCommitTransportError("seed commit result sent ledger entry is invalid")
+            identity = (
+                str(raw_sent.get("request_source", "")),
+                str(raw_sent.get("request_channel", "")),
+                int(raw_sent.get("request_sequence", 0)),
+            )
+            fingerprint = _digest(raw_sent.get("request_fingerprint"), "seed commit sent request fingerprint")
+            transport_sequence = int(raw_sent.get("transport_sequence", 0))
+            if identity in adapter._sent or identity[0] != adapter.operation_source or identity[1] != adapter.operation_channel:
+                raise SeedCommitTransportError("seed commit sent result identity is invalid")
+            if identity[2] <= 0 or transport_sequence <= 0:
+                raise SeedCommitTransportError("seed commit sent result sequence is invalid")
+            adapter._sent[identity] = (fingerprint, transport_sequence)
         return adapter
 
     def _validate_result(self, result: SeedCommitResult) -> None:

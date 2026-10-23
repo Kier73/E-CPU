@@ -351,10 +351,13 @@ from .recovery import (
     DuplexOperationRecoveryCheckpoint,
     DuplexOperationRecoveryStatus,
     HypervisorOperationDuplexRecoveryCoordinator,
+    HypervisorSeedCommitRecoveryCoordinator,
     PeerRecoveryCheckpoint,
     RecoveryCheckpoint,
     RecoveryCoordinatorError,
     RecoveryStatus,
+    SeedCommitRecoveryCheckpoint,
+    SeedCommitRecoveryStatus,
 )
 from .remote_memory import RemotePageError, RemotePageMissing, RemotePageStore, RemotePageTimeout
 from .ingestion import ArtifactIngestionError, ArtifactIngestor, ArtifactKind, IngestedArtifact, ingest_bytes, ingest_path
@@ -725,6 +728,9 @@ __all__ = [
     "DuplexOperationRecoveryCheckpoint",
     "DuplexOperationRecoveryStatus",
     "HypervisorOperationDuplexRecoveryCoordinator",
+    "HypervisorSeedCommitRecoveryCoordinator",
+    "SeedCommitRecoveryCheckpoint",
+    "SeedCommitRecoveryStatus",
     "ReplicatedMailboxError",
     "ReplicatedMailboxNode",
     "ReplicatedMailboxStore",

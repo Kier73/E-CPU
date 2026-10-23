@@ -32,12 +32,18 @@ from .hypervisor_transport import HypervisorOperationChannel, HypervisorOperatio
 from .replicated_mailbox import ReplicatedMailboxNode, ReplicatedMailboxStore
 from .reliability import ReliableChannel
 from .revision_relay import ReplicatedRevisionProposalRelay
+from .seed_commit_transport import (
+    HypervisorSeedCommitChannel,
+    HypervisorSeedCommitResultChannel,
+    SeedCommitResult,
+)
 from .socket_transport import SocketTransport
 from .transport import InMemoryTransport
 
 
 RecoveryDirection = Literal["outbound", "inbound"]
 DuplexOperationRole = Literal["origin", "executor"]
+SeedCommitRecoveryRole = Literal["origin", "executor"]
 
 
 def _validate_operation_binding(
@@ -850,6 +856,261 @@ def _validate_duplex_binding(
     expected_source = request_channel.source if role == "origin" else request_channel.peer
     if response_channel.operation_source != expected_source or response_channel.operation_channel != request_channel.channel:
         raise RecoveryCoordinatorError("duplex response identity does not match request operation identity")
+
+
+def _validate_seed_commit_binding(
+    transport: SocketTransport,
+    request_channel: HypervisorSeedCommitChannel,
+    response_channel: HypervisorSeedCommitResultChannel,
+    role: SeedCommitRecoveryRole,
+    peer: str,
+) -> None:
+    """Mathematics: enforce one physical stream `T` and reciprocal routes `Q,R` for role `u∈{origin,executor}`."""
+
+    if not isinstance(transport, SocketTransport):
+        raise RecoveryCoordinatorError("seed commit recovery requires a SocketTransport")
+    if not isinstance(request_channel, HypervisorSeedCommitChannel) or request_channel.channel.transport is not transport:
+        raise RecoveryCoordinatorError("seed commit request channel is not bound to transport")
+    if not isinstance(response_channel, HypervisorSeedCommitResultChannel) or response_channel.channel.transport is not transport:
+        raise RecoveryCoordinatorError("seed commit result channel is not bound to transport")
+    if role not in ("origin", "executor") or not peer:
+        raise RecoveryCoordinatorError("seed commit recovery requires a valid role and peer")
+    local = transport.local_endpoint
+    remote = transport.peer_endpoint
+    request = request_channel.channel
+    response = response_channel.channel
+    if request.source != local or request.peer != peer or response.source != local or response.peer != peer or remote != peer:
+        raise RecoveryCoordinatorError("seed commit transport identity does not match peer binding")
+    if role == "origin":
+        valid_routes = request.destination == peer and response.destination == local
+        expected_source = request.source
+    else:
+        valid_routes = request.destination == local and response.destination == peer
+        expected_source = request.peer
+    if not valid_routes:
+        raise RecoveryCoordinatorError("seed commit channel direction does not match recovery role")
+    if response_channel.operation_source != expected_source or response_channel.operation_channel != request.channel:
+        raise RecoveryCoordinatorError("seed commit result identity does not match request identity")
+
+
+@dataclass(frozen=True)
+class SeedCommitRecoveryCheckpoint:
+    """A versioned reconnect product for one socket, two reliable channels, two ledgers, and one hosted OS."""
+
+    transport: dict[str, Any]
+    request_channel: dict[str, Any]
+    response_channel: dict[str, Any]
+    operating_system: dict[str, Any]
+    role: SeedCommitRecoveryRole
+
+    @classmethod
+    def capture(
+        cls,
+        transport: SocketTransport,
+        request_channel: HypervisorSeedCommitChannel,
+        response_channel: HypervisorSeedCommitResultChannel,
+        operating_system: HeadlessOS,
+        *,
+        role: SeedCommitRecoveryRole,
+    ) -> "SeedCommitRecoveryCheckpoint":
+        """Mathematics: capture `C=(T,Q,R,OS,u)` once all factors share one stream and satisfy role routes."""
+
+        if not isinstance(operating_system, HeadlessOS):
+            raise RecoveryCoordinatorError("seed commit recovery checkpoint requires a HeadlessOS")
+        _validate_seed_commit_binding(transport, request_channel, response_channel, role, transport.peer_endpoint)
+        return cls(
+            deepcopy(transport.snapshot()),
+            deepcopy(request_channel.snapshot()),
+            deepcopy(response_channel.snapshot()),
+            deepcopy(operating_system.snapshot()),
+            role,
+        )
+
+    @classmethod
+    def from_snapshot(cls, payload: Mapping[str, Any]) -> "SeedCommitRecoveryCheckpoint":
+        """Mathematics: reconstruct `C` only from five complete mapping factors and role `u∈{origin,executor}`."""
+
+        if int(payload.get("version", 1)) != 1:
+            raise RecoveryCoordinatorError("unsupported seed commit recovery checkpoint version")
+        factors = {
+            name: payload.get(name)
+            for name in ("transport", "request_channel", "response_channel", "operating_system")
+        }
+        role = str(payload.get("role", ""))
+        if any(not isinstance(value, Mapping) for value in factors.values()) or role not in ("origin", "executor"):
+            raise RecoveryCoordinatorError("seed commit recovery checkpoint is incomplete")
+        return cls(
+            deepcopy(dict(factors["transport"])),
+            deepcopy(dict(factors["request_channel"])),
+            deepcopy(dict(factors["response_channel"])),
+            deepcopy(dict(factors["operating_system"])),
+            role,  # type: ignore[arg-type]
+        )
+
+    def snapshot(self) -> dict[str, object]:
+        """Mathematics: serialize `C` with independent copies so transport and semantic state cannot alias."""
+
+        return {
+            "version": 1,
+            "transport": deepcopy(self.transport),
+            "request_channel": deepcopy(self.request_channel),
+            "response_channel": deepcopy(self.response_channel),
+            "operating_system": deepcopy(self.operating_system),
+            "role": self.role,
+        }
+
+
+@dataclass(frozen=True)
+class SeedCommitRecoveryStatus:
+    """Observable reconnect state for one remote seed request/result product."""
+
+    role: SeedCommitRecoveryRole
+    peer: str
+    request_pending_sequences: tuple[int, ...]
+    response_pending_sequences: tuple[int, ...]
+    request_receive_sequence: int
+    response_receive_sequence: int
+    request_failed_sequences: tuple[int, ...]
+    response_failed_sequences: tuple[int, ...]
+
+
+class HypervisorSeedCommitRecoveryCoordinator:
+    """Own a reconnectable seed request/result pair while preserving host and semantic state."""
+
+    def __init__(
+        self,
+        transport: SocketTransport,
+        request_channel: HypervisorSeedCommitChannel,
+        response_channel: HypervisorSeedCommitResultChannel,
+        operating_system: HeadlessOS,
+        *,
+        role: SeedCommitRecoveryRole,
+    ) -> None:
+        """Mathematics: bind `C=(T,Q,R,OS,u)` and enforce one-stream reciprocal routes before operation use."""
+
+        _validate_seed_commit_binding(transport, request_channel, response_channel, role, transport.peer_endpoint)
+        if not isinstance(operating_system, HeadlessOS):
+            raise RecoveryCoordinatorError("seed commit recovery coordinator requires a HeadlessOS")
+        self.transport = transport
+        self.request_channel = request_channel
+        self.response_channel = response_channel
+        self.operating_system = operating_system
+        self.role = role
+
+    @classmethod
+    def rebind(
+        cls,
+        checkpoint: SeedCommitRecoveryCheckpoint,
+        raw_socket: Any,
+        *,
+        role: SeedCommitRecoveryRole,
+        peer: str,
+    ) -> "HypervisorSeedCommitRecoveryCoordinator":
+        """Mathematics: realize `bind(rebind(T),restore(Q,T),restore(R,T),restore(OS))` after role and peer checks."""
+
+        if not isinstance(checkpoint, SeedCommitRecoveryCheckpoint):
+            raise RecoveryCoordinatorError("seed commit rebind requires a SeedCommitRecoveryCheckpoint")
+        if role != checkpoint.role:
+            raise RecoveryCoordinatorError("seed commit rebind role does not match checkpoint")
+        if not peer:
+            raise RecoveryCoordinatorError("seed commit rebind requires a non-empty peer")
+        if not all(callable(getattr(raw_socket, method, None)) for method in ("send", "recv", "close")):
+            raise RecoveryCoordinatorError("seed commit rebind requires a connected raw socket")
+        transport: SocketTransport | None = None
+        try:
+            transport = SocketTransport.from_snapshot(raw_socket, deepcopy(checkpoint.transport))
+            if transport.peer_endpoint != peer:
+                raise RecoveryCoordinatorError("seed commit rebound transport peer does not match checkpoint")
+            request_channel = HypervisorSeedCommitChannel.from_snapshot(
+                deepcopy(checkpoint.request_channel),
+                transport,
+            )
+            response_channel = HypervisorSeedCommitResultChannel.from_snapshot(
+                deepcopy(checkpoint.response_channel),
+                transport,
+            )
+            operating_system = HeadlessOS.from_snapshot(deepcopy(checkpoint.operating_system))
+            return cls(
+                transport,
+                request_channel,
+                response_channel,
+                operating_system,
+                role=role,
+            )
+        except Exception:
+            if transport is not None:
+                transport.close()
+            else:
+                try:
+                    raw_socket.close()
+                except OSError:
+                    pass
+            raise
+
+    def checkpoint(self) -> SeedCommitRecoveryCheckpoint:
+        """Mathematics: snapshot the complete product `C` after transport buffers and semantic ledgers are quiescent."""
+
+        return SeedCommitRecoveryCheckpoint.capture(
+            self.transport,
+            self.request_channel,
+            self.response_channel,
+            self.operating_system,
+            role=self.role,
+        )
+
+    def retry(self) -> tuple[int, ...]:
+        """Mathematics: advance only the role's outbound clock `t:=t+1` and return exhausted sequence identities."""
+
+        if self.role == "origin":
+            return self.request_channel.channel.tick()
+        return self.response_channel.channel.tick()
+
+    def service(self) -> tuple[int, ...]:
+        """Mathematics: remove only outbound `ACK(s)` from the role's pending domain without executing a second effect."""
+
+        if self.role == "origin":
+            return self.request_channel.channel.process_ack()
+        return self.response_channel.channel.process_ack()
+
+    def send(self, request: Any) -> int:
+        """Mathematics: origin transition `Q_s:=send(request)` retains request sequence `s` until executor acknowledgement."""
+
+        if self.role != "origin":
+            raise RecoveryCoordinatorError("only an origin seed commit coordinator can send")
+        return self.request_channel.send(request)
+
+    def receive_and_commit(self) -> SeedCommitResult | None:
+        """Mathematics: executor transition `peek(q)→commit/replay→send(r)→ACK(q)` preserves one host effect."""
+
+        if self.role != "executor":
+            raise RecoveryCoordinatorError("only an executor seed commit coordinator can receive requests")
+        return self.request_channel.receive_and_commit(self.operating_system, self.response_channel)
+
+    def receive_result(self) -> SeedCommitResult | None:
+        """Mathematics: origin transition `peek(r)→semantic ledger→consume(r)→ACK(r)` returns one typed outcome."""
+
+        if self.role != "origin":
+            raise RecoveryCoordinatorError("only an origin seed commit coordinator can receive results")
+        return self.response_channel.receive()
+
+    def status(self) -> SeedCommitRecoveryStatus:
+        """Mathematics: expose both pending domains, receive cursors, and failure sets without changing `C`."""
+
+        return SeedCommitRecoveryStatus(
+            self.role,
+            _transport_peer(self.transport, self.request_channel.channel),
+            self.request_channel.channel.pending_sequences(),
+            self.response_channel.channel.pending_sequences(),
+            self.request_channel.channel.next_receive_sequence,
+            self.response_channel.channel.next_receive_sequence,
+            tuple(self.request_channel.channel.failed_sequences),
+            tuple(self.response_channel.channel.failed_sequences),
+        )
+
+    def close(self) -> None:
+        """Mathematics: move the physical factor `T` to `closed=True` while preserving checkpointable logical factors."""
+
+        self.transport.close()
 
 
 @dataclass(frozen=True)

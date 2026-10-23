@@ -916,6 +916,31 @@ the remote execution boundary above reliable transport; multi-host ownership,
 durable result storage, and quorum commit can now compose over the same local
 commit oracle.
 
+### 10.11 Remote seed commit reconnect recovery
+
+`SeedCommitRecoveryCheckpoint` snapshots one physical duplex socket, the
+request reliable channel, the result reliable channel, both semantic ledgers,
+the hosted `HeadlessOS`, and the role. The transport is snapshotted exactly
+once because request and result channels share the same bidirectional stream.
+`HypervisorSeedCommitRecoveryCoordinator.rebind` restores both reliable
+channels against one fresh socket and restores the executor host before any
+retry is allowed.
+
+For an origin, retry advances the request channel and service removes request
+acknowledgements. For an executor, retry advances the result channel and
+service removes result acknowledgements. When a request is retransmitted after
+the executor has already committed, the result channel retransmits the original
+pending result sequence rather than allocating a later FIFO sequence. This
+preserves the receiver cursor law while the request ledger returns the cached
+commit and the host remains at one virtual transition.
+
+Loopback AF_INET tests close both sockets after executor commit and before
+result delivery, restore both roles from independent checkpoints, retry the
+request/result path, and verify one accepted result, one scheduler transition,
+empty pending domains, checkpoint round-trip, and role/peer refusal. This is
+checkpointed socket replacement, not yet crash-durable result storage or
+quorum ownership; those remain the next composition over this boundary.
+
 ## 11. Images and execution regimes
 
 ### 11.1 Source assembly and headless execution

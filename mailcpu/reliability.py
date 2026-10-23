@@ -231,6 +231,21 @@ class ReliableChannel:
             pending.last_sent_tick = self._tick
         return tuple(failed)
 
+    def retransmit(self, sequence: int) -> bool:
+        """Mathematics: resend the exact pending frame `F_s` at its original sequence while preserving FIFO identity `s`."""
+
+        if not isinstance(sequence, int) or isinstance(sequence, bool) or sequence <= 0:
+            raise ReliableChannelError("retransmit sequence must be a positive integer")
+        pending = self._pending.get(sequence)
+        if pending is None:
+            return False
+        if pending.attempts >= self.policy.max_attempts:
+            raise ReliableChannelError(f"retransmit attempts exhausted for sequence {sequence}")
+        self.transport.send(self.destination, pending.frame)
+        pending.attempts += 1
+        pending.last_sent_tick = self._tick
+        return True
+
     def pending_sequences(self) -> tuple[int, ...]:
         """Mathematics: expose the ordered domain `sort(dom(P))` of unacknowledged frames."""
 

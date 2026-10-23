@@ -684,7 +684,16 @@ state refusal, and conflicting input payload refusal.
 This makes encoded system state executable across an external connection while
 keeping the system's time law intact: the request advances the hosted seed by
 one admitted virtual coordinate only after the remote live state, shadow
-replay, and returned envelope agree. The next high-leverage boundary is a
-reconnect coordinator that restores these request/result ledgers across a
-socket replacement; after that, durable multi-host ownership can use quorum
-receipts around the same semantic commit.
+replay, and returned envelope agree. `SeedCommitRecoveryCheckpoint` now carries
+the one shared duplex transport, both reliable channels, both semantic ledgers,
+and the hosted OS as one reconnectable product. After a socket replacement,
+the recovery coordinator restores the executor cache before retry; a pending
+result is resent at its original sequence, so the request FIFO cannot be
+blocked behind a newly allocated response and the host remains at one virtual
+transition. Real AF_INET recovery tests verify this cut, including role and
+peer refusal.
+
+The next high-leverage boundary is durable result storage: the semantic commit
+ledger must survive process loss rather than only checkpointed socket
+replacement. Quorum ownership can then compose over a receiver whose local
+commit and reconnect laws are already explicit.
