@@ -428,9 +428,13 @@ class HypervisorSeedCommitResultChannel:
         self._sent: dict[tuple[str, str, int], tuple[str, int]] = {}
 
     def send(self, result: SeedCommitResult) -> int:
-        """Mathematics: emit one typed `RDATA(seed_result,r)` and retain it until the requester acknowledges it."""
+        """Mathematics: first reduce `P←P\\ACKS`, then retransmit pending identity `I` or allocate a fresh sequence; retain it until ACK."""
 
         self._validate_result(result)
+        # An ACK may already be queued in the rebound transport even though the restored
+        # channel still lists its sequence as pending. Reconcile that evidence before
+        # deciding whether this semantic result needs a retransmission or a new frame.
+        self.channel.process_ack()
         identity = (result.request_source, result.request_channel, result.request_sequence)
         previous = self._sent.get(identity)
         if previous is not None:
