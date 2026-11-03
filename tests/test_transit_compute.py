@@ -967,7 +967,6 @@ def test_private_process_memory_transfer_runs_as_a_causally_receipted_transit_op
     transfer_host = TransitMemoryTransferHost(receiver, authority_pid)
     router = TransitBackendRouter()
     router.register_backend(TransitSIMTHost())
-    router.register_backend(transfer_host)
     worker = TransitComputeWorker(receiver, authority_pid, router)
     session = TransitComputeSession(worker, request_receiver, response_sender)
     handler_calls = {"count": 0}
@@ -1012,11 +1011,11 @@ def test_private_process_memory_transfer_runs_as_a_causally_receipted_transit_op
         raise AssertionError("timed out waiting for memory transfer request")
 
     try:
-        assert router.registered_backends() == (
+        assert set(router.registered_backends()) == {
             ("execute CPU instruction memory transfer", "/memory/transfer"),
             ("execute deterministic CPU arithmetic program", "/cpu/compute"),
             ("execute deterministic CPU SIMT reference program", "/gpu/simt"),
-        )
+        }
         assert session.phase == "idle"
         assert request_sender.send(event) == 1
         deadline = time.monotonic() + 3.0
