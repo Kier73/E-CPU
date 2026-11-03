@@ -117,14 +117,22 @@ class TransitComputeWorker:
         }
         if set(raw_bounds) != expected_bounds:
             raise ValueError("transit worker compute bounds are invalid")
+        if any(
+            not isinstance(raw_bounds[key], int) or isinstance(raw_bounds[key], bool)
+            for key in expected_bounds
+        ):
+            raise ValueError("transit worker compute bounds must be integers")
+        authority_pid = payload.get("authority_pid")
+        if not isinstance(authority_pid, int) or isinstance(authority_pid, bool):
+            raise ValueError("transit worker authority pid must be an integer")
         host = TransitComputeHost(
-            max_source_bytes=int(raw_bounds["max_source_bytes"]),
-            max_instructions=int(raw_bounds["max_instructions"]),
-            max_ticks=int(raw_bounds["max_ticks"]),
-            max_registers=int(raw_bounds["max_registers"]),
+            max_source_bytes=raw_bounds["max_source_bytes"],
+            max_instructions=raw_bounds["max_instructions"],
+            max_ticks=raw_bounds["max_ticks"],
+            max_registers=raw_bounds["max_registers"],
         )
         operating_system = HeadlessOS.from_snapshot(dict(raw_receiver))
-        worker = cls(operating_system, int(payload["authority_pid"]), host)
+        worker = cls(operating_system, authority_pid, host)
         request_channel = HypervisorOperationChannel(
             ReliableChannel.from_snapshot(dict(raw_request), request_transport)
         )
