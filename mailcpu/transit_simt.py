@@ -33,11 +33,11 @@ _ARITY = {
 
 
 class TransitSIMTError(ValueError):
-    """A SIMT request is malformed, unsafe, divergent at a barrier, or outside configured bounds."""
+    """Mathematics: reject a SIMT request unless typed program, lane masks, barriers, and resource bounds preserve the reference execution relation."""
 
 
 class TransitSIMTHost:
-    """Interpret a finite lockstep lane program with explicit masks, reconvergence, and barriers."""
+    """Mathematics: evaluate a bounded lockstep transition relation over lane valuations, active masks, structured reconvergence, and converged barriers."""
 
     def __init__(
         self,
