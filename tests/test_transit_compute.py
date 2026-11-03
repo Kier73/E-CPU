@@ -641,7 +641,7 @@ def test_simt_reference_backend_matches_scalar_mailcpu_and_models_divergence_bar
     scalar_host = TransitComputeHost()
     scalar_results: list[int] = []
     for sequence, value in enumerate(values, start=1):
-        scalar_source = "\\n".join((
+        scalar_source = "\n".join((
             f"SET value {value}",
             f"SET neg_value {-value}",
             "SET zero 0",
