@@ -46,7 +46,7 @@ Natural-language interpretation, model inference, private reasoning, browsing, G
 
 ## Next architectural test
 
-The next step is not to broaden the opcode set immediately. First compare the cost and evidence of three execution modes for the same job: local Python reference, direct MailCPU execution, and reliable remote MailCPU execution. Measure request bytes, result bytes, instruction count, scheduler transitions, wall time, retries and replay count. Then add a persistent worker only if checkpoint/restore and concurrent-job isolation preserve the same state relation.
+The next step is not to broaden the opcode set or add concurrency immediately. Compare the cost and evidence of three execution modes for the same job: local Python reference, direct MailCPU execution, and reliable remote MailCPU execution through the persistent worker. Measure request bytes, result bytes, instruction count, scheduler transitions, wall time, retries and replay count. Only then add durable worker checkpoints or concurrent-job scheduling, and require restored workers and isolated jobs to preserve the same state relation.
 
 
 ## Persistent receiver worker
