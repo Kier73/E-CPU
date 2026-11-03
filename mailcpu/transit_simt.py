@@ -10,7 +10,7 @@ from typing import Any, Mapping
 from .classifier import HypervisorArbitrationEvent
 
 
-_OPERATION = "execute deterministic SIMT reference program"
+_OPERATION = "execute deterministic CPU SIMT reference program"
 _RESOURCE = "/gpu/simt"
 _EXECUTE_RIGHT = frozenset({"execute"})
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}")
