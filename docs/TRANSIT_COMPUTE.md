@@ -75,6 +75,12 @@ The next step is not to broaden the opcode set or add concurrency immediately. C
 
 The worker is persistent; each computation is not. `TransitComputeHost` still creates a fresh isolated `HeadlessOS` for every admitted job. This separates service lifetime from job state and prevents one arithmetic program from inheriting another program's VM state.
 
-The worker currently serves one request per `serve_once` call. The caller owns the transport lifecycle and decides when to call it again. This is a reusable service boundary, not yet a daemon, concurrent worker pool, durable worker checkpoint, or authenticated public endpoint.
+The worker currently serves one request per `serve_once` call. The caller owns the transport lifecycle and decides when to call it again.
+
+The worker exposes `snapshot(request, response)` and `TransitComputeWorker.from_snapshot(...)`. A worker checkpoint combines the HeadlessOS continuation state (including the hypervisor execution/replay ledger), authority PID, compute admission bounds, request ReliableChannel state, and response-channel replay ledger. Restore requires caller-supplied request and response transports, which must themselves be recovered or reconnected by the caller.
+
+Checkpoint creation is restricted to a quiescent boundary: no pending request transport data and no unacknowledged response frame. This avoids silently dropping queued messages at the checkpoint boundary. It is a coordinated state snapshot, not an atomic transaction across VM execution, network delivery, and external side effects. A crash between effect execution and publication of a new checkpoint can still lose the latest in-memory ledger. The current compute capsule is pure arithmetic, so it has no external effect to duplicate; do not use this checkpoint API as an exactly-once guarantee for future side-effecting handlers.
+
+The checkpoint is not yet a daemon, concurrent worker pool, fully durable cross-process network service, or authenticated public endpoint.
 
 The integration test sends two distinct requests through the same worker instance and checks both result paths and reliable acknowledgements.
