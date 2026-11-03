@@ -602,7 +602,7 @@ def test_simt_reference_backend_matches_scalar_mailcpu_and_models_divergence_bar
         1,
         100,
         HypervisorRequest(
-            "execute deterministic SIMT reference program",
+            "execute deterministic CPU SIMT reference program",
             "/gpu/simt",
             {
                 "lanes": len(values),
@@ -697,7 +697,7 @@ def test_simt_reference_backend_matches_scalar_mailcpu_and_models_divergence_bar
         2,
         101,
         HypervisorRequest(
-            "execute deterministic SIMT reference program",
+            "execute deterministic CPU SIMT reference program",
             "/gpu/simt",
             {
                 "lanes": 2,
@@ -724,3 +724,124 @@ def test_simt_reference_backend_matches_scalar_mailcpu_and_models_divergence_bar
         assert "BARRIER must appear after explicit reconvergence" in str(exc)
     else:
         raise AssertionError("SIMT reference backend accepted a barrier in a divergent region")
+
+
+def test_simt_reference_kernel_executes_as_a_receiver_authorized_transit_operation() -> None:
+    """Mathematics: transport a portable SIMT query, rederive execute authority at the receiver, and return the reference backend effect."""
+
+    import time
+
+    from mailcpu import TransitSIMTHost
+
+    client_transport, worker_transport = _tcp_pair("client", "worker")
+    policy = ReliabilityPolicy(lease_ticks=1, max_attempts=3, window_size=4)
+    request_sender = HypervisorOperationChannel(
+        ReliableChannel(client_transport, "client", "worker", "compute", policy)
+    )
+    request_receiver = HypervisorOperationChannel(
+        ReliableChannel(worker_transport, "worker", "worker", "compute", policy, peer="client")
+    )
+    response_sender = HypervisorOperationResultChannel(
+        ReliableChannel(worker_transport, "worker", "client", "compute.result", policy),
+        "client",
+        "compute",
+    )
+    response_receiver = HypervisorOperationResultChannel(
+        ReliableChannel(client_transport, "client", "client", "compute.result", policy, peer="worker"),
+        "client",
+        "compute",
+    )
+
+    receiver = HeadlessOS()
+    receiver.hypervisor.policy = HypervisorPolicy(
+        review_confidence=0.0,
+        automatic_confidence=0.0,
+        destructive_confidence=0.0,
+        danger_review_probability=1.0,
+    )
+    worker_pid = receiver.environment.kernel.spawn(
+        "simt-transit-worker",
+        capabilities=(Capability("/gpu/simt", frozenset({"execute"})),),
+        parent_pid=receiver.environment.init_pid,
+    )
+    host = TransitSIMTHost()
+    values = [-4, -1, 0, 3, 8]
+    event = HypervisorArbitrationEvent(
+        "client",
+        "compute",
+        1,
+        300,
+        HypervisorRequest(
+            "execute deterministic CPU SIMT reference program",
+            "/gpu/simt",
+            {
+                "lanes": len(values),
+                "inputs": {"x": values},
+                "program": [
+                    ["load", "value", "x"],
+                    ["const", "zero", 0],
+                    ["lt", "negative", "value", "zero"],
+                    ["if", "negative"],
+                    ["sub", "result", "zero", "value"],
+                    ["else"],
+                    ["copy", "result", "value"],
+                    ["endif"],
+                    ["barrier"],
+                    ["store", "absolute", "result"],
+                    ["halt"],
+                ],
+                "max_steps": 16,
+            },
+            frozenset({"execute"}),
+            frozenset(),
+        ),
+    )
+
+    def authorize(request: HypervisorArbitrationEvent) -> HypervisorArbitrationEvent:
+        """Mathematics: discard peer-supplied grants and derive execute rights from worker PID capabilities."""
+
+        return receiver.hypervisor_authorize_event(worker_pid, request)
+
+    try:
+        assert request_sender.send(event) == 1
+        deadline = time.monotonic() + 3.0
+        served = None
+        while time.monotonic() < deadline and served is None:
+            served = request_receiver.receive_and_reply_event(
+                receiver.hypervisor_arbitration,
+                authorize,
+                {HypervisorDomain.CPU: host.handle},
+                response_sender,
+            )
+            if served is None:
+                time.sleep(0.005)
+        assert served is not None
+        assert served.action.value == "allow"
+        assert served.executed is True
+        assert served.effect["outputs"]["absolute"] == [4, 1, 0, 3, 8]
+
+        deadline = time.monotonic() + 3.0
+        returned = None
+        while time.monotonic() < deadline and returned is None:
+            returned = response_receiver.receive()
+            if returned is None:
+                time.sleep(0.005)
+        assert returned is not None
+        assert returned.effect == served.effect
+        assert returned.replayed is False
+
+        deadline = time.monotonic() + 3.0
+        request_acks = ()
+        response_acks = ()
+        while time.monotonic() < deadline and (request_acks != (1,) or response_acks != (1,)):
+            request_acks = request_sender.channel.process_ack()
+            response_acks = response_sender.channel.process_ack()
+            if request_acks != (1,) or response_acks != (1,):
+                time.sleep(0.005)
+        assert request_acks == (1,)
+        assert response_acks == (1,)
+        assert receiver.environment.kernel.journal.verify()
+    finally:
+        for transport in (client_transport, worker_transport):
+            if not transport.closed:
+                transport.close()
