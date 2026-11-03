@@ -96,6 +96,19 @@ def _wait_for_message(transport: SocketTransport, address: str):
     raise AssertionError(f"timed out waiting for mailbox {address!r}")
 
 
+
+def _wait_for_ack(channel, expected: tuple[int, ...]) -> tuple[int, ...]:
+    """Mathematics: observe ACK set A(t) until expected sequence set is acknowledged or finite deadline Δ expires."""
+    deadline = time.monotonic() + 3.0
+    observed: list[int] = []
+    while time.monotonic() < deadline:
+        observed.extend(channel.process_ack())
+        if set(expected).issubset(observed):
+            return tuple(observed)
+        time.sleep(0.005)
+    raise AssertionError(f"timed out waiting for acknowledgements {expected!r}; observed {tuple(observed)!r}")
+
+
 @pytest.mark.skipif(shutil.which("openssl") is None, reason="OpenSSL CLI is required to create ephemeral test certificates")
 def test_mutual_tls_authenticates_both_peers_and_carries_mailcpu_frames(tmp_path) -> None:
     """Mathematics: require CA trust and SAN identities in both directions before admitting the framed message relation."""
@@ -377,8 +390,8 @@ def test_transit_compute_operation_executes_over_mutual_tls(tmp_path) -> None:
         assert returned is not None
         assert returned.effect == served.effect
         assert returned.effect["registers"]["result"] == 48
-        assert request_sender.channel.process_ack() == (1,)
-        assert result_sender.channel.process_ack() == (1,)
+        assert _wait_for_ack(request_sender.channel, (1,)) == (1,)
+        assert _wait_for_ack(result_sender.channel, (1,)) == (1,)
         assert receiver.environment.kernel.journal.verify()
     finally:
         for transport in (
