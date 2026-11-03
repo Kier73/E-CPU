@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from .classifier import HypervisorExecutionResult
+
 from .hypervisor_transport import (
     HypervisorOperationChannel,
     HypervisorOperationResultChannel,
@@ -73,7 +75,7 @@ class TransitComputeSession:
             },
         }
 
-    def serve_once(self):
+    def serve_once(self) -> HypervisorExecutionResult | None:
         """Mathematics: apply at most one receiver transition T_q and let the existing response-before-ACK rule preserve retryability."""
 
         return self.worker.serve_once(self.request, self.response)
