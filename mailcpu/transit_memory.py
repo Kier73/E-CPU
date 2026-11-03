@@ -22,6 +22,9 @@ class TransitMemoryTransferError(ValueError):
 class TransitMemoryTransferHost:
     """Copy a bounded byte interval between receiver-owned private process memory images."""
 
+    operation_name = _OPERATION
+    resource_name = _RESOURCE
+
     def __init__(
         self,
         operating_system: HeadlessOS,
