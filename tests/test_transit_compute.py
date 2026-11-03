@@ -18,6 +18,9 @@ from mailcpu import (
     TransitSIMTHost,
     TransitMemoryTransferError,
     TransitMemoryTransferHost,
+    TransitBackendRouter,
+    TransitComputeSession,
+    TransitComputeWorker,
 )
 from mailcpu.transit_compute import TransitComputeError, TransitComputeHost
 
@@ -962,23 +965,29 @@ def test_private_process_memory_transfer_runs_as_a_causally_receipted_transit_op
     )
 
     transfer_host = TransitMemoryTransferHost(receiver, authority_pid)
+    router = TransitBackendRouter()
+    router.register_backend(TransitSIMTHost())
+    router.register_backend(transfer_host)
+    worker = TransitComputeWorker(receiver, authority_pid, router)
+    session = TransitComputeSession(worker, request_receiver, response_sender)
     handler_calls = {"count": 0}
 
     def handle_transfer(request: HypervisorArbitrationEvent):
-        """Mathematics: count actual host invocations so semantic replays can prove effect suppression."""
+        """Mathematics: count actual memory-host invocations so semantic replays can prove effect suppression."""
 
         handler_calls["count"] += 1
         return transfer_host.handle(request)
 
-    def serve_one():
-        """Mathematics: consume one event-aware request transition and publish its result before the request acknowledgement."""
+    router.register(
+        "execute CPU instruction memory transfer",
+        "/memory/transfer",
+        handle_transfer,
+    )
 
-        return request_receiver.receive_and_reply_event(
-            receiver.hypervisor_arbitration,
-            lambda request: receiver.hypervisor_authorize_event(authority_pid, request),
-            {HypervisorDomain.CPU: handle_transfer},
-            response_sender,
-        )
+    def serve_one():
+        """Mathematics: apply one session transition through the registered backend relation R."""
+
+        return session.serve_once()
 
     def wait_for_result():
         """Mathematics: observe typed result channel until one result arrives or finite wall-time budget expires."""
@@ -992,7 +1001,7 @@ def test_private_process_memory_transfer_runs_as_a_causally_receipted_transit_op
         raise AssertionError("timed out waiting for memory transfer result")
 
     def wait_for_server_effect():
-        """Mathematics: poll the nonblocking reliable request channel until its first effect result is committed."""
+        """Mathematics: poll the persistent session until one operation result is committed."""
 
         deadline = time.monotonic() + 3.0
         while time.monotonic() < deadline:
@@ -1002,21 +1011,20 @@ def test_private_process_memory_transfer_runs_as_a_causally_receipted_transit_op
             time.sleep(0.005)
         raise AssertionError("timed out waiting for memory transfer request")
 
-    def wait_for_ack(channel, expected):
-        """Mathematics: accumulate receiver acknowledgements until expected reliable sequences are confirmed."""
-
-        deadline = time.monotonic() + 3.0
-        observed = set()
-        while time.monotonic() < deadline:
-            observed.update(channel.process_ack())
-            if set(expected).issubset(observed):
-                return tuple(sorted(observed))
-            time.sleep(0.005)
-        raise AssertionError(f"timed out waiting for acknowledgements {expected!r}; observed {sorted(observed)!r}")
-
     try:
+        assert router.registered_backends() == (
+            ("execute CPU instruction memory transfer", "/memory/transfer"),
+            ("execute deterministic CPU arithmetic program", "/cpu/compute"),
+            ("execute deterministic CPU SIMT reference program", "/gpu/simt"),
+        )
+        assert session.phase == "idle"
         assert request_sender.send(event) == 1
+        deadline = time.monotonic() + 3.0
+        while session.phase != "request-ready" and time.monotonic() < deadline:
+            time.sleep(0.005)
+        assert session.phase == "request-ready"
         first = wait_for_server_effect()
+        assert session.phase == "response-unacknowledged"
         assert first.action.value == "allow"
         assert first.executed is True
         assert first.effect["bytes_transferred"] == len(source_bytes)
@@ -1051,6 +1059,10 @@ def test_private_process_memory_transfer_runs_as_a_causally_receipted_transit_op
         # A fresh reliable frame with the original semantic identity must replay
         # the same completion result without entering the transfer host again.
         assert request_sender.send(event) == 2
+        deadline = time.monotonic() + 3.0
+        while session.phase != "request-ready" and time.monotonic() < deadline:
+            time.sleep(0.005)
+        assert session.phase == "request-ready"
         replay = wait_for_server_effect()
         assert replay.replayed is True
         assert replay.effect == first.effect
@@ -1060,6 +1072,7 @@ def test_private_process_memory_transfer_runs_as_a_causally_receipted_transit_op
         assert handler_calls["count"] == 1
         assert wait_for_ack(request_sender.channel, (1, 2)) == (1, 2)
         assert wait_for_ack(response_sender.channel, (1, 2)) == (1, 2)
+        assert session.phase == "idle"
         assert receiver.environment.kernel.journal.verify()
     finally:
         for transport in (client_transport, worker_transport):
