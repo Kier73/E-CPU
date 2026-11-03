@@ -41,6 +41,7 @@ def _plain(value: Any) -> Any:
 
 
 def _bytes(value: Any) -> bytes:
+    """Serialize a supported state value to canonical UTF-8 JSON bytes."""
     try:
         return json.dumps(
             _plain(value),
@@ -56,6 +57,7 @@ def _bytes(value: Any) -> bytes:
 
 
 def _digest(payload: bytes) -> str:
+    """Return the SHA-256 digest of a byte sequence as lowercase hexadecimal."""
     return hashlib.sha256(payload).hexdigest()
 
 
@@ -109,6 +111,7 @@ def _journal_head(journal: Any) -> dict[str, Any]:
 
 @dataclass(frozen=True)
 class SchedulerStateObservation:
+    """Canonical digest and metadata for one observed scheduler boundary."""
     tick: int
     digest: str
     payload: Mapping[str, Any]
@@ -184,6 +187,7 @@ def observe_scheduler_state(scheduler: Any) -> SchedulerStateObservation:
 def _diff(
     left: Any, right: Any, path: str = "$", limit: int = 16
 ) -> list[str]:
+    """Return bounded, path-qualified differences between nested state values."""
     if left == right:
         return []
     if limit <= 0:
@@ -215,6 +219,7 @@ def _diff(
 
 @dataclass(frozen=True)
 class SchedulerRelationReport:
+    """Result of comparing two exact scheduler-state observations."""
     equivalent: bool
     left_digest: str
     right_digest: str
@@ -224,7 +229,7 @@ class SchedulerRelationReport:
 def compare_scheduler_states(
     left: Any, right: Any
 ) -> SchedulerRelationReport:
-    """Compare two full observed scheduler boundaries and report changed paths."""
+    """Compare full observed scheduler boundaries and report changed paths."""
     left_obs = observe_scheduler_state(left)
     right_obs = observe_scheduler_state(right)
     equal = (
@@ -242,6 +247,7 @@ def compare_scheduler_states(
 
 
 def _event(event: Any) -> dict[str, Any]:
+    """Convert a ScheduleEvent to its canonical JSON-compatible field map."""
     names = (
         "tick", "pid", "name", "pc_before", "op", "pc_after",
         "status_after", "args", "registers", "output_delta",
@@ -266,11 +272,12 @@ class SchedulerTraceWitness:
 
     @property
     def transition_count(self) -> int:
+        """Return the number of accepted scheduler transitions in the witness."""
         return len(self.event_digests)
 
     @property
     def witness_bytes_estimate(self) -> int:
-        """Digest-only size estimate, excluding Python object overhead."""
+        """Estimate digest-only storage, excluding Python object overhead."""
         return (
             len(self.boundary_digests) + len(self.event_digests) + 1
         ) * 32
@@ -279,6 +286,7 @@ class SchedulerTraceWitness:
 def _extend(
     previous: str, index: int, event_digest: str, state_digest: str
 ) -> str:
+    """Extend the witness receipt with one event and its post-state digest."""
     row = {
         "index": index,
         "event_digest": event_digest,
@@ -290,7 +298,7 @@ def _extend(
 def verify_scheduler_trace_witness(
     witness: SchedulerTraceWitness,
 ) -> bool:
-    """Verify digest formatting, witness shape, and ordered receipt chain."""
+    """Verify digest formatting, witness shape and the ordered receipt chain."""
     if (
         len(witness.boundary_digests) != len(witness.event_digests) + 1
         or not witness.boundary_digests
@@ -329,7 +337,7 @@ def verify_scheduler_trace_witness(
 def capture_scheduler_trace(
     scheduler: Any, max_transitions: int = 100_000
 ) -> SchedulerTraceWitness:
-    """Capture one accepted scheduler transition per call; never skip VM state."""
+    """Capture one accepted scheduler transition per call without skipping VM state."""
     if max_transitions < 0:
         raise ValueError("max_transitions must be non-negative")
     initial = observe_scheduler_state(scheduler)
@@ -384,6 +392,7 @@ def capture_scheduler_trace(
 
 @dataclass(frozen=True)
 class SchedulerTraceRelationReport:
+    """Result of comparing two scheduler event/state trace witnesses."""
     equivalent: bool
     first_divergence: int | None
     reason: str | None
@@ -395,7 +404,7 @@ def compare_scheduler_traces(
     left: SchedulerTraceWitness,
     right: SchedulerTraceWitness,
 ) -> SchedulerTraceRelationReport:
-    """Compare initial state, every event, and every post-transition state."""
+    """Compare initial state, every event and every post-transition state."""
     if (
         not verify_scheduler_trace_witness(left)
         or not verify_scheduler_trace_witness(right)

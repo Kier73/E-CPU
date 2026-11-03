@@ -27,6 +27,7 @@ class HeadlessRelationError(ValueError):
 
 
 def _is_bound(method: Any, owner: Any, name: str) -> bool:
+    """Check whether a callback is the expected bound method on its owner."""
     return (
         getattr(method, "__self__", None) is owner
         and getattr(method, "__func__", None) is getattr(type(owner), name, None)
@@ -100,6 +101,7 @@ def _check_closed_domain(operating_system: Any) -> None:
 
 @dataclass(frozen=True)
 class HeadlessStateObservation:
+    """Canonical digest and metadata for one observed HeadlessOS boundary."""
     tick: int
     digest: str
     payload: Mapping[str, Any]
@@ -145,6 +147,7 @@ def observe_headless_os_state(operating_system: Any) -> HeadlessStateObservation
 def _diff(
     left: Any, right: Any, path: str = "$", limit: int = 24
 ) -> list[str]:
+    """Return bounded, path-qualified differences between nested state values."""
     if left == right:
         return []
     if limit <= 0:
@@ -172,6 +175,7 @@ def _diff(
 
 @dataclass(frozen=True)
 class HeadlessRelationReport:
+    """Result of comparing two complete HeadlessOS state observations."""
     equivalent: bool
     left_digest: str
     right_digest: str
@@ -200,16 +204,19 @@ class HeadlessTraceWitness:
 
     @property
     def transition_count(self) -> int:
+        """Return the number of accepted scheduler transitions in the witness."""
         return len(self.event_digests)
 
     @property
     def witness_bytes_estimate(self) -> int:
+        """Estimate digest-only storage, excluding Python object overhead."""
         return (
             len(self.boundary_digests) + len(self.event_digests) + 1
         ) * 32
 
 
 def verify_headless_trace_witness(witness: HeadlessTraceWitness) -> bool:
+    """Verify witness dimensions, digest encodings and the ordered receipt chain."""
     if len(witness.boundary_digests) != len(witness.event_digests) + 1:
         return False
     if not witness.boundary_digests:
@@ -248,7 +255,7 @@ def capture_headless_os_trace(
     operating_system: Any,
     max_transitions: int = 100_000,
 ) -> HeadlessTraceWitness:
-    """Capture the HeadlessOS orbit one accepted instruction transition at a time."""
+    """Capture one accepted HeadlessOS transition and the resulting complete state."""
     if max_transitions < 0:
         raise ValueError("max_transitions must be non-negative")
     initial = observe_headless_os_state(operating_system)
@@ -304,6 +311,7 @@ def capture_headless_os_trace(
 
 @dataclass(frozen=True)
 class HeadlessTraceRelationReport:
+    """Result of comparing two full HeadlessOS execution witnesses."""
     equivalent: bool
     first_divergence: int | None
     reason: str | None
@@ -315,7 +323,7 @@ def compare_headless_os_traces(
     left: HeadlessTraceWitness,
     right: HeadlessTraceWitness,
 ) -> HeadlessTraceRelationReport:
-    """Compare initial state, all accepted events and all full-system boundaries."""
+    """Compare initial state, every accepted event and every full-system boundary."""
     if not verify_headless_trace_witness(left) or not verify_headless_trace_witness(right):
         return HeadlessTraceRelationReport(
             False, 0, "invalid witness receipt", left.receipt, right.receipt
