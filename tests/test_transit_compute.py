@@ -215,3 +215,67 @@ def test_transit_host_rejects_syscall_and_message_side_effect_opcodes() -> None:
         assert "non-compute operations" in str(exc)
     else:
         raise AssertionError("unsafe syscall program was admitted")
+
+
+def test_persistent_worker_serves_multiple_independent_requests() -> None:
+    """Mathematics: one worker W processes distinct identities I_1 != I_2 while each job starts from an isolated VM state."""
+
+    from mailcpu.transit_worker import TransitComputeWorker
+
+    request_origin_transport, request_worker_transport = _tcp_pair("origin", "worker")
+    response_worker_transport, response_origin_transport = _tcp_pair("worker", "origin")
+    policy = ReliabilityPolicy(lease_ticks=1, max_attempts=3, window_size=4)
+    request_origin = HypervisorOperationChannel(
+        ReliableChannel(request_origin_transport, "origin", "worker", "compute", policy)
+    )
+    request_worker = HypervisorOperationChannel(
+        ReliableChannel(request_worker_transport, "worker", "worker", "compute", policy, peer="origin")
+    )
+    response_worker = HypervisorOperationResultChannel(
+        ReliableChannel(response_worker_transport, "worker", "origin", "compute.result", policy),
+        "origin",
+        "compute",
+    )
+    response_origin = HypervisorOperationResultChannel(
+        ReliableChannel(response_origin_transport, "origin", "origin", "compute.result", policy, peer="worker"),
+        "origin",
+        "compute",
+    )
+    receiver = HeadlessOS()
+    receiver.hypervisor.policy = HypervisorPolicy(
+        review_confidence=0.0,
+        automatic_confidence=0.0,
+        destructive_confidence=0.0,
+        danger_review_probability=1.0,
+    )
+    worker = TransitComputeWorker(receiver, receiver.environment.init_pid)
+
+    try:
+        outcomes = []
+        for sequence in (1, 2):
+            event = _event(sequence)
+            assert request_origin.send(event) == sequence
+            served = worker.serve_once(request_worker, response_worker)
+            assert served is not None and served.executed is True
+            assert served.action.value == "allow"
+            returned = response_origin.receive()
+            assert returned is not None
+            assert returned.effect == served.effect
+            assert returned.sequence == sequence
+            outcomes.append(returned)
+
+        assert len(outcomes) == 2
+        assert all(item.effect["status"] == "exited" for item in outcomes)
+        assert all(item.effect["registers"]["total"] == 42 for item in outcomes)
+        assert request_origin.channel.process_ack() == (1, 2)
+        assert response_worker.channel.process_ack() == (1, 2)
+        assert receiver.environment.kernel.journal.verify()
+    finally:
+        for transport in (
+            request_origin_transport,
+            request_worker_transport,
+            response_worker_transport,
+            response_origin_transport,
+        ):
+            if not transport.closed:
+                transport.close()
