@@ -26,6 +26,9 @@ _EXECUTE_RIGHT = frozenset({"execute"})
 class TransitComputeHost:
     """Execute a peer-supplied pure arithmetic program in an isolated MailCPU VM."""
 
+    operation_name = _OPERATION
+    resource_name = _RESOURCE
+
     def __init__(
         self,
         *,
