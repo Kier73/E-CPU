@@ -59,16 +59,16 @@ def _check_closed_domain(operating_system: Any) -> None:
     # in HeadlessOS.snapshot() and whose implementations are reconstructed by
     # HeadlessOS.from_snapshot().
     required = (
-        (getattr(vm, "host_syscall_handler", None), operating_system, "_dispatch_program_syscall"),
-        (getattr(scheduler, "syscall_handler", None), vm, "_dispatch_program_syscall"),
-        (getattr(scheduler, "wait_predicate", None), operating_system, "_scheduler_wait_ready"),
-        (getattr(scheduler, "post_step", None), operating_system, "_apply_deferred_exec"),
-        (getattr(kernel, "terminal_signal_handler", None), operating_system, "_handle_terminal_signal"),
+        ("vm.host_syscall_handler", getattr(vm, "host_syscall_handler", None), operating_system, "_dispatch_program_syscall"),
+        ("scheduler.syscall_handler", getattr(scheduler, "syscall_handler", None), vm, "_dispatch_program_syscall"),
+        ("scheduler.wait_predicate", getattr(scheduler, "wait_predicate", None), operating_system, "_scheduler_wait_ready"),
+        ("scheduler.post_step", getattr(scheduler, "post_step", None), operating_system, "_apply_deferred_exec"),
+        ("kernel.terminal_signal_handler", getattr(kernel, "terminal_signal_handler", None), operating_system, "_handle_terminal_signal"),
     )
-    for callback, owner, name in required:
+    for label, callback, owner, name in required:
         if not _is_bound(callback, owner, name):
             raise HeadlessRelationError(
-                f"non-standard or external callback {name} is outside witness"
+                f"non-standard or external callback {label} ({name}) is outside witness"
             )
 
     if scheduler.bus is not kernel.bus:
