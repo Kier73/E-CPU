@@ -6,13 +6,15 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from .classifier import HypervisorExecutionResult
+from .headless import HeadlessOS
 from .hypervisor_transport import (
     HypervisorOperationChannel,
     HypervisorOperationResultChannel,
 )
+from .transit_compute import TransitComputeHost
 from .transit_worker import TransitComputeWorker
 
 
@@ -150,13 +152,15 @@ class TransitComputeSession:
         payload: Mapping[str, Any],
         request_transport: Any,
         response_transport: Any,
+        compute_host_factory: Callable[[HeadlessOS, int], TransitComputeHost] | None = None,
     ) -> "TransitComputeSession":
-        """Mathematics: restore path product Σ from its worker/channel checkpoint and caller-rebound transports."""
+        """Mathematics: restore path product Σ from its worker/channel checkpoint, reattaching the exact backend manifest and caller-rebound transports."""
 
         worker, request, response = TransitComputeWorker.from_snapshot(
             payload,
             request_transport,
             response_transport,
+            compute_host_factory=compute_host_factory,
         )
         return cls(worker, request, response)
 
@@ -166,8 +170,9 @@ class TransitComputeSession:
         path: str | os.PathLike[str],
         request_transport: Any,
         response_transport: Any,
+        compute_host_factory: Callable[[HeadlessOS, int], TransitComputeHost] | None = None,
     ) -> "TransitComputeSession":
-        """Mathematics: parse persisted checkpoint C and admit continuation only after digest, schema, and channel invariants verify."""
+        """Mathematics: parse persisted checkpoint C and admit continuation only after digest, schema, backend manifest, and channel invariants verify."""
 
         source = Path(path)
         try:
@@ -176,4 +181,4 @@ class TransitComputeSession:
             raise ValueError(f"cannot read transit session checkpoint: {exc}") from exc
         if not isinstance(payload, Mapping):
             raise ValueError("transit session checkpoint root must be a mapping")
-        return cls.from_snapshot(payload, request_transport, response_transport)
+        return cls.from_snapshot(payload, request_transport, response_transport, compute_host_factory)
