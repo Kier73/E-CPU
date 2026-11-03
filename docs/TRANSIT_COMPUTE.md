@@ -62,6 +62,20 @@ It reports median and nearest-rank p95 latency, VM instruction/scheduler-event c
 
 The byte counter measures exact ECPU frame encodings at the `SocketTransport.send` boundary, rather than estimating JSON payload sizes. This counts protocol framing and integrity digests. It does not measure Ethernet/IP/TCP headers, retransmissions performed below the application transport, or kernel buffering.
 
+### Initial CI observation
+
+A smoke run on GitHub Actions Linux / Python 3.11 (6 measured iterations, 1 warmup; run 41703175898) reported:
+
+| Mode | Median | p95 |
+|---|---:|---:|
+| Local Python reference | 0.000611 ms | 0.000681 ms |
+| Direct MailCPU | 4.526 ms | 4.643 ms |
+| Remote MailCPU over loopback TCP | 6.378 ms | 6.843 ms |
+
+Each VM path executed 6 instructions per job. The remote stack setup was 3.876 ms. Across the six measured requests plus one replay, the run counted 5,607 request bytes, 6,726 result bytes, and 4,137 ACK bytes (16,470 bytes total in both directions), with one semantic replay and zero reliable retry frames.
+
+This tiny arithmetic task does not amortize MailCPU setup or transport costs. The result is a protocol-cost baseline, not a performance claim; increase workload size and run repeated samples before considering optimizations.
+
 CI runs a short smoke configuration. Use a larger iteration count locally for comparative timing. Treat results as E0 evidence: the TCP endpoints are loopback sockets in one process, so latency is not a WAN or separate-host estimate. The Python path is a minimal arithmetic reference, not a like-for-like Python VM implementation; the benchmark exposes the added cost of MailCPU execution and the additional remote protocol layers rather than claiming a speed advantage.
 
 ## Next architectural test
