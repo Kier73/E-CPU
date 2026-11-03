@@ -20,6 +20,7 @@ _SAFE_OPS = frozenset({Op.SET, Op.COPY, Op.ADD, Op.COMPARE, Op.BRANCH, Op.HALT})
 _REGISTER_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}")
 _OPERATION = "execute deterministic CPU arithmetic program"
 _RESOURCE = "/cpu/compute"
+_EXECUTE_RIGHT = frozenset({"execute"})
 
 
 class TransitComputeHost:
@@ -51,8 +52,10 @@ class TransitComputeHost:
         request = event.request
         if request.operation != _OPERATION or request.resource != _RESOURCE:
             raise TransitComputeError("operation identity is not a MailCPU compute request")
-        if not request.required_rights or not request.required_rights.issubset(request.granted_rights):
-            raise TransitComputeError("receiver-local execute authority is required")
+        if request.required_rights != _EXECUTE_RIGHT or request.granted_rights != _EXECUTE_RIGHT:
+            raise TransitComputeError("exact receiver-local execute authority is required")
+        if request.destructive:
+            raise TransitComputeError("pure compute requests cannot be marked destructive")
 
         payload = request.payload
         if not isinstance(payload, Mapping):
