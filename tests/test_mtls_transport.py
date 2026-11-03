@@ -652,7 +652,7 @@ def test_transit_session_survives_receiver_process_restart_and_replays_semantic_
             "execute deterministic CPU arithmetic program",
             "/cpu/compute",
             {
-                "source": "\\n".join((
+                "source": "\n".join((
                     "set left 19",
                     "set right 23",
                     "add total left right",
