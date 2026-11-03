@@ -425,7 +425,7 @@ def test_transit_compute_operation_executes_over_mutual_tls(tmp_path) -> None:
         assert _wait_for_ack(request_sender.channel, (1,)) == (1,)
         assert _wait_for_ack(result_sender.channel, (1,)) == (1,)
         assert session.phase == "idle"
-        assert session.snapshot()["format"] == "mailcpu-transit-worker-checkpoint-v1"
+        assert session.snapshot()["format"] == "mailcpu-transit-worker-checkpoint-v2"
 
         # A fresh TLS-carried frame with the same semantic operation identity
         # must replay the stored result instead of launching another compute VM.
@@ -468,9 +468,20 @@ def _transit_worker_process_main(
         ReliableChannel,
         TransitComputeSession,
         TransitComputeWorker,
+        TransitBackendRouter,
+        TransitMemoryTransferHost,
+        TransitSIMTHost,
         accept_mutual_tls,
     )
     from mailcpu.socket_transport import SocketTransport
+
+    def build_backend_router(operating_system, authority_pid):
+        """Mathematics: reconstruct the finite executable backend relation R against the restored receiver and authority."""
+
+        router = TransitBackendRouter()
+        router.register_backend(TransitSIMTHost())
+        router.register_backend(TransitMemoryTransferHost(operating_system, authority_pid))
+        return router
 
     listener = None
     transport = None
@@ -502,6 +513,7 @@ def _transit_worker_process_main(
                 checkpoint_path,
                 transport,
                 transport,
+                compute_host_factory=build_backend_router,
             )
         else:
             receiver = HeadlessOS()
@@ -539,12 +551,12 @@ def _transit_worker_process_main(
                 "compute",
             )
             session = TransitComputeSession(
-                TransitComputeWorker(receiver, authority_pid),
+                TransitComputeWorker(receiver, authority_pid, build_backend_router(receiver, authority_pid)),
                 request,
                 response,
             )
 
-        control_pipe.send(("connected", session.phase))
+        control_pipe.send(("connected", session.phase, list(session.worker.compute_host.registered_backends())))
         while True:
             if control_pipe.poll():
                 command = control_pipe.recv()
@@ -724,6 +736,11 @@ def test_transit_session_survives_receiver_process_restart_and_replays_semantic_
         assert first_control.poll(10.0), "first worker did not finish its TLS handshake"
         first_connected = first_control.recv()
         assert first_connected[0] == "connected", repr(first_connected)
+        assert set(map(tuple, first_connected[2])) == {
+            ("execute CPU instruction memory transfer", "/memory/transfer"),
+            ("execute deterministic CPU SIMT reference program", "/gpu/simt"),
+            ("execute deterministic CPU arithmetic program", "/cpu/compute"),
+        }
         assert request_sender.send(event) == 1
         first_result = receive_result(result_receiver, request_sender.channel, 1)
         assert first_result.effect["registers"]["result"] == 48
@@ -764,6 +781,11 @@ def test_transit_session_survives_receiver_process_restart_and_replays_semantic_
         assert second_control.poll(10.0), "restored worker did not finish its TLS handshake"
         second_connected = second_control.recv()
         assert second_connected[0] == "connected", repr(second_connected)
+        assert set(map(tuple, second_connected[2])) == {
+            ("execute CPU instruction memory transfer", "/memory/transfer"),
+            ("execute deterministic CPU SIMT reference program", "/gpu/simt"),
+            ("execute deterministic CPU arithmetic program", "/cpu/compute"),
+        }
         assert request_sender.send(event) == 2
         replayed_result = receive_result(result_receiver, request_sender.channel, 2)
         assert replayed_result.effect == first_result.effect
