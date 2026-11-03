@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from mailcpu import (
@@ -15,6 +17,27 @@ from mailcpu import (
     SocketTransport,
 )
 from mailcpu.programs import wait_send_program
+
+
+def _wait_for_value(receive):
+    """Mathematics: repeatedly observe a nonblocking receive relation until value v≠⊥ or bounded deadline Δ expires."""
+    deadline = time.monotonic() + 3.0
+    while time.monotonic() < deadline:
+        value = receive()
+        if value is not None:
+            return value
+        time.sleep(0.005)
+    raise AssertionError("timed out waiting for a seed-commit frame")
+
+
+def _receive_commit(receiver, machine, response):
+    """Mathematics: advance the request-consumption relation until one committed or replayed outcome is available."""
+    return _wait_for_value(lambda: receiver.receive_and_commit(machine, response))
+
+
+def _receive_result(receiver):
+    """Mathematics: advance the response-channel receive relation until one typed result arrives."""
+    return _wait_for_value(receiver.receive)
 
 
 def _tcp_pair() -> tuple[SocketTransport, SocketTransport]:
@@ -96,9 +119,9 @@ def test_remote_seed_commit_crosses_real_tcp_and_executes_once() -> None:
         request = _request(machine, pid)
         assert SeedCommitRequest.from_dict(request.to_dict()).to_dict() == request.to_dict()
         assert request_sender.send(request) == 1
-        result = request_receiver.receive_and_commit(machine, result_sender)
+        result = _receive_commit(request_receiver, machine, result_sender)
         assert result is not None and result.accepted and not result.replayed
-        response = result_receiver.receive()
+        response = _receive_result(result_receiver)
         assert response is not None and response.accepted and not response.replayed
         assert response.envelope is not None
         assert response.envelope.seed.coordinate == 1
