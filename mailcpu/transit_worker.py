@@ -70,7 +70,7 @@ class TransitComputeWorker:
             raise TypeError("worker checkpoint requires a HypervisorOperationChannel")
         if not isinstance(response, HypervisorOperationResultChannel):
             raise TypeError("worker checkpoint requires a HypervisorOperationResultChannel")
-        if request.channel.peek() is not None or request.channel.transport.pending() != 0:
+        if request.channel.pending_sequences() or request.channel.peek() is not None or request.channel.transport.pending() != 0:
             raise ValueError("cannot checkpoint transit worker with pending request transport data")
         if response.channel.pending_sequences() or response.channel.transport.pending() != 0:
             raise ValueError("cannot checkpoint transit worker with unacknowledged response data")
