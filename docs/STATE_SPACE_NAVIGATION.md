@@ -121,14 +121,14 @@ This is logical concurrency through interleaved state transitions. It does not p
 
 The prudent implementation sequence is:
 
-1. **Authenticated transit:** bind remote MailCPU message channels to mutually authenticated peers; retain receiver-local capability authorization.
+1. **Authenticated transit:** the mutual-TLS adapter now wraps the existing framed MailCPU transport, validates the server hostname and the client's expected DNS SAN, and requires TLS 1.2 or newer. A loopback integration test runs the bounded compute operation across authenticated request and result channels. A deployed separate-host service, certificate lifecycle, and WAN validation remain future work.
 2. **Verified job capsule:** describe a job by its finite program, input state, operation identity, allowed effects, and resource budgets.
 3. **Trajectory evidence:** record accepted transitions, state digests, event identities, and replay receipts. State clearly which information is a digest/index and which is sufficient to reconstruct a state.
 4. **Navigation policy:** select the next job or transition using explicit fairness, cost, and resource rules.
 5. **Orbit scheduler:** allow independent jobs to make progress along their own message paths while preserving a deterministic global transition order where deterministic replay is required.
 6. **Validation:** test equivalence, fairness, backpressure, cancellation, checkpoint/restore, duplicate replay, and authenticated multi-host operation.
 
-The current transit worker implements only the bounded compute capsule and one-request service boundary. The mutual-TLS adapter is the next transport foundation; the orbit scheduler remains a future layer.
+The current transit worker implements only the bounded compute capsule and one-request service boundary. The mutual-TLS adapter is implemented and operation-tested on loopback; deployment across separate hosts remains unproven. The orbit scheduler remains a future layer.
 
 ## 7. Design criterion
 
