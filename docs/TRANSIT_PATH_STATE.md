@@ -131,9 +131,9 @@ A barrier is currently admitted only outside a structured branch region, after e
 
 The differential test evaluates absolute value for input lanes [-4, -1, 0, 3, 8]. The SIMT kernel's output is compared with five independent scalar MailCPU executions of the same mathematical operation. The test also checks lane IDs, addition, multiplication, both branch masks, reconvergence, and a five-lane barrier arrival.
 
-The same reference kernel has also been sent through the reliable transit operation channel. The receiver derives the execute capability for resource /gpu/simt, dispatches the request in the CPU-owned execution domain to the SIMT reference handler, returns a typed result, and processes the reliable acknowledgements.
+The same reference kernel is also sent through a persistent TransitComputeSession. A TransitBackendRouter selects the SIMT handler by its exact operation/resource key. The receiver derives the execute capability for resource /gpu/simt, dispatches the request in the CPU-owned execution domain, returns a typed result, and processes the reliable acknowledgements.
 
-The SIMT reference backend is registered in the persistent worker's operation router by its exact operation/resource identity. It provides a semantic oracle for a future hardware or emulator adapter. Performance claims, GPU memory semantics, asynchronous workgroup scheduling, and vendor-specific occupancy behavior remain outside this implementation.
+The SIMT reference backend is registered in the persistent worker's operation router by its exact operation/resource identity. The session test exercises that exact dispatch path. It provides a semantic oracle for a future hardware or emulator adapter. Performance claims, GPU memory semantics, asynchronous workgroup scheduling, and vendor-specific occupancy behavior remain outside this implementation.
 
 
 ## Heterogeneous backend routing
