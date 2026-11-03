@@ -34,17 +34,29 @@ from mailcpu.transit_compute import TransitComputeHost
 
 _OPERATION = "execute deterministic CPU arithmetic program"
 _RESOURCE = "/cpu/compute"
-_SOURCE = "\n".join(
-    (
-        "set left 19",
-        "set right 23",
-        "add total left right",
-        "set offset 6",
-        "add result total offset",
-        "halt",
+
+
+def _program_source(work_units: int) -> str:
+    """Mathematics: construct a bounded loop computing A_n=48n by n repeated additions and deterministic counter descent."""
+    if not isinstance(work_units, int) or isinstance(work_units, bool) or work_units < 1:
+        raise ValueError("work_units must be a positive integer")
+    return "\n".join(
+        (
+            f"set remaining {work_units}",
+            "set accumulator 0",
+            "set addend 48",
+            "set minus_one -1",
+            "add accumulator accumulator addend",
+            "add remaining remaining minus_one",
+            "branch remaining 4",
+            "halt",
+        )
     )
-)
-_EXPECTED = 48
+
+
+def _expected_result(work_units: int) -> int:
+    """Mathematics: return A_n=Σ_{i=1}^n(19+23+6)=48n."""
+    return 48 * work_units
 
 
 class CountingTransport:
@@ -103,8 +115,13 @@ class CountingTransport:
         return retries
 
 
-def _event(sequence: int, *, receiver_authorizes: bool) -> HypervisorArbitrationEvent:
-    """Mathematics: construct the same bounded program under unique operation identity I=(client,compute,sequence)."""
+def _event(
+    sequence: int,
+    *,
+    receiver_authorizes: bool,
+    work_units: int,
+) -> HypervisorArbitrationEvent:
+    """Mathematics: construct a repeated-addition job under unique identity I=(client,compute,sequence)."""
     required = frozenset({"execute"})
     granted = frozenset() if receiver_authorizes else required
     return HypervisorArbitrationEvent(
@@ -116,9 +133,9 @@ def _event(sequence: int, *, receiver_authorizes: bool) -> HypervisorArbitration
             _OPERATION,
             _RESOURCE,
             {
-                "source": _SOURCE,
+                "source": _program_source(work_units),
                 "initial_registers": {"seed": 7},
-                "max_ticks": 64,
+                "max_ticks": 10_000,
             },
             required,
             granted,
@@ -151,13 +168,12 @@ def _summary(samples: list[float]) -> dict[str, float]:
     }
 
 
-def _python_reference() -> int:
-    """Mathematics: evaluate the specified integer expression directly as a reference function."""
-    left = 19
-    right = 23
-    total = left + right
-    offset = 6
-    return total + offset
+def _python_reference(work_units: int) -> int:
+    """Mathematics: evaluate A_n=Σ_{i=1}^n(19+23+6) as a direct Python reference loop."""
+    total = 0
+    for _ in range(work_units):
+        total += 19 + 23 + 6
+    return total
 
 
 def _make_remote_stack() -> tuple[
@@ -256,12 +272,15 @@ def _make_remote_stack() -> tuple[
     )
 
 
-def run_benchmark(iterations: int = 20, warmups: int = 2) -> dict[str, Any]:
-    """Mathematics: compare equivalent result function f(x)=48 across local, direct-VM and reliable remote execution."""
+def run_benchmark(iterations: int = 20, warmups: int = 2, work_units: int = 1) -> dict[str, Any]:
+    """Mathematics: compare A_n=48n across local, direct-VM and reliable remote execution at workload size n."""
     if not isinstance(iterations, int) or isinstance(iterations, bool) or iterations < 1:
         raise ValueError("iterations must be a positive integer")
     if not isinstance(warmups, int) or isinstance(warmups, bool) or warmups < 0:
         raise ValueError("warmups must be a non-negative integer")
+    if not isinstance(work_units, int) or isinstance(work_units, bool) or not 1 <= work_units <= 1_000:
+        raise ValueError("work_units must be an integer in [1, 1000]")
+    expected_result = _expected_result(work_units)
 
     python_samples: list[float] = []
     direct_samples: list[float] = []
@@ -271,18 +290,18 @@ def run_benchmark(iterations: int = 20, warmups: int = 2) -> dict[str, Any]:
 
     for index in range(warmups + iterations):
         started = time.perf_counter()
-        python_value = _python_reference()
+        python_value = _python_reference(work_units)
         elapsed = time.perf_counter() - started
-        if python_value != _EXPECTED:
+        if python_value != expected_result:
             raise AssertionError("Python reference returned an incorrect result")
         if index >= warmups:
             python_samples.append(elapsed)
 
-        direct_event = _event(index + 1, receiver_authorizes=False)
+        direct_event = _event(index + 1, receiver_authorizes=False, work_units=work_units)
         started = time.perf_counter()
         direct_result = direct_host.handle(direct_event)
         elapsed = time.perf_counter() - started
-        if direct_result["registers"]["result"] != _EXPECTED:
+        if direct_result["registers"]["accumulator"] != expected_result:
             raise AssertionError("direct MailCPU returned an incorrect result")
         if index >= warmups:
             direct_samples.append(elapsed)
@@ -319,7 +338,7 @@ def run_benchmark(iterations: int = 20, warmups: int = 2) -> dict[str, Any]:
                     response_client_transport,
                 ):
                     counter.reset()
-            event = _event(index + 1, receiver_authorizes=True)
+            event = _event(index + 1, receiver_authorizes=True, work_units=work_units)
             started = time.perf_counter()
             if request_sender.send(event) != index + 1:
                 raise AssertionError("request channel sequence mismatch")
@@ -334,7 +353,7 @@ def run_benchmark(iterations: int = 20, warmups: int = 2) -> dict[str, Any]:
             elapsed = time.perf_counter() - started
             if acknowledged_request != (index + 1,) or acknowledged_result != (index + 1,):
                 raise AssertionError("reliable request/result acknowledgement missing")
-            if returned.effect["registers"]["result"] != _EXPECTED:
+            if returned.effect["registers"]["accumulator"] != expected_result:
                 raise AssertionError("remote MailCPU returned an incorrect result")
             if index >= warmups:
                 remote_samples.append(elapsed)
@@ -345,7 +364,7 @@ def run_benchmark(iterations: int = 20, warmups: int = 2) -> dict[str, Any]:
 
         # Reuse the last semantic operation identity inside a new reliable frame.
         # The receiver must replay the effect without starting a second VM job.
-        replay_event = _event(warmups + iterations, receiver_authorizes=True)
+        replay_event = _event(warmups + iterations, receiver_authorizes=True, work_units=work_units)
         started = time.perf_counter()
         request_sender.send(replay_event)
         replay_served = worker.serve_once(request_worker, response_worker)
@@ -358,7 +377,7 @@ def run_benchmark(iterations: int = 20, warmups: int = 2) -> dict[str, Any]:
             and replay_served.replayed
             and replayed is not None
             and replayed.replayed
-            and replayed.effect["registers"]["result"] == _EXPECTED
+            and replayed.effect["registers"]["accumulator"] == expected_result
         )
         if not replayed_result:
             raise AssertionError("semantic replay did not return the committed effect")
@@ -395,11 +414,12 @@ def run_benchmark(iterations: int = 20, warmups: int = 2) -> dict[str, Any]:
             "experiment": "equivalent-arithmetic-three-mode-transit-benchmark",
             "iterations": iterations,
             "warmups_per_mode": warmups,
-            "expected_result": _EXPECTED,
+            "work_units": work_units,
+            "expected_result": expected_result,
             "all_modes_correct": True,
             "local_python": {
                 **_summary(python_samples),
-                "operations": iterations,
+                "operations": work_units * iterations,
                 "instructions": None,
                 "scheduler_events": None,
             },
@@ -445,10 +465,11 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--iterations", type=int, default=20)
     parser.add_argument("--warmups", type=int, default=2)
+    parser.add_argument("--work-units", type=int, default=1)
     parser.add_argument("--output")
     args = parser.parse_args()
     try:
-        result = run_benchmark(args.iterations, args.warmups)
+        result = run_benchmark(args.iterations, args.warmups, args.work_units)
     except (ValueError, AssertionError, RuntimeError) as exc:
         parser.error(str(exc))
     encoded = json.dumps(result, indent=2, sort_keys=True)
