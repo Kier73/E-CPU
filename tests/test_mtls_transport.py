@@ -49,8 +49,8 @@ def _make_test_certificates(tmp_path: Path) -> dict[str, Path]:
 
     files: dict[str, Path] = {"ca": ca_cert}
     for role, dns_name, usage in (
-        ("server", "localhost", "serverAuth"),
-        ("client", "client-worker", "clientAuth"),
+        ("server", "worker-node", "clientAuth,serverAuth"),
+        ("client", "client-node", "clientAuth,serverAuth"),
     ):
         key = tmp_path / f"{role}.key"
         csr = tmp_path / f"{role}.csr"
@@ -132,7 +132,7 @@ def test_mutual_tls_authenticates_both_peers_and_carries_mailcpu_frames(tmp_path
                 "worker",
                 "client",
                 server_context,
-                expected_peer_dns="client-worker",
+                expected_peer_dns="client-node",
             )
         except BaseException as exc:
             server_errors.append(exc)
@@ -148,7 +148,7 @@ def test_mutual_tls_authenticates_both_peers_and_carries_mailcpu_frames(tmp_path
             "client",
             "worker",
             client_context,
-            server_hostname="localhost",
+            server_hostname="worker-node",
         )
         thread.join(timeout=5.0)
         assert not thread.is_alive()
@@ -195,3 +195,197 @@ def test_mutual_tls_rejects_client_context_without_peer_verification() -> None:
             context,
             server_hostname="localhost",
         )
+
+
+def _server_context(cert: Path, key: Path, ca: Path) -> ssl.SSLContext:
+    """Mathematics: create server context C_s with CA verification and mandatory client certificates."""
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    context.load_cert_chain(str(cert), str(key))
+    context.load_verify_locations(cafile=str(ca))
+    context.verify_mode = ssl.CERT_REQUIRED
+    return context
+
+
+def _client_context(cert: Path, key: Path, ca: Path) -> ssl.SSLContext:
+    """Mathematics: create client context C_c with trusted CA, hostname validation, and an outbound client certificate."""
+    context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH, cafile=str(ca))
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    context.load_cert_chain(str(cert), str(key))
+    return context
+
+
+def _tls_pair(
+    client_context: ssl.SSLContext,
+    server_context: ssl.SSLContext,
+    client_endpoint: str,
+    server_endpoint: str,
+    *,
+    server_hostname: str,
+    expected_client_dns: str,
+) -> tuple[SocketTransport, SocketTransport]:
+    """Mathematics: establish reciprocal stream adapters only after both client and server peer authentication succeed."""
+    listener = SocketTransport.listen("127.0.0.1", 0)
+    result: dict[str, object] = {}
+    errors: list[BaseException] = []
+
+    def accept_peer() -> None:
+        """Mathematics: accept one TLS peer under expected identity expected_client_dns."""
+        try:
+            result["transport"] = accept_mutual_tls(
+                listener,
+                server_endpoint,
+                client_endpoint,
+                server_context,
+                expected_peer_dns=expected_client_dns,
+            )
+        except BaseException as exc:
+            errors.append(exc)
+
+    thread = threading.Thread(target=accept_peer, daemon=True)
+    thread.start()
+    client: SocketTransport | None = None
+    try:
+        client = connect_mutual_tls(
+            "127.0.0.1",
+            listener.getsockname()[1],
+            client_endpoint,
+            server_endpoint,
+            client_context,
+            server_hostname=server_hostname,
+        )
+        thread.join(timeout=5.0)
+        assert not thread.is_alive()
+        assert not errors, repr(errors)
+        server = result.get("transport")
+        assert isinstance(server, SocketTransport)
+        return client, server
+    except Exception:
+        if client is not None and not client.closed:
+            client.close()
+        raise
+    finally:
+        listener.close()
+        thread.join(timeout=1.0)
+
+
+@pytest.mark.skipif(shutil.which("openssl") is None, reason="OpenSSL CLI is required to create ephemeral test certificates")
+def test_transit_compute_operation_executes_over_mutual_tls(tmp_path) -> None:
+    """Mathematics: authenticated operation path preserves receiver authorization, execution, result, and request/result ACKs."""
+    from mailcpu import (
+        Capability,
+        HeadlessOS,
+        HypervisorArbitrationEvent,
+        HypervisorDomain,
+        HypervisorOperationChannel,
+        HypervisorOperationResultChannel,
+        HypervisorPolicy,
+        HypervisorRequest,
+        ReliabilityPolicy,
+        ReliableChannel,
+        TransitComputeWorker,
+    )
+
+    certs = _make_test_certificates(tmp_path)
+    worker_server = _server_context(certs["server_cert"], certs["server_key"], certs["ca"])
+    client_client = _client_context(certs["client_cert"], certs["client_key"], certs["ca"])
+    client_server = _server_context(certs["client_cert"], certs["client_key"], certs["ca"])
+    worker_client = _client_context(certs["server_cert"], certs["server_key"], certs["ca"])
+
+    client_request_transport, worker_request_transport = _tls_pair(
+        client_client,
+        worker_server,
+        "client",
+        "worker",
+        server_hostname="worker-node",
+        expected_client_dns="client-node",
+    )
+    worker_result_transport, client_result_transport = _tls_pair(
+        worker_client,
+        client_server,
+        "worker",
+        "client",
+        server_hostname="client-node",
+        expected_client_dns="worker-node",
+    )
+
+    policy = ReliabilityPolicy(lease_ticks=1, max_attempts=3, window_size=4)
+    request_sender = HypervisorOperationChannel(
+        ReliableChannel(client_request_transport, "client", "worker", "compute", policy)
+    )
+    request_receiver = HypervisorOperationChannel(
+        ReliableChannel(worker_request_transport, "worker", "worker", "compute", policy, peer="client")
+    )
+    result_sender = HypervisorOperationResultChannel(
+        ReliableChannel(worker_result_transport, "worker", "client", "compute.result", policy),
+        "client",
+        "compute",
+    )
+    result_receiver = HypervisorOperationResultChannel(
+        ReliableChannel(client_result_transport, "client", "client", "compute.result", policy, peer="worker"),
+        "client",
+        "compute",
+    )
+
+    receiver = HeadlessOS()
+    receiver.hypervisor.policy = HypervisorPolicy(
+        review_confidence=0.0,
+        automatic_confidence=0.0,
+        destructive_confidence=0.0,
+        danger_review_probability=1.0,
+    )
+    worker_pid = receiver.environment.kernel.spawn(
+        "transit-compute-worker",
+        capabilities=(Capability("/cpu/compute", frozenset({"execute"})),),
+        parent_pid=receiver.environment.init_pid,
+    )
+    worker = TransitComputeWorker(receiver, worker_pid)
+
+    event = HypervisorArbitrationEvent(
+        "client",
+        "compute",
+        1,
+        100,
+        HypervisorRequest(
+            "execute deterministic CPU arithmetic program",
+            "/cpu/compute",
+            {
+                "source": "\n".join(
+                    (
+                        "set left 19",
+                        "set right 23",
+                        "add total left right",
+                        "set offset 6",
+                        "add result total offset",
+                        "halt",
+                    )
+                ),
+                "initial_registers": {},
+                "max_ticks": 64,
+            },
+            frozenset({"execute"}),
+            frozenset(),
+        ),
+    )
+
+    try:
+        assert request_sender.send(event) == 1
+        served = worker.serve_once(request_receiver, result_sender)
+        assert served is not None and served.executed is True
+        assert served.action.value == "allow"
+        returned = result_receiver.receive()
+        assert returned is not None
+        assert returned.effect == served.effect
+        assert returned.effect["registers"]["result"] == 48
+        assert request_sender.channel.process_ack() == (1,)
+        assert result_sender.channel.process_ack() == (1,)
+        assert receiver.environment.kernel.journal.verify()
+    finally:
+        for transport in (
+            client_request_transport,
+            worker_request_transport,
+            worker_result_transport,
+            client_result_transport,
+        ):
+            if not transport.closed:
+                transport.close()
