@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
 from typing import Any, Mapping
 
 from .classifier import HypervisorArbitrationEvent, HypervisorDomain, HypervisorExecutionResult
@@ -74,7 +77,7 @@ class TransitComputeWorker:
             raise ValueError("cannot checkpoint transit worker with pending request transport data")
         if response.channel.pending_sequences() or response.channel.transport.pending() != 0:
             raise ValueError("cannot checkpoint transit worker with unacknowledged response data")
-        return {
+        state = {
             "version": 1,
             "authority_pid": self.authority_pid,
             "compute_bounds": {
@@ -86,6 +89,18 @@ class TransitComputeWorker:
             "receiver": self.operating_system.snapshot(),
             "request_channel": request.channel.snapshot(),
             "response_channel": response.snapshot(),
+        }
+        canonical = json.dumps(
+            state,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode("utf-8")
+        return {
+            "format": "mailcpu-transit-worker-checkpoint-v1",
+            "digest": hashlib.sha256(canonical).hexdigest(),
+            "state": state,
         }
 
     @classmethod
@@ -101,12 +116,30 @@ class TransitComputeWorker:
     ]:
         """Mathematics: restore W and its reliable channel cursors from checkpoint C, reusing caller-restored transports T_req,T_res."""
 
-        if not isinstance(payload, Mapping) or int(payload.get("version", -1)) != 1:
-            raise ValueError("unsupported transit worker checkpoint")
-        raw_receiver = payload.get("receiver")
-        raw_bounds = payload.get("compute_bounds")
-        raw_request = payload.get("request_channel")
-        raw_response = payload.get("response_channel")
+        if not isinstance(payload, Mapping):
+            raise ValueError("transit worker checkpoint must be a mapping")
+        if payload.get("format") != "mailcpu-transit-worker-checkpoint-v1":
+            raise ValueError("unsupported transit worker checkpoint format")
+        state = payload.get("state")
+        if not isinstance(state, Mapping) or int(state.get("version", -1)) != 1:
+            raise ValueError("unsupported transit worker checkpoint state")
+        try:
+            canonical = json.dumps(
+                state,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+                allow_nan=False,
+            ).encode("utf-8")
+        except (TypeError, ValueError) as exc:
+            raise ValueError("transit worker checkpoint is outside canonical JSON") from exc
+        expected_digest = hashlib.sha256(canonical).hexdigest()
+        if not hmac.compare_digest(str(payload.get("digest", "")), expected_digest):
+            raise ValueError("transit worker checkpoint digest mismatch")
+        raw_receiver = state.get("receiver")
+        raw_bounds = state.get("compute_bounds")
+        raw_request = state.get("request_channel")
+        raw_response = state.get("response_channel")
         if not all(isinstance(item, Mapping) for item in (raw_receiver, raw_bounds, raw_request, raw_response)):
             raise ValueError("transit worker checkpoint is incomplete")
         expected_bounds = {
@@ -122,7 +155,7 @@ class TransitComputeWorker:
             for key in expected_bounds
         ):
             raise ValueError("transit worker compute bounds must be integers")
-        authority_pid = payload.get("authority_pid")
+        authority_pid = state.get("authority_pid")
         if not isinstance(authority_pid, int) or isinstance(authority_pid, bool):
             raise ValueError("transit worker authority pid must be an integer")
         host = TransitComputeHost(
