@@ -339,24 +339,15 @@ def test_reconstructed_worker_restores_execution_ledger_and_replays_without_reex
         assert response_worker.channel.process_ack() == (1,)
         assert first_host.calls == 1
 
-        # Reconstruct every receiver-owned semantic ledger from its supported snapshot.
-        restored_receiver = HeadlessOS.from_snapshot(receiver.snapshot())
-        restored_request = HypervisorOperationChannel(
-            ReliableChannel.from_snapshot(
-                request_worker.channel.snapshot(),
-                request_worker_transport,
-            )
-        )
-        restored_response = HypervisorOperationResultChannel.from_snapshot(
-            response_worker.snapshot(),
+        # Reconstruct worker, receiver ledger, reliable cursors, and result replay ledger.
+        checkpoint = worker.snapshot(request_worker, response_worker)
+        restarted_worker, restored_request, restored_response = TransitComputeWorker.from_snapshot(
+            checkpoint,
+            request_worker_transport,
             response_worker_transport,
         )
         restarted_host = CountingHost()
-        restarted_worker = TransitComputeWorker(
-            restored_receiver,
-            restored_receiver.environment.init_pid,
-            restarted_host,
-        )
+        restarted_worker.compute_host = restarted_host
 
         # A fresh reliable frame carries the same semantic operation identity and payload.
         assert request_origin.send(event) == 2
@@ -373,7 +364,7 @@ def test_reconstructed_worker_restores_execution_ledger_and_replays_without_reex
         assert replay_response.effect == first.effect
         assert request_origin.channel.process_ack() == (2,)
         assert restored_response.channel.process_ack() == (2,)
-        assert restored_receiver.environment.kernel.journal.verify()
+        assert restarted_worker.operating_system.environment.kernel.journal.verify()
     finally:
         for transport in (
             request_origin_transport,
