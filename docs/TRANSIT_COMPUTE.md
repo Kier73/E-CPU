@@ -22,7 +22,7 @@ The new event-aware reply path is an extension of the existing operation channel
 
 ## Compute request contract
 
-A compute request uses operation name "execute deterministic CPU arithmetic program", resource "/cpu/compute", and an execute right. Its payload contains:
+A compute request uses operation name "execute deterministic CPU arithmetic program", resource "/cpu/compute", and an execute right. The compute capsule itself requires the exact singleton right set `{execute}` and rejects requests marked destructive. Its payload contains:
 
 - source: MailCPU assembly text;
 - initial_registers: a finite mapping from valid register names to integers;
