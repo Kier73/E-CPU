@@ -445,3 +445,347 @@ def test_transit_compute_operation_executes_over_mutual_tls(tmp_path) -> None:
         for transport in (client_transport, worker_transport):
             if not transport.closed:
                 transport.close()
+
+
+def _transit_worker_process_main(
+    certificate_paths: dict[str, str],
+    checkpoint_path: str,
+    restore: bool,
+    ready_pipe,
+    control_pipe,
+) -> None:
+    """Mathematics: execute one authenticated receiver path in an OS process and restore Σ only from its durable checkpoint."""
+
+    import json
+    import time
+
+    from mailcpu import (
+        Capability,
+        HeadlessOS,
+        HypervisorOperationChannel,
+        HypervisorOperationResultChannel,
+        HypervisorPolicy,
+        ReliabilityPolicy,
+        ReliableChannel,
+        TransitComputeSession,
+        TransitComputeWorker,
+        accept_mutual_tls,
+    )
+    from mailcpu.socket_transport import SocketTransport
+
+    listener = None
+    transport = None
+    try:
+        listener = SocketTransport.listen("127.0.0.1", 0)
+        ready_pipe.send(("listening", listener.getsockname()[1]))
+
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+        context.load_cert_chain(
+            certificate_paths["server_cert"],
+            certificate_paths["server_key"],
+        )
+        context.load_verify_locations(cafile=certificate_paths["ca"])
+        context.verify_mode = ssl.CERT_REQUIRED
+
+        transport = accept_mutual_tls(
+            listener,
+            "worker",
+            "client",
+            context,
+            expected_peer_dns="client-node",
+        )
+        listener.close()
+        listener = None
+
+        if restore:
+            session = TransitComputeSession.from_checkpoint(
+                checkpoint_path,
+                transport,
+                transport,
+            )
+        else:
+            receiver = HeadlessOS()
+            receiver.hypervisor.policy = HypervisorPolicy(
+                review_confidence=0.0,
+                automatic_confidence=0.0,
+                destructive_confidence=0.0,
+                danger_review_probability=1.0,
+            )
+            authority_pid = receiver.environment.kernel.spawn(
+                "transit-compute-worker",
+                capabilities=(Capability("/cpu/compute", frozenset({"execute"})),),
+                parent_pid=receiver.environment.init_pid,
+            )
+            policy = ReliabilityPolicy(lease_ticks=1, max_attempts=3, window_size=4)
+            request = HypervisorOperationChannel(
+                ReliableChannel(
+                    transport,
+                    "worker",
+                    "worker",
+                    "compute",
+                    policy,
+                    peer="client",
+                )
+            )
+            response = HypervisorOperationResultChannel(
+                ReliableChannel(
+                    transport,
+                    "worker",
+                    "client",
+                    "compute.result",
+                    policy,
+                ),
+                "client",
+                "compute",
+            )
+            session = TransitComputeSession(
+                TransitComputeWorker(receiver, authority_pid),
+                request,
+                response,
+            )
+
+        control_pipe.send(("connected", session.phase))
+        while True:
+            if control_pipe.poll():
+                command = control_pipe.recv()
+                if command == "checkpoint":
+                    deadline = time.monotonic() + 5.0
+                    while session.response.channel.pending_sequences():
+                        session.response.channel.process_ack()
+                        if time.monotonic() >= deadline:
+                            raise TimeoutError("result acknowledgement did not reach receiver before checkpoint")
+                        time.sleep(0.005)
+                    digest = session.save_checkpoint(checkpoint_path)
+                    control_pipe.send(("checkpointed", digest))
+                    return
+                if command == "stop":
+                    control_pipe.send(("stopped", session.phase))
+                    return
+
+            session.serve_once()
+            session.response.channel.process_ack()
+            if transport.closed:
+                return
+            time.sleep(0.002)
+    except BaseException as exc:
+        try:
+            control_pipe.send(("error", repr(exc)))
+        except (BrokenPipeError, EOFError, OSError):
+            pass
+        raise
+    finally:
+        if transport is not None and not transport.closed:
+            transport.close()
+        if listener is not None:
+            listener.close()
+        ready_pipe.close()
+        control_pipe.close()
+
+
+def _start_transit_worker_process(context, certificates, checkpoint_path: Path, restore: bool):
+    """Mathematics: establish a fresh process boundary and obtain its newly bound listener endpoint."""
+
+    ready_parent, ready_child = context.Pipe(duplex=False)
+    control_parent, control_child = context.Pipe(duplex=True)
+    certificate_paths = {
+        name: str(path)
+        for name, path in certificates.items()
+    }
+    process = context.Process(
+        target=_transit_worker_process_main,
+        args=(
+            certificate_paths,
+            str(checkpoint_path),
+            restore,
+            ready_child,
+            control_child,
+        ),
+    )
+    process.start()
+    ready_child.close()
+    control_child.close()
+    if not ready_parent.poll(10.0):
+        process.join(timeout=1.0)
+        raise AssertionError("transit worker process did not publish its listener")
+    ready_kind, port = ready_parent.recv()
+    ready_parent.close()
+    assert ready_kind == "listening"
+    if not control_parent.poll(10.0):
+        process.terminate()
+        process.join(timeout=2.0)
+        raise AssertionError("transit worker process did not accept its authenticated client")
+    status = control_parent.recv()
+    assert status[0] == "connected", repr(status)
+    return process, int(port), control_parent
+
+
+@pytest.mark.skipif(shutil.which("openssl") is None, reason="OpenSSL CLI is required to create ephemeral test certificates")
+def test_transit_session_survives_receiver_process_restart_and_replays_semantic_operation(tmp_path) -> None:
+    """Mathematics: persist quiescent Σ₁, destroy process P₁, restore Σ₁ in P₂, and replay the same semantic identity over a new mTLS stream."""
+
+    import multiprocessing
+
+    from mailcpu import (
+        HypervisorArbitrationEvent,
+        HypervisorOperationChannel,
+        HypervisorOperationResultChannel,
+        HypervisorRequest,
+        ReliabilityPolicy,
+        ReliableChannel,
+        TransitComputeSession,
+        connect_mutual_tls,
+    )
+
+    certificates = _make_test_certificates(tmp_path)
+    client_context = _client_context(
+        certificates["client_cert"],
+        certificates["client_key"],
+        certificates["ca"],
+    )
+    checkpoint_path = tmp_path / "worker-session.json"
+    process_context = multiprocessing.get_context("spawn")
+    first_process = None
+    second_process = None
+    first_control = None
+    second_control = None
+    client_transport = None
+
+    event = HypervisorArbitrationEvent(
+        "client",
+        "compute",
+        1,
+        100,
+        HypervisorRequest(
+            "execute deterministic CPU arithmetic program",
+            "/cpu/compute",
+            {
+                "source": "\\n".join((
+                    "set left 19",
+                    "set right 23",
+                    "add total left right",
+                    "set offset 6",
+                    "add result total offset",
+                    "halt",
+                )),
+                "initial_registers": {},
+                "max_ticks": 64,
+            },
+            frozenset({"execute"}),
+            frozenset(),
+        ),
+    )
+    policy = ReliabilityPolicy(lease_ticks=1, max_attempts=3, window_size=4)
+
+    def connect_client(port: int, request_snapshot=None, result_snapshot=None):
+        """Mathematics: bind a fresh authenticated TCP stream and reconstruct requester cursors without resetting sequence identity."""
+
+        transport = connect_mutual_tls(
+            "127.0.0.1",
+            port,
+            "client",
+            "worker",
+            client_context,
+            server_hostname="worker-node",
+        )
+        if request_snapshot is None:
+            request = HypervisorOperationChannel(
+                ReliableChannel(transport, "client", "worker", "compute", policy)
+            )
+            result = HypervisorOperationResultChannel(
+                ReliableChannel(
+                    transport,
+                    "client",
+                    "client",
+                    "compute.result",
+                    policy,
+                    peer="worker",
+                ),
+                "client",
+                "compute",
+            )
+        else:
+            request = HypervisorOperationChannel(
+                ReliableChannel.from_snapshot(request_snapshot, transport)
+            )
+            result = HypervisorOperationResultChannel.from_snapshot(
+                result_snapshot,
+                transport,
+            )
+        return transport, request, result
+
+    def receive_result(result_channel, request_channel, sequence: int):
+        """Mathematics: receive typed result r and independently observe request ACK(sequence) before the checkpoint cut."""
+
+        returned = _wait_for_operation_result(result_channel)
+        assert _wait_for_ack(request_channel, (sequence,)) == (sequence,)
+        return returned
+
+    try:
+        first_process, first_port, first_control = _start_transit_worker_process(
+            process_context,
+            certificates,
+            checkpoint_path,
+            False,
+        )
+        client_transport, request_sender, result_receiver = connect_client(first_port)
+        assert request_sender.send(event) == 1
+        first_result = receive_result(result_receiver, request_sender.channel, 1)
+        assert first_result.effect["registers"]["result"] == 48
+        assert first_result.replayed is False
+
+        # Persist requester-side cursors too: a new TCP connection must not reset
+        # reliable delivery sequence numbers after the receiver has advanced.
+        requester_snapshot = request_sender.channel.snapshot()
+        result_snapshot = result_receiver.snapshot()
+        assert requester_snapshot["next_sequence"] == 2
+        assert requester_snapshot["pending"] == {}
+
+        first_control.send("checkpoint")
+        assert first_control.poll(10.0), "receiver did not report its durable checkpoint"
+        checkpoint_status = first_control.recv()
+        assert checkpoint_status[0] == "checkpointed", repr(checkpoint_status)
+        assert checkpoint_path.is_file()
+        assert first_process is not None
+        first_process.join(timeout=10.0)
+        assert first_process.exitcode == 0
+        first_control.close()
+        first_control = None
+        client_transport.close()
+        client_transport = None
+
+        # Start an entirely new OS process and reconnect with a new TLS stream.
+        second_process, second_port, second_control = _start_transit_worker_process(
+            process_context,
+            certificates,
+            checkpoint_path,
+            True,
+        )
+        client_transport, request_sender, result_receiver = connect_client(
+            second_port,
+            requester_snapshot,
+            result_snapshot,
+        )
+        assert request_sender.send(event) == 2
+        replayed_result = receive_result(result_receiver, request_sender.channel, 2)
+        assert replayed_result.effect == first_result.effect
+        assert replayed_result.replayed is True
+        assert replayed_result.executed is True
+
+        second_control.send("stop")
+        assert second_control.poll(5.0)
+        stopped = second_control.recv()
+        assert stopped[0] == "stopped", repr(stopped)
+        second_process.join(timeout=10.0)
+        assert second_process.exitcode == 0
+    finally:
+        if client_transport is not None and not client_transport.closed:
+            client_transport.close()
+        for control in (first_control, second_control):
+            if control is not None:
+                control.close()
+        for process in (first_process, second_process):
+            if process is not None and process.is_alive():
+                process.terminate()
+                process.join(timeout=2.0)
+
