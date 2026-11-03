@@ -118,10 +118,25 @@ class TransitComputeWorker:
 
         if not isinstance(payload, Mapping):
             raise ValueError("transit worker checkpoint must be a mapping")
+        if set(payload) != {"format", "digest", "state"}:
+            raise ValueError("transit worker checkpoint fields are invalid")
         if payload.get("format") != "mailcpu-transit-worker-checkpoint-v1":
             raise ValueError("unsupported transit worker checkpoint format")
         state = payload.get("state")
-        if not isinstance(state, Mapping) or int(state.get("version", -1)) != 1:
+        if not isinstance(state, Mapping):
+            raise ValueError("transit worker checkpoint state must be a mapping")
+        expected_state_fields = {
+            "version",
+            "authority_pid",
+            "compute_bounds",
+            "receiver",
+            "request_channel",
+            "response_channel",
+        }
+        if set(state) != expected_state_fields:
+            raise ValueError("transit worker checkpoint state fields are invalid")
+        version = state.get("version")
+        if not isinstance(version, int) or isinstance(version, bool) or version != 1:
             raise ValueError("unsupported transit worker checkpoint state")
         try:
             canonical = json.dumps(
@@ -131,10 +146,14 @@ class TransitComputeWorker:
                 ensure_ascii=False,
                 allow_nan=False,
             ).encode("utf-8")
+            raw_digest = payload.get("digest")
+            if not isinstance(raw_digest, str):
+                raise ValueError("transit worker checkpoint digest must be text")
+            supplied_digest = bytes.fromhex(raw_digest)
+            expected_digest = hashlib.sha256(canonical).digest()
         except (TypeError, ValueError) as exc:
-            raise ValueError("transit worker checkpoint is outside canonical JSON") from exc
-        expected_digest = hashlib.sha256(canonical).hexdigest()
-        if not hmac.compare_digest(str(payload.get("digest", "")), expected_digest):
+            raise ValueError("transit worker checkpoint is outside canonical JSON or digest encoding") from exc
+        if len(supplied_digest) != 32 or not hmac.compare_digest(supplied_digest, expected_digest):
             raise ValueError("transit worker checkpoint digest mismatch")
         raw_receiver = state.get("receiver")
         raw_bounds = state.get("compute_bounds")
