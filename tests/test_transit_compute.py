@@ -362,6 +362,24 @@ def test_reconstructed_worker_restores_execution_ledger_and_replays_without_reex
 
         # Reconstruct worker, receiver ledger, reliable cursors, and result replay ledger.
         checkpoint = worker.snapshot(request_worker, response_worker)
+        corrupted = {
+            **checkpoint,
+            "state": {
+                **checkpoint["state"],
+                "authority_pid": checkpoint["state"]["authority_pid"] + 1,
+            },
+        }
+        try:
+            TransitComputeWorker.from_snapshot(
+                corrupted,
+                request_worker_transport,
+                response_worker_transport,
+            )
+        except ValueError as exc:
+            assert "digest mismatch" in str(exc)
+        else:
+            raise AssertionError("worker checkpoint accepted a corrupted authority field")
+
         restarted_worker, restored_request, restored_response = TransitComputeWorker.from_snapshot(
             checkpoint,
             request_worker_transport,
