@@ -277,8 +277,23 @@ def test_persistent_worker_serves_multiple_independent_requests() -> None:
         assert len(outcomes) == 2
         assert all(item.effect["status"] == "exited" for item in outcomes)
         assert all(item.effect["registers"]["total"] == 42 for item in outcomes)
-        assert request_origin.channel.process_ack() == (1, 2)
-        assert response_worker.channel.process_ack() == (1, 2)
+
+        # Revoke the service capability after prior successful operations. The
+        # persistent worker must recompute authority and deny the next request.
+        receiver.environment.kernel._process(worker_pid).capabilities = ()
+        revoked_event = _event(3)
+        assert request_origin.send(revoked_event) == 3
+        denied = worker.serve_once(request_worker, response_worker)
+        assert denied is not None
+        assert denied.action.value == "deny"
+        assert denied.executed is False
+        assert denied.effect is None
+        denied_response = response_origin.receive()
+        assert denied_response is not None
+        assert denied_response.action.value == "deny"
+        assert denied_response.executed is False
+        assert request_origin.channel.process_ack() == (1, 2, 3)
+        assert response_worker.channel.process_ack() == (1, 2, 3)
         assert receiver.environment.kernel.journal.verify()
     finally:
         for transport in (
