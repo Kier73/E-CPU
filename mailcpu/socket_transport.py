@@ -26,6 +26,7 @@ import hmac
 import json
 import select
 import socket
+import ssl
 import struct
 import time
 from typing import Any
@@ -334,7 +335,12 @@ class SocketTransport:
         while True:
             try:
                 chunk = self.socket.recv(_RECV_CHUNK)
-            except BlockingIOError:
+            except (BlockingIOError, ssl.SSLWantReadError):
+                break
+            except ssl.SSLWantWriteError:
+                _readable, writable, _exceptional = select.select([], [self.socket], [], 0)
+                if writable:
+                    continue
                 break
             except ConnectionResetError:
                 self._closed = True
@@ -466,7 +472,15 @@ class SocketTransport:
             self._require_open()
             try:
                 written = self.socket.send(view)
-            except BlockingIOError:
+            except ssl.SSLWantReadError:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise SocketTransportError("TLS socket send timed out waiting for peer data")
+                readable, _writable, _exceptional = select.select([self.socket], [], [], remaining)
+                if not readable:
+                    raise SocketTransportError("TLS socket send timed out waiting for peer data")
+                continue
+            except (BlockingIOError, ssl.SSLWantWriteError):
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     raise SocketTransportError("socket send timed out under backpressure")
