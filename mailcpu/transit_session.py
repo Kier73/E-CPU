@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import json
+import os
+import tempfile
+from pathlib import Path
 from typing import Any, Mapping
 
 from .classifier import HypervisorExecutionResult
-
 from .hypervisor_transport import (
     HypervisorOperationChannel,
     HypervisorOperationResultChannel,
@@ -85,6 +88,62 @@ class TransitComputeSession:
 
         return self.worker.snapshot(self.request, self.response)
 
+    def save_checkpoint(self, path: str | os.PathLike[str]) -> str:
+        """Mathematics: atomically persist canonical checkpoint C only when Q=0, fsync(C), then replace the prior durable checkpoint."""
+
+        target = Path(path)
+        if not str(target):
+            raise ValueError("transit session checkpoint path must be non-empty")
+        payload = self.snapshot()
+        encoded = json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode("utf-8") + b"\n"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{target.name}.",
+            suffix=".tmp",
+            dir=str(target.parent),
+        )
+        temporary = Path(temporary_name)
+        try:
+            if hasattr(os, "fchmod"):
+                os.fchmod(descriptor, 0o600)
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(encoded)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, target)
+            try:
+                directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+                directory_fd = os.open(str(target.parent), directory_flags)
+            except OSError:
+                directory_fd = None
+            if directory_fd is not None:
+                try:
+                    os.fsync(directory_fd)
+                except OSError:
+                    pass
+                finally:
+                    os.close(directory_fd)
+        except Exception:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
+            raise
+        digest = payload.get("digest")
+        if not isinstance(digest, str):
+            raise ValueError("transit worker checkpoint did not contain an integrity digest")
+        return digest
+
     @classmethod
     def from_snapshot(
         cls,
@@ -100,3 +159,21 @@ class TransitComputeSession:
             response_transport,
         )
         return cls(worker, request, response)
+
+    @classmethod
+    def from_checkpoint(
+        cls,
+        path: str | os.PathLike[str],
+        request_transport: Any,
+        response_transport: Any,
+    ) -> "TransitComputeSession":
+        """Mathematics: parse persisted checkpoint C and admit continuation only after digest, schema, and channel invariants verify."""
+
+        source = Path(path)
+        try:
+            payload = json.loads(source.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError(f"cannot read transit session checkpoint: {exc}") from exc
+        if not isinstance(payload, Mapping):
+            raise ValueError("transit session checkpoint root must be a mapping")
+        return cls.from_snapshot(payload, request_transport, response_transport)
