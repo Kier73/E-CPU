@@ -333,6 +333,12 @@ def test_reconstructed_worker_restores_execution_ledger_and_replays_without_reex
         assert request_origin.send(event) == 1
         first = worker.serve_once(request_worker, response_worker)
         assert first is not None and first.executed is True and first.replayed is False
+        try:
+            worker.snapshot(request_worker, response_worker)
+        except ValueError as exc:
+            assert "unacknowledged response" in str(exc)
+        else:
+            raise AssertionError("worker checkpoint accepted an unacknowledged result")
         first_response = response_origin.receive()
         assert first_response is not None and first_response.effect == first.effect
         assert request_origin.channel.process_ack() == (1,)
