@@ -27,7 +27,7 @@ class HeadlessRelationError(ValueError):
 
 
 def _is_bound(method: Any, owner: Any, name: str) -> bool:
-    """Check whether a callback is the expected bound method on its owner."""
+    """Mathematics: Check whether a callback is the expected bound method on its owner."""
     return (
         getattr(method, "__self__", None) is owner
         and getattr(method, "__func__", None) is getattr(type(owner), name, None)
@@ -35,7 +35,7 @@ def _is_bound(method: Any, owner: Any, name: str) -> bool:
 
 
 def _check_closed_domain(operating_system: Any) -> None:
-    """Admit only the standard, snapshot-covered HeadlessOS continuation path."""
+    """Mathematics: Admit only the standard, snapshot-covered HeadlessOS continuation path."""
     vm = getattr(operating_system, "vm", None)
     environment = getattr(operating_system, "environment", None)
     if vm is None or environment is None:
@@ -111,7 +111,7 @@ class HeadlessStateObservation:
 
 
 def observe_headless_os_state(operating_system: Any) -> HeadlessStateObservation:
-    """Capture the canonical full-system snapshot and verify its journal head."""
+    """Mathematics: Capture the canonical full-system snapshot and verify its journal head."""
     _check_closed_domain(operating_system)
     snapshot = operating_system.snapshot()
     if not isinstance(snapshot, Mapping):
@@ -147,7 +147,7 @@ def observe_headless_os_state(operating_system: Any) -> HeadlessStateObservation
 def _diff(
     left: Any, right: Any, path: str = "$", limit: int = 24
 ) -> list[str]:
-    """Return bounded, path-qualified differences between nested state values."""
+    """Mathematics: Return bounded, path-qualified differences between nested state values."""
     if left == right:
         return []
     if limit <= 0:
@@ -183,7 +183,7 @@ class HeadlessRelationReport:
 
 
 def compare_headless_os_states(left: Any, right: Any) -> HeadlessRelationReport:
-    """Compare complete, supported HeadlessOS snapshots with path-level diagnostics."""
+    """Mathematics: Compare complete, supported HeadlessOS snapshots with path-level diagnostics."""
     a = observe_headless_os_state(left)
     b = observe_headless_os_state(right)
     equal = a.digest == b.digest and a.payload == b.payload
@@ -204,19 +204,19 @@ class HeadlessTraceWitness:
 
     @property
     def transition_count(self) -> int:
-        """Return the number of accepted scheduler transitions in the witness."""
+        """Mathematics: Return the number of accepted scheduler transitions in the witness."""
         return len(self.event_digests)
 
     @property
     def witness_bytes_estimate(self) -> int:
-        """Estimate digest-only storage, excluding Python object overhead."""
+        """Mathematics: Estimate digest-only storage, excluding Python object overhead."""
         return (
             len(self.boundary_digests) + len(self.event_digests) + 1
         ) * 32
 
 
 def verify_headless_trace_witness(witness: HeadlessTraceWitness) -> bool:
-    """Verify witness dimensions, digest encodings and the ordered receipt chain."""
+    """Mathematics: Verify witness dimensions, digest encodings and the ordered receipt chain."""
     if len(witness.boundary_digests) != len(witness.event_digests) + 1:
         return False
     if not witness.boundary_digests:
@@ -255,7 +255,7 @@ def capture_headless_os_trace(
     operating_system: Any,
     max_transitions: int = 100_000,
 ) -> HeadlessTraceWitness:
-    """Capture one accepted HeadlessOS transition and the resulting complete state."""
+    """Mathematics: Capture one accepted HeadlessOS transition and the resulting complete state."""
     if max_transitions < 0:
         raise ValueError("max_transitions must be non-negative")
     initial = observe_headless_os_state(operating_system)
@@ -323,7 +323,7 @@ def compare_headless_os_traces(
     left: HeadlessTraceWitness,
     right: HeadlessTraceWitness,
 ) -> HeadlessTraceRelationReport:
-    """Compare initial state, every accepted event and every full-system boundary."""
+    """Mathematics: Compare initial state, every accepted event and every full-system boundary."""
     if not verify_headless_trace_witness(left) or not verify_headless_trace_witness(right):
         return HeadlessTraceRelationReport(
             False, 0, "invalid witness receipt", left.receipt, right.receipt
