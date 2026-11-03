@@ -61,11 +61,6 @@ class TransitMemoryTransferHost:
     ) -> None:
         """Mathematics: require every page in P(address,length) to be resident, private, mapped, and writable for destination access."""
 
-        try:
-            memory.validate_access(address, length, access)
-        except VirtualMemoryError as exc:
-            raise TransitMemoryTransferError(f"{access} range is not mapped: {exc}") from exc
-
         first_page = address // memory.page_size
         last_page = (address + length - 1) // memory.page_size
         mappings = {mapping.page_number: mapping for mapping in memory.mapped_pages()}
@@ -83,6 +78,13 @@ class TransitMemoryTransferHost:
                 raise TransitMemoryTransferError(
                     f"destination page {page_number} is read-only"
                 )
+
+        # The range is known to contain only resident pages, so the following
+        # validation cannot materialize reservations or consume quota.
+        try:
+            memory.validate_access(address, length, access)
+        except VirtualMemoryError as exc:
+            raise TransitMemoryTransferError(f"{access} range is not mapped: {exc}") from exc
 
     def handle(self, event: HypervisorArbitrationEvent) -> dict[str, Any]:
         """Mathematics: copy bytes B=S[src,offset:length] to a private destination candidate and commit its mapping relation atomically."""
