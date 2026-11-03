@@ -24,3 +24,5 @@ jobs:
         run: python scripts/verify_invariants.py
       - name: Run two-process scheduler benchmark
         run: python examples/scheduler_relation_benchmark.py --cycles 12
+      - name: Compare Python, direct MailCPU, and remote MailCPU compute
+        run: python examples/transit_compute_benchmark.py --iterations 6 --warmups 1
