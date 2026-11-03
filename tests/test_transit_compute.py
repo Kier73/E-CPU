@@ -1146,3 +1146,66 @@ def test_private_memory_transfer_refuses_out_of_bounds_and_shared_pages() -> Non
     else:
         raise AssertionError("shared memory page was accepted by the private transfer host")
     assert destination_memory.read(0, len(b"untouched")) == before
+
+
+def test_transit_worker_checkpoint_requires_matching_backend_manifest_on_restore() -> None:
+    """Mathematics: restore is admitted iff the caller's backend relation R' has exactly the checkpoint domain dom(R)."""
+
+    from mailcpu import InMemoryTransport
+
+    receiver = HeadlessOS()
+    authority_pid = receiver.environment.kernel.spawn(
+        "manifest-worker",
+        capabilities=(Capability("/cpu/compute", frozenset({"execute"})),),
+        parent_pid=receiver.environment.init_pid,
+    )
+
+    def build_router(operating_system, pid):
+        """Mathematics: reconstruct operation relation R for scalar, SIMT, and private-memory query algebras."""
+
+        router = TransitBackendRouter()
+        router.register_backend(TransitSIMTHost())
+        router.register_backend(TransitMemoryTransferHost(operating_system, pid))
+        return router
+
+    router = build_router(receiver, authority_pid)
+    worker = TransitComputeWorker(receiver, authority_pid, router)
+    transport = InMemoryTransport()
+    policy = ReliabilityPolicy(window_size=4)
+    request = HypervisorOperationChannel(
+        ReliableChannel(
+            transport,
+            "worker",
+            "worker",
+            "compute",
+            policy,
+            peer="client",
+        )
+    )
+    response = HypervisorOperationResultChannel(
+        ReliableChannel(transport, "worker", "client", "compute.result", policy),
+        "client",
+        "compute",
+    )
+
+    checkpoint = worker.snapshot(request, response)
+    expected_manifest = set(router.registered_backends())
+    assert checkpoint["format"] == "mailcpu-transit-worker-checkpoint-v2"
+    assert {tuple(item) for item in checkpoint["state"]["backend_manifest"]} == expected_manifest
+
+    try:
+        TransitComputeWorker.from_snapshot(checkpoint, transport, transport)
+    except ValueError as exc:
+        assert "backend manifest" in str(exc)
+    else:
+        raise AssertionError("restore silently dropped registered SIMT and memory backends")
+
+    restored, restored_request, restored_response = TransitComputeWorker.from_snapshot(
+        checkpoint,
+        transport,
+        transport,
+        compute_host_factory=build_router,
+    )
+    assert restored.compute_host.registered_backends() == router.registered_backends()
+    assert restored_request.channel.snapshot() == request.channel.snapshot()
+    assert restored_response.snapshot() == response.snapshot()
