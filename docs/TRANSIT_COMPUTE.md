@@ -44,6 +44,26 @@ Suitable delegated work includes exact arithmetic, finite-state transitions, bou
 
 Natural-language interpretation, model inference, private reasoning, browsing, GitHub connector access and other external services remain outside this host. To move a specific external operation behind MailCPU, a separate receiver-side adapter must be implemented, given narrow local capabilities, and tested for replay, failure and side effects before it is enabled.
 
+## Three-mode compute benchmark
+
+Run:
+
+```bash
+python examples/transit_compute_benchmark.py --iterations 20 --warmups 2
+```
+
+The benchmark evaluates the same (19+23+6=48) integer job in three modes:
+
+1. A minimal local Python reference.
+2. Direct `TransitComputeHost.handle` execution, including assembly, isolated HeadlessOS creation, VM scheduling, and state digest generation.
+3. A persistent `TransitComputeWorker` over reused loopback TCP operation and result channels, including receiver-local capability authorization, hypervisor arbitration, reliable delivery, response handling, and acknowledgement processing.
+
+It reports median and nearest-rank p95 latency, VM instruction/scheduler-event counts, full encoded request/result frame bytes, acknowledgement bytes, reliable retransmission count, a semantic replay check, and one-time remote stack setup cost. Warmup frames are excluded from wire-byte totals. One extra same-identity request is intentionally sent after the measured jobs to verify that semantic replay returns the committed effect.
+
+The byte counter measures exact ECPU frame encodings at the `SocketTransport.send` boundary, rather than estimating JSON payload sizes. This counts protocol framing and integrity digests. It does not measure Ethernet/IP/TCP headers, retransmissions performed below the application transport, or kernel buffering.
+
+CI runs a short smoke configuration. Use a larger iteration count locally for comparative timing. Treat results as E0 evidence: the TCP endpoints are loopback sockets in one process, so latency is not a WAN or separate-host estimate. The Python path is a minimal arithmetic reference, not a like-for-like Python VM implementation; the benchmark exposes the added cost of MailCPU execution and the additional remote protocol layers rather than claiming a speed advantage.
+
 ## Next architectural test
 
 The next step is not to broaden the opcode set or add concurrency immediately. Compare the cost and evidence of three execution modes for the same job: local Python reference, direct MailCPU execution, and reliable remote MailCPU execution through the persistent worker. Measure request bytes, result bytes, instruction count, scheduler transitions, wall time, retries and replay count. Only then add durable worker checkpoints or concurrent-job scheduling, and require restored workers and isolated jobs to preserve the same state relation.
