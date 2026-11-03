@@ -25,4 +25,4 @@ jobs:
       - name: Run two-process scheduler benchmark
         run: python examples/scheduler_relation_benchmark.py --cycles 12
       - name: Compare Python, direct MailCPU, and remote MailCPU compute
-        run: python examples/transit_compute_benchmark.py --iterations 6 --warmups 1
+        run: python examples/transit_compute_benchmark.py --iterations 6 --warmups 1 --work-units 64
