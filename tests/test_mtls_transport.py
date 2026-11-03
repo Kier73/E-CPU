@@ -295,6 +295,18 @@ def _wait_for_operation_result(channel):
 
 
 
+
+def _wait_for_phase(session, expected):
+    """Mathematics: observe phase σ(t) until σ(t)=expected or bounded wall-time horizon Δ expires."""
+    deadline = time.monotonic() + 3.0
+    while time.monotonic() < deadline:
+        phase = session.phase
+        if phase == expected:
+            return phase
+        time.sleep(0.005)
+    raise AssertionError(f"timed out waiting for transit session phase {expected!r}; last phase was {session.phase!r}")
+
+
 def _serve_once_when_ready(session):
     """Mathematics: apply one session transition when an authenticated request is available or bounded deadline Δ expires."""
     deadline = time.monotonic() + 3.0
@@ -401,7 +413,7 @@ def test_transit_compute_operation_executes_over_mutual_tls(tmp_path) -> None:
     try:
         assert session.phase == "idle"
         assert request_sender.send(event) == 1
-        assert session.phase == "request-ready"
+        assert _wait_for_phase(session, "request-ready") == "request-ready"
         served = _serve_once_when_ready(session)
         assert served is not None and served.executed is True
         assert served.action.value == "allow"
