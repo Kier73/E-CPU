@@ -284,6 +284,7 @@ def run_benchmark(iterations: int = 20, warmups: int = 2) -> dict[str, Any]:
                 "scheduler_events": int(direct_result["scheduler_events"]),
             }
 
+    connection_started = time.perf_counter()
     (
         sockets,
         request_sender_transport,
@@ -294,13 +295,23 @@ def run_benchmark(iterations: int = 20, warmups: int = 2) -> dict[str, Any]:
         request_worker,
         response_worker,
         worker,
+    connection_started = time.perf_counter()
     ) = _make_remote_stack()
+    connection_setup_ms = (time.perf_counter() - connection_started) * 1_000 if "connection_started" in locals() else None
 
     remote_metrics: dict[str, int] | None = None
     replayed_result = False
     replay_latency_ms: float | None = None
     try:
         for index in range(warmups + iterations):
+            if index == warmups:
+                for counter in (
+                    request_sender_transport,
+                    request_worker_transport,
+                    response_worker_transport,
+                    response_client_transport,
+                ):
+                    counter.reset()
             event = _event(index + 1, receiver_authorizes=True)
             started = time.perf_counter()
             if request_sender.send(event) != index + 1:
@@ -405,6 +416,7 @@ def run_benchmark(iterations: int = 20, warmups: int = 2) -> dict[str, Any]:
                 "reliable_retry_frames": reliable_retries,
                 "semantic_replay_count": int(replayed_result),
                 "semantic_replay_latency_ms": replay_latency_ms,
+                "persistent_connection_setup_ms": connection_setup_ms,
             },
             "measurement_notes": [
                 "Remote latency includes request send, receiver authorization/arbitration, VM execution, response receive, and ACK processing.",
