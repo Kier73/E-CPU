@@ -430,7 +430,7 @@ def test_transit_compute_operation_executes_over_mutual_tls(tmp_path) -> None:
         # A fresh TLS-carried frame with the same semantic operation identity
         # must replay the stored result instead of launching another compute VM.
         assert request_sender.send(event) == 2
-        assert session.phase == "request-ready"
+        assert _wait_for_phase(session, "request-ready") == "request-ready"
         replay = _serve_once_when_ready(session)
         assert replay is not None and replay.replayed is True
         assert session.phase == "response-unacknowledged"
