@@ -85,7 +85,7 @@ The next step is not to broaden the opcode set or add concurrency immediately. C
 
 ## Persistent receiver worker
 
-`TransitComputeWorker` binds a long-lived service object to one receiver `HeadlessOS` and one local authority PID. For every request it recomputes grants from that receiver's current capability state, routes the event through the existing hypervisor arbitration loop, and commits the result through the reliable response channel before the request is acknowledged.
+`TransitComputeWorker` binds a long-lived service object to one receiver `HeadlessOS` and one local authority PID. For every request it recomputes grants from that receiver's current capability state, routes the event through the existing hypervisor arbitration loop, and commits the result through the reliable response channel before the request is acknowledged. The intended deployment pattern is a dedicated service PID with only `execute` on `/cpu/compute`; the integration tests and benchmark now use that least-privilege capability rather than the init process.
 
 The worker is persistent; each computation is not. `TransitComputeHost` still creates a fresh isolated `HeadlessOS` for every admitted job. This separates service lifetime from job state and prevents one arithmetic program from inheriting another program's VM state.
 
