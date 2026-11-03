@@ -295,9 +295,8 @@ def run_benchmark(iterations: int = 20, warmups: int = 2) -> dict[str, Any]:
         request_worker,
         response_worker,
         worker,
-    connection_started = time.perf_counter()
     ) = _make_remote_stack()
-    connection_setup_ms = (time.perf_counter() - connection_started) * 1_000 if "connection_started" in locals() else None
+    connection_setup_ms = (time.perf_counter() - connection_started) * 1_000
 
     remote_metrics: dict[str, int] | None = None
     replayed_result = False
