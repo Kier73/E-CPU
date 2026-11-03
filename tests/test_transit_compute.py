@@ -935,6 +935,8 @@ def test_private_process_memory_transfer_runs_as_a_causally_receipted_transit_op
                 "destination_pid": destination_pid,
                 "destination_address": destination_address,
                 "length": len(source_bytes),
+                "source_digest": hashlib.sha256(source_bytes).hexdigest(),
+                "destination_digest": hashlib.sha256(bytes([0xA5]) * len(source_bytes)).hexdigest(),
             },
             frozenset({"execute"}),
             frozenset(),
@@ -1107,8 +1109,14 @@ def test_private_memory_transfer_refuses_out_of_bounds_and_shared_pages() -> Non
     destination_memory.write(0, b"untouched")
     host = TransitMemoryTransferHost(receiver, authority_pid)
 
-    def request(source_address: int, length: int) -> HypervisorArbitrationEvent:
-        """Mathematics: bind one transfer proposal to private source and destination process identities."""
+    def request(
+        source_address: int,
+        length: int,
+        *,
+        source_digest: str | None = None,
+        destination_digest: str | None = None,
+    ) -> HypervisorArbitrationEvent:
+        """Mathematics: bind one transfer proposal to endpoint identities and expected source/destination preimage digests."""
 
         return HypervisorArbitrationEvent(
             "client",
@@ -1124,6 +1132,8 @@ def test_private_memory_transfer_refuses_out_of_bounds_and_shared_pages() -> Non
                     "destination_pid": destination_pid,
                     "destination_address": 0,
                     "length": length,
+                    "source_digest": source_digest or hashlib.sha256(b"bounded").hexdigest(),
+                    "destination_digest": destination_digest or hashlib.sha256(b"untouched").hexdigest(),
                 },
                 frozenset({"execute"}),
                 frozenset({"execute"}),
@@ -1131,6 +1141,30 @@ def test_private_memory_transfer_refuses_out_of_bounds_and_shared_pages() -> Non
         )
 
     before = destination_memory.read(0, len(b"untouched"))
+    for invalid_request in (
+        request(0, len(b"bounded"), source_digest="0" * 64),
+        request(0, len(b"bounded"), destination_digest="f" * 64),
+    ):
+        try:
+            host.handle(invalid_request)
+        except TransitMemoryTransferError as exc:
+            assert "preimage digest mismatch" in str(exc)
+        else:
+            raise AssertionError("memory transfer accepted a stale endpoint preimage")
+        assert destination_memory.read(0, len(b"untouched")) == before
+
+    # Replaying from the pre-operation receiver snapshot reapplies the same
+    # deterministic bytes because both preimage digests still match.
+    checkpoint_before_transfer = receiver.snapshot()
+    first_effect = host.handle(request(0, len(b"bounded")))
+    restored_receiver = HeadlessOS.from_snapshot(checkpoint_before_transfer)
+    restored_host = TransitMemoryTransferHost(restored_receiver, authority_pid)
+    replay_effect = restored_host.handle(request(0, len(b"bounded")))
+    restored_destination = restored_receiver.vm.memories[destination_pid]
+    assert restored_destination.read(0, len(b"bounded")) == b"bounded"
+    assert replay_effect["data_digest"] == first_effect["data_digest"]
+    assert replay_effect["completion_receipt"] == first_effect["completion_receipt"]
+
     try:
         host.handle(request(8190, 16))
     except TransitMemoryTransferError:
