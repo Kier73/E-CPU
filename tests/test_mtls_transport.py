@@ -294,6 +294,18 @@ def _wait_for_operation_result(channel):
     raise AssertionError("timed out waiting for mutually authenticated operation result")
 
 
+
+def _serve_once_when_ready(worker, request, response):
+    """Mathematics: apply deterministic serve transition until an authenticated request is available or finite deadline Δ expires."""
+    deadline = time.monotonic() + 3.0
+    while time.monotonic() < deadline:
+        result = worker.serve_once(request, response)
+        if result is not None:
+            return result
+        time.sleep(0.005)
+    raise AssertionError("timed out waiting for an authenticated transit request")
+
+
 @pytest.mark.skipif(shutil.which("openssl") is None, reason="OpenSSL CLI is required to create ephemeral test certificates")
 def test_transit_compute_operation_executes_over_mutual_tls(tmp_path) -> None:
     """Mathematics: authenticated operation path preserves receiver authorization, execution, result, and request/result ACKs."""
@@ -386,7 +398,7 @@ def test_transit_compute_operation_executes_over_mutual_tls(tmp_path) -> None:
 
     try:
         assert request_sender.send(event) == 1
-        served = worker.serve_once(request_receiver, result_sender)
+        served = _serve_once_when_ready(worker, request_receiver, result_sender)
         assert served is not None and served.executed is True
         assert served.action.value == "allow"
         returned = _wait_for_operation_result(result_receiver)
@@ -399,7 +411,7 @@ def test_transit_compute_operation_executes_over_mutual_tls(tmp_path) -> None:
         # A fresh TLS-carried frame with the same semantic operation identity
         # must replay the stored result instead of launching another compute VM.
         assert request_sender.send(event) == 2
-        replay = worker.serve_once(request_receiver, result_sender)
+        replay = _serve_once_when_ready(worker, request_receiver, result_sender)
         assert replay is not None and replay.replayed is True
         replay_result = _wait_for_operation_result(result_receiver)
         assert replay_result is not None and replay_result.replayed is True
