@@ -14,6 +14,8 @@ from mailcpu import (
     ReliabilityPolicy,
     ReliableChannel,
     SocketTransport,
+    TransitSIMTError,
+    TransitSIMTHost,
 )
 from mailcpu.transit_compute import TransitComputeError, TransitComputeHost
 
@@ -588,3 +590,127 @@ def test_durable_mailbox_worker_restart_replays_committed_job(tmp_path) -> None:
     assert reopened_request_transport.verify()
     assert reopened_response_transport.verify()
     assert restored_worker.operating_system.environment.kernel.journal.verify()
+
+
+def test_simt_reference_backend_matches_scalar_mailcpu_and_models_divergence_barriers() -> None:
+    """Mathematics: SIMT lane-map output equals scalar MailCPU output, and barrier epochs occur only after lane-mask reconvergence."""
+
+    values = (-4, -1, 0, 3, 8)
+    simt_event = HypervisorArbitrationEvent(
+        "client",
+        "simt",
+        1,
+        100,
+        HypervisorRequest(
+            "execute deterministic SIMT reference program",
+            "/gpu/simt",
+            {
+                "lanes": len(values),
+                "inputs": {"x": list(values)},
+                "program": [
+                    ["load", "value", "x"],
+                    ["const", "zero", 0],
+                    ["lt", "negative", "value", "zero"],
+                    ["if", "negative"],
+                    ["sub", "result", "zero", "value"],
+                    ["else"],
+                    ["copy", "result", "value"],
+                    ["endif"],
+                    ["barrier"],
+                    ["store", "absolute", "result"],
+                    ["halt"],
+                ],
+                "max_steps": 32,
+            },
+            frozenset({"execute"}),
+            frozenset({"execute"}),
+        ),
+    )
+    simt_result = TransitSIMTHost().handle(simt_event)
+    assert simt_result["outputs"]["absolute"] == [4, 1, 0, 3, 8]
+    assert simt_result["mask_trace"] == [
+        {"pc": 3, "opcode": "if", "active_lanes": [0, 1]},
+        {"pc": 5, "opcode": "else", "active_lanes": [2, 3, 4]},
+        {"pc": 7, "opcode": "endif", "active_lanes": [0, 1, 2, 3, 4]},
+    ]
+    assert simt_result["barriers"] == [
+        {"epoch": 1, "pc": 8, "arrivals": len(values)}
+    ]
+    assert len(simt_result["state_digest"]) == 64
+
+    scalar_host = TransitComputeHost()
+    scalar_results: list[int] = []
+    for sequence, value in enumerate(values, start=1):
+        scalar_source = "\\n".join((
+            f"SET value {value}",
+            f"SET neg_value {-value}",
+            "SET zero 0",
+            "SET minus_one -1",
+            "COMPARE sign value zero",
+            "BRANCH sign_nonzero",
+            "SET result 0",
+            "BRANCH done",
+            "sign_nonzero:",
+            "COMPARE positive sign minus_one",
+            "BRANCH nonnegative",
+            "COPY result neg_value",
+            "BRANCH done",
+            "nonnegative:",
+            "COPY result value",
+            "done:",
+            "HALT",
+        ))
+        scalar_event = HypervisorArbitrationEvent(
+            "client",
+            "compute",
+            sequence,
+            200 + sequence,
+            HypervisorRequest(
+                "execute deterministic CPU arithmetic program",
+                "/cpu/compute",
+                {
+                    "source": scalar_source,
+                    "initial_registers": {},
+                    "max_ticks": 64,
+                },
+                frozenset({"execute"}),
+                frozenset({"execute"}),
+            ),
+        )
+        scalar_result = scalar_host.handle(scalar_event)
+        scalar_results.append(scalar_result["registers"]["result"])
+    assert scalar_results == simt_result["outputs"]["absolute"]
+
+    divergent_barrier = HypervisorArbitrationEvent(
+        "client",
+        "simt",
+        2,
+        101,
+        HypervisorRequest(
+            "execute deterministic SIMT reference program",
+            "/gpu/simt",
+            {
+                "lanes": 2,
+                "inputs": {"x": [-1, 1]},
+                "program": [
+                    ["load", "value", "x"],
+                    ["const", "zero", 0],
+                    ["lt", "negative", "value", "zero"],
+                    ["if", "negative"],
+                    ["barrier"],
+                    ["endif"],
+                    ["store", "copy", "value"],
+                    ["halt"],
+                ],
+                "max_steps": 16,
+            },
+            frozenset({"execute"}),
+            frozenset({"execute"}),
+        ),
+    )
+    try:
+        TransitSIMTHost().handle(divergent_barrier)
+    except TransitSIMTError as exc:
+        assert "BARRIER must appear after explicit reconvergence" in str(exc)
+    else:
+        raise AssertionError("SIMT reference backend accepted a barrier in a divergent region")
