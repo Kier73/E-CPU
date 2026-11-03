@@ -45,7 +45,7 @@ def test_host_socket_access_is_confined_to_external_transport() -> None:
             if "socket" in roots:
                 offenders.append(f"{module_path.name}:{node.lineno}")
     assert offenders
-    assert {Path(item.split(":", 1)[0]).name for item in offenders} == {"socket_transport.py"}
+    assert {Path(item.split(":", 1)[0]).name for item in offenders} == {"socket_transport.py", "mtls_transport.py"}
 
 
 def test_e0_network_tracks_tcp_http_and_receipts() -> None:
