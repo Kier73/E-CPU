@@ -853,6 +853,7 @@ def test_simt_reference_kernel_executes_as_a_receiver_authorized_transit_operati
 def test_private_process_memory_transfer_runs_as_a_causally_receipted_transit_operation() -> None:
     """Mathematics: copy a bounded private address interval only under receiver read/write capabilities, then replay its semantic result without a second write."""
 
+    import hashlib
     import time
 
     from mailcpu import (
@@ -1021,7 +1022,7 @@ def test_private_process_memory_transfer_runs_as_a_causally_receipted_transit_op
         assert first.effect["bytes_transferred"] == len(source_bytes)
         assert destination_memory.read(destination_address, len(source_bytes)) == source_bytes
         assert source_memory.read(source_address, len(source_bytes)) == source_bytes
-        assert first.effect["data_digest"] == __import__("hashlib").sha256(source_bytes).hexdigest()
+        assert first.effect["data_digest"] == hashlib.sha256(source_bytes).hexdigest()
         assert len(first.effect["completion_receipt"]) == 64
         returned = wait_for_result()
         assert returned.effect == first.effect
