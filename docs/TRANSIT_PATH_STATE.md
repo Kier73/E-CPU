@@ -97,3 +97,40 @@ This is stronger than reconstructing objects in one process: the receiver's Pyth
 The checkpoint is taken only after the response has been acknowledged. Therefore a process failure after an effect is committed but before the updated checkpoint reaches durable storage can restore an older execution ledger. A retry could then repeat an operation if the effect had external side effects. The arithmetic capsule is pure, so this test does not create an external duplicate effect.
 
 To close that window for side-effecting backends, E-CPU will need a durable commit protocol that atomically records the semantic operation identity and its effect/replay result before acknowledging the request, or a transactional outbox/inbox whose recovery semantics cover both the effect and the message. The current checkpoint API is a durable quiescent continuation, not that transaction.
+
+
+## SIMT reference backend
+
+The first SIMT backend is a bounded semantic reference interpreter, not a GPU driver or emulator. It lets the path accept a portable lane-oriented query and interpret it at the receiver without binding the query to a particular GPU instruction set.
+
+A request carries four finite fields:
+
+- lane count;
+- named integer input arrays, each with exactly one element per lane;
+- a finite instruction sequence;
+- a maximum instruction-step budget.
+
+The current instruction algebra is:
+
+| Instruction | Meaning |
+|---|---|
+| CONST | Set an integer register on active lanes |
+| LANE_ID | Write each active lane's index |
+| LOAD | Load one lane's element from a named input array |
+| COPY | Copy one lane-local register |
+| ADD, SUB, MUL | Apply integer arithmetic lane-wise |
+| LT | Produce a per-lane Boolean predicate |
+| IF, ELSE, ENDIF | Execute structured branches under active-lane masks |
+| BARRIER | Record a workgroup barrier after full reconvergence |
+| STORE | Write one output array element per active lane |
+| HALT | End the finite kernel |
+
+The SIMT interpreter runs one program counter for the whole workgroup. An IF creates a mask by intersecting the parent mask with a lane predicate. The then-path and else-path execute under complementary masks; ENDIF restores the parent mask. This is a deterministic lockstep reference model of branch divergence and reconvergence, not an attempt to model every vendor GPU's scheduling details.
+
+A barrier is currently admitted only outside a structured branch region, after explicit reconvergence, with every lane active. A barrier inside a divergent region is rejected before execution. This conservative rule avoids silently treating a partially active workgroup as synchronized. The barrier receipt records its epoch, program counter, and lane-arrival count.
+
+The differential test evaluates absolute value for input lanes [-4, -1, 0, 3, 8]. The SIMT kernel's output is compared with five independent scalar MailCPU executions of the same mathematical operation. The test also checks lane IDs, addition, multiplication, both branch masks, reconvergence, and a five-lane barrier arrival.
+
+The same reference kernel has also been sent through the reliable transit operation channel. The receiver derives the execute capability for resource /gpu/simt, dispatches the request in the CPU-owned execution domain to the SIMT reference handler, returns a typed result, and processes the reliable acknowledgements.
+
+The backend is still a standalone reference handler that can be registered for the operation path; it is not yet an automatically selected persistent worker backend or a physical GPU. It provides a semantic oracle for a future hardware or emulator adapter. Performance claims, GPU memory semantics, asynchronous workgroup scheduling, and vendor-specific occupancy behavior remain outside this implementation.
