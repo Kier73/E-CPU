@@ -894,7 +894,6 @@ def test_private_process_memory_transfer_runs_as_a_causally_receipted_transit_op
     destination_memory = receiver.vm.memories[destination_pid]
     source_memory.write(source_address, source_bytes)
     destination_memory.write(destination_address, b"\\xA5" * len(source_bytes))
-    before_destination = destination_memory.read(destination_address, len(source_bytes))
 
     authority_pid = receiver.environment.kernel.spawn(
         "memory-transfer-worker",
@@ -1002,6 +1001,18 @@ def test_private_process_memory_transfer_runs_as_a_causally_receipted_transit_op
             time.sleep(0.005)
         raise AssertionError("timed out waiting for memory transfer request")
 
+    def wait_for_ack(channel, expected):
+        """Mathematics: accumulate receiver acknowledgements until expected reliable sequences are confirmed."""
+
+        deadline = time.monotonic() + 3.0
+        observed = set()
+        while time.monotonic() < deadline:
+            observed.update(channel.process_ack())
+            if set(expected).issubset(observed):
+                return tuple(sorted(observed))
+            time.sleep(0.005)
+        raise AssertionError(f"timed out waiting for acknowledgements {expected!r}; observed {sorted(observed)!r}")
+
     try:
         assert request_sender.send(event) == 1
         first = wait_for_server_effect()
@@ -1046,8 +1057,8 @@ def test_private_process_memory_transfer_runs_as_a_causally_receipted_transit_op
         assert replay_result.replayed is True
         assert replay_result.effect == first.effect
         assert handler_calls["count"] == 1
-        assert request_sender.channel.process_ack() == (1, 2)
-        assert response_sender.channel.process_ack() == (1, 2)
+        assert wait_for_ack(request_sender.channel, (1, 2)) == (1, 2)
+        assert wait_for_ack(response_sender.channel, (1, 2)) == (1, 2)
         assert receiver.environment.kernel.journal.verify()
     finally:
         for transport in (client_transport, worker_transport):
