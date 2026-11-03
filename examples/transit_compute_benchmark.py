@@ -15,6 +15,7 @@ import time
 from typing import Any
 
 from mailcpu import (
+    Capability,
     HeadlessOS,
     HypervisorArbitrationEvent,
     HypervisorDomain,
@@ -229,13 +230,18 @@ def _make_remote_stack() -> tuple[
         "compute",
     )
     receiver = HeadlessOS()
+    worker_pid = receiver.environment.kernel.spawn(
+        "transit-compute-worker",
+        capabilities=(Capability("/cpu/compute", frozenset({"execute"})),),
+        parent_pid=receiver.environment.init_pid,
+    )
     receiver.hypervisor.policy = HypervisorPolicy(
         review_confidence=0.0,
         automatic_confidence=0.0,
         destructive_confidence=0.0,
         danger_review_probability=1.0,
     )
-    worker = TransitComputeWorker(receiver, receiver.environment.init_pid)
+    worker = TransitComputeWorker(receiver, worker_pid)
     return (
         sockets,
         request_sender_transport,
