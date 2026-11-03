@@ -1164,6 +1164,7 @@ def test_private_memory_transfer_refuses_out_of_bounds_and_shared_pages() -> Non
     assert restored_destination.read(0, len(b"bounded")) == b"bounded"
     assert replay_effect["data_digest"] == first_effect["data_digest"]
     assert replay_effect["completion_receipt"] == first_effect["completion_receipt"]
+    before = destination_memory.read(0, len(b"bounded"))
 
     try:
         host.handle(request(8190, 16))
