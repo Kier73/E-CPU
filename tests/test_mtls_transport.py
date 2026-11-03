@@ -295,11 +295,11 @@ def _wait_for_operation_result(channel):
 
 
 
-def _serve_once_when_ready(worker, request, response):
-    """Mathematics: apply deterministic serve transition until an authenticated request is available or finite deadline Δ expires."""
+def _serve_once_when_ready(session):
+    """Mathematics: apply one session transition when an authenticated request is available or bounded deadline Δ expires."""
     deadline = time.monotonic() + 3.0
     while time.monotonic() < deadline:
-        result = worker.serve_once(request, response)
+        result = session.serve_once()
         if result is not None:
             return result
         time.sleep(0.005)
@@ -321,6 +321,7 @@ def test_transit_compute_operation_executes_over_mutual_tls(tmp_path) -> None:
         ReliabilityPolicy,
         ReliableChannel,
         TransitComputeWorker,
+        TransitComputeSession,
     )
 
     certs = _make_test_certificates(tmp_path)
@@ -368,6 +369,7 @@ def test_transit_compute_operation_executes_over_mutual_tls(tmp_path) -> None:
         parent_pid=receiver.environment.init_pid,
     )
     worker = TransitComputeWorker(receiver, worker_pid)
+    session = TransitComputeSession(worker, request_receiver, result_sender)
 
     event = HypervisorArbitrationEvent(
         "client",
@@ -397,27 +399,35 @@ def test_transit_compute_operation_executes_over_mutual_tls(tmp_path) -> None:
     )
 
     try:
+        assert session.phase == "idle"
         assert request_sender.send(event) == 1
-        served = _serve_once_when_ready(worker, request_receiver, result_sender)
+        assert session.phase == "request-ready"
+        served = _serve_once_when_ready(session)
         assert served is not None and served.executed is True
         assert served.action.value == "allow"
+        assert session.phase == "response-unacknowledged"
         returned = _wait_for_operation_result(result_receiver)
         assert returned is not None
         assert returned.effect == served.effect
         assert returned.effect["registers"]["result"] == 48
         assert _wait_for_ack(request_sender.channel, (1,)) == (1,)
         assert _wait_for_ack(result_sender.channel, (1,)) == (1,)
+        assert session.phase == "idle"
+        assert session.snapshot()["format"] == "mailcpu-transit-worker-checkpoint-v1"
 
         # A fresh TLS-carried frame with the same semantic operation identity
         # must replay the stored result instead of launching another compute VM.
         assert request_sender.send(event) == 2
-        replay = _serve_once_when_ready(worker, request_receiver, result_sender)
+        assert session.phase == "request-ready"
+        replay = _serve_once_when_ready(session)
         assert replay is not None and replay.replayed is True
+        assert session.phase == "response-unacknowledged"
         replay_result = _wait_for_operation_result(result_receiver)
         assert replay_result is not None and replay_result.replayed is True
         assert replay_result.effect == served.effect
         assert _wait_for_ack(request_sender.channel, (2,)) == (2,)
         assert _wait_for_ack(result_sender.channel, (2,)) == (2,)
+        assert session.phase == "idle"
         assert receiver.environment.kernel.journal.verify()
     finally:
         for transport in (client_transport, worker_transport):
