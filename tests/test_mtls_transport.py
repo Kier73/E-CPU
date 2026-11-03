@@ -302,10 +302,9 @@ def test_transit_compute_operation_executes_over_mutual_tls(tmp_path) -> None:
     certs = _make_test_certificates(tmp_path)
     worker_server = _server_context(certs["server_cert"], certs["server_key"], certs["ca"])
     client_client = _client_context(certs["client_cert"], certs["client_key"], certs["ca"])
-    client_server = _server_context(certs["client_cert"], certs["client_key"], certs["ca"])
-    worker_client = _client_context(certs["server_cert"], certs["server_key"], certs["ca"])
 
-    client_request_transport, worker_request_transport = _tls_pair(
+    # One mutually authenticated full-duplex path carries both requests and results.
+    client_transport, worker_transport = _tls_pair(
         client_client,
         worker_server,
         "client",
@@ -313,29 +312,21 @@ def test_transit_compute_operation_executes_over_mutual_tls(tmp_path) -> None:
         server_hostname="worker-node",
         expected_client_dns="client-node",
     )
-    worker_result_transport, client_result_transport = _tls_pair(
-        worker_client,
-        client_server,
-        "worker",
-        "client",
-        server_hostname="client-node",
-        expected_client_dns="worker-node",
-    )
 
     policy = ReliabilityPolicy(lease_ticks=1, max_attempts=3, window_size=4)
     request_sender = HypervisorOperationChannel(
-        ReliableChannel(client_request_transport, "client", "worker", "compute", policy)
+        ReliableChannel(client_transport, "client", "worker", "compute", policy)
     )
     request_receiver = HypervisorOperationChannel(
-        ReliableChannel(worker_request_transport, "worker", "worker", "compute", policy, peer="client")
+        ReliableChannel(worker_transport, "worker", "worker", "compute", policy, peer="client")
     )
     result_sender = HypervisorOperationResultChannel(
-        ReliableChannel(worker_result_transport, "worker", "client", "compute.result", policy),
+        ReliableChannel(worker_transport, "worker", "client", "compute.result", policy),
         "client",
         "compute",
     )
     result_receiver = HypervisorOperationResultChannel(
-        ReliableChannel(client_result_transport, "client", "client", "compute.result", policy, peer="worker"),
+        ReliableChannel(client_transport, "client", "client", "compute.result", policy, peer="worker"),
         "client",
         "compute",
     )
@@ -394,11 +385,6 @@ def test_transit_compute_operation_executes_over_mutual_tls(tmp_path) -> None:
         assert _wait_for_ack(result_sender.channel, (1,)) == (1,)
         assert receiver.environment.kernel.journal.verify()
     finally:
-        for transport in (
-            client_request_transport,
-            worker_request_transport,
-            worker_result_transport,
-            client_result_transport,
-        ):
+        for transport in (client_transport, worker_transport):
             if not transport.closed:
                 transport.close()
