@@ -639,12 +639,12 @@ def test_simt_reference_backend_matches_scalar_mailcpu_and_models_divergence_bar
     assert simt_result["outputs"]["tagged_lanes"] == [1, 2, 3, 4, 5]
     assert simt_result["outputs"]["squares"] == [16, 1, 0, 9, 64]
     assert simt_result["mask_trace"] == [
-        {"pc": 3, "opcode": "if", "active_lanes": [0, 1]},
-        {"pc": 5, "opcode": "else", "active_lanes": [2, 3, 4]},
-        {"pc": 7, "opcode": "endif", "active_lanes": [0, 1, 2, 3, 4]},
+        {"pc": 7, "opcode": "if", "active_lanes": [0, 1]},
+        {"pc": 9, "opcode": "else", "active_lanes": [2, 3, 4]},
+        {"pc": 11, "opcode": "endif", "active_lanes": [0, 1, 2, 3, 4]},
     ]
     assert simt_result["barriers"] == [
-        {"epoch": 1, "pc": 8, "arrivals": len(values)}
+        {"epoch": 1, "pc": 12, "arrivals": len(values)}
     ]
     assert len(simt_result["state_digest"]) == 64
 
