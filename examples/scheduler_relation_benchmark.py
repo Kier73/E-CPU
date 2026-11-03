@@ -87,7 +87,7 @@ def main() -> None:
             and left_witness.receipt == right_witness.receipt
         ),
         "worker_output_messages": len(left.bus.peek("trace:worker")),
-        "journal_records": left_witness.journal_records,
+        "journal_records": len(left.journal.records()),
         "observed_state_payload_bytes": (
             left_witness.state_payload_bytes_observed
         ),
