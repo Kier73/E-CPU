@@ -894,7 +894,7 @@ def test_private_process_memory_transfer_runs_as_a_causally_receipted_transit_op
     source_memory = receiver.vm.memories[source_pid]
     destination_memory = receiver.vm.memories[destination_pid]
     source_memory.write(source_address, source_bytes)
-    destination_memory.write(destination_address, b"\\xA5" * len(source_bytes))
+    destination_memory.write(destination_address, bytes([0xA5]) * len(source_bytes))
 
     authority_pid = receiver.environment.kernel.spawn(
         "memory-transfer-worker",
