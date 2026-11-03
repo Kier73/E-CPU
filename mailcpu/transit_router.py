@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Callable, Mapping
 
 from .classifier import HypervisorArbitrationEvent
-from .transit_compute import TransitComputeError, TransitComputeHost
+from .transit_compute import TransitComputeHost
 
 
 class TransitBackendRouterError(ValueError):
