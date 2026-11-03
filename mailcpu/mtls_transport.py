@@ -10,7 +10,7 @@ from .socket_transport import SocketTransport
 
 
 class MutualTLSTransportError(RuntimeError):
-    """A TLS transport setup, peer-authentication, or policy invariant failed."""
+    """Mathematics: reject TLS setup unless peer chain, DNS identity, and protocol policy all satisfy the authenticated-channel invariant."""
 
 
 def _validate_context(context: ssl.SSLContext, *, server_side: bool) -> None:
