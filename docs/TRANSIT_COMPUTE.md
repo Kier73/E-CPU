@@ -1,0 +1,49 @@
+# Transit Compute Host
+
+## Purpose
+
+This experiment puts a bounded computation request in transit through the existing MailCPU hypervisor operation protocol and executes it on a receiver-side MailCPU virtual CPU.
+
+It does not attempt to host a language model, move model weights, or route ChatGPT's private reasoning into MailCPU. The model or external coordinator remains the planner. MailCPU becomes an independently addressable execution substrate for operations that can be serialized as a bounded request and returned as a finite result.
+
+## Existing transport path reused
+
+The path is:
+
+1. The sender serializes a HypervisorArbitrationEvent with a stable source, channel, sequence and logical time.
+2. The event travels over HypervisorOperationChannel and ReliableChannel using SocketTransport.
+3. The receiver reconstructs grants from its own process capabilities. Sender-supplied granted rights are not trusted.
+4. HypervisorArbitrationLoop selects the operation domain and applies its policy gate.
+5. The event-aware handler receives the authorized event and delegates the pure program to a MailCPU compute host.
+6. The result is committed to HypervisorOperationResultChannel before the request frame is acknowledged.
+7. Semantic duplicates replay the stored effect instead of creating a second VM execution.
+
+The new event-aware reply path is an extension of the existing operation channel, not a second transport protocol.
+
+## Compute request contract
+
+A compute request uses operation name "execute deterministic CPU arithmetic program", resource "/cpu/compute", and an execute right. Its payload contains:
+
+- source: MailCPU assembly text;
+- initial_registers: a finite mapping from valid register names to integers;
+- max_ticks: a positive scheduler-tick budget.
+
+The receiver admits only SET, COPY, ADD, COMPARE, BRANCH and HALT. SYSCALL, SEND and WAIT are refused, as are oversized source programs, instruction sequences, register maps and tick budgets. This keeps the first host limited to deterministic, side-effect-free arithmetic.
+
+Each admitted request runs in a fresh HeadlessOS instance. A successful result includes terminal status, exit code, program counter, step count, final registers and a digest of the complete observed HeadlessOS state.
+
+## What the test establishes
+
+The real TCP integration test sends a program to another MailCPU endpoint, executes it through the receiver's scheduler, and returns its result through the reverse reliable channel. It checks that the result is correct, that the receiver's capability gate is authoritative, and that a second frame with the same semantic identity replays the result without invoking the compute handler again.
+
+This demonstrates a bounded operation hosted by E-CPU while in transit. It does not yet provide a general-purpose RPC shell for arbitrary host tools, a persistent multi-tenant worker pool, or an external connector gateway.
+
+## Boundary of the assistant integration
+
+Suitable delegated work includes exact arithmetic, finite-state transitions, bounded interpreters and deterministic transformations whose input and output fit the request algebra.
+
+Natural-language interpretation, model inference, private reasoning, browsing, GitHub connector access and other external services remain outside this host. To move a specific external operation behind MailCPU, a separate receiver-side adapter must be implemented, given narrow local capabilities, and tested for replay, failure and side effects before it is enabled.
+
+## Next architectural test
+
+The next step is not to broaden the opcode set immediately. First compare the cost and evidence of three execution modes for the same job: local Python reference, direct MailCPU execution, and reliable remote MailCPU execution. Measure request bytes, result bytes, instruction count, scheduler transitions, wall time, retries and replay count. Then add a persistent worker only if checkpoint/restore and concurrent-job isolation preserve the same state relation.
