@@ -95,6 +95,8 @@ The worker exposes `snapshot(request, response)` and `TransitComputeWorker.from_
 
 Checkpoint creation is restricted to a quiescent boundary: no pending request transport data and no unacknowledged response frame. This avoids silently dropping queued messages at the checkpoint boundary. It is a coordinated state snapshot, not an atomic transaction across VM execution, network delivery, and external side effects. A crash between effect execution and publication of a new checkpoint can still lose the latest in-memory ledger. The current compute capsule is pure arithmetic, so it has no external effect to duplicate; do not use this checkpoint API as an exactly-once guarantee for future side-effecting handlers.
 
+A restart integration test now pairs the worker checkpoint with two `DurableMailboxTransport` logs. It completes and acknowledges one job, persists the worker checkpoint, discards the live worker/channel objects, reopens the hash-chained mailbox logs, reconstructs the worker and reliable channels, and sends a new transport frame carrying the original semantic operation identity. The restored hypervisor effect ledger returns the original effect without entering the compute host again. This is disk-backed object-reconstruction evidence in one test process, not a process-kill/power-loss test or a multi-host test.
+
 The checkpoint is not yet a daemon, concurrent worker pool, fully durable cross-process network service, or authenticated public endpoint.
 
 The integration test sends two distinct requests through the same worker instance and checks both result paths and reliable acknowledgements.
