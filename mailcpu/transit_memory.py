@@ -10,7 +10,7 @@ from .headless import HeadlessOS
 from .memory import VirtualMemory, VirtualMemoryError
 
 
-_OPERATION = "execute CPU memory transfer"
+_OPERATION = "execute CPU instruction memory transfer"
 _RESOURCE = "/memory/transfer"
 _EXECUTE_RIGHT = frozenset({"execute"})
 
