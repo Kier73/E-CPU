@@ -456,7 +456,6 @@ def _transit_worker_process_main(
 ) -> None:
     """Mathematics: execute one authenticated receiver path in an OS process and restore Σ only from its durable checkpoint."""
 
-    import json
     import time
 
     from mailcpu import (
@@ -611,12 +610,6 @@ def _start_transit_worker_process(context, certificates, checkpoint_path: Path, 
     ready_kind, port = ready_parent.recv()
     ready_parent.close()
     assert ready_kind == "listening"
-    if not control_parent.poll(10.0):
-        process.terminate()
-        process.join(timeout=2.0)
-        raise AssertionError("transit worker process did not accept its authenticated client")
-    status = control_parent.recv()
-    assert status[0] == "connected", repr(status)
     return process, int(port), control_parent
 
 
@@ -633,7 +626,6 @@ def test_transit_session_survives_receiver_process_restart_and_replays_semantic_
         HypervisorRequest,
         ReliabilityPolicy,
         ReliableChannel,
-        TransitComputeSession,
         connect_mutual_tls,
     )
 
@@ -729,6 +721,9 @@ def test_transit_session_survives_receiver_process_restart_and_replays_semantic_
             False,
         )
         client_transport, request_sender, result_receiver = connect_client(first_port)
+        assert first_control.poll(10.0), "first worker did not finish its TLS handshake"
+        first_connected = first_control.recv()
+        assert first_connected[0] == "connected", repr(first_connected)
         assert request_sender.send(event) == 1
         first_result = receive_result(result_receiver, request_sender.channel, 1)
         assert first_result.effect["registers"]["result"] == 48
@@ -766,6 +761,9 @@ def test_transit_session_survives_receiver_process_restart_and_replays_semantic_
             requester_snapshot,
             result_snapshot,
         )
+        assert second_control.poll(10.0), "restored worker did not finish its TLS handshake"
+        second_connected = second_control.recv()
+        assert second_connected[0] == "connected", repr(second_connected)
         assert request_sender.send(event) == 2
         replayed_result = receive_result(result_receiver, request_sender.channel, 2)
         assert replayed_result.effect == first_result.effect
