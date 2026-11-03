@@ -428,3 +428,45 @@ def test_reconstructed_worker_restores_execution_ledger_and_replays_without_reex
         ):
             if not transport.closed:
                 transport.close()
+
+
+def test_transit_host_requires_exact_execute_right_and_non_destructive_request() -> None:
+    """Mathematics: admit only request authority R={execute} and destructive flag d=0 at the compute capsule boundary."""
+
+    event = _event()
+    payload = dict(event.request.payload)
+    wrong_right = HypervisorArbitrationEvent(
+        event.source,
+        event.channel,
+        event.sequence,
+        event.logical_time,
+        HypervisorRequest(
+            event.request.operation,
+            event.request.resource,
+            payload,
+            frozenset({"read"}),
+            frozenset({"read"}),
+        ),
+    )
+    destructive = HypervisorArbitrationEvent(
+        event.source,
+        event.channel,
+        event.sequence,
+        event.logical_time,
+        HypervisorRequest(
+            event.request.operation,
+            event.request.resource,
+            payload,
+            frozenset({"execute"}),
+            frozenset({"execute"}),
+            destructive=True,
+        ),
+    )
+    host = TransitComputeHost()
+    for invalid in (wrong_right, destructive):
+        try:
+            host.handle(invalid)
+        except TransitComputeError as exc:
+            assert "authority" in str(exc) or "destructive" in str(exc)
+        else:
+            raise AssertionError("transit compute accepted an out-of-contract authority request")
