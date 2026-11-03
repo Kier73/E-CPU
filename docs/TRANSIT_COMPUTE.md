@@ -102,7 +102,7 @@ transport = accept_mutual_tls(
 
 Certificate issuance, rotation, revocation, DNS/PKI trust management, listener lifecycle, and authorization of a certificate identity to a specific MailCPU process remain deployment responsibilities. A valid TLS identity is not itself a MailCPU capability: the receiver still recomputes operation grants from its local capability state. TLS authenticates the connected peer; the hypervisor authorizes the requested effect.
 
-The focused TLS integration tests create ephemeral test-only CA and leaf certificates, perform actual loopback mutual-TLS handshakes, check both peer identities, and send framed messages in both directions. A further integration test runs the authorized bounded compute operation through mutually authenticated request and result channels. These tests validate the adapter and end-to-end operation path on one runner; they do not demonstrate a deployed separate-host service or quantify TLS overhead.
+The focused TLS integration tests create ephemeral test-only CA and leaf certificates, perform actual loopback mutual-TLS handshakes, check both peer identities, and send framed messages in both directions. A further integration test runs the authorized bounded compute operation through one mutually authenticated full-duplex connection: request, result, and acknowledgement frames share that connection, and a second frame with the same semantic identity verifies replay without re-execution. These tests validate the adapter and end-to-end operation path on one runner; they do not demonstrate a deployed separate-host service or quantify TLS overhead.
 
 ## Three-mode compute benchmark
 
