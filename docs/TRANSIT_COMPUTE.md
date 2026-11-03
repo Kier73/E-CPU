@@ -49,10 +49,10 @@ Natural-language interpretation, model inference, private reasoning, browsing, G
 Run:
 
 ```bash
-python examples/transit_compute_benchmark.py --iterations 20 --warmups 2
+python examples/transit_compute_benchmark.py --iterations 20 --warmups 2 --work-units 64
 ```
 
-The benchmark evaluates the same (19+23+6=48) integer job in three modes:
+The benchmark evaluates the same repeated-addition workload in three modes. For `n` work units, each path computes `A_n = Σ(19+23+6) = 48n`; MailCPU runs a bounded loop and the Python reference runs the corresponding loop:
 
 1. A minimal local Python reference.
 2. Direct `TransitComputeHost.handle` execution, including assembly, isolated HeadlessOS creation, VM scheduling, and state digest generation.
@@ -64,7 +64,7 @@ The byte counter measures exact ECPU frame encodings at the `SocketTransport.sen
 
 ### Initial CI observation
 
-A smoke run on GitHub Actions Linux / Python 3.11 (6 measured iterations, 1 warmup; run 41703175898) reported:
+A one-unit baseline run on GitHub Actions Linux / Python 3.11 (6 measured iterations, 1 warmup; run 41703175898) reported:
 
 | Mode | Median | p95 |
 |---|---:|---:|
@@ -72,11 +72,11 @@ A smoke run on GitHub Actions Linux / Python 3.11 (6 measured iterations, 1 warm
 | Direct MailCPU | 4.526 ms | 4.643 ms |
 | Remote MailCPU over loopback TCP | 6.378 ms | 6.843 ms |
 
-Each VM path executed 6 instructions per job. The remote stack setup was 3.876 ms. Across the six measured requests plus one replay, the run counted 5,607 request bytes, 6,726 result bytes, and 4,137 ACK bytes (16,470 bytes total in both directions), with one semantic replay and zero reliable retry frames.
+Each VM path executed 6 instructions per one-unit job. The remote stack setup was 3.876 ms. Across the six measured requests plus one replay, the run counted 5,607 request bytes, 6,726 result bytes, and 4,137 ACK bytes (16,470 bytes total in both directions), with one semantic replay and zero reliable retry frames.
 
 This tiny arithmetic task does not amortize MailCPU setup or transport costs. The result is a protocol-cost baseline, not a performance claim; increase workload size and run repeated samples before considering optimizations.
 
-CI runs a short smoke configuration. Use a larger iteration count locally for comparative timing. Treat results as E0 evidence: the TCP endpoints are loopback sockets in one process, so latency is not a WAN or separate-host estimate. The Python path is a minimal arithmetic reference, not a like-for-like Python VM implementation; the benchmark exposes the added cost of MailCPU execution and the additional remote protocol layers rather than claiming a speed advantage.
+CI runs 64 work units per job with 6 measured iterations and 1 warmup. Use a larger iteration count locally for comparative timing. Treat results as E0 evidence: the TCP endpoints are loopback sockets in one process, so latency is not a WAN or separate-host estimate. The Python path is a minimal arithmetic reference, not a like-for-like Python VM implementation; the benchmark exposes the added cost of MailCPU execution and the additional remote protocol layers rather than claiming a speed advantage.
 
 ## Next architectural test
 
