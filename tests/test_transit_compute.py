@@ -1109,3 +1109,16 @@ def test_private_memory_transfer_refuses_out_of_bounds_and_shared_pages() -> Non
     else:
         raise AssertionError("out-of-bounds memory transfer was accepted")
     assert destination_memory.read(0, len(b"untouched")) == before
+
+    # A mapped shared page is not silently treated as a private process-owned
+    # page by this first transfer contract.
+    receiver.create_shared_memory("transfer-shared", 4096)
+    receiver.attach_shared_memory(source_pid, "transfer-shared", 8192)
+    shared_request = request(8192, 16)
+    try:
+        host.handle(shared_request)
+    except TransitMemoryTransferError as exc:
+        assert "private process pages only" in str(exc)
+    else:
+        raise AssertionError("shared memory page was accepted by the private transfer host")
+    assert destination_memory.read(0, len(b"untouched")) == before
