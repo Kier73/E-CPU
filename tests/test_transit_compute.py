@@ -16,6 +16,8 @@ from mailcpu import (
     SocketTransport,
     TransitSIMTError,
     TransitSIMTHost,
+    TransitMemoryTransferError,
+    TransitMemoryTransferHost,
 )
 from mailcpu.transit_compute import TransitComputeError, TransitComputeHost
 
@@ -846,3 +848,264 @@ def test_simt_reference_kernel_executes_as_a_receiver_authorized_transit_operati
         for transport in (client_transport, worker_transport):
             if not transport.closed:
                 transport.close()
+
+
+def test_private_process_memory_transfer_runs_as_a_causally_receipted_transit_operation() -> None:
+    """Mathematics: copy a bounded private address interval only under receiver read/write capabilities, then replay its semantic result without a second write."""
+
+    import time
+
+    from mailcpu import (
+        ChoiceAnswer,
+        DecisionBatch,
+        IntentEmbedding,
+        IntentPrototypeModel,
+        NoulAnswer,
+        assemble,
+    )
+
+    source_bytes = bytes((index * 17 + 3) % 256 for index in range(80))
+    source_address = 4088
+    destination_address = 4050
+
+    client_transport, worker_transport = _tcp_pair("client", "worker")
+    policy = ReliabilityPolicy(lease_ticks=1, max_attempts=3, window_size=4)
+    request_sender = HypervisorOperationChannel(
+        ReliableChannel(client_transport, "client", "worker", "memory", policy)
+    )
+    request_receiver = HypervisorOperationChannel(
+        ReliableChannel(worker_transport, "worker", "worker", "memory", policy, peer="client")
+    )
+    response_sender = HypervisorOperationResultChannel(
+        ReliableChannel(worker_transport, "worker", "client", "memory.result", policy),
+        "client",
+        "memory",
+    )
+    response_receiver = HypervisorOperationResultChannel(
+        ReliableChannel(client_transport, "client", "client", "memory.result", policy, peer="worker"),
+        "client",
+        "memory",
+    )
+
+    receiver = HeadlessOS()
+    source_pid = receiver.spawn(assemble("HALT"), "memory-source")
+    destination_pid = receiver.spawn(assemble("HALT"), "memory-destination")
+    source_memory = receiver.vm.memories[source_pid]
+    destination_memory = receiver.vm.memories[destination_pid]
+    source_memory.write(source_address, source_bytes)
+    destination_memory.write(destination_address, b"\\xA5" * len(source_bytes))
+    before_destination = destination_memory.read(destination_address, len(source_bytes))
+
+    authority_pid = receiver.environment.kernel.spawn(
+        "memory-transfer-worker",
+        capabilities=(
+            Capability("/memory/transfer", frozenset({"execute"})),
+            Capability(f"/memory/{source_pid}", frozenset({"read"})),
+            Capability(f"/memory/{destination_pid}", frozenset({"write"})),
+        ),
+        parent_pid=receiver.environment.init_pid,
+    )
+    receiver.hypervisor.policy = HypervisorPolicy(
+        review_confidence=0.0,
+        automatic_confidence=0.0,
+        destructive_confidence=0.0,
+        danger_review_probability=1.0,
+        embedding_review_confidence=1.0,
+    )
+
+    event = HypervisorArbitrationEvent(
+        "client",
+        "memory",
+        1,
+        400,
+        HypervisorRequest(
+            "execute CPU instruction memory transfer",
+            "/memory/transfer",
+            {
+                "source_pid": source_pid,
+                "source_address": source_address,
+                "destination_pid": destination_pid,
+                "destination_address": destination_address,
+                "length": len(source_bytes),
+            },
+            frozenset({"execute"}),
+            frozenset(),
+        ),
+    )
+
+    class CPUOnlyClassifier:
+        """A deterministic test classifier that routes this reference transfer to the CPU execution domain."""
+
+        model = "test-cpu-memory-transfer"
+
+        def evaluate(self, state, questions):
+            """Mathematics: return the normalized point mass P(domain=CPU)=1 and danger probability 0."""
+
+            options = questions["domain"].criteria
+            probabilities = {
+                option: 1.0 if option == "cpu" else 0.0
+                for option, _description in options
+            }
+            return DecisionBatch(
+                {
+                    "domain": ChoiceAnswer("cpu", probabilities, 1.0),
+                    "danger": NoulAnswer(0.0),
+                },
+                self.model,
+            )
+
+    receiver.hypervisor.classifier = CPUOnlyClassifier()
+    encoder = IntentEmbedding()
+    receiver.hypervisor.intent_model = IntentPrototypeModel(
+        encoder,
+        {"cpu": encoder.encode(event.request.state()).vector},
+    )
+
+    transfer_host = TransitMemoryTransferHost(receiver, authority_pid)
+    handler_calls = {"count": 0}
+
+    def handle_transfer(request: HypervisorArbitrationEvent):
+        """Mathematics: count actual host invocations so semantic replays can prove effect suppression."""
+
+        handler_calls["count"] += 1
+        return transfer_host.handle(request)
+
+    def serve_one():
+        """Mathematics: consume one event-aware request transition and publish its result before the request acknowledgement."""
+
+        return request_receiver.receive_and_reply_event(
+            receiver.hypervisor_arbitration,
+            lambda request: receiver.hypervisor_authorize_event(authority_pid, request),
+            {HypervisorDomain.CPU: handle_transfer},
+            response_sender,
+        )
+
+    def wait_for_result():
+        """Mathematics: observe typed result channel until one result arrives or finite wall-time budget expires."""
+
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline:
+            result = response_receiver.receive()
+            if result is not None:
+                return result
+            time.sleep(0.005)
+        raise AssertionError("timed out waiting for memory transfer result")
+
+    def wait_for_server_effect():
+        """Mathematics: poll the nonblocking reliable request channel until its first effect result is committed."""
+
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline:
+            result = serve_one()
+            if result is not None:
+                return result
+            time.sleep(0.005)
+        raise AssertionError("timed out waiting for memory transfer request")
+
+    try:
+        assert request_sender.send(event) == 1
+        first = wait_for_server_effect()
+        assert first.action.value == "allow"
+        assert first.executed is True
+        assert first.effect["bytes_transferred"] == len(source_bytes)
+        assert destination_memory.read(destination_address, len(source_bytes)) == source_bytes
+        assert source_memory.read(source_address, len(source_bytes)) == source_bytes
+        assert first.effect["data_digest"] == __import__("hashlib").sha256(source_bytes).hexdigest()
+        assert len(first.effect["completion_receipt"]) == 64
+        returned = wait_for_result()
+        assert returned.effect == first.effect
+        assert returned.replayed is False
+        assert handler_calls["count"] == 1
+
+        # The memory operation is an explicit write; destination state must
+        # remain unchanged when the receiver authority lacks destination write.
+        restricted_pid = receiver.environment.kernel.spawn(
+            "restricted-memory-worker",
+            capabilities=(
+                Capability("/memory/transfer", frozenset({"execute"})),
+                Capability(f"/memory/{source_pid}", frozenset({"read"})),
+            ),
+            parent_pid=receiver.environment.init_pid,
+        )
+        restricted = TransitMemoryTransferHost(receiver, restricted_pid)
+        try:
+            restricted.handle(receiver.hypervisor_authorize_event(restricted_pid, event))
+        except TransitMemoryTransferError as exc:
+            assert "lacks 'write' permission" in str(exc)
+        else:
+            raise AssertionError("memory transfer succeeded without receiver destination-write authority")
+        assert destination_memory.read(destination_address, len(source_bytes)) == source_bytes
+
+        # A fresh reliable frame with the original semantic identity must replay
+        # the same completion result without entering the transfer host again.
+        assert request_sender.send(event) == 2
+        replay = wait_for_server_effect()
+        assert replay.replayed is True
+        assert replay.effect == first.effect
+        replay_result = wait_for_result()
+        assert replay_result.replayed is True
+        assert replay_result.effect == first.effect
+        assert handler_calls["count"] == 1
+        assert request_sender.channel.process_ack() == (1, 2)
+        assert response_sender.channel.process_ack() == (1, 2)
+        assert receiver.environment.kernel.journal.verify()
+    finally:
+        for transport in (client_transport, worker_transport):
+            if not transport.closed:
+                transport.close()
+
+
+def test_private_memory_transfer_refuses_out_of_bounds_and_shared_pages() -> None:
+    """Mathematics: reject nonresident or shared endpoint pages before committing any destination byte."""
+
+    from mailcpu import assemble
+
+    receiver = HeadlessOS()
+    source_pid = receiver.spawn(assemble("HALT"), "private-source")
+    destination_pid = receiver.spawn(assemble("HALT"), "private-destination")
+    authority_pid = receiver.environment.kernel.spawn(
+        "private-memory-worker",
+        capabilities=(
+            Capability("/memory/transfer", frozenset({"execute"})),
+            Capability(f"/memory/{source_pid}", frozenset({"read"})),
+            Capability(f"/memory/{destination_pid}", frozenset({"write"})),
+        ),
+        parent_pid=receiver.environment.init_pid,
+    )
+    source_memory = receiver.vm.memories[source_pid]
+    destination_memory = receiver.vm.memories[destination_pid]
+    source_memory.write(0, b"bounded")
+    destination_memory.write(0, b"untouched")
+    host = TransitMemoryTransferHost(receiver, authority_pid)
+
+    def request(source_address: int, length: int) -> HypervisorArbitrationEvent:
+        """Mathematics: bind one transfer proposal to private source and destination process identities."""
+
+        return HypervisorArbitrationEvent(
+            "client",
+            "memory",
+            1,
+            1,
+            HypervisorRequest(
+                "execute CPU instruction memory transfer",
+                "/memory/transfer",
+                {
+                    "source_pid": source_pid,
+                    "source_address": source_address,
+                    "destination_pid": destination_pid,
+                    "destination_address": 0,
+                    "length": length,
+                },
+                frozenset({"execute"}),
+                frozenset({"execute"}),
+            ),
+        )
+
+    before = destination_memory.read(0, len(b"untouched"))
+    try:
+        host.handle(request(8190, 16))
+    except TransitMemoryTransferError:
+        pass
+    else:
+        raise AssertionError("out-of-bounds memory transfer was accepted")
+    assert destination_memory.read(0, len(b"untouched")) == before
