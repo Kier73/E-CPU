@@ -102,7 +102,7 @@ transport = accept_mutual_tls(
 
 Certificate issuance, rotation, revocation, DNS/PKI trust management, listener lifecycle, and authorization of a certificate identity to a specific MailCPU process remain deployment responsibilities. A valid TLS identity is not itself a MailCPU capability: the receiver still recomputes operation grants from its local capability state. TLS authenticates the connected peer; the hypervisor authorizes the requested effect.
 
-The focused TLS integration test creates ephemeral test-only CA and leaf certificates, performs an actual loopback mutual-TLS handshake, checks both peer identities, and sends framed MailCPU messages in both directions. It does not demonstrate a deployed separate-host service.
+The focused TLS integration tests create ephemeral test-only CA and leaf certificates, perform actual loopback mutual-TLS handshakes, check both peer identities, and send framed messages in both directions. A further integration test runs the authorized bounded compute operation through mutually authenticated request and result channels. These tests validate the adapter and end-to-end operation path on one runner; they do not demonstrate a deployed separate-host service or quantify TLS overhead.
 
 ## Three-mode compute benchmark
 
@@ -136,7 +136,22 @@ Each VM path executed 6 instructions per one-unit job. The remote stack setup wa
 
 This tiny arithmetic task does not amortize MailCPU setup or transport costs. The result is a protocol-cost baseline, not a performance claim; increase workload size and run repeated samples before considering optimizations.
 
-CI runs 64 work units per job with 6 measured iterations and 1 warmup. Use a larger iteration count locally for comparative timing. Treat results as E0 evidence: the TCP endpoints are loopback sockets in one process, so latency is not a WAN or separate-host estimate. The Python path is a minimal arithmetic reference, not a like-for-like Python VM implementation; the benchmark exposes the added cost of MailCPU execution and the additional remote protocol layers rather than claiming a speed advantage.
+CI runs 64 work units per job with 6 measured iterations and 1 warmup. Use a larger iteration count locally for comparative timing.
+
+### 64-unit CI observation
+
+The focused run on GitHub Actions Linux / Python 3.11 (6 measured iterations, 1 warmup; run 41712928532) reported:
+
+| Mode | Median | p95 |
+|---|---:|---:|
+| Local Python reference | 0.00448 ms | 0.00544 ms |
+| Direct MailCPU | 16.802 ms | 17.153 ms |
+| Remote MailCPU over loopback TCP | 18.498 ms | 24.639 ms |
+
+The job returned 3,072 and executed 197 VM instructions/scheduler events. The remote stack setup was 3.444 ms. Across six measured jobs plus one semantic replay, the run counted 6,139 request bytes, 6,775 result bytes, and 4,137 ACK bytes (17,051 ECPU frame bytes total), with one semantic replay and zero reliable retry frames.
+
+For this workload, remote median latency was approximately 1.70 ms above direct MailCPU. The small sample shows that connection reuse keeps the added loopback transport cost bounded in this run, but the p95 spread is still noticeable. It says nothing about cross-host network variability. The benchmark uses plain loopback TCP; mutual TLS is validated by a separate integration test and its handshake/throughput cost is not included in these measurements.
+ Treat results as E0 evidence: the TCP endpoints are loopback sockets in one process, so latency is not a WAN or separate-host estimate. The Python path is a minimal arithmetic reference, not a like-for-like Python VM implementation; the benchmark exposes the added cost of MailCPU execution and the additional remote protocol layers rather than claiming a speed advantage.
 
 ## Next architectural test
 
