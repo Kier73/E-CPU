@@ -12,7 +12,6 @@ import json
 import math
 import statistics
 import time
-from collections import Counter
 from typing import Any
 
 from mailcpu import (
@@ -296,7 +295,7 @@ def run_benchmark(iterations: int = 20, warmups: int = 2) -> dict[str, Any]:
         response_worker,
         worker,
     ) = _make_remote_stack()
-    connection_setup_ms = (time.perf_counter() - connection_started) * 1_000
+    remote_stack_setup_ms = (time.perf_counter() - connection_started) * 1_000
 
     remote_metrics: dict[str, int] | None = None
     replayed_result = False
@@ -415,7 +414,7 @@ def run_benchmark(iterations: int = 20, warmups: int = 2) -> dict[str, Any]:
                 "reliable_retry_frames": reliable_retries,
                 "semantic_replay_count": int(replayed_result),
                 "semantic_replay_latency_ms": replay_latency_ms,
-                "persistent_connection_setup_ms": connection_setup_ms,
+                "remote_stack_setup_ms": remote_stack_setup_ms,
             },
             "measurement_notes": [
                 "Remote latency includes request send, receiver authorization/arbitration, VM execution, response receive, and ACK processing.",
