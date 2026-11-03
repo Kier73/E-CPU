@@ -609,6 +609,10 @@ def test_simt_reference_backend_matches_scalar_mailcpu_and_models_divergence_bar
                 "inputs": {"x": list(values)},
                 "program": [
                     ["load", "value", "x"],
+                    ["lane_id", "lane"],
+                    ["const", "one", 1],
+                    ["add", "tagged_lane", "lane", "one"],
+                    ["mul", "square", "value", "value"],
                     ["const", "zero", 0],
                     ["lt", "negative", "value", "zero"],
                     ["if", "negative"],
@@ -618,6 +622,9 @@ def test_simt_reference_backend_matches_scalar_mailcpu_and_models_divergence_bar
                     ["endif"],
                     ["barrier"],
                     ["store", "absolute", "result"],
+                    ["store", "lane_ids", "lane"],
+                    ["store", "tagged_lanes", "tagged_lane"],
+                    ["store", "squares", "square"],
                     ["halt"],
                 ],
                 "max_steps": 32,
@@ -628,6 +635,9 @@ def test_simt_reference_backend_matches_scalar_mailcpu_and_models_divergence_bar
     )
     simt_result = TransitSIMTHost().handle(simt_event)
     assert simt_result["outputs"]["absolute"] == [4, 1, 0, 3, 8]
+    assert simt_result["outputs"]["lane_ids"] == [0, 1, 2, 3, 4]
+    assert simt_result["outputs"]["tagged_lanes"] == [1, 2, 3, 4, 5]
+    assert simt_result["outputs"]["squares"] == [16, 1, 0, 9, 64]
     assert simt_result["mask_trace"] == [
         {"pc": 3, "opcode": "if", "active_lanes": [0, 1]},
         {"pc": 5, "opcode": "else", "active_lanes": [2, 3, 4]},
