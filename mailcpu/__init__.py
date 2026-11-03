@@ -225,6 +225,7 @@ from .hypervisor_transport import (
 )
 from .transit_worker import TransitComputeWorker
 from .transit_session import TransitComputeSession
+from .transit_simt import TransitSIMTError, TransitSIMTHost
 from .recovery_policy import (
     DEFAULT_CHECKPOINT_KIND,
     RECOVERY_POLICY_ADVERTISEMENT_KIND,
@@ -638,6 +639,8 @@ __all__ = [
     "HypervisorOperationTransportError",
     "TransitComputeWorker",
     "TransitComputeSession",
+    "TransitSIMTError",
+    "TransitSIMTHost",
     "DEFAULT_CHECKPOINT_KIND",
     "RECOVERY_POLICY_ADVERTISEMENT_KIND",
     "RECOVERY_POLICY_AGREEMENT_KIND",
