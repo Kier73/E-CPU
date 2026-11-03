@@ -44,6 +44,66 @@ Suitable delegated work includes exact arithmetic, finite-state transitions, bou
 
 Natural-language interpretation, model inference, private reasoning, browsing, GitHub connector access and other external services remain outside this host. To move a specific external operation behind MailCPU, a separate receiver-side adapter must be implemented, given narrow local capabilities, and tested for replay, failure and side effects before it is enabled.
 
+
+## Authenticated host-to-host transport
+
+The initial `SocketTransport` uses framed TCP with an integrity digest. That digest detects accidental or malicious frame alteration only when the transport stream itself is trusted; it does not authenticate a peer. Do not expose a plain `SocketTransport` transit worker to an untrusted network.
+
+The `mailcpu.mtls_transport` adapter adds mutual TLS around the same framed transport, preserving the MailCPU message and reliable-channel APIs:
+
+- The client context must verify a trusted certificate chain and the configured server hostname, and must present its client certificate.
+- The server context must require a trusted client certificate.
+- The server also checks the client's DNS Subject Alternative Name against an explicit expected peer identity.
+- Both sides require TLS 1.2 or newer.
+- The adapter returns the existing `SocketTransport`, so operation channels and worker arbitration remain unchanged.
+
+Example client setup:
+
+```python
+import ssl
+from mailcpu import connect_mutual_tls
+
+client_tls = ssl.create_default_context(
+    ssl.Purpose.SERVER_AUTH,
+    cafile="worker-ca.pem",
+)
+client_tls.load_cert_chain("client.pem", "client-key.pem")
+
+transport = connect_mutual_tls(
+    "worker.example.net",
+    9443,
+    "client-node",
+    "worker-node",
+    client_tls,
+    server_hostname="worker.example.net",
+)
+```
+
+Example server setup:
+
+```python
+import ssl
+from mailcpu import SocketTransport, accept_mutual_tls
+
+server_tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+server_tls.load_cert_chain("worker.pem", "worker-key.pem")
+server_tls.load_verify_locations(cafile="worker-ca.pem")
+server_tls.verify_mode = ssl.CERT_REQUIRED
+
+listener = SocketTransport.listen("0.0.0.0", 9443)
+transport = accept_mutual_tls(
+    listener,
+    "worker-node",
+    "client-node",
+    server_tls,
+    expected_peer_dns="client.example.net",
+)
+```
+
+Certificate issuance, rotation, revocation, DNS/PKI trust management, listener lifecycle, and authorization of a certificate identity to a specific MailCPU process remain deployment responsibilities. A valid TLS identity is not itself a MailCPU capability: the receiver still recomputes operation grants from its local capability state. TLS authenticates the connected peer; the hypervisor authorizes the requested effect.
+
+The focused TLS integration test creates ephemeral test-only CA and leaf certificates, performs an actual loopback mutual-TLS handshake, checks both peer identities, and sends framed MailCPU messages in both directions. It does not demonstrate a deployed separate-host service.
+
 ## Three-mode compute benchmark
 
 Run:
