@@ -109,6 +109,8 @@ class TransitMemoryTransferHost:
             "destination_pid",
             "destination_address",
             "length",
+            "source_digest",
+            "destination_digest",
         }
         if not isinstance(payload, Mapping) or set(payload) != expected_fields:
             raise TransitMemoryTransferError("memory transfer payload fields are invalid")
@@ -118,6 +120,8 @@ class TransitMemoryTransferHost:
         source_address = payload.get("source_address")
         destination_address = payload.get("destination_address")
         length = payload.get("length")
+        source_digest = payload.get("source_digest")
+        destination_digest = payload.get("destination_digest")
         for name, value in (
             ("source_pid", source_pid),
             ("destination_pid", destination_pid),
@@ -134,6 +138,16 @@ class TransitMemoryTransferHost:
             raise TransitMemoryTransferError("transfer length must be a positive integer")
         if length > self.max_transfer_bytes:
             raise TransitMemoryTransferError("transfer length exceeds configured byte bound")
+        for name, digest in (
+            ("source_digest", source_digest),
+            ("destination_digest", destination_digest),
+        ):
+            if (
+                not isinstance(digest, str)
+                or len(digest) != 64
+                or any(character not in "0123456789abcdef" for character in digest)
+            ):
+                raise TransitMemoryTransferError(f"{name} must be lowercase SHA-256 hex")
 
         self._require_capability(source_pid, "read")
         self._require_capability(destination_pid, "write")
@@ -153,6 +167,14 @@ class TransitMemoryTransferHost:
             data = source_memory.read(source_address, length)
             if len(data) != length:
                 raise TransitMemoryTransferError("source memory returned a truncated interval")
+            actual_source_digest = hashlib.sha256(data).hexdigest()
+            if actual_source_digest != source_digest:
+                raise TransitMemoryTransferError("source memory preimage digest mismatch")
+
+            destination_before = destination_memory.read(destination_address, length)
+            actual_destination_digest = hashlib.sha256(destination_before).hexdigest()
+            if actual_destination_digest != destination_digest:
+                raise TransitMemoryTransferError("destination memory preimage digest mismatch")
 
             # Writes happen against a private COW candidate. The live destination
             # mapping changes only after the complete interval has been written.
@@ -181,6 +203,8 @@ class TransitMemoryTransferHost:
             "destination_address": destination_address,
             "length": length,
             "data_digest": data_digest,
+            "source_preimage_digest": source_digest,
+            "destination_preimage_digest": destination_digest,
         }
         receipt = kernel.journal.append(
             "memory.transfer.committed",
@@ -193,5 +217,7 @@ class TransitMemoryTransferHost:
             "destination_address": destination_address,
             "bytes_transferred": length,
             "data_digest": data_digest,
+            "source_preimage_digest": source_digest,
+            "destination_preimage_digest": destination_digest,
             "completion_receipt": receipt.digest,
         }
