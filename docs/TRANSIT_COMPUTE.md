@@ -47,3 +47,14 @@ Natural-language interpretation, model inference, private reasoning, browsing, G
 ## Next architectural test
 
 The next step is not to broaden the opcode set immediately. First compare the cost and evidence of three execution modes for the same job: local Python reference, direct MailCPU execution, and reliable remote MailCPU execution. Measure request bytes, result bytes, instruction count, scheduler transitions, wall time, retries and replay count. Then add a persistent worker only if checkpoint/restore and concurrent-job isolation preserve the same state relation.
+
+
+## Persistent receiver worker
+
+`TransitComputeWorker` binds a long-lived service object to one receiver `HeadlessOS` and one local authority PID. For every request it recomputes grants from that receiver's current capability state, routes the event through the existing hypervisor arbitration loop, and commits the result through the reliable response channel before the request is acknowledged.
+
+The worker is persistent; each computation is not. `TransitComputeHost` still creates a fresh isolated `HeadlessOS` for every admitted job. This separates service lifetime from job state and prevents one arithmetic program from inheriting another program's VM state.
+
+The worker currently serves one request per `serve_once` call. The caller owns the transport lifecycle and decides when to call it again. This is a reusable service boundary, not yet a daemon, concurrent worker pool, durable worker checkpoint, or authenticated public endpoint.
+
+The integration test sends two distinct requests through the same worker instance and checks both result paths and reliable acknowledgements.
