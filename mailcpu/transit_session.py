@@ -69,7 +69,6 @@ class TransitComputeSession:
                 "source": response_channel.source,
                 "peer": response_channel.peer,
                 "channel": response_channel.channel,
-                "next_sequence": response_channel.next_sequence,
                 "pending_sequences": list(response_channel.pending_sequences()),
             },
         }
