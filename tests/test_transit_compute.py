@@ -470,3 +470,121 @@ def test_transit_host_requires_exact_execute_right_and_non_destructive_request()
             assert "authority" in str(exc) or "destructive" in str(exc)
         else:
             raise AssertionError("transit compute accepted an out-of-contract authority request")
+
+
+def test_durable_mailbox_worker_restart_replays_committed_job(tmp_path) -> None:
+    """Mathematics: persist channels and worker state, reconstruct all objects, then replay E[I] without a second VM execution."""
+
+    import json
+
+    from mailcpu import DurableMailboxTransport, TransitComputeWorker
+
+    class CountingHost(TransitComputeHost):
+        """Count first-seen arithmetic executions across the simulated worker restart."""
+
+        def __init__(self) -> None:
+            """Mathematics: initialize execution counter c=0."""
+            super().__init__()
+            self.calls = 0
+
+        def handle(self, event: HypervisorArbitrationEvent) -> dict[str, object]:
+            """Mathematics: increment c for each actual compute VM entry."""
+            self.calls += 1
+            return super().handle(event)
+
+    request_path = tmp_path / "request.mailbox"
+    response_path = tmp_path / "response.mailbox"
+    request_transport = DurableMailboxTransport(request_path)
+    response_transport = DurableMailboxTransport(response_path)
+    policy = ReliabilityPolicy(lease_ticks=1, max_attempts=3, window_size=4)
+
+    request_sender = HypervisorOperationChannel(
+        ReliableChannel(request_transport, "origin", "worker", "compute", policy)
+    )
+    request_worker = HypervisorOperationChannel(
+        ReliableChannel(request_transport, "worker", "worker", "compute", policy, peer="origin")
+    )
+    response_worker = HypervisorOperationResultChannel(
+        ReliableChannel(response_transport, "worker", "origin", "compute.result", policy),
+        "origin",
+        "compute",
+    )
+    response_origin = HypervisorOperationResultChannel(
+        ReliableChannel(response_transport, "origin", "origin", "compute.result", policy, peer="worker"),
+        "origin",
+        "compute",
+    )
+
+    receiver = HeadlessOS()
+    receiver.hypervisor.policy = HypervisorPolicy(
+        review_confidence=0.0,
+        automatic_confidence=0.0,
+        destructive_confidence=0.0,
+        danger_review_probability=1.0,
+    )
+    worker_pid = receiver.environment.kernel.spawn(
+        "transit-compute-worker",
+        capabilities=(Capability("/cpu/compute", frozenset({"execute"})),),
+        parent_pid=receiver.environment.init_pid,
+    )
+    first_host = CountingHost()
+    worker = TransitComputeWorker(receiver, worker_pid, first_host)
+    event = _event()
+
+    assert request_sender.send(event) == 1
+    first = worker.serve_once(request_worker, response_worker)
+    assert first is not None and first.executed is True and first.replayed is False
+    first_result = response_origin.receive()
+    assert first_result is not None and first_result.effect == first.effect
+    assert request_sender.channel.process_ack() == (1,)
+    assert response_worker.channel.process_ack() == (1,)
+    assert first_host.calls == 1
+
+    # Persist the quiescent worker checkpoint independently of the durable mailboxes.
+    checkpoint_path = tmp_path / "worker.json"
+    checkpoint = worker.snapshot(request_worker, response_worker)
+    checkpoint_path.write_text(
+        json.dumps(checkpoint, sort_keys=True, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    client_request_state = request_sender.channel.snapshot()
+    client_response_state = response_origin.snapshot()
+
+    assert request_transport.verify()
+    assert response_transport.verify()
+
+    # Reopen both append-only logs and rebuild every channel/worker object.
+    reopened_request_transport = DurableMailboxTransport(request_path, repair_torn=False)
+    reopened_response_transport = DurableMailboxTransport(response_path, repair_torn=False)
+    restored_checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+    restored_worker, restored_request, restored_response = TransitComputeWorker.from_snapshot(
+        restored_checkpoint,
+        reopened_request_transport,
+        reopened_response_transport,
+    )
+    restored_worker_host = CountingHost()
+    restored_worker.compute_host = restored_worker_host
+    restored_client_request = HypervisorOperationChannel(
+        ReliableChannel.from_snapshot(client_request_state, reopened_request_transport)
+    )
+    restored_client_response = HypervisorOperationResultChannel.from_snapshot(
+        client_response_state,
+        reopened_response_transport,
+    )
+
+    # A fresh transport frame carries the exact same semantic event identity.
+    assert restored_client_request.send(event) == 2
+    replay = restored_worker.serve_once(restored_request, restored_response)
+    assert replay is not None and replay.replayed is True
+    assert replay.effect == first.effect
+    assert restored_worker_host.calls == 0
+
+    replay_result = restored_client_response.receive()
+    assert replay_result is not None
+    assert replay_result.replayed is True
+    assert replay_result.effect == first.effect
+    assert restored_client_request.channel.process_ack() == (2,)
+    assert restored_response.channel.process_ack() == (2,)
+    assert reopened_request_transport.verify()
+    assert reopened_response_transport.verify()
+    assert restored_worker.operating_system.environment.kernel.journal.verify()
