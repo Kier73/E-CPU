@@ -166,6 +166,7 @@ def _make_remote_stack() -> tuple[
     CountingTransport,
     CountingTransport,
     HypervisorOperationChannel,
+    HypervisorOperationChannel,
     HypervisorOperationResultChannel,
     HypervisorOperationResultChannel,
     TransitComputeWorker,
@@ -244,6 +245,7 @@ def _make_remote_stack() -> tuple[
         request_sender,
         request_worker,
         response_worker,
+        response_client,
         worker,
     )
 
@@ -293,6 +295,7 @@ def run_benchmark(iterations: int = 20, warmups: int = 2) -> dict[str, Any]:
         request_sender,
         request_worker,
         response_worker,
+        response_client,
         worker,
     ) = _make_remote_stack()
     remote_stack_setup_ms = (time.perf_counter() - connection_started) * 1_000
