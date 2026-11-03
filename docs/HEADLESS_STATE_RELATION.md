@@ -52,6 +52,11 @@ The real integration suite exercises two HeadlessOS processes exchanging FIFO \`
 3. Divergence when memory, filesystem, mailbox queues or capabilities change.
 4. Rejection of external page backing, trajectory writers and substituted callbacks.
 5. Rejection of tampered event-journal state.
+6. Standard memory syscalls executed by a scheduled program, including a replayable `mmap`, `mem_write` and `exit` sequence.
+7. Service-supervisor start, blocked, input, output and stop transitions.
+8. Owned-network stream descriptor creation, queued writes and reads.
+
+These operation tests apply the same OS-managed actions to restored HeadlessOS instances and compare the resulting complete state witnesses.
 
 Run:
 
