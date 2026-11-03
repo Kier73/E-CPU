@@ -383,6 +383,17 @@ def test_transit_compute_operation_executes_over_mutual_tls(tmp_path) -> None:
         assert returned.effect["registers"]["result"] == 48
         assert _wait_for_ack(request_sender.channel, (1,)) == (1,)
         assert _wait_for_ack(result_sender.channel, (1,)) == (1,)
+
+        # A fresh TLS-carried frame with the same semantic operation identity
+        # must replay the stored result instead of launching another compute VM.
+        assert request_sender.send(event) == 2
+        replay = worker.serve_once(request_receiver, result_sender)
+        assert replay is not None and replay.replayed is True
+        replay_result = result_receiver.receive()
+        assert replay_result is not None and replay_result.replayed is True
+        assert replay_result.effect == served.effect
+        assert _wait_for_ack(request_sender.channel, (2,)) == (2,)
+        assert _wait_for_ack(result_sender.channel, (2,)) == (2,)
         assert receiver.environment.kernel.journal.verify()
     finally:
         for transport in (client_transport, worker_transport):
