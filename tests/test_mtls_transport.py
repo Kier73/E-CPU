@@ -282,6 +282,18 @@ def _tls_pair(
         thread.join(timeout=1.0)
 
 
+
+def _wait_for_operation_result(channel):
+    """Mathematics: observe reliable result FIFO R until the next typed result arrives or finite deadline Δ expires."""
+    deadline = time.monotonic() + 3.0
+    while time.monotonic() < deadline:
+        result = channel.receive()
+        if result is not None:
+            return result
+        time.sleep(0.005)
+    raise AssertionError("timed out waiting for mutually authenticated operation result")
+
+
 @pytest.mark.skipif(shutil.which("openssl") is None, reason="OpenSSL CLI is required to create ephemeral test certificates")
 def test_transit_compute_operation_executes_over_mutual_tls(tmp_path) -> None:
     """Mathematics: authenticated operation path preserves receiver authorization, execution, result, and request/result ACKs."""
@@ -377,7 +389,7 @@ def test_transit_compute_operation_executes_over_mutual_tls(tmp_path) -> None:
         served = worker.serve_once(request_receiver, result_sender)
         assert served is not None and served.executed is True
         assert served.action.value == "allow"
-        returned = result_receiver.receive()
+        returned = _wait_for_operation_result(result_receiver)
         assert returned is not None
         assert returned.effect == served.effect
         assert returned.effect["registers"]["result"] == 48
@@ -389,7 +401,7 @@ def test_transit_compute_operation_executes_over_mutual_tls(tmp_path) -> None:
         assert request_sender.send(event) == 2
         replay = worker.serve_once(request_receiver, result_sender)
         assert replay is not None and replay.replayed is True
-        replay_result = result_receiver.receive()
+        replay_result = _wait_for_operation_result(result_receiver)
         assert replay_result is not None and replay_result.replayed is True
         assert replay_result.effect == served.effect
         assert _wait_for_ack(request_sender.channel, (2,)) == (2,)
