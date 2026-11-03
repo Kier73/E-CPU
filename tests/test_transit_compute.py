@@ -733,7 +733,7 @@ def test_simt_reference_backend_matches_scalar_mailcpu_and_models_divergence_bar
 
 
 def test_simt_reference_kernel_executes_as_a_receiver_authorized_transit_operation() -> None:
-    """Mathematics: transport a portable SIMT query, rederive execute authority at the receiver, and return the reference backend effect."""
+    """Mathematics: a persistent path dispatches a portable SIMT query through the exact backend map after receiver-local authorization."""
 
     import time
 
@@ -770,7 +770,10 @@ def test_simt_reference_kernel_executes_as_a_receiver_authorized_transit_operati
         capabilities=(Capability("/gpu/simt", frozenset({"execute"})),),
         parent_pid=receiver.environment.init_pid,
     )
-    host = TransitSIMTHost()
+    router = TransitBackendRouter()
+    router.register_backend(TransitSIMTHost())
+    worker = TransitComputeWorker(receiver, worker_pid, router)
+    session = TransitComputeSession(worker, request_receiver, response_sender)
     values = [-4, -1, 0, 3, 8]
     event = HypervisorArbitrationEvent(
         "client",
@@ -803,28 +806,29 @@ def test_simt_reference_kernel_executes_as_a_receiver_authorized_transit_operati
         ),
     )
 
-    def authorize(request: HypervisorArbitrationEvent) -> HypervisorArbitrationEvent:
-        """Mathematics: discard peer-supplied grants and derive execute rights from worker PID capabilities."""
-
-        return receiver.hypervisor_authorize_event(worker_pid, request)
-
     try:
+        assert set(router.registered_backends()) == {
+            ("execute deterministic CPU arithmetic program", "/cpu/compute"),
+            ("execute deterministic CPU SIMT reference program", "/gpu/simt"),
+        }
+        assert session.phase == "idle"
         assert request_sender.send(event) == 1
+        deadline = time.monotonic() + 3.0
+        while session.phase != "request-ready" and time.monotonic() < deadline:
+            time.sleep(0.005)
+        assert session.phase == "request-ready"
+
         deadline = time.monotonic() + 3.0
         served = None
         while time.monotonic() < deadline and served is None:
-            served = request_receiver.receive_and_reply_event(
-                receiver.hypervisor_arbitration,
-                authorize,
-                {HypervisorDomain.CPU: host.handle},
-                response_sender,
-            )
+            served = session.serve_once()
             if served is None:
                 time.sleep(0.005)
         assert served is not None
         assert served.action.value == "allow"
         assert served.executed is True
         assert served.effect["outputs"]["absolute"] == [4, 1, 0, 3, 8]
+        assert session.phase == "response-unacknowledged"
 
         deadline = time.monotonic() + 3.0
         returned = None
@@ -846,6 +850,7 @@ def test_simt_reference_kernel_executes_as_a_receiver_authorized_transit_operati
                 time.sleep(0.005)
         assert request_acks == (1,)
         assert response_acks == (1,)
+        assert session.phase == "idle"
         assert receiver.environment.kernel.journal.verify()
     finally:
         for transport in (client_transport, worker_transport):
