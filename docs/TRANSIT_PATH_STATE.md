@@ -80,3 +80,20 @@ The next useful steps are:
 5. Add path scheduling only after fairness, backpressure, quotas, cancellation, and failure recovery are part of the state relation.
 
 No GPU support or cross-host deployment is claimed by the current session abstraction.
+
+
+## Process restart and durable checkpoint files
+
+TransitComputeSession.save_checkpoint(path) is the file-backed persistence boundary for a quiescent path. It first asks the worker to produce its existing checkpoint, so the same queue/acknowledgement preconditions apply. It then writes canonical JSON to a temporary file in the target directory, flushes and fsyncs the file, atomically replaces the prior checkpoint, and attempts to fsync the containing directory. On platforms that support file mode changes, the temporary checkpoint is restricted to owner read/write permissions.
+
+TransitComputeSession.from_checkpoint(path, request_transport, response_transport) reads the checkpoint, then delegates to the same schema, digest, receiver-state, and reliable-channel validation as from_snapshot. The caller must establish and authenticate replacement transports first. The checkpoint does not serialize a live TCP/TLS socket; it restores the logical protocol cursors and semantic ledgers onto a new stream. In the current full-duplex configuration, the same replacement SocketTransport is supplied for both request and response channels.
+
+The process integration test starts a receiver in a spawned OS process, establishes mutual TLS, executes a bounded request, receives and acknowledges the result, and writes the worker checkpoint to disk. It then exits that process, starts a second OS process, loads the checkpoint from disk, and accepts a new mutually authenticated connection. The client also restores its reliable-channel cursors onto the new stream. It resends the same semantic operation in a new reliable transport frame; the restored receiver returns the original effect as a replay rather than starting another computation.
+
+This is stronger than reconstructing objects in one process: the receiver's Python address space is destroyed between execution and restore. The endpoints still run on one test machine over loopback. It is not yet a separate-physical-host deployment, hard-kill/power-loss test, or a general transactional exactly-once guarantee.
+
+### Important crash boundary
+
+The checkpoint is taken only after the response has been acknowledged. Therefore a process failure after an effect is committed but before the updated checkpoint reaches durable storage can restore an older execution ledger. A retry could then repeat an operation if the effect had external side effects. The arithmetic capsule is pure, so this test does not create an external duplicate effect.
+
+To close that window for side-effecting backends, E-CPU will need a durable commit protocol that atomically records the semantic operation identity and its effect/replay result before acknowledging the request, or a transactional outbox/inbox whose recovery semantics cover both the effect and the message. The current checkpoint API is a durable quiescent continuation, not that transaction.
