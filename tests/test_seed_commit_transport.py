@@ -153,11 +153,11 @@ def test_remote_seed_commit_reuses_cached_result_when_response_send_fails(monkey
     try:
         request_sender.send(_request(machine, pid))
         with pytest.raises(OSError, match="lost response"):
-            request_receiver.receive_and_commit(machine, result_sender)
+            _receive_commit(request_receiver, machine, result_sender)
         assert machine.vm.scheduler.tick == 1
-        replay = request_receiver.receive_and_commit(machine, result_sender)
+        replay = _receive_commit(request_receiver, machine, result_sender)
         assert replay is not None and replay.accepted and replay.replayed
-        response = result_receiver.receive()
+        response = _receive_result(result_receiver)
         assert response is not None and response.accepted
         assert machine.vm.scheduler.tick == 1
         assert machine.seed_admission.current("remote-system").seed.coordinate == 1
@@ -174,12 +174,12 @@ def test_remote_seed_commit_result_duplicate_is_semantic_replay() -> None:
     request_sender, request_receiver, result_sender, result_receiver = _channels(origin_transport, replica_transport)
     try:
         request_sender.send(_request(machine, pid))
-        first = request_receiver.receive_and_commit(machine, result_sender)
+        first = _receive_commit(request_receiver, machine, result_sender)
         assert first is not None
-        delivered = result_receiver.receive()
+        delivered = _receive_result(result_receiver)
         assert delivered is not None and not delivered.replayed
         result_sender.channel.tick()
-        replay = result_receiver.receive()
+        replay = _receive_result(result_receiver)
         assert replay is not None and replay.replayed
         assert replay.request_fingerprint == delivered.request_fingerprint
         assert machine.vm.scheduler.tick == 1
@@ -197,13 +197,13 @@ def test_remote_seed_commit_same_input_identity_on_new_frame_is_replayed() -> No
     try:
         request = _request(machine, pid)
         request_sender.send(request)
-        first = request_receiver.receive_and_commit(machine, result_sender)
+        first = _receive_commit(request_receiver, machine, result_sender)
         assert first is not None and first.accepted and not first.replayed
-        assert result_receiver.receive() is not None
+        assert _receive_result(result_receiver) is not None
         request_sender.send(request)
-        replay = request_receiver.receive_and_commit(machine, result_sender)
+        replay = _receive_commit(request_receiver, machine, result_sender)
         assert replay is not None and replay.accepted and replay.replayed
-        assert result_receiver.receive() is not None
+        assert _receive_result(result_receiver) is not None
         assert machine.vm.scheduler.tick == 1
     finally:
         origin_transport.close()
@@ -229,10 +229,10 @@ def test_remote_seed_commit_refuses_stale_precondition_without_mutation() -> Non
             "f" * 64,
         )
         request_sender.send(stale)
-        result = request_receiver.receive_and_commit(machine, result_sender)
+        result = _receive_commit(request_receiver, machine, result_sender)
         assert result is not None and not result.accepted
         assert "precondition" in (result.reason or "")
-        assert result_receiver.receive() == result
+        assert _receive_result(result_receiver) == result
         assert machine.snapshot() == before
     finally:
         origin_transport.close()
@@ -247,14 +247,14 @@ def test_remote_seed_commit_refuses_conflicting_input_sequence() -> None:
     request_sender, request_receiver, result_sender, result_receiver = _channels(origin_transport, replica_transport)
     try:
         request_sender.send(_request(machine, pid, sequence=1, values=(42,)))
-        first = request_receiver.receive_and_commit(machine, result_sender)
+        first = _receive_commit(request_receiver, machine, result_sender)
         assert first is not None and first.accepted
-        assert result_receiver.receive() is not None
+        assert _receive_result(result_receiver) is not None
         request_sender.send(_request(machine, pid, sequence=1, values=(99,)))
-        conflict = request_receiver.receive_and_commit(machine, result_sender)
+        conflict = _receive_commit(request_receiver, machine, result_sender)
         assert conflict is not None and not conflict.accepted
         assert "conflicting" in (conflict.reason or "")
-        assert result_receiver.receive() == conflict
+        assert _receive_result(result_receiver) == conflict
         assert machine.vm.scheduler.tick == 1
     finally:
         origin_transport.close()
@@ -269,8 +269,8 @@ def test_remote_seed_commit_ledgers_round_trip_after_execution() -> None:
     request_sender, request_receiver, result_sender, result_receiver = _channels(origin_transport, replica_transport)
     try:
         request_sender.send(_request(machine, pid))
-        assert request_receiver.receive_and_commit(machine, result_sender) is not None
-        assert result_receiver.receive() is not None
+        assert _receive_commit(request_receiver, machine, result_sender) is not None
+        assert _receive_result(result_receiver) is not None
         request_snapshot = request_receiver.snapshot()
         result_snapshot = result_receiver.snapshot()
         restored_request = HypervisorSeedCommitChannel.from_snapshot(request_snapshot, replica_transport)
