@@ -9,6 +9,7 @@ from mailcpu import (
     HypervisorDomain,
     HypervisorOperationChannel,
     HypervisorOperationResultChannel,
+    HypervisorPolicy,
     HypervisorRequest,
     ReliabilityPolicy,
     ReliableChannel,
@@ -81,6 +82,12 @@ def test_pure_compute_operation_executes_inside_mailcpu_over_real_tcp() -> None:
         "compute",
     )
     receiver = HeadlessOS()
+    receiver.hypervisor.policy = HypervisorPolicy(
+        review_confidence=0.0,
+        automatic_confidence=0.0,
+        destructive_confidence=0.0,
+        danger_review_probability=1.0,
+    )
     compute_host = TransitComputeHost()
     handler_calls = {"count": 0}
 
