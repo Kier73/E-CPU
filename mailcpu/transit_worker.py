@@ -251,11 +251,26 @@ class TransitComputeWorker:
             if actual_bounds != dict(raw_bounds):
                 raise ValueError("restored backend compute bounds do not match checkpoint")
 
-        expected_manifest = (
-            tuple(tuple(item) for item in state["backend_manifest"])
-            if expected_version == 2
-            else ((TransitComputeHost.operation_name, TransitComputeHost.resource_name),)
-        )
+        if expected_version == 2:
+            raw_manifest = state.get("backend_manifest")
+            if not isinstance(raw_manifest, list) or not raw_manifest:
+                raise ValueError("transit worker backend manifest must be a non-empty list")
+            manifest_items: list[tuple[str, str]] = []
+            for item in raw_manifest:
+                if (
+                    not isinstance(item, list)
+                    or len(item) != 2
+                    or not all(isinstance(part, str) and part for part in item)
+                ):
+                    raise ValueError("transit worker backend manifest entries must be non-empty string pairs")
+                manifest_items.append((item[0], item[1]))
+            expected_manifest = tuple(manifest_items)
+            if tuple(sorted(set(expected_manifest))) != expected_manifest:
+                raise ValueError("transit worker backend manifest must be sorted and unique")
+        else:
+            expected_manifest = (
+                (TransitComputeHost.operation_name, TransitComputeHost.resource_name),
+            )
         actual_manifest = cls._backend_manifest(host)
         if actual_manifest != expected_manifest:
             raise ValueError(
