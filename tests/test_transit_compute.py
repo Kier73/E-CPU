@@ -279,3 +279,107 @@ def test_persistent_worker_serves_multiple_independent_requests() -> None:
         ):
             if not transport.closed:
                 transport.close()
+
+
+def test_reconstructed_worker_restores_execution_ledger_and_replays_without_reexecution() -> None:
+    """Mathematics: restore receiver and channel snapshots, then require E[I] replay without a second compute invocation."""
+
+    from mailcpu import TransitComputeWorker
+
+    class CountingHost(TransitComputeHost):
+        """A test host that exposes the number of first-time VM executions."""
+
+        def __init__(self) -> None:
+            """Mathematics: initialize invocation count c=0 for the test execution witness."""
+            super().__init__()
+            self.calls = 0
+
+        def handle(self, event: HypervisorArbitrationEvent) -> dict[str, object]:
+            """Mathematics: increment c exactly when the arithmetic host is entered for a first-seen operation."""
+            self.calls += 1
+            return super().handle(event)
+
+    request_origin_transport, request_worker_transport = _tcp_pair("origin", "worker")
+    response_worker_transport, response_origin_transport = _tcp_pair("worker", "origin")
+    policy = ReliabilityPolicy(lease_ticks=1, max_attempts=3, window_size=4)
+    request_origin = HypervisorOperationChannel(
+        ReliableChannel(request_origin_transport, "origin", "worker", "compute", policy)
+    )
+    request_worker = HypervisorOperationChannel(
+        ReliableChannel(request_worker_transport, "worker", "worker", "compute", policy, peer="origin")
+    )
+    response_worker = HypervisorOperationResultChannel(
+        ReliableChannel(response_worker_transport, "worker", "origin", "compute.result", policy),
+        "origin",
+        "compute",
+    )
+    response_origin = HypervisorOperationResultChannel(
+        ReliableChannel(response_origin_transport, "origin", "origin", "compute.result", policy, peer="worker"),
+        "origin",
+        "compute",
+    )
+    receiver = HeadlessOS()
+    receiver.hypervisor.policy = HypervisorPolicy(
+        review_confidence=0.0,
+        automatic_confidence=0.0,
+        destructive_confidence=0.0,
+        danger_review_probability=1.0,
+    )
+    first_host = CountingHost()
+    worker = TransitComputeWorker(receiver, receiver.environment.init_pid, first_host)
+    event = _event(source="untrusted")
+
+    try:
+        assert request_origin.send(event) == 1
+        first = worker.serve_once(request_worker, response_worker)
+        assert first is not None and first.executed is True and first.replayed is False
+        first_response = response_origin.receive()
+        assert first_response is not None and first_response.effect == first.effect
+        assert request_origin.channel.process_ack() == (1,)
+        assert response_worker.channel.process_ack() == (1,)
+        assert first_host.calls == 1
+
+        # Reconstruct every receiver-owned semantic ledger from its supported snapshot.
+        restored_receiver = HeadlessOS.from_snapshot(receiver.snapshot())
+        restored_request = HypervisorOperationChannel(
+            ReliableChannel.from_snapshot(
+                request_worker.channel.snapshot(),
+                request_worker_transport,
+            )
+        )
+        restored_response = HypervisorOperationResultChannel.from_snapshot(
+            response_worker.snapshot(),
+            response_worker_transport,
+        )
+        restarted_host = CountingHost()
+        restarted_worker = TransitComputeWorker(
+            restored_receiver,
+            restored_receiver.environment.init_pid,
+            restarted_host,
+        )
+
+        # A fresh reliable frame carries the same semantic operation identity and payload.
+        assert request_origin.send(event) == 2
+        replay = restarted_worker.serve_once(restored_request, restored_response)
+        assert replay is not None
+        assert replay.executed is True
+        assert replay.replayed is True
+        assert replay.effect == first.effect
+        assert restarted_host.calls == 0
+
+        replay_response = response_origin.receive()
+        assert replay_response is not None
+        assert replay_response.replayed is True
+        assert replay_response.effect == first.effect
+        assert request_origin.channel.process_ack() == (2,)
+        assert restored_response.channel.process_ack() == (2,)
+        assert restored_receiver.environment.kernel.journal.verify()
+    finally:
+        for transport in (
+            request_origin_transport,
+            request_worker_transport,
+            response_worker_transport,
+            response_origin_transport,
+        ):
+            if not transport.closed:
+                transport.close()
