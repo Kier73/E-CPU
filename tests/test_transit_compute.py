@@ -82,6 +82,11 @@ def test_pure_compute_operation_executes_inside_mailcpu_over_real_tcp() -> None:
         "compute",
     )
     receiver = HeadlessOS()
+    worker_pid = receiver.environment.kernel.spawn(
+        "transit-compute-worker",
+        capabilities=(Capability("/cpu/compute", frozenset({"execute"})),),
+        parent_pid=receiver.environment.init_pid,
+    )
     receiver.hypervisor.policy = HypervisorPolicy(
         review_confidence=0.0,
         automatic_confidence=0.0,
@@ -94,7 +99,7 @@ def test_pure_compute_operation_executes_inside_mailcpu_over_real_tcp() -> None:
     def authorize(event: HypervisorArbitrationEvent) -> HypervisorArbitrationEvent:
         """Mathematics: derive granted rights from receiver-local capability state G(init, resource), ignoring the sender's claim."""
 
-        return receiver.hypervisor_authorize_event(receiver.environment.init_pid, event)
+        return receiver.hypervisor_authorize_event(worker_pid, event)
 
     def execute(event: HypervisorArbitrationEvent) -> dict[str, object]:
         """Mathematics: map one authorized event to its isolated E-CPU execution result and increment the local invocation witness."""
@@ -248,7 +253,12 @@ def test_persistent_worker_serves_multiple_independent_requests() -> None:
         destructive_confidence=0.0,
         danger_review_probability=1.0,
     )
-    worker = TransitComputeWorker(receiver, receiver.environment.init_pid)
+    worker_pid = receiver.environment.kernel.spawn(
+        "transit-compute-worker",
+        capabilities=(Capability("/cpu/compute", frozenset({"execute"})),),
+        parent_pid=receiver.environment.init_pid,
+    )
+    worker = TransitComputeWorker(receiver, worker_pid)
 
     try:
         outcomes = []
@@ -325,8 +335,13 @@ def test_reconstructed_worker_restores_execution_ledger_and_replays_without_reex
         destructive_confidence=0.0,
         danger_review_probability=1.0,
     )
+    worker_pid = receiver.environment.kernel.spawn(
+        "transit-compute-worker",
+        capabilities=(Capability("/cpu/compute", frozenset({"execute"})),),
+        parent_pid=receiver.environment.init_pid,
+    )
     first_host = CountingHost()
-    worker = TransitComputeWorker(receiver, receiver.environment.init_pid, first_host)
+    worker = TransitComputeWorker(receiver, worker_pid, first_host)
     event = _event(source="untrusted")
 
     try:
