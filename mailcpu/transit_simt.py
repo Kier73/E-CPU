@@ -39,6 +39,9 @@ class TransitSIMTError(ValueError):
 class TransitSIMTHost:
     """Mathematics: evaluate a bounded lockstep transition relation over lane valuations, active masks, structured reconvergence, and converged barriers."""
 
+    operation_name = _OPERATION
+    resource_name = _RESOURCE
+
     def __init__(
         self,
         *,
