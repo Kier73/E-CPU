@@ -1018,6 +1018,21 @@ def test_private_process_memory_transfer_runs_as_a_causally_receipted_transit_op
             time.sleep(0.005)
         raise AssertionError("timed out waiting for memory transfer request")
 
+    def wait_for_ack(channel, expected):
+        """Mathematics: accumulate a finite ordered ACK prefix until every expected sequence is observed."""
+
+        expected_sequences = tuple(expected)
+        acknowledged = []
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline:
+            for sequence in channel.process_ack():
+                if sequence not in acknowledged:
+                    acknowledged.append(sequence)
+            if tuple(acknowledged) == expected_sequences:
+                return tuple(acknowledged)
+            time.sleep(0.005)
+        raise AssertionError("timed out waiting for reliable acknowledgements")
+
     try:
         assert set(router.registered_backends()) == {
             ("execute CPU instruction memory transfer", "/memory/transfer"),
@@ -1133,8 +1148,16 @@ def test_private_memory_transfer_refuses_out_of_bounds_and_shared_pages() -> Non
                     "destination_pid": destination_pid,
                     "destination_address": 0,
                     "length": length,
-                    "source_digest": source_digest or hashlib.sha256(b"bounded").hexdigest(),
-                    "destination_digest": destination_digest or hashlib.sha256(b"untouched").hexdigest(),
+                    "source_digest": (
+                        source_digest
+                        if source_digest is not None
+                        else hashlib.sha256(b"bounded").hexdigest()
+                    ),
+                    "destination_digest": (
+                        destination_digest
+                        if destination_digest is not None
+                        else hashlib.sha256(destination_memory.read(0, length)).hexdigest()
+                    ),
                 },
                 frozenset({"execute"}),
                 frozenset({"execute"}),
@@ -1165,7 +1188,7 @@ def test_private_memory_transfer_refuses_out_of_bounds_and_shared_pages() -> Non
     assert restored_destination.read(0, len(b"bounded")) == b"bounded"
     assert replay_effect["data_digest"] == first_effect["data_digest"]
     assert replay_effect["completion_receipt"] == first_effect["completion_receipt"]
-    before = destination_memory.read(0, len(b"bounded"))
+    before = destination_memory.read(0, len(b"untouched"))
 
     try:
         host.handle(request(8190, 16))
