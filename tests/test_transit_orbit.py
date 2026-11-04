@@ -76,7 +76,7 @@ def _transports(origin: str, worker: str) -> dict[str, SocketTransport]:
 
 
 def _harness(origin: str, worker: str) -> dict[str, object]:
-    """Create an authenticated-by-local-identity loopback path with receiver-local authority."""
+    """Create a loopback path whose receiver enforces local execution authority."""
     transports = _transports(origin, worker)
     policy = ReliabilityPolicy(lease_ticks=1, max_attempts=3, window_size=8)
     request_origin = HypervisorOperationChannel(
@@ -276,10 +276,18 @@ def test_orbit_checkpoint_restores_cursor_on_replacement_transports(
             path_id: harness["session"].snapshot()
             for path_id, harness in zip(("path-a", "path-b"), paths)
         }
+        client_snapshots = {
+            path_id: {
+                "request": harness["request_origin"].channel.snapshot(),
+                "response": harness["response_origin"].snapshot(),
+            }
+            for path_id, harness in zip(("path-a", "path-b"), paths)
+        }
         scheduler_path = tmp_path / "orbit.json"
         scheduler.save_checkpoint(scheduler_path)
 
         restored_sessions = {}
+        restored_clients = {}
         for path_id, harness in zip(("path-a", "path-b"), paths):
             fresh = _transports(harness["origin"], harness["worker"])
             replacement_transports.append(fresh)
@@ -288,6 +296,18 @@ def test_orbit_checkpoint_restores_cursor_on_replacement_transports(
                 fresh["request_worker"],
                 fresh["response_worker"],
             )
+            restored_clients[path_id] = {
+                "request": HypervisorOperationChannel(
+                    ReliableChannel.from_snapshot(
+                        client_snapshots[path_id]["request"],
+                        fresh["request_origin"],
+                    )
+                ),
+                "response": HypervisorOperationResultChannel.from_snapshot(
+                    client_snapshots[path_id]["response"],
+                    fresh["response_origin"],
+                ),
+            }
             assert (
                 restored_sessions[path_id].snapshot()["digest"]
                 == session_snapshots[path_id]["digest"]
@@ -301,10 +321,23 @@ def test_orbit_checkpoint_restores_cursor_on_replacement_transports(
         assert restored.cursor_path_id == "path-b"
         assert restored.receipt_head == scheduler.receipt_head
 
-        # The new TCP transports are deliberately not part of the logical path
-        # contract; the restored execution/checkpoint identity is.
-        assert restored.step().receipt.disposition == "idle"
-        assert restored.cursor_path_id == "path-b"
+        # Replacement transports carry the same logical path. The cursor is
+        # retained, and a new request traverses the restored path on the new TCP
+        # connection without reconstructing its previous execution from scratch.
+        path_b = restored_clients["path-b"]
+        assert path_b["request"].send(_event("origin-b", 1)) == 1
+        resumed = restored.step()
+        assert resumed.receipt.path_id == "path-b"
+        assert resumed.receipt.disposition == "processed"
+        assert resumed.result is not None
+        assert resumed.result.action.value == "allow"
+        assert resumed.result.effect["registers"]["result"] == 48
+
+        resumed_result = path_b["response"].receive()
+        assert resumed_result is not None
+        assert resumed_result.effect["registers"]["result"] == 48
+        assert path_b["request"].channel.process_ack() == (1,)
+        assert restored_sessions["path-b"].response.channel.process_ack() == (1,)
     finally:
         _close(paths)
         for transports in replacement_transports:
