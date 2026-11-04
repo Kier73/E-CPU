@@ -258,6 +258,10 @@ def test_idle_orbit_quantum_is_receipted_and_does_not_rotate_cursor() -> None:
             [first.receipt, second.receipt],
             initial_digest="f" * 64,
         )
+        assert not verify_transit_orbit_receipts(
+            [first.receipt, second.receipt],
+            initial_tick=1,
+        )
     finally:
         _close(paths)
 
@@ -427,9 +431,17 @@ def test_orbit_scheduler_waits_for_response_window_before_dispatch() -> None:
         assert session.response.channel.process_ack() == (2,)
 
         assert scheduler.state()["dispatch_counts"] == {"path-a": 2}
+        assert scheduler.state()["backpressure_ticks"] == 1
         assert verify_transit_orbit_receipts(
             [first.receipt, blocked.receipt, second.receipt]
         )
+        restored = TransitOrbitScheduler.from_snapshot(
+            scheduler.snapshot(),
+            {"path-a": session},
+        )
+        assert restored.logical_tick == 3
+        assert restored.state()["backpressure_ticks"] == 1
+        assert restored.receipt_head == scheduler.receipt_head
         assert session.worker.operating_system.environment.kernel.journal.verify()
     finally:
         _close([harness])
