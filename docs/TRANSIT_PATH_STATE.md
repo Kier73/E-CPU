@@ -192,10 +192,17 @@ of the current ready set; it is not a worker instruction or a wall-clock sleep.
 This is deterministic interleaving, not global lockstep. A path with multiple
 queued requests can make progress over successive turns, while other ready
 paths receive intervening turns. Under the assumptions that the scheduler is
-called repeatedly and a path remains ready, cyclic selection prevents a
-continuously ready path from being skipped indefinitely. The current version
-does not implement dynamic path admission/removal, cancellation, queue
-backpressure policy, deadline scheduling, or parallel execution. Existing
+called repeatedly and a path remains dispatchable, cyclic selection prevents a
+continuously dispatchable path from being skipped indefinitely. Before invoking
+a worker, the scheduler also requires a free slot in that session's bounded
+response channel. If a request is ready but the response window is full, the
+scheduler records a `backpressured` receipt and does not consume the request
+or invoke its handler. After the caller receives and acknowledges an earlier
+result, a later quantum can resume that path.
+
+This is a narrow admission guard, not a general queue-management policy. The
+current version does not implement dynamic path admission/removal, cancellation,
+queue capacity planning, deadline scheduling, or parallel execution. Existing
 reliable-channel windows and receiver hypervisor checks remain in force.
 
 ### Logical path identity and physical transport
