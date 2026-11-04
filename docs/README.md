@@ -26,6 +26,7 @@ Index of specification documents. Documents use defined terms from `GLOSSARY.md`
 | 18 | [`STATE_SPACE_NAVIGATION.md`](STATE_SPACE_NAVIGATION.md) | Symbolic capacity, finite trajectories, and time-budgeted state-space navigation |
 | 19 | [`TRANSIT_PATH_MODES.md`](TRANSIT_PATH_MODES.md) | One path switching between RRNS memory, RTT sensing, and bounded processing |
 | 20 | [`TRANSIT_PATH_BINDING.md`](TRANSIT_PATH_BINDING.md) | Live session binding for requester RTT, receiver service time, queue state, ACKs, and retries |
+| 21 | [`TEMPORAL_CLOCK_FABRIC.md`](TEMPORAL_CLOCK_FABRIC.md) | Process-selected wall, monotonic, causal, scheduler, event, chronon, and chemical temporal domains |
 
 ## Document classes
 
