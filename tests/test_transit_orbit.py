@@ -16,6 +16,7 @@ from mailcpu import (
     SocketTransport,
     TransitComputeSession,
     TransitComputeWorker,
+    TransitOrbitReceipt,
     TransitOrbitScheduler,
     TransitOrbitSchedulerError,
     verify_transit_orbit_receipts,
@@ -217,9 +218,22 @@ def test_orbit_scheduler_round_robins_ready_paths_without_global_lockstep() -> N
             "path-a": 2,
             "path-b": 2,
         }
-        assert verify_transit_orbit_receipts(
-            [step.receipt for step in steps]
-        )
+        portable_receipts = [
+            TransitOrbitReceipt.from_dict(step.receipt.to_dict())
+            for step in steps
+        ]
+        assert [receipt.to_dict() for receipt in portable_receipts] == [
+            step.receipt.to_dict() for step in steps
+        ]
+        assert verify_transit_orbit_receipts(portable_receipts)
+        tampered_receipt = steps[0].receipt.to_dict()
+        tampered_receipt["action"] = "deny"
+        try:
+            TransitOrbitReceipt.from_dict(tampered_receipt)
+        except TransitOrbitSchedulerError:
+            pass
+        else:
+            raise AssertionError("receipt reconstruction accepted a changed payload")
 
         for harness in paths:
             received = _receive_and_ack(harness, 2)
