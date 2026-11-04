@@ -10,6 +10,7 @@ from mailcpu import (
     HypervisorOperationResultChannel,
     HypervisorPolicy,
     HypervisorRequest,
+    InMemoryTransport,
     ReliabilityPolicy,
     ReliableChannel,
     SocketTransport,
@@ -18,7 +19,6 @@ from mailcpu import (
     TransitPathBindingError,
     TransitPathSessionBinding,
     TransitPathState,
-    TransitPathStateError,
 )
 
 
