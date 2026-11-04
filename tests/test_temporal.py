@@ -119,7 +119,7 @@ def test_monotonic_duration_requires_same_actor_and_segment() -> None:
 
 def test_restore_preserves_accumulated_elapsed_and_opens_new_segment() -> None:
     """Checkpoint restore preserves observed duration but does not count offline time."""
-    first_clock = ManualClock(100, 140)
+    first_clock = ManualClock(100, 100)
     context = TemporalContext(
         "logical-worker-4",
         _profile(ClockDomain.MONOTONIC, ClockDomain.CAUSAL),
@@ -130,7 +130,7 @@ def test_restore_preserves_accumulated_elapsed_and_opens_new_segment() -> None:
     first_clock.set(140)
     checkpoint = context.snapshot()
 
-    restored_clock = ManualClock(9_000, 9_050)
+    restored_clock = ManualClock(9_000, 9_000)
     restored = TemporalContext.from_snapshot(
         checkpoint,
         monotonic_ns=restored_clock,
