@@ -164,6 +164,7 @@ class TransitPathSessionBinding:
         self._queue_observations: list[TransitPathQueueObservation] = []
         self._service_samples: list[TransitPathServiceSample] = []
         self._protocol_events: list[dict[str, Any]] = []
+        self._dropped_observations = {"queue": 0, "service": 0, "protocol": 0}
         self._pending_started: dict[int, deque[tuple[int, int]]] = defaultdict(deque)
         self._request_frame_semantics: dict[int, int] = {}
         self._response_frame_semantics: dict[int, int] = {}
@@ -217,9 +218,10 @@ class TransitPathSessionBinding:
         return tuple(dict(item) for item in self._protocol_events)
 
     def _check_capacity(self, collection: list[Any], label: str) -> None:
-        """Mathematics: Enforce the configured finite observation capacity before appending another record."""
+        """Mathematics: Keep telemetry bounded by evicting the oldest record, never by blocking a protocol transition."""
         if len(collection) >= self.max_observations:
-            raise TransitPathBindingError(f"{label} observation capacity is exhausted")
+            del collection[0]
+            self._dropped_observations[label] += 1
 
     def _capture_queue(self, cause: str) -> TransitPathQueueObservation:
         """Mathematics: Observe readiness and sender windows as a diagnostic projection without consuming or acknowledging frames."""
@@ -262,7 +264,12 @@ class TransitPathSessionBinding:
         try:
             self.state.record_round_trip(sequence, started_ns, completed_ns)
         except TransitPathStateError as exc:
-            raise TransitPathBindingError(f"round-trip observation rejected: {exc}") from exc
+            self._append_protocol_event({
+                "kind": "sensor-observation-rejected",
+                "observation": "round-trip",
+                "operation_sequence": sequence,
+                "reason": str(exc),
+            })
         finally:
             if previous_mode != "sensor":
                 self.state.set_mode(previous_mode)
@@ -421,7 +428,7 @@ class TransitPathSessionBinding:
         }
 
     def state(self) -> dict[str, Any]:
-        """Mathematics: Expose the combined path-state, session phase, telemetry counts, and current queue projection without mutating execution state."""
+        """Mathematics: Record one fresh queue observation and expose the combined path-state and telemetry projection."""
         queue = self._capture_queue("state-observed")
         return {
             "path_id": self.path_id,
@@ -465,6 +472,7 @@ class TransitPathSessionBinding:
             "queue_observations": [item.to_dict() for item in self._queue_observations],
             "service_samples": [item.to_dict() for item in self._service_samples],
             "protocol_events": list(self._protocol_events),
+            "dropped_observations": dict(self._dropped_observations),
         }
         return {
             "format": _FORMAT,
@@ -523,6 +531,13 @@ class TransitPathSessionBinding:
         if not isinstance(observation_tick, int) or isinstance(observation_tick, bool) or observation_tick < 0:
             raise TransitPathBindingError("binding observation_tick must be a non-negative integer")
         binding._observation_tick = observation_tick
+        raw_dropped = raw_state["dropped_observations"]
+        if not isinstance(raw_dropped, Mapping) or set(raw_dropped) != {"queue", "service", "protocol"}:
+            raise TransitPathBindingError("dropped observation counters are invalid")
+        for label, value in raw_dropped.items():
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                raise TransitPathBindingError("dropped observation counters must be non-negative integers")
+            binding._dropped_observations[label] = value
 
         queue_items = raw_state["queue_observations"]
         service_items = raw_state["service_samples"]
@@ -549,8 +564,12 @@ class TransitPathSessionBinding:
                 for flag in ("request_ready", "response_client_ready"):
                     if not isinstance(item[flag], bool):
                         raise TransitPathBindingError("queue observation flags must be Boolean")
-                for number in ("tick", "request_receive_cursor", "request_sender_available_window", "response_sender_available_window"):
+                for number in ("tick", "request_receive_cursor"):
                     cls._positive_sequence(item[number], number)
+                for number in ("request_sender_available_window", "response_sender_available_window"):
+                    value = item[number]
+                    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                        raise TransitPathBindingError(f"{number} must be a non-negative integer")
                 for numbers in ("request_sender_pending", "response_sender_pending"):
                     if not isinstance(item[numbers], list):
                         raise TransitPathBindingError("queue pending sequences must be lists")
