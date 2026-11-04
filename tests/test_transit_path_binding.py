@@ -245,7 +245,7 @@ def test_binding_rejects_checkpoint_with_unacknowledged_response() -> None:
         binding.send_request(_event(1))
         assert binding.serve_once() is not None
         assert binding.session.phase == "response-unacknowledged"
-        with pytest.raises(TransitPathBindingError, match="not idle"):
+        with pytest.raises(TransitPathBindingError, match="unmeasured operation round trip"):
             binding.snapshot()
     finally:
         _close(harness)
