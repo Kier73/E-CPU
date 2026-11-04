@@ -27,6 +27,8 @@ Each call to `step()` submits one internal operation through `HeadlessOS.hypervi
 
 The coordinator derives granted rights from the local process capability set. Without `schedule` on the resource, the scheduler is not advanced and the inbound request remains queued. When the coordinator admits the control operation, the scheduler selects at most one path. The selected `TransitComputeWorker` then performs its existing receiver-side authorization before dispatching the actual computation.
 
+The orbit controller exposes one fixed internal handler under every executable domain label, except `REVIEW`. This is intentional: the classifier's domain proposal is advisory and must not redirect this single-purpose control primitive to an unrelated subsystem. The policy action still gates the handler, and the exact `/system/transit/orbit:schedule` capability remains necessary. A `REVIEW` result has no handler and therefore cannot advance the scheduler.
+
 This gives two distinct gates: permission to operate the local path scheduler, and permission to perform the requested operation on its receiving node. The first does not imply the second.
 
 ## Automatic operation and continuity
