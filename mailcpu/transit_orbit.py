@@ -375,7 +375,7 @@ class TransitOrbitScheduler:
         return receipt
 
     def step(self) -> TransitOrbitStep:
-        """Advance at most one ready path by one request; an all-idle scan is one logical quantum."""
+        """Dispatch at most one admissible request, or receipt an idle/backpressured observation."""
         count = len(self._path_order)
         selected_index: int | None = None
         blocked_index: int | None = None
@@ -444,7 +444,7 @@ class TransitOrbitScheduler:
         return TransitOrbitStep(receipt, result)
 
     def run(self, max_quanta: int) -> tuple[TransitOrbitStep, ...]:
-        """Run a bounded number of quanta, stopping early when every path is idle."""
+        """Run bounded quanta, stopping when no path can dispatch without external progress."""
         if (
             not isinstance(max_quanta, int)
             or isinstance(max_quanta, bool)
