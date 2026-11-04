@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from mailcpu import (
     Capability,
     HeadlessOS,
