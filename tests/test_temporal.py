@@ -340,13 +340,12 @@ def test_profile_serialization_is_canonical_and_duplicate_domains_are_refused() 
 
 def test_invalid_clock_source_values_are_rejected() -> None:
     """Clock providers must return integer nanoseconds and cannot use Boolean values."""
-    context = TemporalContext(
-        "bad-clock",
-        _profile(ClockDomain.MONOTONIC),
-        monotonic_ns=lambda: True,
-    )
     with pytest.raises(TemporalError):
-        context.monotonic_reading()
+        TemporalContext(
+            "bad-clock",
+            _profile(ClockDomain.MONOTONIC),
+            monotonic_ns=lambda: True,
+        )
 
 
 def test_scheduler_and_event_counters_do_not_mutate_causal_clock() -> None:
