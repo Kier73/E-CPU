@@ -24,6 +24,7 @@ class TransitPathStateError(ValueError):
 
 
 def _integer(value: Any, label: str, minimum: int | None = None) -> int:
+    """Validate a non-Boolean integer and its optional lower bound."""
     if not isinstance(value, int) or isinstance(value, bool):
         raise TransitPathStateError(f"{label} must be an integer")
     if minimum is not None and value < minimum:
@@ -32,6 +33,7 @@ def _integer(value: Any, label: str, minimum: int | None = None) -> int:
 
 
 def _finite_number(value: Any, label: str, minimum: float | None = None) -> float:
+    """Validate a finite numeric value and its optional lower bound."""
     if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value):
         raise TransitPathStateError(f"{label} must be finite")
     result = float(value)
@@ -41,6 +43,7 @@ def _finite_number(value: Any, label: str, minimum: float | None = None) -> floa
 
 
 def _canonical(value: Any) -> bytes:
+    """Serialize a value as stable finite canonical JSON bytes."""
     try:
         return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
     except (TypeError, ValueError) as exc:
@@ -48,16 +51,19 @@ def _canonical(value: Any) -> bytes:
 
 
 def _digest(value: Any) -> str:
+    """Compute the SHA-256 digest of canonical JSON state."""
     return hashlib.sha256(_canonical(value)).hexdigest()
 
 
 def _path_id(value: Any) -> str:
+    """Validate the stable logical path identifier."""
     if not isinstance(value, str) or not value.strip() or len(value) > 128 or "\x00" in value:
         raise TransitPathStateError("path_id must be a non-empty string of at most 128 characters")
     return value
 
 
 def _validated_moduli(moduli: Sequence[int], k: int) -> tuple[tuple[int, ...], int]:
+    """Validate the RRNS modulus set and return its information capacity."""
     if not isinstance(moduli, Sequence) or isinstance(moduli, (str, bytes)):
         raise TransitPathStateError("moduli must be a finite integer sequence")
     values = tuple(_integer(m, "modulus", 2) for m in moduli)
@@ -86,6 +92,7 @@ class PathSensorSample:
     recovered: bool
 
     def to_dict(self) -> dict[str, Any]:
+        """Return the immutable observation record as a JSON-compatible dictionary."""
         return asdict(self)
 
 
@@ -108,6 +115,7 @@ class PathSensorSummary:
     slot_interval_us: int
 
     def to_dict(self) -> dict[str, Any]:
+        """Return the immutable observation record as a JSON-compatible dictionary."""
         return asdict(self)
 
 
@@ -147,10 +155,12 @@ class TransitPathState:
         self._highest_sequence: int | None = None
 
     def _advance(self) -> int:
+        """Advance and return the path-local logical transition counter."""
         self.logical_tick += 1
         return self.logical_tick
 
     def _require_mode(self, expected: str) -> None:
+        """Reject an operation unless the path currently has the required role."""
         if self.mode != expected:
             raise TransitPathStateError(f"operation requires {expected!r} mode, current mode is {self.mode!r}")
 
@@ -271,6 +281,7 @@ class TransitPathState:
         return self.record_sample(sequence, None, delivered=False)
 
     def _build_summary(self) -> PathSensorSummary:
+        """Derive sensor metrics from retained observations without mutating history."""
         delivered = [sample.latency_us for sample in self.sensor_samples if sample.delivered and not sample.duplicate]
         deltas = [abs(right - left) for left, right in zip(delivered, delivered[1:])]
         mean = None if not delivered else sum(delivered) // len(delivered)
@@ -350,6 +361,7 @@ class TransitPathState:
         return group.group_id
 
     def _engine_state(self) -> dict[str, Any]:
+        """Serialize the delay engine's groups, slots, timing estimate, and allocation cursors."""
         groups = []
         for group_id, group in sorted(self.engine.groups.items()):
             groups.append({
@@ -401,6 +413,7 @@ class TransitPathState:
 
     @staticmethod
     def _restore_engine(raw: Any) -> DelayLoopEngine:
+        """Rebuild a delay engine only after validating its complete retained state."""
         if not isinstance(raw, Mapping) or set(raw) != {
             "nominal_rtt_s", "slot_clamping_factor", "packet_len", "jitter_s",
             "measured_rtts", "next_group_id", "next_slot_id", "groups",
@@ -613,6 +626,7 @@ class TransitPathState:
             previous_tick = tick
 
         def role_at(tick: int) -> str:
+            """Resolve the role active at a path-local logical transition."""
             current_role = history[0]["mode"]
             for transition in history[1:]:
                 if transition["tick"] > tick:
