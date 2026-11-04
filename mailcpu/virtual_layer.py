@@ -1,4 +1,4 @@
-"""Typed Virtual Layer workloads and hypervisor-governed pure operators.
+"""Mathematics: Typed Virtual Layer workloads and hypervisor-governed pure operators.
 
 The workload carries intent and a coordinate into a hosted system. It never
 carries executable code or authority. A receiving HeadlessOS reconstructs
@@ -21,7 +21,7 @@ from .seed import SystemIdentity, SystemSeedEnvelope
 
 
 class VirtualLayerError(ValueError):
-    """A Virtual Layer workload, operator, or execution request is invalid."""
+    """Mathematics: A Virtual Layer workload, operator, or execution request is invalid."""
 
 
 _JSON_KINDS = frozenset({"any", "object", "array", "integer", "number", "string", "boolean", "null"})
@@ -30,6 +30,7 @@ _SUBSTRATES = frozenset({"cpu", "gpu", "fpga", "dpu", "network", "memory", "sens
 
 
 def _validate_json(value: Any, label: str) -> None:
+    """Mathematics: Validate a nested finite JSON value without coercing its representation."""
     if value is None or isinstance(value, (str, bool, int)):
         return
     if isinstance(value, float):
@@ -50,7 +51,7 @@ def _validate_json(value: Any, label: str) -> None:
 
 
 def _canonical_bytes(value: Any, label: str) -> bytes:
-    """Encode a finite JSON value canonically; reject lossy or non-finite values."""
+    """Mathematics: Encode a finite JSON value canonically; reject lossy or non-finite values."""
 
     _validate_json(value, label)
     try:
@@ -60,9 +61,10 @@ def _canonical_bytes(value: Any, label: str) -> bytes:
 
 
 class _FrozenDict(dict):
-    """JSON-serializable dictionary that refuses mutation after construction."""
+    """Mathematics: JSON-serializable dictionary that refuses mutation after construction."""
 
     def _immutable(self, *args: Any, **kwargs: Any) -> None:
+        """Mathematics: Reject mutation methods inherited from the dictionary interface."""
         raise TypeError("Virtual Layer values are immutable")
 
     __setitem__ = _immutable
@@ -76,6 +78,7 @@ class _FrozenDict(dict):
 
 
 def _freeze_json(value: Any) -> Any:
+    """Mathematics: Recursively freeze JSON containers after detaching them from caller state."""
     if isinstance(value, Mapping):
         return _FrozenDict({key: _freeze_json(item) for key, item in value.items()})
     if isinstance(value, (list, tuple)):
@@ -84,28 +87,32 @@ def _freeze_json(value: Any) -> Any:
 
 
 def _copy_json(value: Any, label: str) -> Any:
-    """Detach caller-owned JSON containers from a frozen workload/specification."""
+    """Mathematics: Detach caller-owned JSON containers from a frozen workload/specification."""
 
     return json.loads(_canonical_bytes(value, label).decode("utf-8"))
 
 
 def _digest(value: Any, label: str = "value") -> str:
+    """Mathematics: Compute a canonical SHA-256 identity for one JSON value."""
     return hashlib.sha256(_canonical_bytes(value, label)).hexdigest()
 
 
 def _label(value: str, name: str) -> str:
+    """Mathematics: Require a non-empty string label for a workload or route field."""
     if not isinstance(value, str) or not value.strip():
         raise VirtualLayerError(f"{name} must be a non-empty string")
     return value
 
 
 def _operator_id(value: str) -> str:
+    """Mathematics: Restrict operator names to a bounded path-independent identifier alphabet."""
     if not isinstance(value, str) or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", value) is None:
         raise VirtualLayerError("operator_id must be a safe 1-128 character identifier")
     return value
 
 
 def _positive_int(value: int, name: str, *, allow_zero: bool = False) -> int:
+    """Mathematics: Validate a positive integer, optionally admitting zero for coordinates."""
     minimum = 0 if allow_zero else 1
     if not isinstance(value, int) or isinstance(value, bool) or value < minimum:
         relation = "non-negative" if allow_zero else "positive"
@@ -114,6 +121,7 @@ def _positive_int(value: int, name: str, *, allow_zero: bool = False) -> int:
 
 
 def _value_matches(value: Any, kind: str) -> bool:
+    """Mathematics: Check that one JSON value has the operator contract's declared type."""
     if kind == "any":
         return True
     if kind == "object":
@@ -137,7 +145,7 @@ def _value_matches(value: Any, kind: str) -> bool:
 
 @dataclass(frozen=True)
 class VirtualGroundRef:
-    """A content-verified ground coordinate, including its causal input frontier."""
+    """Mathematics: A content-verified ground coordinate, including its causal input frontier."""
 
     origin_digest: str
     state_digest: str
@@ -151,19 +159,19 @@ class VirtualGroundRef:
         _positive_int(self.coordinate, "ground coordinate", allow_zero=True)
 
     def to_dict(self) -> dict[str, object]:
-        """Serialize the immutable ground and frontier coordinate."""
+        """Mathematics: Serialize the immutable ground and frontier coordinate."""
         return {"origin_digest": self.origin_digest, "state_digest": self.state_digest, "coordinate": self.coordinate, "frontier_digest": self.frontier_digest}
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "VirtualGroundRef":
-        """Reconstruct a ground reference from its typed JSON projection."""
+        """Mathematics: Reconstruct a ground reference from its typed JSON projection."""
         if not isinstance(payload, Mapping):
             raise VirtualLayerError("ground reference must be an object")
         return cls(payload.get("origin_digest"), payload.get("state_digest"), payload.get("coordinate"), payload.get("frontier_digest"))
 
     @classmethod
     def from_envelope(cls, envelope: Any) -> "VirtualGroundRef":
-        """Project the exact origin, state, coordinate and admitted input frontier of a seed envelope."""
+        """Mathematics: Project the exact origin, state, coordinate and admitted input frontier of a seed envelope."""
         if not isinstance(envelope, SystemSeedEnvelope):
             raise VirtualLayerError("ground envelope is not a SystemSeedEnvelope")
         receipts = [receipt.snapshot() for receipt in envelope.input_frontier]
@@ -173,7 +181,7 @@ class VirtualGroundRef:
 
 @dataclass(frozen=True)
 class VirtualBudget:
-    """Hard per-operation limits expressed in virtual accounting units."""
+    """Mathematics: Hard per-operation limits expressed in virtual accounting units."""
 
     max_energy: int
     max_bytes: int
@@ -185,12 +193,12 @@ class VirtualBudget:
         _positive_int(self.max_virtual_ticks, "max_virtual_ticks")
 
     def to_dict(self) -> dict[str, int]:
-        """Serialize hard virtual resource limits."""
+        """Mathematics: Serialize hard virtual resource limits."""
         return {"max_energy": self.max_energy, "max_bytes": self.max_bytes, "max_virtual_ticks": self.max_virtual_ticks}
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "VirtualBudget":
-        """Reconstruct hard virtual resource limits from a typed mapping."""
+        """Mathematics: Reconstruct hard virtual resource limits from a typed mapping."""
         if not isinstance(payload, Mapping):
             raise VirtualLayerError("budget must be an object")
         return cls(payload.get("max_energy"), payload.get("max_bytes"), payload.get("max_virtual_ticks"))
@@ -198,7 +206,7 @@ class VirtualBudget:
 
 @dataclass(frozen=True)
 class VirtualOperatorRef:
-    """A name/version reference to an operator; never an executable payload."""
+    """Mathematics: A name/version reference to an operator; never an executable payload."""
 
     operator_id: str
     version: int = 1
@@ -214,12 +222,12 @@ class VirtualOperatorRef:
             _label(self.target_node, "target_node")
 
     def to_dict(self) -> dict[str, object]:
-        """Serialize the full declarative operator contract."""
+        """Mathematics: Serialize the full declarative operator contract."""
         return {"operator_id": self.operator_id, "version": self.version, "preferred_substrate": self.preferred_substrate, "target_node": self.target_node}
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "VirtualOperatorRef":
-        """Reconstruct a name/version reference without accepting executable code."""
+        """Mathematics: Reconstruct a name/version reference without accepting executable code."""
         if not isinstance(payload, Mapping):
             raise VirtualLayerError("operator reference must be an object")
         return cls(payload.get("operator_id", ""), payload.get("version", 1), payload.get("preferred_substrate"), payload.get("target_node"))
@@ -227,7 +235,7 @@ class VirtualOperatorRef:
 
 @dataclass(frozen=True)
 class VirtualLayerWorkload:
-    """Portable request describing a goal, ground coordinate, and allowed operator references."""
+    """Mathematics: Portable request describing a goal, ground coordinate, and allowed operator references."""
 
     workload_id: str
     system: SystemIdentity
@@ -277,7 +285,7 @@ class VirtualLayerWorkload:
         object.__setattr__(self, "eligible_nodes", nodes)
 
     def operator_ref(self, operator_id: str) -> VirtualOperatorRef:
-        """Resolve exactly one workload-authorized reference for an operator ID."""
+        """Mathematics: Resolve exactly one workload-authorized reference for an operator ID."""
         _operator_id(operator_id)
         matches = [item for item in self.operators if item.operator_id == operator_id]
         if len(matches) != 1:
@@ -285,7 +293,7 @@ class VirtualLayerWorkload:
         return matches[0]
 
     def to_dict(self) -> dict[str, object]:
-        """Serialize the complete portable workload envelope."""
+        """Mathematics: Serialize the complete portable workload envelope."""
         return {
             "kind": "virtual_layer.workload",
             "schema_version": self.schema_version,
@@ -303,7 +311,7 @@ class VirtualLayerWorkload:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "VirtualLayerWorkload":
-        """Reconstruct and validate a workload from its wire representation."""
+        """Mathematics: Reconstruct and validate a workload from its wire representation."""
         if not isinstance(payload, Mapping) or payload.get("kind") != "virtual_layer.workload":
             raise VirtualLayerError("invalid Virtual Layer workload envelope")
         raw_nodes = payload.get("eligible_nodes", [])
@@ -326,13 +334,13 @@ class VirtualLayerWorkload:
 
     @property
     def digest(self) -> str:
-        """Return the SHA-256 identity of the complete canonical workload."""
+        """Mathematics: Return the SHA-256 identity of the complete canonical workload."""
         return _digest(self.to_dict(), "workload")
 
 
 @dataclass(frozen=True)
 class OperatorSpec:
-    """Declarative operator contract; implementation functions remain node-local."""
+    """Mathematics: Declarative operator contract; implementation functions remain node-local."""
 
     operator_id: str
     version: int
@@ -379,21 +387,21 @@ class OperatorSpec:
 
     @property
     def replay_safe(self) -> bool:
-        """Only deterministic, side-effect-free handlers are admitted by this first executor."""
+        """Mathematics: Only deterministic, side-effect-free handlers are admitted by this first executor."""
         return self.deterministic and self.effect_mode == "pure"
 
     @property
     def digest(self) -> str:
-        """Return the content identity of this operator contract alone."""
+        """Mathematics: Return the content identity of this operator contract alone."""
         return _digest(self.to_dict(), "operator contract")
 
     def estimated_energy(self, input_bytes: int) -> int:
-        """Estimate deterministic virtual energy from input bytes and contract coefficients."""
+        """Mathematics: Estimate deterministic virtual energy from input bytes and contract coefficients."""
         _positive_int(input_bytes, "input_bytes", allow_zero=True)
         return self.base_energy + self.energy_per_byte * input_bytes
 
     def to_dict(self) -> dict[str, object]:
-        """Serialize the full declarative operator contract."""
+        """Mathematics: Serialize the full declarative operator contract."""
         return {
             "operator_id": self.operator_id, "version": self.version, "description": self.description,
             "input_kind": self.input_kind, "output_kind": self.output_kind, "substrates": list(self.substrates),
@@ -404,7 +412,7 @@ class OperatorSpec:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "OperatorSpec":
-        """Reconstruct a declarative operator contract from canonical catalog data."""
+        """Mathematics: Reconstruct a declarative operator contract from canonical catalog data."""
         if not isinstance(payload, Mapping):
             raise VirtualLayerError("operator specification must be an object")
         try:
@@ -425,13 +433,13 @@ OperatorHandler = Callable[[Any, VirtualLayerWorkload], Any]
 
 
 class OperatorRegistry:
-    """Node-local, versioned operator catalog with a canonical manifest digest."""
+    """Mathematics: Node-local, versioned operator catalog with a canonical manifest digest."""
 
     def __init__(self) -> None:
         self._entries: dict[tuple[str, int], tuple[OperatorSpec, OperatorHandler | None]] = {}
 
     def register(self, spec: OperatorSpec, handler: OperatorHandler) -> None:
-        """Register a contract and its trusted node-local implementation atomically."""
+        """Mathematics: Register a contract and its trusted node-local implementation atomically."""
         if not isinstance(spec, OperatorSpec) or not callable(handler):
             raise VirtualLayerError("register requires an OperatorSpec and callable local handler")
         key = (spec.operator_id, spec.version)
@@ -440,7 +448,7 @@ class OperatorRegistry:
         self._entries[key] = (spec, handler)
 
     def declare(self, spec: OperatorSpec) -> None:
-        """Install portable metadata without importing or executing remote code."""
+        """Mathematics: Install portable metadata without importing or executing remote code."""
         if not isinstance(spec, OperatorSpec):
             raise VirtualLayerError("registry declaration requires an OperatorSpec")
         key = (spec.operator_id, spec.version)
@@ -449,7 +457,7 @@ class OperatorRegistry:
         self._entries[key] = (spec, None)
 
     def bind(self, operator_id: str, version: int, handler: OperatorHandler) -> None:
-        """Bind a trusted node-local implementation to an already declared contract."""
+        """Mathematics: Bind a trusted node-local implementation to an already declared contract."""
         _operator_id(operator_id)
         _positive_int(version, "operator version")
         if not callable(handler):
@@ -463,7 +471,7 @@ class OperatorRegistry:
         self._entries[key] = (spec, handler)
 
     def contract(self, operator_id: str, version: int = 1) -> OperatorSpec:
-        """Return declarative metadata without requiring an executable local handler."""
+        """Mathematics: Return declarative metadata without requiring an executable local handler."""
         _operator_id(operator_id)
         _positive_int(version, "operator version")
         try:
@@ -472,7 +480,7 @@ class OperatorRegistry:
             raise VirtualLayerError(f"operator contract is unavailable: {operator_id}@{version}") from exc
 
     def resolve(self, operator_id: str, version: int = 1) -> tuple[OperatorSpec, OperatorHandler]:
-        """Return an available contract and local handler, refusing unbound declarations."""
+        """Mathematics: Return an available contract and local handler, refusing unbound declarations."""
         _operator_id(operator_id)
         _positive_int(version, "operator version")
         try:
@@ -484,25 +492,25 @@ class OperatorRegistry:
         return spec, handler
 
     def specs(self) -> tuple[OperatorSpec, ...]:
-        """Return all declared contracts in deterministic operator-ID order."""
+        """Mathematics: Return all declared contracts in deterministic operator-ID order."""
         return tuple(self._entries[key][0] for key in sorted(self._entries))
 
     def manifest(self) -> dict[str, object]:
-        """Return the canonical, executable-code-free operator catalog manifest."""
+        """Mathematics: Return the canonical, executable-code-free operator catalog manifest."""
         return {"kind": "virtual_layer.operator_catalog", "version": 1, "operators": [spec.to_dict() for spec in self.specs()]}
 
     @property
     def digest(self) -> str:
-        """Return the SHA-256 identity of the declarative operator manifest."""
+        """Mathematics: Return the SHA-256 identity of the declarative operator manifest."""
         return _digest(self.manifest(), "operator manifest")
 
     def snapshot(self) -> dict[str, object]:
-        """Return declarative state only; executable handlers must be rebound by the receiving node."""
+        """Mathematics: Return declarative state only; executable handlers must be rebound by the receiving node."""
         return self.manifest() | {"digest": self.digest}
 
     @classmethod
     def from_snapshot(cls, payload: Mapping[str, Any], handlers: Mapping[tuple[str, int], OperatorHandler] | None = None) -> "OperatorRegistry":
-        """Restore contracts and bind only explicitly supplied node-local handlers."""
+        """Mathematics: Restore contracts and bind only explicitly supplied node-local handlers."""
         if not isinstance(payload, Mapping) or payload.get("kind") != "virtual_layer.operator_catalog" or payload.get("version") != 1:
             raise VirtualLayerError("unsupported operator catalog snapshot")
         raw_specs = payload.get("operators")
@@ -525,7 +533,7 @@ class OperatorRegistry:
 
 @dataclass(frozen=True)
 class VirtualLayerRuntime:
-    """Adapter that executes pure operators through MailCPU's existing hypervisor and reliable operation channel."""
+    """Mathematics: Adapter that executes pure operators through MailCPU's existing hypervisor and reliable operation channel."""
 
     registry: OperatorRegistry
     node_id: str
@@ -549,7 +557,7 @@ class VirtualLayerRuntime:
         _positive_int(self.max_virtual_ticks, "local max_virtual_ticks")
 
     def _resolve_operator(self, workload: VirtualLayerWorkload, operator_id: str, *, enforce_placement: bool = True, require_handler: bool = True) -> tuple[VirtualOperatorRef, OperatorSpec, OperatorHandler | None, Any, int, int, int]:
-        """Validate the workload-to-operator binding and calculate deterministic virtual cost."""
+        """Mathematics: Validate the workload-to-operator binding and calculate deterministic virtual cost."""
         reference = workload.operator_ref(operator_id)
         spec, handler = self.registry.resolve(reference.operator_id, reference.version) if require_handler else (self.registry.contract(reference.operator_id, reference.version), None)
         if not spec.replay_safe:
@@ -580,7 +588,7 @@ class VirtualLayerRuntime:
         return reference, spec, handler, input_value, input_bytes, energy, ticks
 
     def _validate_ground(self, operating_system: Any, workload: VirtualLayerWorkload) -> None:
-        """Require exact local admission of system identity, ground state, coordinate and causal frontier."""
+        """Mathematics: Require exact local admission of system identity, ground state, coordinate and causal frontier."""
         admission = getattr(operating_system, "seed_admission", None)
         if admission is None or not callable(getattr(admission, "current", None)):
             raise VirtualLayerError("host does not expose the admitted Virtual Ground registry")
@@ -592,7 +600,7 @@ class VirtualLayerRuntime:
             raise VirtualLayerError("workload Virtual Ground or causal frontier is stale or mismatched")
 
     def build_event(self, source: str, channel: str, sequence: int, logical_time: int, workload: VirtualLayerWorkload, operator_id: str) -> HypervisorArbitrationEvent:
-        """Build a typed operation event; it contains operator references, never executable code or authority."""
+        """Mathematics: Build a typed operation event; it contains operator references, never executable code or authority."""
         if not isinstance(workload, VirtualLayerWorkload):
             raise VirtualLayerError("event construction requires a VirtualLayerWorkload")
         if logical_time != workload.logical_time:
@@ -614,7 +622,7 @@ class VirtualLayerRuntime:
         return HypervisorArbitrationEvent(source, channel, sequence, logical_time, request)
 
     def _prepare_event(self, operating_system: Any, pid: int, event: HypervisorArbitrationEvent) -> tuple[HypervisorArbitrationEvent, Callable[[], dict[str, object]]]:
-        """Validate a received event, rebuild local authority, and prepare its pure local handler."""
+        """Mathematics: Validate a received event, rebuild local authority, and prepare its pure local handler."""
         if not isinstance(event, HypervisorArbitrationEvent):
             raise VirtualLayerError("received operation is not a HypervisorArbitrationEvent")
         if not callable(getattr(operating_system, "hypervisor_authorize_event", None)) or not hasattr(operating_system, "hypervisor_arbitration"):
@@ -649,7 +657,7 @@ class VirtualLayerRuntime:
         authorized_event = operating_system.hypervisor_authorize_event(pid, event)
 
         def invoke() -> dict[str, object]:
-            """Execute the local pure operator and return a canonical, digest-bound result effect."""
+            """Mathematics: Execute the local pure operator and return a canonical, digest-bound result effect."""
             result = handler(input_value, workload)
             if not _value_matches(result, spec.output_kind):
                 raise VirtualLayerError(f"operator output does not match {spec.output_kind}")
@@ -672,25 +680,25 @@ class VirtualLayerRuntime:
         return authorized_event, invoke
 
     def execute_operator(self, operating_system: Any, pid: int, source: str, channel: str, sequence: int, logical_time: int, workload: VirtualLayerWorkload, operator_id: str) -> HypervisorExecutionResult:
-        """Execute one local pure operator through the existing hypervisor decision and effect ledgers."""
+        """Mathematics: Execute one local pure operator through the existing hypervisor decision and effect ledgers."""
         event = self.build_event(source, channel, sequence, logical_time, workload, operator_id)
         authorized, invoke = self._prepare_event(operating_system, pid, event)
         return operating_system.hypervisor_arbitration.execute(authorized, {HypervisorDomain.CPU: invoke})
 
     def receive_and_execute(self, operation_channel: HypervisorOperationChannel, operating_system: Any, pid: int) -> HypervisorExecutionResult | None:
-        """Receive a reliable operation frame, resolve its operator locally, authorize it, execute, then acknowledge."""
+        """Mathematics: Receive a reliable operation frame, resolve its operator locally, authorize it, execute, then acknowledge."""
         if not isinstance(operation_channel, HypervisorOperationChannel):
             raise VirtualLayerError("remote execution requires a HypervisorOperationChannel")
         prepared: dict[str, Callable[[], dict[str, object]]] = {}
 
         def authorize(event: HypervisorArbitrationEvent) -> HypervisorArbitrationEvent:
-            """Validate the workload and rebuild receiver-local capability grants before policy evaluation."""
+            """Mathematics: Validate the workload and rebuild receiver-local capability grants before policy evaluation."""
             authorized, invoke = self._prepare_event(operating_system, pid, event)
             prepared["invoke"] = invoke
             return authorized
 
         def invoke_prepared() -> dict[str, object]:
-            """Invoke the one handler prepared from the currently peeked and validated reliable event."""
+            """Mathematics: Invoke the one handler prepared from the currently peeked and validated reliable event."""
             handler = prepared.get("invoke")
             if handler is None:
                 raise VirtualLayerError("no Virtual Layer operator was prepared for the received event")
