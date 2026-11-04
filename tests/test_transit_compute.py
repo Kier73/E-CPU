@@ -1178,12 +1178,14 @@ def test_private_memory_transfer_refuses_out_of_bounds_and_shared_pages() -> Non
         assert destination_memory.read(0, len(b"untouched")) == before
 
     # Replaying from the pre-operation receiver snapshot reapplies the same
-    # deterministic bytes because both preimage digests still match.
+    # deterministic bytes because the exact original typed event (including
+    # both preimage digests and semantic identity) is preserved.
+    valid_transfer = request(0, len(b"bounded"))
     checkpoint_before_transfer = receiver.snapshot()
-    first_effect = host.handle(request(0, len(b"bounded")))
+    first_effect = host.handle(valid_transfer)
     restored_receiver = HeadlessOS.from_snapshot(checkpoint_before_transfer)
     restored_host = TransitMemoryTransferHost(restored_receiver, authority_pid)
-    replay_effect = restored_host.handle(request(0, len(b"bounded")))
+    replay_effect = restored_host.handle(valid_transfer)
     restored_destination = restored_receiver.vm.memories[destination_pid]
     assert restored_destination.read(0, len(b"bounded")) == b"bounded"
     assert replay_effect["data_digest"] == first_effect["data_digest"]
