@@ -142,12 +142,21 @@ class HypervisorTransitOrbitController:
             "scheduler": self.scheduler.state(),
         }
 
+        # This is one fixed internal control primitive, not a domain-routed job.
+        # The classifier's domain is advisory; any non-REVIEW label reaches the
+        # same scheduler subroutine. The exact resource capability and policy
+        # action remain the authority gate. REVIEW is never given a handler.
+        handlers = {
+            domain: self.scheduler.step
+            for domain in HypervisorDomain
+            if domain is not HypervisorDomain.REVIEW
+        }
         decision, result = self.operating_system.hypervisor_dispatch(
             self.authority_pid,
             operation="execute CPU transit orbit scheduling quantum",
             resource=self.resource,
             payload=request_payload,
-            handlers={HypervisorDomain.CPU: self.scheduler.step},
+            handlers=handlers,
             required_rights=frozenset({self.required_right}),
             destructive=False,
         )
