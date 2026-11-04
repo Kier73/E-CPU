@@ -93,6 +93,33 @@ class HypervisorOperationChannel:
         self._consume_after_execution(transport_sequence)
         return result
 
+    def receive_and_reply_event(
+        self,
+        arbitration: HypervisorArbitrationLoop,
+        authorize: Callable[[HypervisorArbitrationEvent], HypervisorArbitrationEvent],
+        handlers: Mapping[HypervisorDomain | str, Callable[[HypervisorArbitrationEvent], Any]],
+        response: "HypervisorOperationResultChannel",
+        effect_encoder: Callable[[Any], Any] | None = None,
+    ) -> HypervisorExecutionResult | None:
+        """Mathematics: dispatch authorized event e into H_domain(e), commit its typed result to R, then ACK the request frame."""
+
+        if not isinstance(response, HypervisorOperationResultChannel):
+            raise HypervisorOperationTransportError("operation reply requires a HypervisorOperationResultChannel")
+        if not isinstance(handlers, Mapping) or any(not callable(handler) for handler in handlers.values()):
+            raise HypervisorOperationTransportError("event handlers must be a mapping of callables")
+        prepared = self._prepare_execution(arbitration, authorize)
+        if prepared is None:
+            return None
+        transport_sequence, authorized = prepared
+        bound_handlers = {
+            domain: (lambda handler=handler, event=authorized: handler(event))
+            for domain, handler in handlers.items()
+        }
+        result = arbitration.execute(authorized, bound_handlers, effect_encoder)
+        response.send(result)
+        self._consume_after_execution(transport_sequence)
+        return result
+
     def _prepare_execution(
         self,
         arbitration: HypervisorArbitrationLoop,

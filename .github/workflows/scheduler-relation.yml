@@ -1,0 +1,28 @@
+name: Scheduler and HeadlessOS state relations
+
+on:
+  pull_request:
+  push:
+    branches:
+      - "feat/scheduler-state-relation-v0.1"
+
+jobs:
+  state-relation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install test dependencies
+        run: python -m pip install -e ".[dev]"
+      - name: Run state relation and transit transport tests
+        run: python -m pytest -q tests/test_scheduler_relation_unit.py tests/test_scheduler_relation.py tests/test_headless_relation.py tests/test_headless_relation_operations.py tests/test_public_surface.py::test_every_public_callable_carries_a_docstring tests/test_transit_compute.py tests/test_mtls_transport.py
+      - name: Run repository conformance checks
+        run: python scripts/verify_repo.py
+      - name: Run invariant registry
+        run: python scripts/verify_invariants.py
+      - name: Run two-process scheduler benchmark
+        run: python examples/scheduler_relation_benchmark.py --cycles 12
+      - name: Compare Python, direct MailCPU, and remote MailCPU compute
+        run: python examples/transit_compute_benchmark.py --iterations 6 --warmups 1 --work-units 64

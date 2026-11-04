@@ -1,0 +1,165 @@
+# Transit Path State Model
+
+## Design intent
+
+E-CPU treats a communication path as more than a byte pipe. A path is a bounded operational context: it receives a typed request, interprets that request under receiver-local authority, applies a declared transition algebra, commits a result, and retains enough causal state to acknowledge retries without applying the same semantic operation twice.
+
+The first implementation is deliberately narrow. `TransitComputeSession` composes an existing `TransitComputeWorker`, inbound `HypervisorOperationChannel`, and outbound `HypervisorOperationResultChannel`. It does not add a second mutable job ledger. Its state is the product of the protocol cursors, receiver execution/replay ledger, and result-channel replay ledger already used to enforce the operation.
+
+## Structural memory
+
+For a receiver path, write its state as
+
+\[
+\Sigma_P = \Sigma_{in} \times \Sigma_{exec} \times \Sigma_{out}.
+\]
+
+- \(\Sigma_{in}\): inbound reliable-channel sequence cursor, peer binding, queued request, and acknowledgement state.
+- \(\Sigma_{exec}\): receiver-local capabilities, hypervisor admission decision, and semantic execution/result ledger.
+- \(\Sigma_{out}\): typed result queue, semantic duplicate ledger, and unacknowledged result sequences.
+
+This is the structural memory invested in causality. The path remembers which frame arrived, which semantic operation it denotes, whether the receiver authorized it, which effect was committed, and whether the result has been acknowledged. Delivery identity and semantic identity remain distinct: a retry can arrive in a new transport frame while denoting an operation whose effect is already committed.
+
+The path does not need an additional phase variable that can drift out of agreement with the channels. `TransitComputeSession.phase` derives a diagnostic phase from live state:
+
+| Phase | Meaning |
+|---|---|
+| `idle` | No inbound request is ready and no response remains unacknowledged |
+| `request-ready` | An inbound operation frame is available for the worker |
+| `response-unacknowledged` | A committed response remains in the sender's reliable window |
+
+The phase is an observation, not an authorization decision. The worker and hypervisor remain authoritative.
+
+## Causal operation relation
+
+A request follows the constrained relation
+
+\[
+q_{wire}
+\rightarrow q_{decoded}
+\rightarrow q_{authorized}
+\rightarrow e_{committed}
+\rightarrow r_{published}
+\rightarrow ack.
+\]
+
+The receiver reconstructs the operation's grants from local process capabilities. It does not trust a sender-provided grant set. The arbitration loop binds the semantic identity to the effect ledger. The typed result is sent on the reverse reliable channel before the request is acknowledged. A retry under a new transport sequence can therefore retrieve the committed result without rerunning the computation.
+
+This is not a claim of general exactly-once execution across arbitrary crashes or external side effects. The current arithmetic capsule is pure and bounded. The existing worker checkpoint requires a quiescent boundary; it is a coordinated continuation snapshot, not an atomic transaction across a process crash, a network, and an external system.
+
+## Meaning of "computation in the path"
+
+The intended direction is to move interpretation and execution selection into the receiver path:
+
+1. A sender emits a portable operation description rather than a hardware-specific command stream.
+2. The path validates its shape, resource budget, identity, and required authority.
+3. A receiver-side execution adapter translates it into a representation supported by a local backend.
+4. The backend executes the admitted transition.
+5. The path commits a typed result and causal receipt, then acknowledges delivery.
+
+The current path can host three bounded reference backends: scalar MailCPU arithmetic, a lane-oriented SIMT interpreter, and private process-memory transfer. A typed router selects the backend by the exact operation/resource pair after the receiver has reconstructed local authority. These are semantic reference implementations, not GPU hardware or proof of a speed advantage over local execution.
+
+## CPU, SIMT, and memory movement
+
+The portable request algebra should eventually describe *what must be computed*, not prescribe one chip's instruction schedule. A later backend could map a request to scalar CPU operations, vector operations, SIMT groups, or data-movement operations. The path would select among those backends using declared capabilities, resource budgets, data shape, and locality.
+
+A GPU backend is not obtained by simply putting a GPU's instruction set into a network message. It needs a defined kernel/query contract, workgroup and lane semantics, divergence rules, synchronization/barrier semantics, memory address spaces and visibility, buffer ownership, transfer rules, and a resource model. The receiver may host a physical GPU, an emulator, or a simulator; the path protocol should not assume which one is present.
+
+Memory movement must also be represented as an explicit operation with source/destination ownership, bounds, ordering, and completion receipts. For large workloads, data placement and transfer can dominate execution time. Batching, locality, reuse, and asynchronous overlap may matter more than the cost of interpreting one additional operation.
+
+The target is therefore not "computation without clocks." Hardware still has clock, latency, bandwidth, energy, and capacity limits. The architectural shift is that the path's semantics and causal state decide which work is meaningful and where it should be interpreted, while the receiver's backend performs the physical work.
+
+## Next tests
+
+The next useful steps are:
+
+1. Run the session lifecycle on a separate receiver process and a separately deployed host, not only two endpoints in one test process.
+2. Exercise checkpoint/restore after a real process restart and reconnect, retaining the same semantic identity and proving that a committed result is replayed.
+3. Add a physical GPU or faithful GPU emulator adapter behind the SIMT contract, then compare results, masks, barrier behavior, memory visibility, and transfer cost against the reference interpreter.
+4. Extend memory transfer from private resident pages to shared regions only after explicit sharing, synchronization, ordering, and lifetime rules are defined. Measure transfer locality, batching, and overlap.
+5. Add path scheduling only after fairness, backpressure, quotas, cancellation, and failure recovery are part of the state relation.
+
+No GPU support or cross-host deployment is claimed by the current session abstraction.
+
+
+## Process restart and durable checkpoint files
+
+TransitComputeSession.save_checkpoint(path) is the file-backed persistence boundary for a quiescent path. It first asks the worker to produce its existing checkpoint, so the same queue/acknowledgement preconditions apply. It then writes canonical JSON to a temporary file in the target directory, flushes and fsyncs the file, atomically replaces the prior checkpoint, and attempts to fsync the containing directory. On platforms that support file mode changes, the temporary checkpoint is restricted to owner read/write permissions.
+
+TransitComputeSession.from_checkpoint(path, request_transport, response_transport) reads the checkpoint, then delegates to the same schema, digest, receiver-state, and reliable-channel validation as from_snapshot. The caller must establish and authenticate replacement transports first. The checkpoint does not serialize a live TCP/TLS socket; it restores the logical protocol cursors and semantic ledgers onto a new stream. In the current full-duplex configuration, the same replacement SocketTransport is supplied for both request and response channels. Checkpoint v2 also records the sorted backend manifest of operation/resource pairs. Handler callables are executable configuration and are not serialized; from_checkpoint accepts a compute_host_factory that rebuilds the backend router against the restored HeadlessOS and authority PID. Restore refuses the checkpoint if the rebuilt manifest differs. Scalar-only v1 checkpoints remain readable.
+
+The process integration test starts a receiver in a spawned OS process, establishes mutual TLS, executes a bounded request, receives and acknowledges the result, and writes the worker checkpoint to disk. It then exits that process, starts a second OS process, loads the checkpoint from disk, and accepts a new mutually authenticated connection. The client also restores its reliable-channel cursors onto the new stream. It resends the same semantic operation in a new reliable transport frame; the restored receiver returns the original effect as a replay rather than starting another computation. The test now starts with a three-backend router and verifies that the scalar, SIMT, and memory-transfer operation/resource manifest is reattached identically in the second process.
+
+This is stronger than reconstructing objects in one process: the receiver's Python address space is destroyed between execution and restore. The endpoints still run on one test machine over loopback. It is not yet a separate-physical-host deployment, hard-kill/power-loss test, or a general transactional exactly-once guarantee.
+
+### Important crash boundary
+
+The checkpoint is taken only after the response has been acknowledged. Therefore a process failure after an effect is committed but before the updated checkpoint reaches durable storage can restore an older execution ledger. A retry could then repeat an operation if the effect had external side effects. The arithmetic capsule is pure, so this test does not create an external duplicate effect.
+
+To close that window for side-effecting backends, E-CPU will need a durable commit protocol that atomically records the semantic operation identity and its effect/replay result before acknowledging the request, or a transactional outbox/inbox whose recovery semantics cover both the effect and the message. The current checkpoint API is a durable quiescent continuation, not that transaction.
+
+
+## SIMT reference backend
+
+The first SIMT backend is a bounded semantic reference interpreter, not a GPU driver or emulator. It lets the path accept a portable lane-oriented query and interpret it at the receiver without binding the query to a particular GPU instruction set.
+
+A request carries four finite fields:
+
+- lane count;
+- named integer input arrays, each with exactly one element per lane;
+- a finite instruction sequence;
+- a maximum instruction-step budget.
+
+The current instruction algebra is:
+
+| Instruction | Meaning |
+|---|---|
+| CONST | Set an integer register on active lanes |
+| LANE_ID | Write each active lane's index |
+| LOAD | Load one lane's element from a named input array |
+| COPY | Copy one lane-local register |
+| ADD, SUB, MUL | Apply integer arithmetic lane-wise |
+| LT | Produce a per-lane Boolean predicate |
+| IF, ELSE, ENDIF | Execute structured branches under active-lane masks |
+| BARRIER | Record a workgroup barrier after full reconvergence |
+| STORE | Write one output array element per active lane |
+| HALT | End the finite kernel |
+
+The SIMT interpreter runs one program counter for the whole workgroup. An IF creates a mask by intersecting the parent mask with a lane predicate. The then-path and else-path execute under complementary masks; ENDIF restores the parent mask. This is a deterministic lockstep reference model of branch divergence and reconvergence, not an attempt to model every vendor GPU's scheduling details.
+
+A barrier is currently admitted only outside a structured branch region, after explicit reconvergence, with every lane active. A barrier inside a divergent region is rejected before execution. This conservative rule avoids silently treating a partially active workgroup as synchronized. The barrier receipt records its epoch, program counter, and lane-arrival count.
+
+The differential test evaluates absolute value for input lanes [-4, -1, 0, 3, 8]. The SIMT kernel's output is compared with five independent scalar MailCPU executions of the same mathematical operation. The test also checks lane IDs, addition, multiplication, both branch masks, reconvergence, and a five-lane barrier arrival.
+
+The same reference kernel is also sent through a persistent TransitComputeSession. A TransitBackendRouter selects the SIMT handler by its exact operation/resource key. The receiver derives the execute capability for resource /gpu/simt, dispatches the request in the CPU-owned execution domain, returns a typed result, and processes the reliable acknowledgements.
+
+The SIMT reference backend is registered in the persistent worker's operation router by its exact operation/resource identity. The session test exercises that exact dispatch path. It provides a semantic oracle for a future hardware or emulator adapter. Performance claims, GPU memory semantics, asynchronous workgroup scheduling, and vendor-specific occupancy behavior remain outside this implementation.
+
+
+## Heterogeneous backend routing
+
+A persistent transit worker can now hold a TransitBackendRouter in place of the scalar TransitComputeHost. The router maintains a partial function R from the pair (operation, resource) to a handler.
+
+It begins with the scalar MailCPU arithmetic host and can register the SIMT and memory-transfer handlers. Duplicate keys are refused. A request with no exact registered key is refused rather than falling through to an unrelated backend. Receiver-local capability reconstruction and the hypervisor execution ledger still happen before handler invocation; the router is not an authorization layer.
+
+The current registrations are:
+
+| Query algebra | Operation | Resource |
+|---|---|---|
+| Scalar arithmetic | execute deterministic CPU arithmetic program | /cpu/compute |
+| SIMT reference | execute deterministic CPU SIMT reference program | /gpu/simt |
+| Private memory transfer | execute CPU instruction memory transfer | /memory/transfer |
+
+All three currently enter the CPU-owned hypervisor execution domain and are dispatched by the exact router key. This is a provisional domain arrangement; a future domain taxonomy may separate memory and GPU execution from CPU execution without changing the operation channel contract.
+
+The router is executable configuration, not serialized code. Checkpoint v2 records its sorted key manifest. A restore factory receives the restored OS and authority PID and must reconstruct the same manifest. This prevents a process from silently resuming with missing operation handlers. It does not prove that handler implementations are byte-for-byte identical; deployments must pin and verify their executable versions separately.
+
+## Private process-memory transfer
+
+The first memory operation copies a finite byte interval between two receiver-owned private virtual-memory images. Its request names the source PID/address, destination PID/address, and byte length. The transfer service requires the receiver's local authority process to hold read permission on /memory/{source_pid}, write permission on /memory/{destination_pid}, and the outer execute permission on /memory/transfer. Peer-provided rights are not trusted.
+
+The request also carries SHA-256 preimage digests for the exact source and destination byte intervals. The receiver checks both before mutation. A stale source or changed destination is refused. These preconditions make a retry from a checkpoint that predates the transfer deterministic: if the same source and destination preimages are restored, the same bytes and completion receipt are reproduced; if either endpoint has changed, the operation does not overwrite it. The host also rejects non-positive lengths, transfers larger than its configured byte limit, missing process memory images, nonresident pages, read-only destination pages, and shared-region mappings. Shared pages are deliberately refused: their synchronization and lifetime rules are not yet defined by this operation.
+
+For an admitted transfer, the host reads the source interval, applies the bytes to a copy-on-write clone of the destination memory image, commits the candidate mapping state only after the full write succeeds, then verifies the destination bytes. It returns the copied byte count, a SHA-256 digest of the transferred bytes, and a journal completion receipt. The integration test copies an 80-byte interval across virtual-page boundaries, verifies the data and journal receipt, checks receiver-local read/write authority, tests stale source/destination digests, and restores the pre-operation receiver snapshot to demonstrate deterministic reapplication with the same completion receipt. It also proves reliable semantic retry does not invoke the transfer handler a second time.
+
+This is an in-process memory-image commit, not a crash-atomic transaction spanning the memory update, event journal, hypervisor replay ledger, network result, and durable checkpoint. A process failure after the memory mapping changes but before the full causal record is durable can still leave an incomplete operation record. The current operation is tested in a single receiver process; hard-kill recovery and cross-host memory ownership are not claimed.

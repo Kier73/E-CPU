@@ -372,6 +372,11 @@ from .substrate_sim import (
     WanSubstrateSimulator,
 )
 from .socket_transport import SocketTransport, SocketTransportClosed, SocketTransportError
+from .mtls_transport import (
+    MutualTLSTransportError,
+    accept_mutual_tls,
+    connect_mutual_tls,
+)
 from .replicated_mailbox import ReplicatedMailboxError, ReplicatedMailboxNode, ReplicatedMailboxStore, ReplicationReceipt
 from .revision_relay import HypervisorRevisionRelayError, ReplicatedRevisionProposalRelay
 from .recovery import (
@@ -778,6 +783,9 @@ __all__ = [
     "SocketTransport",
     "SocketTransportClosed",
     "SocketTransportError",
+    "MutualTLSTransportError",
+    "accept_mutual_tls",
+    "connect_mutual_tls",
     "CrossHostRecoveryCoordinator",
     "CrossHostMultiPeerRecoveryCoordinator",
     "RecoveryCheckpoint",

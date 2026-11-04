@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import time
 
 import pytest
 
@@ -17,6 +18,29 @@ from mailcpu import (
     advertise_recovery_policy,
     negotiate_recovery_policy,
 )
+
+
+def _wait_for_value(receive):
+    """Mathematics: repeatedly observe a nonblocking receive relation until value v≠⊥ or bounded deadline Δ expires."""
+    deadline = time.monotonic() + 3.0
+    while time.monotonic() < deadline:
+        value = receive()
+        if value is not None:
+            return value
+        time.sleep(0.005)
+    raise AssertionError("timed out waiting for a recovery-policy frame")
+
+
+def _wait_for_acknowledgement(service):
+    """Mathematics: fold ACK observations until one sequence is acknowledged or bounded deadline Δ expires."""
+    deadline = time.monotonic() + 3.0
+    observed = ()
+    while time.monotonic() < deadline:
+        observed = service()
+        if observed:
+            return observed
+        time.sleep(0.005)
+    raise AssertionError("timed out waiting for a recovery-policy acknowledgement")
 
 
 def _tcp_pair() -> tuple[SocketTransport, SocketTransport]:
@@ -97,10 +121,10 @@ def test_receiver_advertised_policy_negotiates_over_real_tcp_and_round_trips() -
     )
     try:
         assert advertisement_sender.send_advertisement(advertisement) == 1
-        received_advertisement = advertisement_receiver.receive_advertisement()
+        received_advertisement = _wait_for_value(advertisement_receiver.receive_advertisement)
         assert received_advertisement == advertisement
         assert offer_sender.send_offer(offer) == 1
-        received_offer = offer_receiver.receive_offer()
+        received_offer = _wait_for_value(offer_receiver.receive_offer)
         assert received_offer == offer
         agreement = negotiate_recovery_policy(received_offer, received_advertisement)
         assert agreement.reliability == ReliabilityPolicy(2, 4, 3)
@@ -108,13 +132,13 @@ def test_receiver_advertised_policy_negotiates_over_real_tcp_and_round_trips() -
         assert agreement.target_transport == "memory"
         assert agreement.effect_ledger_required is True
         assert agreement_sender.send_agreement(agreement) == 1
-        received_agreement = agreement_receiver.receive_agreement()
+        received_agreement = _wait_for_value(agreement_receiver.receive_agreement)
         assert received_agreement == agreement
         assert received_agreement.fingerprint == agreement.fingerprint
         assert type(received_agreement).from_dict(received_agreement.to_dict()) == agreement
-        assert advertisement_sender.service() == (1,)
-        assert offer_sender.service() == (1,)
-        assert agreement_sender.service() == (1,)
+        assert _wait_for_acknowledgement(advertisement_sender.service) == (1,)
+        assert _wait_for_acknowledgement(offer_sender.service) == (1,)
+        assert _wait_for_acknowledgement(agreement_sender.service) == (1,)
     finally:
         origin_transport.close()
         receiver_transport.close()
