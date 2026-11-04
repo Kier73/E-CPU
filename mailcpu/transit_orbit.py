@@ -31,6 +31,7 @@ _STATE_FIELDS = frozenset(
         "logical_tick",
         "dispatch_counts",
         "idle_ticks",
+        "backpressure_ticks",
         "stale_ready_ticks",
         "receipt_head",
     }
@@ -138,7 +139,7 @@ class TransitOrbitReceipt:
         _nonnegative_int(self.tick, "receipt tick")
         if self.tick == 0:
             raise TransitOrbitSchedulerError("receipt ticks start at one")
-        if not isinstance(self.disposition, str) or self.disposition not in {"processed", "idle", "stale-ready"}:
+        if not isinstance(self.disposition, str) or self.disposition not in {"processed", "idle", "backpressured", "stale-ready"}:
             raise TransitOrbitSchedulerError("receipt disposition is invalid")
         _require_digest(self.previous_digest, "receipt previous_digest")
         _require_digest(self.digest, "receipt digest")
@@ -169,7 +170,7 @@ class TransitOrbitReceipt:
             ):
                 raise TransitOrbitSchedulerError("processed receipts require a typed execution result")
         elif any(value is not None for value in (self.action, self.executed, self.replayed)):
-            raise TransitOrbitSchedulerError("stale-ready receipts cannot claim an execution result")
+            raise TransitOrbitSchedulerError("non-processed path receipts cannot claim an execution result")
 
     def payload(self) -> dict[str, object]:
         """Return the canonical receipt fields covered by its digest."""
@@ -256,6 +257,7 @@ class TransitOrbitScheduler:
         self._logical_tick = 0
         self._dispatch_counts = {path_id: 0 for path_id in self._path_order}
         self._idle_ticks = 0
+        self._backpressure_ticks = 0
         self._stale_ready_ticks = 0
         self._receipt_head = _ZERO_DIGEST
 
@@ -279,9 +281,18 @@ class TransitOrbitScheduler:
         """Return the current rolling commitment to scheduler receipts."""
         return self._receipt_head
 
+    @staticmethod
+    def _has_response_capacity(session: TransitComputeSession) -> bool:
+        """Require one receiver-side response slot before admitting another request."""
+        return session.response.channel.available_window > 0
+
+    def _is_dispatchable(self, session: TransitComputeSession) -> bool:
+        """Admit a ready request only when its bounded result channel has a free slot."""
+        return session.phase == "request-ready" and self._has_response_capacity(session)
+
     @property
     def ready_paths(self) -> tuple[str, ...]:
-        """Return ready paths in the order they would be considered by the next quantum."""
+        """Return dispatchable paths in the order they would be considered by the next quantum."""
         count = len(self._path_order)
         ordered = (
             self._path_order[(self._cursor + offset) % count]
@@ -290,7 +301,24 @@ class TransitOrbitScheduler:
         return tuple(
             path_id
             for path_id in ordered
-            if self._sessions[path_id].phase == "request-ready"
+            if self._is_dispatchable(self._sessions[path_id])
+        )
+
+    @property
+    def blocked_paths(self) -> tuple[str, ...]:
+        """Return request-ready paths whose response windows currently have no free slot."""
+        count = len(self._path_order)
+        ordered = (
+            self._path_order[(self._cursor + offset) % count]
+            for offset in range(count)
+        )
+        return tuple(
+            path_id
+            for path_id in ordered
+            if (
+                self._sessions[path_id].phase == "request-ready"
+                and not self._has_response_capacity(self._sessions[path_id])
+            )
         )
 
     def state(self) -> dict[str, object]:
@@ -301,8 +329,10 @@ class TransitOrbitScheduler:
             "cursor_path_id": self.cursor_path_id,
             "path_ids": list(self._path_order),
             "ready_paths": list(self.ready_paths),
+            "blocked_paths": list(self.blocked_paths),
             "dispatch_counts": dict(self._dispatch_counts),
             "idle_ticks": self._idle_ticks,
+            "backpressure_ticks": self._backpressure_ticks,
             "stale_ready_ticks": self._stale_ready_ticks,
             "receipt_head": self._receipt_head,
         }
@@ -348,16 +378,31 @@ class TransitOrbitScheduler:
         """Advance at most one ready path by one request; an all-idle scan is one logical quantum."""
         count = len(self._path_order)
         selected_index: int | None = None
+        blocked_index: int | None = None
         for offset in range(count):
             index = (self._cursor + offset) % count
             path_id = self._path_order[index]
-            if self._sessions[path_id].phase == "request-ready":
+            session = self._sessions[path_id]
+            if self._is_dispatchable(session):
                 selected_index = index
                 break
+            if session.phase == "request-ready" and blocked_index is None:
+                blocked_index = index
 
         tick = self._logical_tick + 1
         if selected_index is None:
             self._logical_tick = tick
+            if blocked_index is not None:
+                path_id = self._path_order[blocked_index]
+                self._cursor = (blocked_index + 1) % count
+                self._backpressure_ticks += 1
+                receipt = self._receipt(
+                    tick=tick,
+                    path_id=path_id,
+                    disposition="backpressured",
+                    session_state_digest=_digest(self._sessions[path_id].state()),
+                )
+                return TransitOrbitStep(receipt)
             self._idle_ticks += 1
             receipt = self._receipt(
                 tick=tick,
@@ -410,7 +455,7 @@ class TransitOrbitScheduler:
         for _ in range(max_quanta):
             current = self.step()
             steps.append(current)
-            if current.receipt.disposition == "idle":
+            if current.receipt.disposition in {"idle", "backpressured"}:
                 break
         return tuple(steps)
 
@@ -453,6 +498,7 @@ class TransitOrbitScheduler:
             "logical_tick": self._logical_tick,
             "dispatch_counts": dict(self._dispatch_counts),
             "idle_ticks": self._idle_ticks,
+            "backpressure_ticks": self._backpressure_ticks,
             "stale_ready_ticks": self._stale_ready_ticks,
             "receipt_head": self._receipt_head,
         }
@@ -516,6 +562,7 @@ class TransitOrbitScheduler:
             raise TransitOrbitSchedulerError("orbit checkpoint cursor is outside path order")
         logical_tick = _nonnegative_int(state.get("logical_tick"), "logical_tick")
         idle_ticks = _nonnegative_int(state.get("idle_ticks"), "idle_ticks")
+        backpressure_ticks = _nonnegative_int(state.get("backpressure_ticks"), "backpressure_ticks")
         stale_ready_ticks = _nonnegative_int(state.get("stale_ready_ticks"), "stale_ready_ticks")
         raw_counts = state.get("dispatch_counts")
         if not isinstance(raw_counts, Mapping) or set(raw_counts) != set(scheduler.path_ids):
@@ -524,7 +571,7 @@ class TransitOrbitScheduler:
             path_id: _nonnegative_int(raw_counts[path_id], f"dispatch_counts[{path_id}]")
             for path_id in scheduler.path_ids
         }
-        if sum(counts.values()) + idle_ticks + stale_ready_ticks != logical_tick:
+        if sum(counts.values()) + idle_ticks + backpressure_ticks + stale_ready_ticks != logical_tick:
             raise TransitOrbitSchedulerError("orbit checkpoint counters do not conserve logical ticks")
         receipt_head = _require_digest(state.get("receipt_head"), "receipt_head")
 
@@ -532,6 +579,7 @@ class TransitOrbitScheduler:
         scheduler._logical_tick = logical_tick
         scheduler._dispatch_counts = counts
         scheduler._idle_ticks = idle_ticks
+        scheduler._backpressure_ticks = backpressure_ticks
         scheduler._stale_ready_ticks = stale_ready_ticks
         scheduler._receipt_head = receipt_head
         return scheduler
