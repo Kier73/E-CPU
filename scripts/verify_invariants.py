@@ -192,6 +192,7 @@ def _expected_symbol(establishes: str) -> str | None:
         "neural_lifter": "NeuralLifterPolicy",
         "substrate_sim": "WanSubstrateSimulator",
         "virtual_layer": "VirtualLayerWorkload",
+        "transit_orbit": "TransitOrbitScheduler",
     }
     return mapping.get(stem)
 
