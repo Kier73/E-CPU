@@ -503,6 +503,7 @@ class TransitPathSessionBinding:
             "version", "path_id", "contract_digest", "session_checkpoint_digest",
             "client_request_digest", "client_result_digest", "path_state",
             "observation_tick", "queue_observations", "service_samples", "protocol_events",
+            "dropped_observations",
         }
         if set(raw_state) != expected_fields or raw_state.get("version") != 1:
             raise TransitPathBindingError("path binding checkpoint state fields are invalid")
