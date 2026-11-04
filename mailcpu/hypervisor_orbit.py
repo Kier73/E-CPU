@@ -33,7 +33,7 @@ class HypervisorTransitOrbitError(ValueError):
 
 
 def _canonical_bytes(value: Any) -> bytes:
-    """Encode finite JSON-compatible state into deterministic bytes."""
+    """Mathematics: map finite JSON-compatible state x to canonical bytes J(x), refusing values outside the finite JSON domain."""
     try:
         return json.dumps(
             value,
@@ -49,12 +49,12 @@ def _canonical_bytes(value: Any) -> bytes:
 
 
 def _digest(value: Any) -> str:
-    """Return the SHA-256 digest of a canonical JSON-compatible value."""
+    """Mathematics: compute H(x)=SHA-256(J(x)) over canonical JSON bytes."""
     return hashlib.sha256(_canonical_bytes(value)).hexdigest()
 
 
 def _nonnegative_int(value: Any, label: str) -> int:
-    """Require a non-negative integer and exclude Boolean values."""
+    """Mathematics: enforce x∈Z≥0 and x∉{bool}; reject values outside that domain."""
     if not isinstance(value, int) or isinstance(value, bool) or value < 0:
         raise HypervisorTransitOrbitError(f"{label} must be a non-negative integer")
     return value
@@ -83,7 +83,7 @@ class HypervisorTransitOrbitStep:
 
     @property
     def authorized(self) -> bool:
-        """Return whether the hypervisor admitted the scheduler transition."""
+        """Mathematics: authorized=1 iff decision.action=ALLOW; an orbit transition exists exactly in that case."""
         return self.decision.action is HypervisorAction.ALLOW
 
 
@@ -127,7 +127,7 @@ class HypervisorTransitOrbitController:
         self.scheduler = scheduler
 
     def state(self) -> dict[str, object]:
-        """Expose controller identity and scheduler state without copying session ledgers."""
+        """Mathematics: project C=(authority_pid,resource,right,orbit_state) without copying authoritative path ledgers."""
         return {
             "authority_pid": self.authority_pid,
             "resource": self.resource,
@@ -136,7 +136,7 @@ class HypervisorTransitOrbitController:
         }
 
     def step(self) -> HypervisorTransitOrbitStep:
-        """Authorize and perform at most one deterministic transit scheduling quantum."""
+        """Mathematics: evaluate one guarded transition T_C; when action≠ALLOW, the scheduler state is unchanged."""
         request_payload = {
             "control": "advance one ready transit compute scheduling quantum",
             "scheduler": self.scheduler.state(),
@@ -173,7 +173,7 @@ class HypervisorTransitOrbitController:
         return HypervisorTransitOrbitStep(decision, result)
 
     def pump(self, max_quanta: int) -> tuple[HypervisorTransitOrbitStep, ...]:
-        """Run a bounded ready burst, stopping on denial, idle, or response backpressure."""
+        """Mathematics: execute at most N>0 guarded quanta and stop at non-ALLOW, idle, or backpressure."""
         if (
             not isinstance(max_quanta, int)
             or isinstance(max_quanta, bool)
@@ -192,7 +192,7 @@ class HypervisorTransitOrbitController:
         return tuple(steps)
 
     def snapshot(self) -> dict[str, object]:
-        """Checkpoint controller identity and scheduler cursor; OS and session state remain separately authoritative."""
+        """Mathematics: serialize K=(version,authority_pid,scheduler_snapshot) with digest H(K), leaving OS and sessions authoritative."""
         state = {
             "version": 1,
             "authority_pid": self.authority_pid,
@@ -211,7 +211,7 @@ class HypervisorTransitOrbitController:
         operating_system: HeadlessOS,
         sessions: Mapping[str, TransitComputeSession],
     ) -> "HypervisorTransitOrbitController":
-        """Restore against an independently restored coordinator OS and exact transit sessions."""
+        """Mathematics: reconstruct C only when format, schema, digest, authority process, and restored session contracts verify."""
         if not isinstance(payload, Mapping) or set(payload) != {
             "format",
             "digest",
