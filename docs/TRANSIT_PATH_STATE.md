@@ -163,3 +163,96 @@ The request also carries SHA-256 preimage digests for the exact source and desti
 For an admitted transfer, the host reads the source interval, applies the bytes to a copy-on-write clone of the destination memory image, commits the candidate mapping state only after the full write succeeds, then verifies the destination bytes. It returns the copied byte count, a SHA-256 digest of the transferred bytes, and a journal completion receipt. The integration test copies an 80-byte interval across virtual-page boundaries, verifies the data and journal receipt, checks receiver-local read/write authority, tests stale source/destination digests, and restores the pre-operation receiver snapshot to demonstrate deterministic reapplication with the same completion receipt. It also proves reliable semantic retry does not invoke the transfer handler a second time.
 
 This is an in-process memory-image commit, not a crash-atomic transaction spanning the memory update, event journal, hypervisor replay ledger, network result, and durable checkpoint. A process failure after the memory mapping changes but before the full causal record is durable can still leave an incomplete operation record. The current operation is tested in a single receiver process; hard-kill recovery and cross-host memory ownership are not claimed.
+
+
+## Deterministic orbit scheduling
+
+The path session above defines one persistent receiver-side path. The orbit
+scheduler composes several independent sessions without copying their execution
+ledgers:
+
+\[
+\mathcal{S}_{orbit}
+=
+\left(\prod_{p\in P}\Sigma_p\right)
+\times (c,t,n,r),
+\]
+
+where \(\Sigma_p\) remains authoritative in its \`TransitComputeSession\`,
+\(c\) is the next round-robin cursor, \(t\) is the scheduler logical tick,
+\(n\) contains dispatch/idle counters, and \(r\) is the rolling receipt head.
+
+At each scheduling quantum, the scheduler scans the canonical sorted path IDs
+cyclically from \(c\) and selects the first session whose inbound request is
+ready. It calls that session's \`serve_once()\` at most once, then advances the
+cursor to the path after the selected path. If no path is ready, it records one
+idle quantum and leaves the cursor unchanged. An idle quantum is an observation
+of the current ready set; it is not a worker instruction or a wall-clock sleep.
+
+This is deterministic interleaving, not global lockstep. A path with multiple
+queued requests can make progress over successive turns, while other ready
+paths receive intervening turns. Under the assumptions that the scheduler is
+called repeatedly and a path remains ready, cyclic selection prevents a
+continuously ready path from being skipped indefinitely. The current version
+does not implement dynamic path admission/removal, cancellation, queue
+backpressure policy, deadline scheduling, or parallel execution. Existing
+reliable-channel windows and receiver hypervisor checks remain in force.
+
+### Logical path identity and physical transport
+
+The orbit manifest binds each path ID to a digest of its logical request and
+response channel identity. It deliberately excludes the concrete transport
+object. A quiescent \`TransitComputeSession\` checkpoint separately commits to
+the receiver, worker, backend manifest, and reliable-channel state.
+
+To restore an orbit, first restore each session from its own checkpoint using
+newly established transports; then restore the orbit checkpoint against those
+sessions. The scheduler admits this rebinding only when path membership,
+logical channel contracts, and session checkpoint digests match. This allows
+a replacement stream to carry the same logical continuation without resetting
+the orbit cursor. It is not route discovery or automatic rerouting: the caller
+must establish and authenticate the replacement transport, and the replacement
+must preserve the logical peer/channel identity.
+
+The scheduler checkpoint is a manifest over session checkpoint digests, not a
+container for the full session checkpoints. Each path checkpoint must be
+persisted independently. As with \`TransitComputeSession\`, snapshotting requires
+the worker's existing quiescent boundary: no pending inbound request data and
+no unacknowledged response data. The orbit scheduler does not weaken that
+precondition.
+
+### Scheduling receipts
+
+Each quantum extends a hash-linked receipt:
+
+\[
+r_t=H(r_{t-1},\;t,\;p_t,\;d_t,\;a_t,\;x_t,\;q_t),
+\]
+
+where \(p_t\) is the selected path (or null for an idle quantum), \(d_t\)
+is the disposition, \(a_t\) is the hypervisor action, \(x_t\) records
+whether execution occurred or was replayed, and \(q_t\) is a digest of the
+session's diagnostic state after the quantum. The receipt links scheduler
+ordering to the path state observed at that boundary.
+
+These receipts are scheduler evidence, not a replacement for the hypervisor
+journal or semantic effect ledger. Their digest chain detects mutation of the
+recorded sequence when the records are available; it does not authenticate a
+peer, prove a handler correct, or reconstruct omitted session state. The
+session checkpoint and hypervisor journal remain the sources of execution and
+replay evidence.
+
+### Initial conformance boundary
+
+The first integration test interleaves two independently connected loopback
+TCP sessions. Each receives two requests; the orbit dispatch order is
+\`path-a\`, \`path-b\`, \`path-a\`, \`path-b\`. The tests also cover idle quanta,
+receipt-chain verification, logical path membership validation, and restoring
+the scheduler cursor after both sessions are restored onto replacement TCP
+connections.
+
+This establishes deterministic local orchestration across multiple transit
+sessions. It does not establish separate-physical-host deployment, wide-area
+fairness under failure, automatic network route selection, physical GPU
+execution, or a performance advantage. Those require independent deployment
+and measurement.
