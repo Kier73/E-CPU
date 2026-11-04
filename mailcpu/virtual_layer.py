@@ -127,7 +127,8 @@ def _value_matches(value: Any, kind: str) -> bool:
     if kind == "object":
         return isinstance(value, Mapping)
     if kind == "array":
-        return isinstance(value, list)
+        # Frozen workload arrays use tuples internally but serialize as JSON arrays.
+        return isinstance(value, (list, tuple))
     if kind == "integer":
         return isinstance(value, int) and not isinstance(value, bool)
     if kind == "number":
