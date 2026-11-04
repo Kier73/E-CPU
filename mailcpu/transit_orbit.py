@@ -138,7 +138,7 @@ class TransitOrbitReceipt:
         _nonnegative_int(self.tick, "receipt tick")
         if self.tick == 0:
             raise TransitOrbitSchedulerError("receipt ticks start at one")
-        if self.disposition not in {"processed", "idle", "stale-ready"}:
+        if not isinstance(self.disposition, str) or self.disposition not in {"processed", "idle", "stale-ready"}:
             raise TransitOrbitSchedulerError("receipt disposition is invalid")
         _require_digest(self.previous_digest, "receipt previous_digest")
         _require_digest(self.digest, "receipt digest")
@@ -476,7 +476,8 @@ class TransitOrbitScheduler:
         state = payload.get("state")
         if not isinstance(state, Mapping) or set(state) != _STATE_FIELDS:
             raise TransitOrbitSchedulerError("orbit checkpoint state fields are invalid")
-        if state.get("version") != 1:
+        version = state.get("version")
+        if not isinstance(version, int) or isinstance(version, bool) or version != 1:
             raise TransitOrbitSchedulerError("unsupported transit orbit checkpoint version")
         supplied_digest = _require_digest(payload.get("digest"), "orbit checkpoint digest")
         if _digest(dict(state)) != supplied_digest:
