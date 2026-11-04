@@ -190,6 +190,40 @@ class TransitOrbitReceipt:
         """Serialize the receipt together with its integrity digest."""
         return {**self.payload(), "digest": self.digest}
 
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "TransitOrbitReceipt":
+        """Reconstruct a portable receipt and verify its canonical payload digest."""
+        fields = {
+            "format",
+            "tick",
+            "path_id",
+            "disposition",
+            "action",
+            "executed",
+            "replayed",
+            "session_state_digest",
+            "previous_digest",
+            "digest",
+        }
+        if not isinstance(payload, Mapping) or set(payload) != fields:
+            raise TransitOrbitSchedulerError("orbit receipt fields are invalid")
+        if payload.get("format") != _RECEIPT_FORMAT:
+            raise TransitOrbitSchedulerError("unsupported transit orbit receipt format")
+        receipt = cls(
+            tick=payload.get("tick"),
+            path_id=payload.get("path_id"),
+            disposition=payload.get("disposition"),
+            action=payload.get("action"),
+            executed=payload.get("executed"),
+            replayed=payload.get("replayed"),
+            session_state_digest=payload.get("session_state_digest"),
+            previous_digest=payload.get("previous_digest"),
+            digest=payload.get("digest"),
+        )
+        if _digest(receipt.payload()) != receipt.digest:
+            raise TransitOrbitSchedulerError("orbit receipt digest mismatch")
+        return receipt
+
 
 @dataclass(frozen=True)
 class TransitOrbitStep:
