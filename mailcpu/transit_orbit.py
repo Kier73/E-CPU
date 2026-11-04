@@ -39,11 +39,11 @@ _STATE_FIELDS = frozenset(
 
 
 class TransitOrbitSchedulerError(ValueError):
-    """A transit path set, scheduling transition, or orbit checkpoint is invalid."""
+    """Mathematics: A transit path set, scheduling transition, or orbit checkpoint is invalid."""
 
 
 def _canonical_bytes(value: Any) -> bytes:
-    """Encode a value in the finite canonical JSON domain used by orbit receipts."""
+    """Mathematics: Encode a value in the finite canonical JSON domain used by orbit receipts."""
     try:
         return json.dumps(
             value,
@@ -59,12 +59,12 @@ def _canonical_bytes(value: Any) -> bytes:
 
 
 def _digest(value: Any) -> str:
-    """Return the SHA-256 digest of a canonical JSON value."""
+    """Mathematics: Return the SHA-256 digest of a canonical JSON value."""
     return hashlib.sha256(_canonical_bytes(value)).hexdigest()
 
 
 def _require_digest(value: Any, label: str) -> str:
-    """Validate one lowercase SHA-256 digest."""
+    """Mathematics: Validate one lowercase SHA-256 digest."""
     if (
         not isinstance(value, str)
         or len(value) != 64
@@ -75,14 +75,14 @@ def _require_digest(value: Any, label: str) -> str:
 
 
 def _nonnegative_int(value: Any, label: str) -> int:
-    """Require a non-negative integer while excluding Boolean values."""
+    """Mathematics: Require a non-negative integer while excluding Boolean values."""
     if not isinstance(value, int) or isinstance(value, bool) or value < 0:
         raise TransitOrbitSchedulerError(f"{label} must be a non-negative integer")
     return value
 
 
 def _path_label(value: Any) -> str:
-    """Require a stable, non-empty logical path identifier."""
+    """Mathematics: Require a stable, non-empty logical path identifier."""
     if not isinstance(value, str) or not value.strip():
         raise TransitOrbitSchedulerError("path IDs must be non-empty strings")
     if len(value) > 128:
@@ -91,7 +91,7 @@ def _path_label(value: Any) -> str:
 
 
 def _session_contract(session: TransitComputeSession) -> dict[str, object]:
-    """Project a session's logical channel identity without including its physical transport."""
+    """Mathematics: Project a session's logical channel identity without including its physical transport."""
     request = session.request.channel
     response = session.response.channel
     return {
@@ -113,7 +113,7 @@ def _session_contract(session: TransitComputeSession) -> dict[str, object]:
 
 
 def _session_checkpoint_digest(session: TransitComputeSession) -> str:
-    """Read the authoritative path checkpoint digest at a quiescent worker boundary."""
+    """Mathematics: Read the authoritative path checkpoint digest at a quiescent worker boundary."""
     checkpoint = session.snapshot()
     if not isinstance(checkpoint, Mapping):
         raise TransitOrbitSchedulerError("transit session snapshot must be a mapping")
@@ -122,7 +122,7 @@ def _session_checkpoint_digest(session: TransitComputeSession) -> str:
 
 @dataclass(frozen=True)
 class TransitOrbitReceipt:
-    """Hash-linked evidence of one scheduler quantum, not a duplicate effect ledger."""
+    """Mathematics: Hash-linked evidence of one scheduler quantum, not a duplicate effect ledger."""
 
     tick: int
     path_id: str | None
@@ -135,7 +135,7 @@ class TransitOrbitReceipt:
     digest: str
 
     def __post_init__(self) -> None:
-        """Validate the receipt's finite shape before it can enter a receipt chain."""
+        """Mathematics: Validate the receipt's finite shape before it can enter a receipt chain."""
         _nonnegative_int(self.tick, "receipt tick")
         if self.tick == 0:
             raise TransitOrbitSchedulerError("receipt ticks start at one")
@@ -173,7 +173,7 @@ class TransitOrbitReceipt:
             raise TransitOrbitSchedulerError("non-processed path receipts cannot claim an execution result")
 
     def payload(self) -> dict[str, object]:
-        """Return the canonical receipt fields covered by its digest."""
+        """Mathematics: Return the canonical receipt fields covered by its digest."""
         return {
             "format": _RECEIPT_FORMAT,
             "tick": self.tick,
@@ -187,12 +187,12 @@ class TransitOrbitReceipt:
         }
 
     def to_dict(self) -> dict[str, object]:
-        """Serialize the receipt together with its integrity digest."""
+        """Mathematics: Serialize the receipt together with its integrity digest."""
         return {**self.payload(), "digest": self.digest}
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "TransitOrbitReceipt":
-        """Reconstruct a portable receipt and verify its canonical payload digest."""
+        """Mathematics: Reconstruct a portable receipt and verify its canonical payload digest."""
         fields = {
             "format",
             "tick",
@@ -227,7 +227,7 @@ class TransitOrbitReceipt:
 
 @dataclass(frozen=True)
 class TransitOrbitStep:
-    """One scheduler quantum and the optional authoritative hypervisor result."""
+    """Mathematics: One scheduler quantum and the optional authoritative hypervisor result."""
 
     receipt: TransitOrbitReceipt
     result: HypervisorExecutionResult | None = None
@@ -239,7 +239,7 @@ def verify_transit_orbit_receipts(
     initial_digest: str = _ZERO_DIGEST,
     initial_tick: int = 0,
 ) -> bool:
-    """Verify a contiguous receipt suffix against its preceding digest and logical tick."""
+    """Mathematics: Verify a contiguous receipt suffix against its preceding digest and logical tick."""
     try:
         previous = _require_digest(initial_digest, "initial_digest")
         tick = _nonnegative_int(initial_tick, "initial_tick")
@@ -258,7 +258,7 @@ def verify_transit_orbit_receipts(
 
 
 class TransitOrbitScheduler:
-    """Deterministically interleave independent TransitComputeSession paths.
+    """Mathematics: Deterministically interleave independent TransitComputeSession paths.
 
     Path IDs define a stable logical order. Each call to step() admits at most
     one ready request. The physical transport is deliberately absent from the
@@ -267,7 +267,7 @@ class TransitOrbitScheduler:
     """
 
     def __init__(self, sessions: Mapping[str, TransitComputeSession]) -> None:
-        """Bind a non-empty set of named logical paths and initialize the orbit cursor."""
+        """Mathematics: Bind a non-empty set of named logical paths and initialize the orbit cursor."""
         if not isinstance(sessions, Mapping) or not sessions:
             raise TransitOrbitSchedulerError("orbit scheduler requires at least one named path")
         normalized: dict[str, TransitComputeSession] = {}
@@ -297,36 +297,36 @@ class TransitOrbitScheduler:
 
     @property
     def path_ids(self) -> tuple[str, ...]:
-        """Return the immutable canonical order of logical path IDs."""
+        """Mathematics: Return the immutable canonical order of logical path IDs."""
         return self._path_order
 
     @property
     def logical_tick(self) -> int:
-        """Return the number of scheduler quanta, including idle observations."""
+        """Mathematics: Return the number of scheduler quanta, including idle observations."""
         return self._logical_tick
 
     @property
     def cursor_path_id(self) -> str:
-        """Return the path at which the next round-robin scan begins."""
+        """Mathematics: Return the path at which the next round-robin scan begins."""
         return self._path_order[self._cursor]
 
     @property
     def receipt_head(self) -> str:
-        """Return the current rolling commitment to scheduler receipts."""
+        """Mathematics: Return the current rolling commitment to scheduler receipts."""
         return self._receipt_head
 
     @staticmethod
     def _has_response_capacity(session: TransitComputeSession) -> bool:
-        """Require one receiver-side response slot before admitting another request."""
+        """Mathematics: Require one receiver-side response slot before admitting another request."""
         return session.response.channel.available_window > 0
 
     def _is_dispatchable(self, session: TransitComputeSession) -> bool:
-        """Admit a ready request only when its bounded result channel has a free slot."""
+        """Mathematics: Admit a ready request only when its bounded result channel has a free slot."""
         return session.phase == "request-ready" and self._has_response_capacity(session)
 
     @property
     def ready_paths(self) -> tuple[str, ...]:
-        """Return dispatchable paths in the order they would be considered by the next quantum."""
+        """Mathematics: Return dispatchable paths in the order they would be considered by the next quantum."""
         count = len(self._path_order)
         ordered = (
             self._path_order[(self._cursor + offset) % count]
@@ -340,7 +340,7 @@ class TransitOrbitScheduler:
 
     @property
     def blocked_paths(self) -> tuple[str, ...]:
-        """Return request-ready paths whose response windows currently have no free slot."""
+        """Mathematics: Return request-ready paths whose response windows currently have no free slot."""
         count = len(self._path_order)
         ordered = (
             self._path_order[(self._cursor + offset) % count]
@@ -356,7 +356,7 @@ class TransitOrbitScheduler:
         )
 
     def state(self) -> dict[str, object]:
-        """Expose the scheduler projection without copying path execution ledgers."""
+        """Mathematics: Expose the scheduler projection without copying path execution ledgers."""
         return {
             "logical_tick": self._logical_tick,
             "cursor": self._cursor,
@@ -382,7 +382,7 @@ class TransitOrbitScheduler:
         replayed: bool | None = None,
         session_state_digest: str | None = None,
     ) -> TransitOrbitReceipt:
-        """Create and append one deterministic receipt to the scheduler's rolling chain."""
+        """Mathematics: Create and append one deterministic receipt to the scheduler's rolling chain."""
         payload = {
             "format": _RECEIPT_FORMAT,
             "tick": tick,
@@ -409,7 +409,7 @@ class TransitOrbitScheduler:
         return receipt
 
     def step(self) -> TransitOrbitStep:
-        """Dispatch at most one admissible request, or receipt an idle/backpressured observation."""
+        """Mathematics: Dispatch at most one admissible request, or receipt an idle/backpressured observation."""
         count = len(self._path_order)
         selected_index: int | None = None
         blocked_index: int | None = None
@@ -478,7 +478,7 @@ class TransitOrbitScheduler:
         return TransitOrbitStep(receipt, result)
 
     def run(self, max_quanta: int) -> tuple[TransitOrbitStep, ...]:
-        """Run bounded quanta, stopping when no path can dispatch without external progress."""
+        """Mathematics: Run bounded quanta, stopping when no path can dispatch without external progress."""
         if (
             not isinstance(max_quanta, int)
             or isinstance(max_quanta, bool)
@@ -498,7 +498,7 @@ class TransitOrbitScheduler:
         path_id: str,
         session: TransitComputeSession,
     ) -> None:
-        """Rebind a logical path to a restored session only when its contract and checkpoint are identical."""
+        """Mathematics: Rebind a logical path to a restored session only when its contract and checkpoint are identical."""
         path_id = _path_label(path_id)
         if path_id not in self._sessions:
             raise TransitOrbitSchedulerError(f"unknown logical path {path_id!r}")
@@ -518,7 +518,7 @@ class TransitOrbitScheduler:
         self._sessions[path_id] = session
 
     def snapshot(self) -> dict[str, object]:
-        """Checkpoint scheduler arbitration and bind it to every quiescent authoritative path snapshot."""
+        """Mathematics: Checkpoint scheduler arbitration and bind it to every quiescent authoritative path snapshot."""
         session_digests = {
             path_id: _session_checkpoint_digest(self._sessions[path_id])
             for path_id in self._path_order
@@ -548,7 +548,7 @@ class TransitOrbitScheduler:
         payload: Mapping[str, Any],
         sessions: Mapping[str, TransitComputeSession],
     ) -> "TransitOrbitScheduler":
-        """Restore scheduler state only when every supplied path matches its checkpoint and logical contract."""
+        """Mathematics: Restore scheduler state only when every supplied path matches its checkpoint and logical contract."""
         if not isinstance(payload, Mapping) or set(payload) != {"format", "digest", "state"}:
             raise TransitOrbitSchedulerError("orbit checkpoint envelope fields are invalid")
         if payload.get("format") != _FORMAT:
@@ -619,7 +619,7 @@ class TransitOrbitScheduler:
         return scheduler
 
     def save_checkpoint(self, path: str | os.PathLike[str]) -> str:
-        """Atomically persist the scheduler checkpoint; each session checkpoint is persisted separately."""
+        """Mathematics: Atomically persist the scheduler checkpoint; each session checkpoint is persisted separately."""
         target = Path(path)
         if not str(target):
             raise TransitOrbitSchedulerError("orbit checkpoint path must be non-empty")
@@ -670,7 +670,7 @@ class TransitOrbitScheduler:
         path: str | os.PathLike[str],
         sessions: Mapping[str, TransitComputeSession],
     ) -> "TransitOrbitScheduler":
-        """Read a scheduler checkpoint and reattach already restored logical sessions."""
+        """Mathematics: Read a scheduler checkpoint and reattach already restored logical sessions."""
         source = Path(path)
         try:
             payload = json.loads(source.read_text(encoding="utf-8"))
