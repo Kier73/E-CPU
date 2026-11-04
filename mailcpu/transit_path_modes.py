@@ -24,7 +24,7 @@ class TransitPathStateError(ValueError):
 
 
 def _integer(value: Any, label: str, minimum: int | None = None) -> int:
-    """Validate a non-Boolean integer and its optional lower bound."""
+    """Mathematics: Validate a non-Boolean integer and its optional lower bound."""
     if not isinstance(value, int) or isinstance(value, bool):
         raise TransitPathStateError(f"{label} must be an integer")
     if minimum is not None and value < minimum:
@@ -33,7 +33,7 @@ def _integer(value: Any, label: str, minimum: int | None = None) -> int:
 
 
 def _finite_number(value: Any, label: str, minimum: float | None = None) -> float:
-    """Validate a finite numeric value and its optional lower bound."""
+    """Mathematics: Validate a finite numeric value and its optional lower bound."""
     if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value):
         raise TransitPathStateError(f"{label} must be finite")
     result = float(value)
@@ -43,7 +43,7 @@ def _finite_number(value: Any, label: str, minimum: float | None = None) -> floa
 
 
 def _canonical(value: Any) -> bytes:
-    """Serialize a value as stable finite canonical JSON bytes."""
+    """Mathematics: Serialize a value as stable finite canonical JSON bytes."""
     try:
         return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
     except (TypeError, ValueError) as exc:
@@ -51,19 +51,19 @@ def _canonical(value: Any) -> bytes:
 
 
 def _digest(value: Any) -> str:
-    """Compute the SHA-256 digest of canonical JSON state."""
+    """Mathematics: Compute the SHA-256 digest of canonical JSON state."""
     return hashlib.sha256(_canonical(value)).hexdigest()
 
 
 def _path_id(value: Any) -> str:
-    """Validate the stable logical path identifier."""
+    """Mathematics: Validate the stable logical path identifier."""
     if not isinstance(value, str) or not value.strip() or len(value) > 128 or "\x00" in value:
         raise TransitPathStateError("path_id must be a non-empty string of at most 128 characters")
     return value
 
 
 def _validated_moduli(moduli: Sequence[int], k: int) -> tuple[tuple[int, ...], int]:
-    """Validate the RRNS modulus set and return its information capacity."""
+    """Mathematics: Validate the RRNS modulus set and return its information capacity."""
     if not isinstance(moduli, Sequence) or isinstance(moduli, (str, bytes)):
         raise TransitPathStateError("moduli must be a finite integer sequence")
     values = tuple(_integer(m, "modulus", 2) for m in moduli)
@@ -92,7 +92,7 @@ class PathSensorSample:
     recovered: bool
 
     def to_dict(self) -> dict[str, Any]:
-        """Return the immutable observation record as a JSON-compatible dictionary."""
+        """Mathematics: Return the immutable observation record as a JSON-compatible dictionary."""
         return asdict(self)
 
 
@@ -115,7 +115,7 @@ class PathSensorSummary:
     slot_interval_us: int
 
     def to_dict(self) -> dict[str, Any]:
-        """Return the immutable observation record as a JSON-compatible dictionary."""
+        """Mathematics: Return the immutable observation record as a JSON-compatible dictionary."""
         return asdict(self)
 
 
@@ -155,17 +155,17 @@ class TransitPathState:
         self._highest_sequence: int | None = None
 
     def _advance(self) -> int:
-        """Advance and return the path-local logical transition counter."""
+        """Mathematics: Advance and return the path-local logical transition counter."""
         self.logical_tick += 1
         return self.logical_tick
 
     def _require_mode(self, expected: str) -> None:
-        """Reject an operation unless the path currently has the required role."""
+        """Mathematics: Reject an operation unless the path currently has the required role."""
         if self.mode != expected:
             raise TransitPathStateError(f"operation requires {expected!r} mode, current mode is {self.mode!r}")
 
     def set_mode(self, mode: str) -> int:
-        """Switch roles without replacing the path, its memory engine, or its history."""
+        """Mathematics: Switch roles without replacing the path, its memory engine, or its history."""
         if not isinstance(mode, str) or mode not in _MODES:
             raise TransitPathStateError("mode must be one of: memory, sensor, processor")
         if mode == self.mode:
@@ -176,7 +176,7 @@ class TransitPathState:
         return tick
 
     def store(self, value: int, *, k: int, moduli: Sequence[int], kind: str = "scrub") -> int:
-        """Store one unsigned integer across redundant residue slots."""
+        """Mathematics: Store one unsigned integer across redundant residue slots."""
         self._require_mode("memory")
         value = _integer(value, "value", 0)
         mods, capacity = _validated_moduli(moduli, _integer(k, "k", 1))
@@ -189,7 +189,7 @@ class TransitPathState:
         return group.group_id
 
     def read(self, group_id: int) -> int:
-        """Read a stored value by CRT without modifying its residue slots."""
+        """Mathematics: Read a stored value by CRT without modifying its residue slots."""
         self._require_mode("memory")
         group_id = _integer(group_id, "group_id", 0)
         value, ok = self.engine.read_group(group_id)
@@ -199,7 +199,7 @@ class TransitPathState:
         return value
 
     def mark_slot_lost(self, group_id: int, position: int) -> None:
-        """Record a simulated slot erasure in the delay-line memory."""
+        """Mathematics: Record a simulated slot erasure in the delay-line memory."""
         self._require_mode("memory")
         group_id = _integer(group_id, "group_id", 0)
         position = _integer(position, "position", 0)
@@ -210,7 +210,7 @@ class TransitPathState:
         self._advance()
 
     def repair(self, group_id: int) -> int:
-        """Recover a value and regenerate erased residue slots when at least k survive."""
+        """Mathematics: Recover a value and regenerate erased residue slots when at least k survive."""
         self._require_mode("memory")
         group_id = _integer(group_id, "group_id", 0)
         value, ok = self.engine.scrub_group(group_id)
@@ -220,7 +220,7 @@ class TransitPathState:
         return value
 
     def record_sample(self, sequence: int, latency_us: int | None, *, delivered: bool = True) -> PathSensorSample:
-        """Record an RTT observation or explicit loss notification in sensor mode."""
+        """Mathematics: Record an RTT observation or explicit loss notification in sensor mode."""
         self._require_mode("sensor")
         sequence = _integer(sequence, "sequence", 1)
         if not isinstance(delivered, bool):
@@ -269,7 +269,7 @@ class TransitPathState:
         return sample
 
     def record_round_trip(self, sequence: int, started_ns: int, completed_ns: int) -> PathSensorSample:
-        """Measure an RTT from two readings of the same local monotonic clock."""
+        """Mathematics: Measure an RTT from two readings of the same local monotonic clock."""
         started_ns = _integer(started_ns, "started_ns", 0)
         completed_ns = _integer(completed_ns, "completed_ns", 0)
         if completed_ns < started_ns:
@@ -277,11 +277,11 @@ class TransitPathState:
         return self.record_sample(sequence, round((completed_ns - started_ns) / 1000), delivered=True)
 
     def mark_lost(self, sequence: int) -> PathSensorSample:
-        """Record a timeout/loss decision supplied by the transport observer."""
+        """Mathematics: Record a timeout/loss decision supplied by the transport observer."""
         return self.record_sample(sequence, None, delivered=False)
 
     def _build_summary(self) -> PathSensorSummary:
-        """Derive sensor metrics from retained observations without mutating history."""
+        """Mathematics: Derive sensor metrics from retained observations without mutating history."""
         delivered = [sample.latency_us for sample in self.sensor_samples if sample.delivered and not sample.duplicate]
         deltas = [abs(right - left) for left, right in zip(delivered, delivered[1:])]
         mean = None if not delivered else sum(delivered) // len(delivered)
@@ -304,7 +304,7 @@ class TransitPathState:
         )
 
     def summarize(self) -> PathSensorSummary:
-        """Summarize retained sensor history and retain the result as a processor output."""
+        """Mathematics: Summarize retained sensor history and retain the result as a processor output."""
         self._require_mode("processor")
         summary = self._build_summary()
         tick = self._advance()
@@ -312,7 +312,7 @@ class TransitPathState:
         return summary
 
     def reduce_sensor_metric(self, metric: str) -> int:
-        """Apply a named deterministic reduction to retained sensor history."""
+        """Mathematics: Apply a named deterministic reduction to retained sensor history."""
         self._require_mode("processor")
         summary = self._build_summary()
         values = summary.to_dict()
@@ -324,7 +324,7 @@ class TransitPathState:
         return value
 
     def transform_group(self, group_id: int, operator: str, operand: int = 0) -> int:
-        """Transform an RRNS-retained integer and commit the result as a new memory group."""
+        """Mathematics: Transform an RRNS-retained integer and commit the result as a new memory group."""
         self._require_mode("processor")
         group_id = _integer(group_id, "group_id", 0)
         operand = _integer(operand, "operand", 0)
@@ -361,7 +361,7 @@ class TransitPathState:
         return group.group_id
 
     def _engine_state(self) -> dict[str, Any]:
-        """Serialize the delay engine's groups, slots, timing estimate, and allocation cursors."""
+        """Mathematics: Serialize the delay engine's groups, slots, timing estimate, and allocation cursors."""
         groups = []
         for group_id, group in sorted(self.engine.groups.items()):
             groups.append({
@@ -398,7 +398,7 @@ class TransitPathState:
         }
 
     def snapshot(self) -> dict[str, Any]:
-        """Return a digest-checked finite snapshot of the full path-mode state."""
+        """Mathematics: Return a digest-checked finite snapshot of the full path-mode state."""
         state = {
             "path_id": self.path_id,
             "mode": self.mode,
@@ -413,7 +413,7 @@ class TransitPathState:
 
     @staticmethod
     def _restore_engine(raw: Any) -> DelayLoopEngine:
-        """Rebuild a delay engine only after validating its complete retained state."""
+        """Mathematics: Rebuild a delay engine only after validating its complete retained state."""
         if not isinstance(raw, Mapping) or set(raw) != {
             "nominal_rtt_s", "slot_clamping_factor", "packet_len", "jitter_s",
             "measured_rtts", "next_group_id", "next_slot_id", "groups",
@@ -519,7 +519,7 @@ class TransitPathState:
 
     @classmethod
     def from_snapshot(cls, payload: Mapping[str, Any]) -> "TransitPathState":
-        """Restore a path only after digest, memory, timing, and role-history validation."""
+        """Mathematics: Restore a path only after digest, memory, timing, and role-history validation."""
         if not isinstance(payload, Mapping) or set(payload) != {"format", "digest", "state"}:
             raise TransitPathStateError("path checkpoint envelope is invalid")
         if payload.get("format") != _FORMAT:
@@ -626,7 +626,7 @@ class TransitPathState:
             previous_tick = tick
 
         def role_at(tick: int) -> str:
-            """Resolve the role active at a path-local logical transition."""
+            """Mathematics: Resolve the role active at a path-local logical transition."""
             current_role = history[0]["mode"]
             for transition in history[1:]:
                 if transition["tick"] > tick:
