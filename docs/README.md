@@ -21,6 +21,10 @@ Index of specification documents. Documents use defined terms from `GLOSSARY.md`
 | 13 | [`ITERATION_2_BUILD_PLAN.md`](ITERATION_2_BUILD_PLAN.md) | Comprehensive engineering plan and external resource ingestion map for Iteration 2 |
 | 14 | [`DOGFOODING_AND_EMPIRICAL_LIMITS.md`](DOGFOODING_AND_EMPIRICAL_LIMITS.md) | Empirical evaluation, discovered boundaries, ergonomic repairs, and Iteration 3 roadmap |
 | 15 | [`VIRTUAL_LAYER_WORKLOAD.md`](VIRTUAL_LAYER_WORKLOAD.md) | Typed portable workload, operator registry, hypervisor and reliable-channel integration boundaries |
+| 16 | [`TRANSIT_COMPUTE.md`](TRANSIT_COMPUTE.md) | Receiver-side bounded compute capsules and authenticated transit execution |
+| 17 | [`TRANSIT_PATH_STATE.md`](TRANSIT_PATH_STATE.md) | Persistent path state, SIMT and memory backends, recovery, and deterministic orbit scheduling |
+| 18 | [`STATE_SPACE_NAVIGATION.md`](STATE_SPACE_NAVIGATION.md) | Symbolic capacity, finite trajectories, and time-budgeted state-space navigation |
+| 19 | [`TRANSIT_PATH_MODES.md`](TRANSIT_PATH_MODES.md) | One path switching between RRNS memory, RTT sensing, and bounded processing |
 
 ## Document classes
 
@@ -33,6 +37,8 @@ Index of specification documents. Documents use defined terms from `GLOSSARY.md`
 **Reference.** `GLOSSARY.md`, `INVARIANTS.md`. Look-up tables and registries consumed by the specifications.
 
 **Procedure & Roadmap.** `PLAN.md`, `BUILDOUT_REQUIREMENTS.md`, `ITERATION_2_BUILD_PLAN.md`, `DOGFOODING_AND_EMPIRICAL_LIMITS.md`. Research plan, evaluation procedure, Iteration 2 build plan, and dogfooding report.
+
+**Runtime & Navigation.** `TRANSIT_COMPUTE.md`, `TRANSIT_PATH_STATE.md`, `STATE_SPACE_NAVIGATION.md`. Bounded transit execution, persistent path state, orbit scheduling, and symbolic navigation.
 
 **Research & Theory.** `COMMUNICATION_SUBSTRATES_AND_INFORMATION_THEORY.md`, `CROSS_SYSTEM_SYNTHESIS_TIME_COMPUTATION_MODELS.md`. Substrate information theory, temporal models, and cross-paradigm synthesis.
 

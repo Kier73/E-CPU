@@ -233,6 +233,25 @@ from .virtual_layer import (
     VirtualLayerWorkload,
     VirtualOperatorRef,
 )
+from .transit_compute import TransitComputeError, TransitComputeHost
+from .transit_memory import TransitMemoryTransferError, TransitMemoryTransferHost
+from .transit_router import TransitBackendRouter, TransitBackendRouterError
+from .transit_session import TransitComputeSession
+from .transit_simt import TransitSIMTError, TransitSIMTHost
+from .transit_worker import TransitComputeWorker
+from .transit_orbit import (
+    TransitOrbitReceipt,
+    TransitOrbitScheduler,
+    TransitOrbitSchedulerError,
+    TransitOrbitStep,
+    verify_transit_orbit_receipts,
+)
+from .transit_path_modes import (
+    PathSensorSample,
+    PathSensorSummary,
+    TransitPathState,
+    TransitPathStateError,
+)
 from .recovery_policy import (
     DEFAULT_CHECKPOINT_KIND,
     RECOVERY_POLICY_ADVERTISEMENT_KIND,
@@ -652,6 +671,25 @@ __all__ = [
     "VirtualLayerRuntime",
     "VirtualLayerWorkload",
     "VirtualOperatorRef",
+    "TransitComputeError",
+    "TransitComputeHost",
+    "TransitMemoryTransferError",
+    "TransitMemoryTransferHost",
+    "TransitBackendRouter",
+    "TransitBackendRouterError",
+    "TransitComputeSession",
+    "TransitSIMTError",
+    "TransitSIMTHost",
+    "TransitComputeWorker",
+    "TransitOrbitReceipt",
+    "PathSensorSample",
+    "PathSensorSummary",
+    "TransitPathState",
+    "TransitPathStateError",
+    "TransitOrbitScheduler",
+    "TransitOrbitSchedulerError",
+    "TransitOrbitStep",
+    "verify_transit_orbit_receipts",
     "DEFAULT_CHECKPOINT_KIND",
     "RECOVERY_POLICY_ADVERTISEMENT_KIND",
     "RECOVERY_POLICY_AGREEMENT_KIND",
