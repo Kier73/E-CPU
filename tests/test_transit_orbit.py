@@ -692,3 +692,69 @@ def test_hypervisor_orbit_controller_rejects_invalid_pump_budget_and_boolean_pid
                 raise AssertionError(f"controller accepted invalid pump budget: {invalid!r}")
     finally:
         _close([harness])
+
+
+
+def test_hypervisor_rechecks_scheduler_capability_before_every_quantum() -> None:
+    """Revoking coordinator authority stops the next turn without consuming its queued operation."""
+    harness = _harness("origin-a", "worker-a")
+    try:
+        sender = harness["request_origin"]
+        assert sender.send(_event("origin-a", 1)) == 1
+        assert sender.send(_event("origin-a", 2)) == 2
+        session = harness["session"]
+        scheduler = TransitOrbitScheduler({"path-a": session})
+        coordinator, authority_pid = _orbit_control_plane()
+        controller = HypervisorTransitOrbitController(
+            coordinator, authority_pid, scheduler
+        )
+
+        first = controller.step()
+        assert first.authorized is True
+        assert first.orbit_step is not None
+        assert first.orbit_step.receipt.disposition == "processed"
+        assert scheduler.logical_tick == 1
+
+        coordinator.environment.kernel._process(authority_pid).capabilities = ()
+        denied = controller.step()
+
+        assert denied.decision.action.value == "deny"
+        assert denied.orbit_step is None
+        assert scheduler.logical_tick == 1
+        assert session.request.channel.next_receive_sequence == 2
+        assert session.request.channel.peek() is not None
+    finally:
+        _close([harness])
+
+
+def test_coordinator_scheduler_permission_does_not_grant_receiver_job_permission() -> None:
+    """An allowed control quantum can still produce a receiver-local DENY without running the job."""
+    harness = _harness("origin-a", "worker-a")
+    try:
+        assert harness["request_origin"].send(_event("origin-a", 1)) == 1
+        session = harness["session"]
+        receiver_os = session.worker.operating_system
+        receiver_os.environment.kernel._process(
+            session.worker.authority_pid
+        ).capabilities = ()
+
+        scheduler = TransitOrbitScheduler({"path-a": session})
+        coordinator, authority_pid = _orbit_control_plane()
+        controller = HypervisorTransitOrbitController(
+            coordinator, authority_pid, scheduler
+        )
+
+        controlled = controller.step()
+
+        assert controlled.decision.action.value == "allow"
+        assert controlled.orbit_step is not None
+        assert controlled.orbit_step.receipt.disposition == "processed"
+        assert controlled.orbit_step.result is not None
+        assert controlled.orbit_step.result.action.value == "deny"
+        assert controlled.orbit_step.result.executed is False
+        assert controlled.orbit_step.result.effect is None
+        replies = _receive_and_ack(harness, 1)
+        assert replies[0].action.value == "deny"
+        assert session.worker.operating_system.environment.kernel.journal.verify()
+    finally:
+        _close([harness])
