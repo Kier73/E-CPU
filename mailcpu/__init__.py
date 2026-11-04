@@ -252,6 +252,12 @@ from .transit_path_modes import (
     TransitPathState,
     TransitPathStateError,
 )
+from .transit_path_binding import (
+    TransitPathBindingError,
+    TransitPathQueueObservation,
+    TransitPathServiceSample,
+    TransitPathSessionBinding,
+)
 from .recovery_policy import (
     DEFAULT_CHECKPOINT_KIND,
     RECOVERY_POLICY_ADVERTISEMENT_KIND,
@@ -686,6 +692,10 @@ __all__ = [
     "PathSensorSummary",
     "TransitPathState",
     "TransitPathStateError",
+    "TransitPathBindingError",
+    "TransitPathQueueObservation",
+    "TransitPathServiceSample",
+    "TransitPathSessionBinding",
     "TransitOrbitScheduler",
     "TransitOrbitSchedulerError",
     "TransitOrbitStep",
