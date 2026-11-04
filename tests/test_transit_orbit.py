@@ -19,6 +19,8 @@ from mailcpu import (
     TransitOrbitReceipt,
     TransitOrbitScheduler,
     TransitOrbitSchedulerError,
+    HypervisorTransitOrbitController,
+    HypervisorTransitOrbitError,
     verify_transit_orbit_receipts,
 )
 
@@ -457,5 +459,236 @@ def test_orbit_scheduler_waits_for_response_window_before_dispatch() -> None:
         assert restored.state()["backpressure_ticks"] == 1
         assert restored.receipt_head == scheduler.receipt_head
         assert session.worker.operating_system.environment.kernel.journal.verify()
+    finally:
+        _close([harness])
+
+
+
+def _orbit_control_plane(*, authorized: bool = True) -> tuple[HeadlessOS, int]:
+    """Create a coordinator whose process may or may not schedule transit paths."""
+    coordinator = HeadlessOS()
+    capabilities = (
+        (Capability("/system/transit/orbit", frozenset({"schedule"})),)
+        if authorized
+        else ()
+    )
+    authority_pid = coordinator.environment.kernel.spawn(
+        "transit-orbit-control",
+        capabilities=capabilities,
+        parent_pid=coordinator.environment.init_pid,
+    )
+    coordinator.hypervisor.policy = HypervisorPolicy(
+        review_confidence=0.0,
+        automatic_confidence=0.0,
+        destructive_confidence=0.0,
+        danger_review_probability=1.0,
+        embedding_review_confidence=1.0,
+    )
+    return coordinator, authority_pid
+
+
+def test_hypervisor_capability_denial_does_not_consume_a_ready_transit_request() -> None:
+    """The control-plane right gates the scheduler before a receiver path is entered."""
+    harness = _harness("origin-a", "worker-a")
+    try:
+        harness["request_origin"].send(_event("origin-a", 1))
+        session = harness["session"]
+        scheduler = TransitOrbitScheduler({"path-a": session})
+        coordinator, authority_pid = _orbit_control_plane(authorized=False)
+        controller = HypervisorTransitOrbitController(
+            coordinator, authority_pid, scheduler
+        )
+
+        controlled = controller.step()
+
+        assert controlled.decision.action.value == "deny"
+        assert controlled.orbit_step is None
+        assert scheduler.logical_tick == 0
+        assert session.request.channel.next_receive_sequence == 1
+        assert session.request.channel.peek() is not None
+        assert scheduler.state()["dispatch_counts"] == {"path-a": 0}
+    finally:
+        _close([harness])
+
+
+def test_hypervisor_pump_fairly_interleaves_four_ready_paths_under_sustained_load() -> None:
+    """The hypervisor admits each quantum while round-robin prevents path starvation."""
+    paths = [
+        _harness("origin-a", "worker-a"),
+        _harness("origin-b", "worker-b"),
+        _harness("origin-c", "worker-c"),
+        _harness("origin-d", "worker-d"),
+    ]
+    try:
+        for harness in paths:
+            sender = harness["request_origin"]
+            for sequence in (1, 2):
+                assert sender.send(_event(harness["origin"], sequence)) == sequence
+
+        sessions = {
+            "path-a": paths[0]["session"],
+            "path-b": paths[1]["session"],
+            "path-c": paths[2]["session"],
+            "path-d": paths[3]["session"],
+        }
+        scheduler = TransitOrbitScheduler(sessions)
+        coordinator, authority_pid = _orbit_control_plane()
+        controller = HypervisorTransitOrbitController(
+            coordinator, authority_pid, scheduler
+        )
+
+        controlled_steps = controller.pump(max_quanta=12)
+        orbit_steps = [item.orbit_step for item in controlled_steps]
+
+        assert all(item.decision.action.value == "allow" for item in controlled_steps)
+        assert all(item.orbit_step is not None for item in controlled_steps)
+        assert [item.receipt.path_id for item in orbit_steps[:-1]] == [
+            "path-a", "path-b", "path-c", "path-d",
+            "path-a", "path-b", "path-c", "path-d",
+        ]
+        assert orbit_steps[-1].receipt.disposition == "idle"
+        assert orbit_steps[-1].receipt.path_id is None
+        assert scheduler.logical_tick == 9
+        assert scheduler.state()["dispatch_counts"] == {
+            "path-a": 2,
+            "path-b": 2,
+            "path-c": 2,
+            "path-d": 2,
+        }
+        receipts = [item.receipt for item in orbit_steps]
+        assert verify_transit_orbit_receipts(receipts)
+
+        for harness in paths:
+            replies = _receive_and_ack(harness, 2)
+            assert [item.effect["registers"]["result"] for item in replies] == [48, 48]
+            assert harness["session"].worker.operating_system.environment.kernel.journal.verify()
+    finally:
+        _close(paths)
+
+
+def test_hypervisor_pump_stops_at_backpressure_and_resumes_after_acknowledgement() -> None:
+    """A full response window blocks only that path and a later event-loop pump resumes it."""
+    harness = _harness(
+        "origin-a",
+        "worker-a",
+        response_window_size=1,
+    )
+    try:
+        sender = harness["request_origin"]
+        assert sender.send(_event("origin-a", 1)) == 1
+        assert sender.send(_event("origin-a", 2)) == 2
+        session = harness["session"]
+        scheduler = TransitOrbitScheduler({"path-a": session})
+        coordinator, authority_pid = _orbit_control_plane()
+        controller = HypervisorTransitOrbitController(
+            coordinator, authority_pid, scheduler
+        )
+
+        first_burst = controller.pump(max_quanta=8)
+        assert [item.orbit_step.receipt.disposition for item in first_burst] == [
+            "processed",
+            "backpressured",
+        ]
+        assert session.request.channel.next_receive_sequence == 2
+        assert scheduler.state()["dispatch_counts"] == {"path-a": 1}
+
+        first_reply = harness["response_origin"].receive()
+        assert first_reply is not None
+        assert first_reply.effect["registers"]["result"] == 48
+        assert sender.channel.process_ack() == (1,)
+        assert session.response.channel.process_ack() == (1,)
+
+        second_burst = controller.pump(max_quanta=8)
+        assert [item.orbit_step.receipt.disposition for item in second_burst] == [
+            "processed",
+            "idle",
+        ]
+        second_reply = harness["response_origin"].receive()
+        assert second_reply is not None
+        assert second_reply.effect["registers"]["result"] == 48
+        assert sender.channel.process_ack() == (2,)
+        assert session.response.channel.process_ack() == (2,)
+        assert scheduler.state()["dispatch_counts"] == {"path-a": 2}
+        assert scheduler.logical_tick == 4
+    finally:
+        _close([harness])
+
+
+def test_hypervisor_orbit_controller_checkpoint_binds_authority_and_scheduler_state() -> None:
+    """Controller restore preserves the scheduler cursor and requires the same authority identity."""
+    paths = [
+        _harness("origin-a", "worker-a"),
+        _harness("origin-b", "worker-b"),
+    ]
+    try:
+        sessions = {
+            "path-a": paths[0]["session"],
+            "path-b": paths[1]["session"],
+        }
+        scheduler = TransitOrbitScheduler(sessions)
+        coordinator, authority_pid = _orbit_control_plane()
+        controller = HypervisorTransitOrbitController(
+            coordinator, authority_pid, scheduler
+        )
+        first = controller.step()
+        assert first.decision.action.value == "allow"
+        assert first.orbit_step is not None
+        assert first.orbit_step.receipt.disposition == "idle"
+
+        checkpoint = controller.snapshot()
+        restored = HypervisorTransitOrbitController.from_snapshot(
+            checkpoint,
+            coordinator,
+            sessions,
+        )
+        assert restored.authority_pid == authority_pid
+        assert restored.scheduler.logical_tick == scheduler.logical_tick
+        assert restored.scheduler.cursor_path_id == scheduler.cursor_path_id
+        assert restored.scheduler.receipt_head == scheduler.receipt_head
+
+        tampered = {
+            **checkpoint,
+            "state": {
+                **checkpoint["state"],
+                "authority_pid": authority_pid + 1,
+            },
+        }
+        try:
+            HypervisorTransitOrbitController.from_snapshot(
+                tampered,
+                coordinator,
+                sessions,
+            )
+        except HypervisorTransitOrbitError:
+            pass
+        else:
+            raise AssertionError("controller restore accepted a tampered authority identity")
+    finally:
+        _close(paths)
+
+
+def test_hypervisor_orbit_controller_rejects_invalid_pump_budget_and_boolean_pid() -> None:
+    """Bounded event-loop pumping and authority identities reject ambiguous integer values."""
+    coordinator, authority_pid = _orbit_control_plane()
+    harness = _harness("origin-a", "worker-a")
+    try:
+        scheduler = TransitOrbitScheduler({"path-a": harness["session"]})
+        try:
+            HypervisorTransitOrbitController(coordinator, True, scheduler)
+        except HypervisorTransitOrbitError:
+            pass
+        else:
+            raise AssertionError("controller accepted a Boolean authority PID")
+
+        controller = HypervisorTransitOrbitController(
+            coordinator, authority_pid, scheduler
+        )
+        for invalid in (0, -1, True, 1.5, "4"):
+            try:
+                controller.pump(invalid)
+            except HypervisorTransitOrbitError:
+                pass
+            else:
+                raise AssertionError(f"controller accepted invalid pump budget: {invalid!r}")
     finally:
         _close([harness])
