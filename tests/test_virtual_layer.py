@@ -256,3 +256,30 @@ def test_virtual_layer_workload_executes_over_reliable_tcp_with_receiver_authori
         for transport in (origin_transport, replica_transport):
             if not transport.closed:
                 transport.close()
+
+
+def test_array_operator_accepts_immutable_workload_sequence() -> None:
+    """Mathematics: a JSON array remains an array after freezing and reaches a deterministic local array operator."""
+    operating_system = HeadlessOS()
+    identity, _, ground = _admitted_ground(operating_system)
+    registry = OperatorRegistry()
+    registry.register(
+        OperatorSpec(
+            "core.sum_array", 1, "Sum an integer array", "array", "integer", ("cpu",),
+            required_rights=frozenset({"compute"}), max_input_bytes=1024, max_output_bytes=64,
+        ),
+        lambda values, workload: sum(values),
+    )
+    workload = VirtualLayerWorkload(
+        "array-workload", identity, ground, {"goal": {"equals": 6}},
+        (VirtualOperatorRef("core.sum_array", preferred_substrate="cpu"),),
+        [1, 2, 3], VirtualBudget(1000, 1000, 100), 0,
+    )
+    runtime = VirtualLayerRuntime(registry, "node-a", frozenset({"cpu"}))
+    result = runtime.execute_operator(
+        operating_system, operating_system.environment.init_pid,
+        "origin", "vl", 1, 0, workload, "core.sum_array",
+    )
+    assert result.action is HypervisorAction.ALLOW
+    assert result.effect["result"] == 6
+
