@@ -276,8 +276,13 @@ def test_array_operator_accepts_immutable_workload_sequence() -> None:
         [1, 2, 3], VirtualBudget(1000, 1000, 100), 0,
     )
     runtime = VirtualLayerRuntime(registry, "node-a", frozenset({"cpu"}))
+    worker_pid = operating_system.environment.kernel.spawn(
+        "array-operator-worker",
+        capabilities=(Capability("/virtual-layer/operators", frozenset({"compute"})),),
+        parent_pid=operating_system.environment.init_pid,
+    )
     result = runtime.execute_operator(
-        operating_system, operating_system.environment.init_pid,
+        operating_system, worker_pid,
         "origin", "vl", 1, 0, workload, "core.sum_array",
     )
     assert result.action is HypervisorAction.ALLOW
