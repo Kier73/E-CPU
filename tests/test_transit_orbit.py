@@ -75,17 +75,27 @@ def _transports(origin: str, worker: str) -> dict[str, SocketTransport]:
     }
 
 
-def _harness(origin: str, worker: str) -> dict[str, object]:
+def _harness(
+    origin: str,
+    worker: str,
+    *,
+    response_window_size: int = 8,
+) -> dict[str, object]:
     """Create a loopback path whose receiver enforces local execution authority."""
     transports = _transports(origin, worker)
-    policy = ReliabilityPolicy(lease_ticks=1, max_attempts=3, window_size=8)
+    request_policy = ReliabilityPolicy(lease_ticks=1, max_attempts=3, window_size=8)
+    response_policy = ReliabilityPolicy(
+        lease_ticks=1,
+        max_attempts=3,
+        window_size=response_window_size,
+    )
     request_origin = HypervisorOperationChannel(
         ReliableChannel(
             transports["request_origin"],
             origin,
             worker,
             "compute",
-            policy,
+            request_policy,
         )
     )
     request_worker = HypervisorOperationChannel(
@@ -94,7 +104,7 @@ def _harness(origin: str, worker: str) -> dict[str, object]:
             worker,
             worker,
             "compute",
-            policy,
+            request_policy,
             peer=origin,
         )
     )
@@ -104,7 +114,7 @@ def _harness(origin: str, worker: str) -> dict[str, object]:
             worker,
             origin,
             "compute.result",
-            policy,
+            response_policy,
         ),
         origin,
         "compute",
@@ -115,13 +125,13 @@ def _harness(origin: str, worker: str) -> dict[str, object]:
             origin,
             origin,
             "compute.result",
-            policy,
+            response_policy,
             peer=worker,
         ),
         origin,
         "compute",
     )
-
+ 
     receiver = HeadlessOS()
     worker_pid = receiver.environment.kernel.spawn(
         f"{worker}-compute-worker",
@@ -368,3 +378,58 @@ def test_orbit_restore_rejects_changed_logical_path_membership() -> None:
             raise AssertionError("orbit restore accepted incomplete logical path membership")
     finally:
         _close(paths)
+
+
+def test_orbit_scheduler_waits_for_response_window_before_dispatch() -> None:
+    """A full result window blocks another request before its receiver transition executes."""
+    harness = _harness(
+        "origin-a",
+        "worker-a",
+        response_window_size=1,
+    )
+    try:
+        sender = harness["request_origin"]
+        assert sender.send(_event("origin-a", 1)) == 1
+        assert sender.send(_event("origin-a", 2)) == 2
+
+        session = harness["session"]
+        scheduler = TransitOrbitScheduler({"path-a": session})
+        first = scheduler.step()
+        assert first.receipt.disposition == "processed"
+        assert first.result is not None
+        assert first.result.effect["registers"]["result"] == 48
+        assert session.request.channel.next_receive_sequence == 2
+        assert session.response.channel.available_window == 0
+
+        blocked = scheduler.step()
+        assert blocked.result is None
+        assert blocked.receipt.disposition == "backpressured"
+        assert blocked.receipt.path_id == "path-a"
+        assert session.request.channel.next_receive_sequence == 2
+        assert scheduler.state()["dispatch_counts"] == {"path-a": 1}
+        assert scheduler.state()["backpressure_ticks"] == 1
+
+        first_reply = harness["response_origin"].receive()
+        assert first_reply is not None
+        assert first_reply.effect["registers"]["result"] == 48
+        assert sender.channel.process_ack() == (1,)
+        assert session.response.channel.process_ack() == (1,)
+        assert session.response.channel.available_window == 1
+
+        second = scheduler.step()
+        assert second.receipt.disposition == "processed"
+        assert second.result is not None
+        assert second.result.effect["registers"]["result"] == 48
+        second_reply = harness["response_origin"].receive()
+        assert second_reply is not None
+        assert second_reply.effect["registers"]["result"] == 48
+        assert sender.channel.process_ack() == (2,)
+        assert session.response.channel.process_ack() == (2,)
+
+        assert scheduler.state()["dispatch_counts"] == {"path-a": 2}
+        assert verify_transit_orbit_receipts(
+            [first.receipt, blocked.receipt, second.receipt]
+        )
+        assert session.worker.operating_system.environment.kernel.journal.verify()
+    finally:
+        _close([harness])
