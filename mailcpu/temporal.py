@@ -391,6 +391,8 @@ class TemporalContext:
         self._elapsed_ns = _integer(elapsed_ns, "elapsed_ns")
         self._wall_sample_index = _integer(wall_sample_index, "wall_sample_index")
         self._lamport = _integer(lamport, "lamport")
+        if vector is not None and not isinstance(vector, Mapping):
+            raise CausalClockError("vector must be a mapping")
         raw_vector = {} if vector is None else dict(vector)
         if any(not isinstance(key, str) for key in raw_vector):
             raise CausalClockError("vector actor identities must be strings")
@@ -496,23 +498,7 @@ class TemporalContext:
         scheduler_tick: int | None = None,
         system_epoch: SystemEpoch | None = None,
     ) -> TemporalFrame:
-        """Mathematics: assemble only selected domains D from independent sources; reject missing required coordinates."""
-        monotonic = (
-            self.monotonic_reading()
-            if self.profile.uses(ClockDomain.MONOTONIC)
-            else None
-        )
-        wall = (
-            self.wall_reading()
-            if self.profile.uses(ClockDomain.WALL)
-            else None
-        )
-        causal = (
-            self.current_causal_stamp()
-            if self.profile.uses(ClockDomain.CAUSAL)
-            else None
-        )
-
+        """Mathematics: prevalidate selected external coordinates, then assemble only domains D without partial sampling on refusal."""
         scheduler = None
         if self.profile.uses(ClockDomain.SCHEDULER):
             if scheduler_id is None or scheduler_tick is None:
@@ -556,6 +542,23 @@ class TemporalContext:
                 if chemical_tau < 0:
                     raise TemporalError("chemical_tau must be non-negative")
 
+        # Local physical reads occur only after every supplied virtual coordinate
+        # has been checked, so an invalid observation has no partial clock effects.
+        monotonic = (
+            self.monotonic_reading()
+            if self.profile.uses(ClockDomain.MONOTONIC)
+            else None
+        )
+        wall = (
+            self.wall_reading()
+            if self.profile.uses(ClockDomain.WALL)
+            else None
+        )
+        causal = (
+            self.current_causal_stamp()
+            if self.profile.uses(ClockDomain.CAUSAL)
+            else None
+        )
         return TemporalFrame(
             actor_id=self.actor_id,
             monotonic=monotonic,
@@ -619,7 +622,8 @@ class TemporalContext:
         }
         if not isinstance(state, Mapping) or set(state) != expected:
             raise TemporalError("temporal checkpoint state fields are invalid")
-        if state.get("version") != 1 or isinstance(state.get("version"), bool):
+        version = state.get("version")
+        if not isinstance(version, int) or isinstance(version, bool) or version != 1:
             raise TemporalError("unsupported temporal checkpoint version")
         if _digest(dict(state)) != payload.get("digest"):
             raise TemporalError("temporal checkpoint digest mismatch")
