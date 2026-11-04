@@ -391,3 +391,17 @@ def test_invalid_observation_preflight_does_not_consume_local_clock_samples() ->
     assert accepted.wall is not None
     assert accepted.wall.utc_ns == 5_000
     assert accepted.wall.sample_index == 1
+
+
+def test_temporal_frame_rejects_untyped_coordinates_and_non_unit_phase() -> None:
+    """Public temporal frames fail with typed errors instead of incidental attribute failures."""
+    from mailcpu.temporal import TemporalFrame
+
+    with pytest.raises(TemporalError):
+        TemporalFrame(actor_id="frame-worker", monotonic="not-a-reading")
+    with pytest.raises(TemporalError):
+        TemporalFrame(actor_id="frame-worker", wall=object())
+    with pytest.raises(TemporalError):
+        TemporalFrame(actor_id="frame-worker", causal={"lamport": 1})
+    with pytest.raises(TemporalError):
+        TemporalFrame(actor_id="frame-worker", chronon_phase=(2.0, 0.0))
