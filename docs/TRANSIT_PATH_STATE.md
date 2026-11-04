@@ -240,7 +240,9 @@ where \(p_t\) is the selected path (or null for an idle quantum), \(d_t\)
 is the disposition, \(a_t\) is the hypervisor action, \(x_t\) records
 whether execution occurred or was replayed, and \(q_t\) is a digest of the
 session's diagnostic state after the quantum. The receipt links scheduler
-ordering to the path state observed at that boundary.
+ordering to the path state observed at that boundary. Each record can be
+serialized to a finite dictionary and reconstructed only after its own
+canonical payload digest verifies.
 
 These receipts are scheduler evidence, not a replacement for the hypervisor
 journal or semantic effect ledger. Their digest chain detects mutation of the
