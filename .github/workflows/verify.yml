@@ -56,8 +56,9 @@ jobs:
       - name: Confirm the private workspace is excluded from the distribution
         run: |
           set -euo pipefail
-          if tar -tzf dist/*.tar.gz | grep -q '/_dev/'; then
+          tar -tzf dist/*.tar.gz > "$RUNNER_TEMP/mailcpu-sdist-files.txt"
+          if grep -q '/_dev/' "$RUNNER_TEMP/mailcpu-sdist-files.txt"; then
             echo "the distribution contains _dev/; this is a packaging defect"
             exit 1
           fi
-          tar -tzf dist/*.tar.gz | grep -q 'mailcpu/__init__.py'
+          grep -q 'mailcpu/__init__.py' "$RUNNER_TEMP/mailcpu-sdist-files.txt"
