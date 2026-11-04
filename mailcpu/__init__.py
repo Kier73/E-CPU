@@ -223,6 +223,16 @@ from .hypervisor_transport import (
     HypervisorOperationResultChannel,
     HypervisorOperationTransportError,
 )
+from .virtual_layer import (
+    OperatorRegistry,
+    OperatorSpec,
+    VirtualBudget,
+    VirtualGroundRef,
+    VirtualLayerError,
+    VirtualLayerRuntime,
+    VirtualLayerWorkload,
+    VirtualOperatorRef,
+)
 from .recovery_policy import (
     DEFAULT_CHECKPOINT_KIND,
     RECOVERY_POLICY_ADVERTISEMENT_KIND,
@@ -629,6 +639,14 @@ __all__ = [
     "HypervisorOperationChannel",
     "HypervisorOperationResultChannel",
     "HypervisorOperationTransportError",
+    "OperatorRegistry",
+    "OperatorSpec",
+    "VirtualBudget",
+    "VirtualGroundRef",
+    "VirtualLayerError",
+    "VirtualLayerRuntime",
+    "VirtualLayerWorkload",
+    "VirtualOperatorRef",
     "DEFAULT_CHECKPOINT_KIND",
     "RECOVERY_POLICY_ADVERTISEMENT_KIND",
     "RECOVERY_POLICY_AGREEMENT_KIND",

@@ -786,3 +786,49 @@ mesh, not multiple client sockets in a globally atomic cut; durable atomic
 filesystem storage and arbitrary process/connection-loss session continuity
 remain integration obligations. See `INTEGRATION_SPEC.md` clauses 10.13–10.16
 for the boundaries and acceptance evidence.
+
+
+## 14. Virtual Layer workload and operator dispatch
+
+`mailcpu/virtual_layer.py` introduces the first executable contract between Virtual Layer theory and the existing control plane. It does not add a new instruction or kernel domain. A portable `VirtualLayerWorkload` binds:
+
+```text
+W = (workload_id, SystemIdentity, VirtualGroundRef, intention,
+     ordered operator references, input, budget, logical_time, placement)
+```
+
+`VirtualGroundRef` identifies the admitted origin digest, state digest, coordinate, and digest of the external-input frontier. The receiver requires an exact match against its local `HypervisorSeedAdmissionCoordinator` registry, including system incarnation. Workload values are finite canonical JSON and carry references rather than executable code or sender-side authority.
+
+`OperatorSpec` is a versioned declarative contract for JSON input/output kinds, eligible substrate labels, required rights, virtual-cost coefficients, byte bounds, determinism, and effect mode. `OperatorRegistry` keeps executable handlers node-local. Catalog snapshots carry contracts only; a receiving host must explicitly bind its own trusted handler. Compatibility uses the selected operator's contract digest rather than the entire node catalog, so nodes may have additional unrelated operators.
+
+The first executor accepts only contracts declaring deterministic pure execution. This is a trust declaration on the local handler, not a sandbox and not a mathematical proof of purity. Arbitrary Python callables can have side effects; registry owners must ensure that handlers registered as pure do not mutate external state. Stateful, idempotent, and transactional operations remain on existing native adapters until their transaction and recovery semantics are connected.
+
+The execution route is:
+
+```text
+VirtualLayerWorkload
+  -> operator contract + input validation
+  -> local ground/frontier verification
+  -> receiver capability reconstruction
+  -> HypervisorDecision (existing policy)
+  -> one local pure handler
+  -> canonical result effect
+  -> existing effect ledger and journal receipt
+```
+
+Because the current `HypervisorDomain` algebra has no dedicated Virtual Layer domain, the adapter routes this first class of work through `HypervisorDomain.CPU`. This identifies the hypervisor handler route; it does not claim that every operation physically executes on a CPU. The operator contract and local runtime substrate set determine whether a node can host the implementation.
+
+For remote execution, `VirtualLayerRuntime.receive_and_execute()` composes with `HypervisorOperationChannel.receive_and_execute()`. The incoming frame remains pending while the receiver validates its typed workload, ground, operator-contract digest, input digest, placement, and cost claims. It then replaces the remote rights claim with rights derived from the receiving process capabilities. The hypervisor's existing policy and effect ledger remain authoritative. The reliable frame is consumed only after a typed result exists; an exact retry returns the stored canonical effect instead of invoking the handler again.
+
+Operator virtual cost is estimated by:
+
+```text
+E_op = base_energy + energy_per_byte * input_bytes
+T_op = max(1, ceil(E_op / virtual_capacity))
+```
+
+Workload, node, and operator limits are intersected before dispatch. These units are virtual accounting, not physical joules or measured network latency. The hypervisor also retains its existing request-representation cost receipt.
+
+The intention's `goal` is descriptive in this first stage; the executor does not yet assign general semantics to arbitrary goal predicates or prove that a returned value satisfies them. Likewise, ordered operator references and `max_hops` reserve a future Path-State contract but do not yet implement multi-hop scheduling, goal-directed path search, SIMD/SIMT lane distribution, dynamic placement, or public-Internet peer authentication. The generalized algebraic Virtual Ground remains a later stage above the concrete `SystemSeed` mechanism.
+
+The acceptance witnesses are in `tests/test_virtual_layer.py`. The real TCP loopback witness is E1 transport evidence, not evidence of public-Internet deployment.
