@@ -178,13 +178,13 @@ ledgers:
 \times (c,t,n,r),
 \]
 
-where \(\Sigma_p\) remains authoritative in its \`TransitComputeSession\`,
+where \(\Sigma_p\) remains authoritative in its `TransitComputeSession`,
 \(c\) is the next round-robin cursor, \(t\) is the scheduler logical tick,
 \(n\) contains dispatch/idle counters, and \(r\) is the rolling receipt head.
 
 At each scheduling quantum, the scheduler scans the canonical sorted path IDs
 cyclically from \(c\) and selects the first session whose inbound request is
-ready. It calls that session's \`serve_once()\` at most once, then advances the
+ready. It calls that session's `serve_once()` at most once, then advances the
 cursor to the path after the selected path. If no path is ready, it records one
 idle quantum and leaves the cursor unchanged. An idle quantum is an observation
 of the current ready set; it is not a worker instruction or a wall-clock sleep.
@@ -202,7 +202,7 @@ reliable-channel windows and receiver hypervisor checks remain in force.
 
 The orbit manifest binds each path ID to a digest of its logical request and
 response channel identity. It deliberately excludes the concrete transport
-object. A quiescent \`TransitComputeSession\` checkpoint separately commits to
+object. A quiescent `TransitComputeSession` checkpoint separately commits to
 the receiver, worker, backend manifest, and reliable-channel state.
 
 To restore an orbit, first restore each session from its own checkpoint using
@@ -216,7 +216,7 @@ must preserve the logical peer/channel identity.
 
 The scheduler checkpoint is a manifest over session checkpoint digests, not a
 container for the full session checkpoints. Each path checkpoint must be
-persisted independently. As with \`TransitComputeSession\`, snapshotting requires
+persisted independently. As with `TransitComputeSession`, snapshotting requires
 the worker's existing quiescent boundary: no pending inbound request data and
 no unacknowledged response data. The orbit scheduler does not weaken that
 precondition.
@@ -246,7 +246,7 @@ replay evidence.
 
 The first integration test interleaves two independently connected loopback
 TCP sessions. Each receives two requests; the orbit dispatch order is
-\`path-a\`, \`path-b\`, \`path-a\`, \`path-b\`. The tests also cover idle quanta,
+`path-a`, `path-b`, `path-a`, `path-b`. The tests also cover idle quanta,
 receipt-chain verification, logical path membership validation, and restoring
 the scheduler cursor after both sessions are restored onto replacement TCP
 connections.
