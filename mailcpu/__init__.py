@@ -223,11 +223,16 @@ from .hypervisor_transport import (
     HypervisorOperationResultChannel,
     HypervisorOperationTransportError,
 )
-from .transit_worker import TransitComputeWorker
-from .transit_session import TransitComputeSession
-from .transit_simt import TransitSIMTError, TransitSIMTHost
-from .transit_memory import TransitMemoryTransferError, TransitMemoryTransferHost
-from .transit_router import TransitBackendRouter, TransitBackendRouterError
+from .virtual_layer import (
+    OperatorRegistry,
+    OperatorSpec,
+    VirtualBudget,
+    VirtualGroundRef,
+    VirtualLayerError,
+    VirtualLayerRuntime,
+    VirtualLayerWorkload,
+    VirtualOperatorRef,
+)
 from .recovery_policy import (
     DEFAULT_CHECKPOINT_KIND,
     RECOVERY_POLICY_ADVERTISEMENT_KIND,
@@ -639,14 +644,14 @@ __all__ = [
     "HypervisorOperationChannel",
     "HypervisorOperationResultChannel",
     "HypervisorOperationTransportError",
-    "TransitComputeWorker",
-    "TransitComputeSession",
-    "TransitSIMTError",
-    "TransitSIMTHost",
-    "TransitMemoryTransferError",
-    "TransitMemoryTransferHost",
-    "TransitBackendRouter",
-    "TransitBackendRouterError",
+    "OperatorRegistry",
+    "OperatorSpec",
+    "VirtualBudget",
+    "VirtualGroundRef",
+    "VirtualLayerError",
+    "VirtualLayerRuntime",
+    "VirtualLayerWorkload",
+    "VirtualOperatorRef",
     "DEFAULT_CHECKPOINT_KIND",
     "RECOVERY_POLICY_ADVERTISEMENT_KIND",
     "RECOVERY_POLICY_AGREEMENT_KIND",

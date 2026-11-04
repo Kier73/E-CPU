@@ -149,10 +149,12 @@ recorded in the hash-chained event journal.
 
 The detailed operational profile is [`docs/HYPERVISOR_PROFILE.md`](docs/HYPERVISOR_PROFILE.md).
 
+The first Virtual Layer workload and node-local operator contract is specified in [`docs/VIRTUAL_LAYER_WORKLOAD.md`](docs/VIRTUAL_LAYER_WORKLOAD.md).
+
 ## 7. Repository layout
 
 ```text
-mailcpu/     importable package; 55 modules
+mailcpu/     importable runtime package; VM, hypervisor, operator and substrate adapters
 tests/       conformance, differential, protocol, runtime, and surface tests
 scripts/     golden-trace recorder and repository verifiers
 examples/    assembly source fixtures

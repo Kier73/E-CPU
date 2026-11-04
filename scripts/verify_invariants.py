@@ -191,6 +191,7 @@ def _expected_symbol(establishes: str) -> str | None:
         "holonomy_engine": "HolonomyConsensus",
         "neural_lifter": "NeuralLifterPolicy",
         "substrate_sim": "WanSubstrateSimulator",
+        "virtual_layer": "VirtualLayerWorkload",
     }
     return mapping.get(stem)
 
