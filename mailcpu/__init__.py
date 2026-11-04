@@ -246,6 +246,12 @@ from .transit_orbit import (
     TransitOrbitStep,
     verify_transit_orbit_receipts,
 )
+from .transit_path_modes import (
+    PathSensorSample,
+    PathSensorSummary,
+    TransitPathState,
+    TransitPathStateError,
+)
 from .recovery_policy import (
     DEFAULT_CHECKPOINT_KIND,
     RECOVERY_POLICY_ADVERTISEMENT_KIND,
@@ -676,6 +682,10 @@ __all__ = [
     "TransitSIMTHost",
     "TransitComputeWorker",
     "TransitOrbitReceipt",
+    "PathSensorSample",
+    "PathSensorSummary",
+    "TransitPathState",
+    "TransitPathStateError",
     "TransitOrbitScheduler",
     "TransitOrbitSchedulerError",
     "TransitOrbitStep",
