@@ -330,12 +330,21 @@ class TemporalFrame:
     def __post_init__(self) -> None:
         """Mathematics: require every present coordinate to be typed and scoped to the frame actor where applicable."""
         _text(self.actor_id, "actor_id")
-        if self.monotonic is not None and self.monotonic.actor_id != self.actor_id:
-            raise TemporalError("monotonic reading belongs to another actor")
-        if self.wall is not None and self.wall.actor_id != self.actor_id:
-            raise TemporalError("wall reading belongs to another actor")
-        if self.causal is not None and self.causal.actor_id != self.actor_id:
-            raise TemporalError("causal stamp belongs to another actor")
+        if self.monotonic is not None:
+            if not isinstance(self.monotonic, MonotonicReading):
+                raise TemporalError("monotonic coordinate is not typed")
+            if self.monotonic.actor_id != self.actor_id:
+                raise TemporalError("monotonic reading belongs to another actor")
+        if self.wall is not None:
+            if not isinstance(self.wall, WallTimeReading):
+                raise TemporalError("wall coordinate is not typed")
+            if self.wall.actor_id != self.actor_id:
+                raise TemporalError("wall reading belongs to another actor")
+        if self.causal is not None:
+            if not isinstance(self.causal, CausalStamp):
+                raise TemporalError("causal coordinate is not typed")
+            if self.causal.actor_id != self.actor_id:
+                raise TemporalError("causal stamp belongs to another actor")
         if self.scheduler is not None and not isinstance(self.scheduler, SchedulerReading):
             raise TemporalError("scheduler coordinate is not typed")
         if self.event_lambda is not None:
@@ -343,8 +352,10 @@ class TemporalFrame:
         if self.chronon_phase is not None:
             if not isinstance(self.chronon_phase, tuple) or len(self.chronon_phase) != 2:
                 raise TemporalError("chronon_phase must be a real/imaginary pair")
-            _finite(self.chronon_phase[0], "chronon real phase")
-            _finite(self.chronon_phase[1], "chronon imaginary phase")
+            real = _finite(self.chronon_phase[0], "chronon real phase")
+            imag = _finite(self.chronon_phase[1], "chronon imaginary phase")
+            if not math.isclose(math.hypot(real, imag), 1.0, rel_tol=1e-9, abs_tol=1e-9):
+                raise TemporalError("chronon phase must remain on the unit circle")
         if self.chemical_tau is not None and _finite(self.chemical_tau, "chemical_tau") < 0:
             raise TemporalError("chemical_tau must be non-negative")
 
