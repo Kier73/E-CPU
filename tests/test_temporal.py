@@ -143,7 +143,7 @@ def test_restore_preserves_accumulated_elapsed_and_opens_new_segment() -> None:
     assert restored_clock.index == 2
     with pytest.raises(TemporalError):
         before.elapsed_until(after_restore)
-    restored_clock.set(9_100)
+    restored_clock.set(9_050)
     assert restored.monotonic_reading().elapsed_ns == 90
 
 
