@@ -150,6 +150,7 @@ recorded in the hash-chained event journal.
 The detailed operational profile is [`docs/HYPERVISOR_PROFILE.md`](docs/HYPERVISOR_PROFILE.md).
 
 The first Virtual Layer workload and node-local operator contract is specified in [`docs/VIRTUAL_LAYER_WORKLOAD.md`](docs/VIRTUAL_LAYER_WORKLOAD.md).
+The bounded transit execution path and deterministic multi-path orbit scheduler are specified in [`docs/TRANSIT_PATH_STATE.md`](docs/TRANSIT_PATH_STATE.md) and [`docs/TRANSIT_COMPUTE.md`](docs/TRANSIT_COMPUTE.md).
 
 ## 7. Repository layout
 
