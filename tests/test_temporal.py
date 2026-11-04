@@ -366,3 +366,28 @@ def test_scheduler_and_event_counters_do_not_mutate_causal_clock() -> None:
     assert frame.scheduler is not None and frame.scheduler.tick == 1_000_000
     assert frame.event_lambda == 99
     assert before == after
+
+
+def test_invalid_observation_preflight_does_not_consume_local_clock_samples() -> None:
+    """A rejected request for a virtual coordinate leaves physical read counters untouched."""
+    monotonic = ManualClock(100, 110)
+    wall = ManualClock(5_000, 6_000)
+    context = TemporalContext(
+        "preflight-worker",
+        _profile(
+            ClockDomain.MONOTONIC,
+            ClockDomain.WALL,
+            ClockDomain.SCHEDULER,
+        ),
+        monotonic_ns=monotonic,
+        wall_time_ns=wall,
+    )
+
+    with pytest.raises(ClockUnavailableError):
+        context.observe()
+
+    accepted = context.observe(scheduler_id="cpu-0", scheduler_tick=0)
+    assert accepted.monotonic is not None and accepted.monotonic.elapsed_ns == 10
+    assert accepted.wall is not None
+    assert accepted.wall.utc_ns == 5_000
+    assert accepted.wall.sample_index == 1
