@@ -246,6 +246,11 @@ from .transit_orbit import (
     TransitOrbitStep,
     verify_transit_orbit_receipts,
 )
+from .hypervisor_orbit import (
+    HypervisorTransitOrbitController,
+    HypervisorTransitOrbitError,
+    HypervisorTransitOrbitStep,
+)
 from .transit_path_modes import (
     PathSensorSample,
     PathSensorSummary,
@@ -688,6 +693,9 @@ __all__ = [
     "TransitSIMTHost",
     "TransitComputeWorker",
     "TransitOrbitReceipt",
+    "HypervisorTransitOrbitController",
+    "HypervisorTransitOrbitError",
+    "HypervisorTransitOrbitStep",
     "PathSensorSample",
     "PathSensorSummary",
     "TransitPathState",
