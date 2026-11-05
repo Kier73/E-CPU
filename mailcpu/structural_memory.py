@@ -342,6 +342,7 @@ class StructuralMemoryCertificate:
 
     @property
     def digest(self) -> str:
+        """Return the stable digest of this immutable certificate."""
         return _digest(self.to_dict())
 
 
@@ -442,6 +443,7 @@ class ContextMapper:
     """
 
     def encode(self, context: Mapping[str, Any] | None) -> tuple[str, str]:
+        """Return canonical context JSON and its SHA-256 identity."""
         value = {} if context is None else _json_value(context, "context")
         if not isinstance(value, dict):
             raise StructuralMemoryError("context must be a JSON object")
@@ -591,14 +593,14 @@ class StructuralNavigator:
         self.generators = generators or GeneratorRegistry()
         self.context_mapper = context_mapper or ContextMapper()
 
-    def read(
+    def validate(
         self,
         spec: StructuralMemorySpec,
         certificate: StructuralMemoryCertificate,
         coordinate: int,
         context: Mapping[str, Any] | None = None,
-    ) -> tuple[int, str]:
-        """Return a guarded state value and its verified context digest."""
+    ) -> str:
+        """Validate certificate, context, coordinate, and horizon before any cache lookup."""
         _require_int(coordinate, "coordinate", minimum=0)
         if certificate.spec_digest != spec.digest:
             raise StructuralMemoryRefused("certificate is bound to a different structural spec")
@@ -610,6 +612,17 @@ class StructuralNavigator:
                 f"coordinate {coordinate} is at or beyond exclusive prefix horizon "
                 f"{certificate.valid_before_exclusive}"
             )
+        return context_digest
+
+    def read(
+        self,
+        spec: StructuralMemorySpec,
+        certificate: StructuralMemoryCertificate,
+        coordinate: int,
+        context: Mapping[str, Any] | None = None,
+    ) -> tuple[int, str]:
+        """Return a guarded state value and its verified context digest."""
+        context_digest = self.validate(spec, certificate, coordinate, context)
         return self.generators.navigate_guarded(spec, coordinate), context_digest
 
 
@@ -635,7 +648,7 @@ class StructuralMemoryRegistry:
         self._active: dict[str, StructuralMemoryVersion] = {}
         self._staged: dict[str, StructuralMemoryProposal] = {}
         self._admitted: dict[str, StructuralMemoryVersion] = {}
-        self._read_cache: dict[tuple[str, str, int], StructuralMemoryReadReceipt] = {}
+        self._read_cache: dict[tuple[str, str, str, int], StructuralMemoryReadReceipt] = {}
         self._lock = threading.RLock()
 
     def propose(
@@ -648,6 +661,7 @@ class StructuralMemoryRegistry:
         context: Mapping[str, Any] | None = None,
     ) -> StructuralMemoryProposal:
         """Stage a candidate law with independently replayed observations."""
+        _require_nonempty_string(memory_id, "memory_id")
         with self._lock:
             current = self._active.get(memory_id)
             revision = 1 if current is None else current.spec.revision + 1
@@ -716,6 +730,8 @@ class StructuralMemoryRegistry:
 
     def admit(self, proposal_id: str, *, expected_revision: int) -> StructuralMemoryVersion:
         """Admit one staged proposal after host authorization and revision CAS."""
+        _require_hash(proposal_id, "proposal_id")
+        expected = _require_int(expected_revision, "expected_revision", minimum=0)
         with self._lock:
             already_admitted = self._admitted.get(proposal_id)
             if already_admitted is not None:
@@ -724,7 +740,6 @@ class StructuralMemoryRegistry:
             proposal = self._staged.get(proposal_id)
             if proposal is None:
                 raise StructuralMemoryRefused("unknown or unavailable structural-memory proposal")
-            expected = _require_int(expected_revision, "expected_revision", minimum=0)
             current = self._active.get(proposal.spec.memory_id)
             current_revision = 0 if current is None else current.spec.revision
             if expected != current_revision:
@@ -767,21 +782,29 @@ class StructuralMemoryRegistry:
         context: Mapping[str, Any] | None = None,
     ) -> StructuralMemoryReadReceipt:
         """Read one state and return its value together with version/evidence provenance."""
+        _require_nonempty_string(memory_id, "memory_id")
+        _require_int(coordinate, "coordinate", minimum=0)
         with self._lock:
             version = self._active.get(memory_id)
             if version is None:
                 raise StructuralMemoryRefused(f"memory {memory_id!r} has no admitted version")
-            value, context_digest = self.navigator.read(
+            context_digest = self.navigator.validate(
                 version.spec,
                 version.certificate,
                 coordinate,
                 context=context,
             )
-            cache_key = (version.spec.digest, context_digest, coordinate)
+            cache_key = (
+                version.spec.digest,
+                version.certificate.digest,
+                context_digest,
+                coordinate,
+            )
             cached = self._read_cache.get(cache_key)
             if cached is not None:
                 return replace(cached, cache_hit=True)
 
+            value = self.generators.navigate_guarded(version.spec, coordinate)
             value_digest = _digest({"type": "integer", "value": value})
             receipt_id = _digest({
                 "memory_id": memory_id,
@@ -810,11 +833,13 @@ class StructuralMemoryRegistry:
 
     def active_version(self, memory_id: str) -> StructuralMemoryVersion | None:
         """Return the currently admitted immutable version, if one exists."""
+        _require_nonempty_string(memory_id, "memory_id")
         with self._lock:
             return self._active.get(memory_id)
 
     def staged_proposal(self, proposal_id: str) -> StructuralMemoryProposal | None:
         """Return one staged immutable proposal without changing its status."""
+        _require_hash(proposal_id, "proposal_id")
         with self._lock:
             return self._staged.get(proposal_id)
 
