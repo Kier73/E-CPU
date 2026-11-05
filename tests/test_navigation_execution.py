@@ -390,21 +390,6 @@ def test_backend_commit_then_process_loss_is_reconciled_without_reapplying() -> 
 
 def test_recovery_can_use_an_exactly_replayed_admission_receipt() -> None:
     operating_system, pid, descriptor, address, store, admission, normal_adapter = _system()
-    normal_commit = normal_adapter.commit_callback
-
-    def commit_then_crash(commit_pid, execution_id, expected, candidate, grant):
-        receipt = normal_commit(commit_pid, execution_id, expected, candidate, grant)
-        raise RuntimeError("lost response after durable commit")
-
-    adapter = HypervisorNavigationExecutionAdapter(
-        operating_system,
-        normal_adapter.state_provider,
-        commit_then_crash,
-        normal_adapter.commit_lookup,
-    )
-    first = adapter.execute(admission, descriptor, address)
-    assert first.status is NavigationExecutionStatus.INDETERMINATE
-
     replayed_admission = HypervisorNavigationAdmissionCoordinator(
         operating_system,
         normal_adapter.state_provider,
@@ -426,6 +411,22 @@ def test_recovery_can_use_an_exactly_replayed_admission_receipt() -> None:
         grant_ttl_ticks=10,
     )
     assert replayed_admission.status is NavigationAdmissionStatus.REPLAYED
+
+    normal_commit = normal_adapter.commit_callback
+
+    def commit_then_crash(commit_pid, execution_id, expected, candidate, grant):
+        receipt = normal_commit(commit_pid, execution_id, expected, candidate, grant)
+        raise RuntimeError("lost response after durable commit")
+
+    adapter = HypervisorNavigationExecutionAdapter(
+        operating_system,
+        normal_adapter.state_provider,
+        commit_then_crash,
+        normal_adapter.commit_lookup,
+    )
+    first = adapter.execute(admission, descriptor, address)
+    assert first.status is NavigationExecutionStatus.INDETERMINATE
+    assert store["state"] == {"count": 2}
 
     recovered = adapter.execute(replayed_admission, descriptor, address)
 
