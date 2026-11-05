@@ -148,6 +148,7 @@ def test_hypervisor_admission_issues_bounded_cpu_grant_after_live_replay() -> No
     assert result.grant.authoritative
     assert result.grant.pid == pid
     assert result.grant.transition_ids == ("increment", "increment")
+    assert result.grant.start_state_digest == coordination.admission_request.start_state_digest
     assert result.grant.maximum_steps == 2
     assert result.grant.required_rights == ("execute",)
     assert result.grant.resource == "/jobs/counter"
