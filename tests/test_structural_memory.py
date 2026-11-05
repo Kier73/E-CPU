@@ -246,6 +246,101 @@ def test_revision_is_immutable_and_links_to_its_parent():
     assert original.spec.digest != updated.spec.digest
 
 
+def test_context_only_revision_preserves_generator_and_keeps_parent_readable():
+    journal = EventJournal()
+    registry = StructuralMemoryRegistry(
+        admission_policy=lambda proposal: True,
+        journal=journal,
+    )
+    parent_proposal = registry.propose(
+        "scoped-counter",
+        _integer_law(),
+        {0: 0, 1: 1, 2: 2, 3: 3},
+        context={"tenant": "alpha"},
+    )
+    parent = registry.admit(parent_proposal.proposal_id, expected_revision=0)
+
+    with pytest.raises(StructuralMemoryRefused, match="must change"):
+        registry.propose_context_revision(
+            "scoped-counter",
+            {"tenant": "alpha"},
+            {10: 10, 11: 11, 12: 12},
+        )
+    with pytest.raises(StructuralMemoryRefused, match="witness mismatch"):
+        registry.propose_context_revision(
+            "scoped-counter",
+            {"tenant": "beta"},
+            {10: 0, 11: 1, 12: 2},
+        )
+
+    proposal = registry.propose_context_revision(
+        "scoped-counter",
+        {"tenant": "beta"},
+        {10: 10, 11: 11, 12: 12},
+    )
+    assert registry.active_version("scoped-counter") == parent
+    assert proposal.spec.revision == 2
+    assert proposal.spec.parent_digest == parent.spec.digest
+    assert proposal.spec.family == parent.spec.family
+    assert proposal.spec.parameters == parent.spec.parameters
+    assert proposal.spec.order == parent.spec.order
+    assert proposal.spec.law_verdict == parent.spec.law_verdict
+    assert proposal.spec.first_bad == parent.spec.first_bad
+    assert proposal.spec.domain == parent.spec.domain
+    assert proposal.spec.context == {"tenant": "beta"}
+
+    with pytest.raises(StructuralMemoryRefused, match="context"):
+        registry.read("scoped-counter", 20, context={"tenant": "beta"})
+    assert registry.read("scoped-counter", 20, context={"tenant": "alpha"}).value == 20
+
+    child = registry.admit(proposal.proposal_id, expected_revision=1)
+    assert child.spec.digest != parent.spec.digest
+    assert registry.active_version("scoped-counter") == child
+    with pytest.raises(StructuralMemoryRefused, match="context"):
+        registry.read("scoped-counter", 20, context={"tenant": "alpha"})
+
+    latest = registry.read("scoped-counter", 20, context={"tenant": "beta"})
+    historical = registry.read_revision(
+        "scoped-counter",
+        1,
+        20,
+        context={"tenant": "alpha"},
+    )
+    assert latest.revision == 2
+    assert historical.revision == 1
+    assert latest.value == historical.value == 20
+    assert historical.spec_digest == parent.spec.digest
+
+    snapshot = registry.snapshot()
+    restored = StructuralMemoryRegistry.from_snapshot(
+        snapshot,
+        journal=EventJournal.from_snapshot(journal.snapshot()),
+    )
+    assert restored.active_version("scoped-counter") == child
+    assert restored.read_revision(
+        "scoped-counter",
+        1,
+        20,
+        context={"tenant": "alpha"},
+    ).value == 20
+    assert restored.read(
+        "scoped-counter",
+        20,
+        context={"tenant": "beta"},
+    ).value == 20
+    assert restored.journal.verify()
+
+
+def test_context_only_revision_requires_an_active_parent():
+    registry = _registry(lambda proposal: True)
+    with pytest.raises(StructuralMemoryRefused, match="no admitted revision"):
+        registry.propose_context_revision(
+            "missing",
+            {"tenant": "beta"},
+            {10: 10, 11: 11},
+        )
+
+
 def test_trace_proposal_uses_known_law_recovery_and_withheld_witnesses():
     registry = _registry(lambda proposal: True)
     lane = [(65500 + 17 * coordinate) % 65536 for coordinate in range(50)]
