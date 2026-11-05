@@ -63,7 +63,7 @@ def _native_system(checkpoint_path: Path):
     program = Program(
         (
             Instruction(Op.SET, ("rax", 0)),
-            __import__("mailcpu").Instruction(Op.HALT),
+            Instruction(Op.HALT),
         )
     )
     pid = operating_system.spawn(program, "native-vcpu-test", initial_registers={"rax": 1})
@@ -191,10 +191,10 @@ def test_native_cpu_checkpoint_persists_state_and_receipt_for_recovery(tmp_path)
 
 def test_native_context_provider_refuses_a_runnable_task(tmp_path):
     operating_system = HeadlessOS()
-    program = Program((__import__("mailcpu").Instruction(Op.HALT),))
+    program = Program((Instruction(Op.HALT),))
     pid = operating_system.spawn(program, "running-vcpu-test")
     backend = NativeCPUContextBackend(operating_system, tmp_path / "running.json")
-    descriptor = __import__("mailcpu").ProcessDescriptor("running-vcpu", "1", ())
+    descriptor = ProcessDescriptor("running-vcpu", "1", ())
     address = SemanticAddress("running-vcpu", "1", StatePattern())
 
     with pytest.raises(ValueError, match="suspended"):
