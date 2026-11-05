@@ -8,6 +8,7 @@ from mailcpu.law_certifier import Law
 from mailcpu.structural_memory import (
     StructuralMemoryAuthorizationError,
     StructuralMemoryConflict,
+    StructuralMemoryError,
     StructuralMemoryRefused,
     StructuralMemoryRegistry,
     VerificationClass,
@@ -233,7 +234,8 @@ def test_trace_proposal_uses_known_law_recovery_and_withheld_witnesses():
     assert proposal.certificate.witness_count == len(lane)
     registry.admit(proposal.proposal_id, expected_revision=0)
     for coordinate in (0, 17, 30, 49, 1000):
-        assert registry.read("modular-counter", coordinate).value == lane[coordinate] if coordinate < len(lane) else (65500 + 17 * coordinate) % 65536
+        expected = (65500 + 17 * coordinate) % 65536
+        assert registry.read("modular-counter", coordinate).value == expected
 
 
 def test_lcg_generator_adapter_navigates_the_affine_orbit():
@@ -285,9 +287,9 @@ def test_fgraph_generator_adapter_navigates_preperiod_and_cycle():
 
 def test_boolean_coordinates_and_boolean_witnesses_are_rejected():
     registry = _registry(lambda proposal: True)
-    with pytest.raises(Exception):
+    with pytest.raises(StructuralMemoryError):
         registry.propose("counter", _integer_law(), {False: 0, 1: 1})
     proposal = registry.propose("counter", _integer_law(), {0: 0, 1: 1, 2: 2})
     registry.admit(proposal.proposal_id, expected_revision=0)
-    with pytest.raises(Exception):
+    with pytest.raises(StructuralMemoryError):
         registry.read("counter", True)
