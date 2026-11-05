@@ -123,6 +123,25 @@ def test_full_context_digest_binds_capabilities_and_temporal_coordinates() -> No
     assert baseline.admission_request.digest != temporal_result.admission_request.digest
 
 
+def test_admission_proposal_binds_abstract_analysis_limits_and_widening() -> None:
+    descriptor, address, context = _counter()
+    narrow = NavigationCoordinator().coordinate(
+        descriptor, address, context, max_abstract_updates=500, widen_after=2
+    )
+    broad = NavigationCoordinator().coordinate(
+        descriptor, address, context, max_abstract_updates=501, widen_after=2
+    )
+
+    assert narrow.disposition is CoordinationDisposition.READY
+    assert broad.disposition is CoordinationDisposition.READY
+    assert narrow.abstract_reachability.to_dict() == broad.abstract_reachability.to_dict()
+    assert (
+        narrow.admission_request.abstract_analysis_config_digest
+        != broad.admission_request.abstract_analysis_config_digest
+    )
+    assert narrow.admission_request.digest != broad.admission_request.digest
+
+
 def test_readiness_failure_prevents_an_admission_proposal() -> None:
     contract = ReadinessContract(required_capabilities=frozenset({"execute"}))
     descriptor, address, context = _counter(readiness=contract)
