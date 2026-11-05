@@ -26,7 +26,7 @@ A provider call is accepted only when:
 - the PC is inside the current immutable program;
 - the register file is a bounded mapping of non-empty names to integers.
 
-Suspension is a safepoint. It prevents the deterministic scheduler from retiring an instruction while the context is being inspected or committed.
+Suspension is a safepoint. The scheduler's re-entrant state lock serializes instruction retirement and snapshot publication with context commits. VM-level composite operations (spawn, fork, exec, reap, shared-memory topology changes, and VM snapshots) use the same lock, so a checkpoint cannot observe those operations half-applied.
 
 ## Commit contract
 
