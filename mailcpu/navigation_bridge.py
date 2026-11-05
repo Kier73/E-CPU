@@ -122,6 +122,28 @@ def _pattern(
     return tuple(_condition(item, context, label) for item in pattern.conditions)
 
 
+def _validate_integer_projection(
+    descriptor: ProcessDescriptor,
+    address: SemanticAddress,
+    start_state: Mapping[str, Any],
+) -> None:
+    """Mathematics: refuse any referenced initial coordinate outside the exact integer domain."""
+    referenced: set[str] = set()
+    patterns = [address.goal, *descriptor.invariants]
+    patterns.extend(rule.guard for rule in descriptor.transitions)
+    for pattern in patterns:
+        for condition in pattern.conditions:
+            referenced.add(_variable(condition.path, "state condition"))
+    for rule in descriptor.transitions:
+        for update in rule.updates:
+            referenced.add(_variable(update.path, "transition update"))
+    for name in referenced:
+        if name in start_state and (not isinstance(start_state[name], int) or isinstance(start_state[name], bool)):
+            raise NavigationCompilationError(
+                f"referenced initial field {name!r} is not an integer coordinate"
+            )
+
+
 def _assignments(
     updates: tuple[StateUpdate, ...],
     context: ProcessContext,
@@ -214,6 +236,7 @@ class AbstractNavigationCompiler:
             raise NavigationCompilationError("no current or declared initial state is available")
         if not descriptor.admits(start_value, context.bindings):
             raise NavigationCompilationError("starting state violates a declared process invariant")
+        _validate_integer_projection(descriptor, address, start_value)
 
         # Only integer coordinates are represented. Unprojected fields are safe to
         # omit only because every guard, invariant, goal, and update is compiled
