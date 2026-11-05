@@ -55,7 +55,7 @@ class VerificationClass(str, Enum):
 
 
 def _json_value(value: Any, path: str = "value") -> Any:
-    """Return a detached JSON value and reject opaque or non-string-keyed data."""
+    """Return a detached JSON value and reject opaque or non-string-keyed data. Mathematics: recursively maps values into the JSON scalar, mapping, and sequence algebra. """
     if value is None or isinstance(value, (str, bool, int)):
         return value
     if isinstance(value, float):
@@ -74,7 +74,7 @@ def _json_value(value: Any, path: str = "value") -> Any:
 
 
 def _canonical_json(value: Any) -> str:
-    """Encode a JSON-compatible value in one canonical sorted compact form."""
+    """Encode a JSON-compatible value in one canonical sorted compact form. Mathematics: encodes x as sorted, compact JSON with non-finite numbers excluded. """
     try:
         return json.dumps(
             _json_value(value),
@@ -90,12 +90,12 @@ def _canonical_json(value: Any) -> str:
 
 
 def _digest(value: Any) -> str:
-    """Calculate SHA-256 over the canonical JSON encoding of a value."""
+    """Calculate SHA-256 over the canonical JSON encoding of a value. Mathematics: defines H(x) = SHA256(canonical_json(x)). """
     return hashlib.sha256(_canonical_json(value).encode("utf-8")).hexdigest()
 
 
 def _require_int(value: Any, name: str, *, minimum: int | None = None) -> int:
-    """Validate one strict integer field, excluding Booleans."""
+    """Validate one strict integer field, excluding Booleans. Mathematics: accepts x in the integers, excluding Boolean values and enforcing an optional lower bound. """
     if type(value) is not int:
         raise StructuralMemoryError(f"{name} must be an integer (booleans are not coordinates)")
     if minimum is not None and value < minimum:
@@ -104,14 +104,14 @@ def _require_int(value: Any, name: str, *, minimum: int | None = None) -> int:
 
 
 def _require_nonempty_string(value: Any, name: str, *, maximum: int = 256) -> str:
-    """Validate one bounded non-empty text identifier."""
+    """Validate one bounded non-empty text identifier. Mathematics: enforces 1 <= length(s) <= maximum and non-whitespace content. """
     if not isinstance(value, str) or not value.strip() or len(value) > maximum:
         raise StructuralMemoryError(f"{name} must be a non-empty string of at most {maximum} characters")
     return value
 
 
 def _require_hash(value: Any, name: str) -> str:
-    """Validate one lowercase SHA-256 hexadecimal digest."""
+    """Validate one lowercase SHA-256 hexadecimal digest. Mathematics: enforces s in {0,...,9,a,...,f}^64. """
     if (
         not isinstance(value, str)
         or len(value) != 64
@@ -122,7 +122,7 @@ def _require_hash(value: Any, name: str) -> str:
 
 
 def _validate_law_parameters(family: str, params: Mapping[str, Any], order: int) -> None:
-    """Validate the exact parameter ABI for each admitted generator family."""
+    """Validate the exact parameter ABI for each admitted generator family. Mathematics: checks each generator parameter vector against its family schema and order constraints. """
     if family == "int":
         if set(params) != {"x0", "step", "mod"}:
             raise StructuralMemoryError("int generator parameters must be exactly x0, step, and mod")
@@ -235,7 +235,7 @@ class StructuralMemorySpec:
         context: Mapping[str, Any] | None = None,
         parent_digest: str | None = None,
     ) -> "StructuralMemorySpec":
-        """Create a schema-checked immutable spec from an existing Law object."""
+        """Create a schema-checked immutable spec from an existing Law object. Mathematics: maps a certified law tuple (family, parameters, order, verdict) into an immutable structural specification. """
         if not isinstance(law, Law):
             raise StructuralMemoryError("law must be an existing mailcpu.law_certifier.Law")
         context_value = {} if context is None else _json_value(context, "context")
@@ -256,21 +256,21 @@ class StructuralMemorySpec:
 
     @property
     def parameters(self) -> dict[str, Any]:
-        """Return a detached copy of the generator parameters."""
+        """Return a detached copy of the generator parameters. Mathematics: decodes the canonical parameter encoding into a detached mapping. """
         return json.loads(self.parameters_json)
 
     @property
     def context(self) -> dict[str, Any]:
-        """Return a detached copy of the context boundary metadata."""
+        """Return a detached copy of the context boundary metadata. Mathematics: decodes the canonical boundary encoding into a detached mapping. """
         return json.loads(self.context_json)
 
     @property
     def context_digest(self) -> str:
-        """Return the SHA-256 digest of the exact canonical context."""
+        """Return the SHA-256 digest of the exact canonical context. Mathematics: computes H(context_json) for the exact canonical boundary. """
         return hashlib.sha256(self.context_json.encode("utf-8")).hexdigest()
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize this immutable structural-memory record."""
+        """Serialize this immutable structural-memory record. Mathematics: projects the immutable record onto its schema-defined serialization fields. """
         return {
             "schema": self.schema,
             "memory_id": self.memory_id,
@@ -287,7 +287,7 @@ class StructuralMemorySpec:
 
     @property
     def digest(self) -> str:
-        """Return the stable digest of this immutable record."""
+        """Return the stable digest of this immutable record. Mathematics: computes H(to_dict(record)) as the stable identity of this immutable record. """
         return _digest(self.to_dict())
 
 
@@ -326,7 +326,7 @@ class StructuralMemoryCertificate:
                 raise StructuralMemoryError("prefix certificate horizon must equal first_bad")
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize this immutable structural-memory record."""
+        """Serialize this immutable structural-memory record. Mathematics: projects the immutable record onto its schema-defined serialization fields. """
         return {
             "schema": self.schema,
             "spec_digest": self.spec_digest,
@@ -342,7 +342,7 @@ class StructuralMemoryCertificate:
 
     @property
     def digest(self) -> str:
-        """Return the stable digest of this immutable certificate."""
+        """Return the stable digest of this immutable certificate. Mathematics: computes H(to_dict(record)) as the stable identity of this immutable record. """
         return _digest(self.to_dict())
 
 
@@ -380,7 +380,7 @@ class StructuralMemoryProposal:
             raise StructuralMemoryError("proposal ID does not match its immutable contents")
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize this immutable structural-memory record."""
+        """Serialize this immutable structural-memory record. Mathematics: projects the immutable record onto its schema-defined serialization fields. """
         return {
             "proposal_id": self.proposal_id,
             "spec": self.spec.to_dict(),
@@ -398,7 +398,7 @@ class StructuralMemoryVersion:
     admitted_proposal_id: str
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize this immutable structural-memory record."""
+        """Serialize this immutable structural-memory record. Mathematics: projects the immutable record onto its schema-defined serialization fields. """
         return {
             "spec": self.spec.to_dict(),
             "certificate": self.certificate.to_dict(),
@@ -424,7 +424,7 @@ class StructuralMemoryReadReceipt:
     cache_hit: bool = False
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize this immutable structural-memory record."""
+        """Serialize this immutable structural-memory record. Mathematics: projects the immutable record onto its schema-defined serialization fields. """
         return {
             "receipt_id": self.receipt_id,
             "memory_id": self.memory_id,
@@ -450,7 +450,7 @@ class ContextMapper:
     """
 
     def encode(self, context: Mapping[str, Any] | None) -> tuple[str, str]:
-        """Return canonical context JSON and its SHA-256 identity."""
+        """Return canonical context JSON and its SHA-256 identity. Mathematics: maps context c to (canonical_json(c), SHA256(canonical_json(c))). """
         value = {} if context is None else _json_value(context, "context")
         if not isinstance(value, dict):
             raise StructuralMemoryError("context must be a JSON object")
@@ -458,7 +458,7 @@ class ContextMapper:
         return encoded, hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
     def bind(self, spec: StructuralMemorySpec, context: Mapping[str, Any] | None) -> str:
-        """Require a read context to equal the exact context bound into the spec."""
+        """Require a read context to equal the exact context bound into the spec. Mathematics: accepts a context exactly when canonical_json(c) equals the specification's canonical boundary. """
         if context is None:
             encoded = spec.context_json
             digest = spec.context_digest
@@ -477,7 +477,7 @@ class GeneratorRegistry:
     SUPPORTED_FAMILIES = frozenset({"int", "lcg", "gf2", "fgraph"})
 
     def build_law(self, spec: StructuralMemorySpec) -> Law:
-        """Reconstruct one whitelisted Law from canonical spec parameters."""
+        """Reconstruct one whitelisted Law from canonical spec parameters. Mathematics: reconstructs the deterministic transition law L from its whitelisted family and parameter vector. """
         if spec.family not in self.SUPPORTED_FAMILIES:
             raise StructuralMemoryRefused(f"generator family {spec.family!r} is not supported")
         verdict = "PREFIX-GROUND" if spec.first_bad is not None else "GROUND"
@@ -491,7 +491,7 @@ class GeneratorRegistry:
         )
 
     def navigate_guarded(self, spec: StructuralMemorySpec, coordinate: int) -> int:
-        """Evaluate one coordinate through the law certifier's horizon guard."""
+        """Evaluate one coordinate through the law certifier's horizon guard. Mathematics: evaluates G(t) only when t is strictly below any certified first_bad horizon. """
         law = self.build_law(spec)
         try:
             value = navigate_guarded(law, coordinate)
@@ -502,7 +502,7 @@ class GeneratorRegistry:
         return value
 
     def predict_prefix_boundary(self, spec: StructuralMemorySpec, coordinate: int) -> int:
-        """Evaluate exactly first_bad for witness adjudication, never for runtime reads."""
+        """Evaluate exactly first_bad for witness adjudication, never for runtime reads. Mathematics: evaluates G(first_bad) only to adjudicate the observed escape witness. """
         if spec.first_bad != coordinate:
             raise StructuralMemoryError("boundary prediction must be exactly at first_bad")
         return self.build_law(spec).navigate(coordinate)
@@ -519,7 +519,7 @@ class StructuralMemoryVerifier:
         spec: StructuralMemorySpec,
         witnesses: tuple[tuple[int, int], ...],
     ) -> StructuralMemoryCertificate:
-        """Issue a certificate only after deterministic witness replay succeeds."""
+        """Issue a certificate only after deterministic witness replay succeeds. Mathematics: requires G(t_i) = y_i for every valid witness and, for prefix evidence, G(first_bad) != y_first_bad. """
         if not isinstance(spec, StructuralMemorySpec):
             raise StructuralMemoryError("certificate spec must be a StructuralMemorySpec")
         if not isinstance(witnesses, tuple) or len(witnesses) < 2:
@@ -595,7 +595,7 @@ class StructuralMemoryVerifier:
         )
 
     def verify_proposal(self, proposal: StructuralMemoryProposal) -> None:
-        """Recompute a staged proposal certificate from its immutable witnesses."""
+        """Recompute a staged proposal certificate from its immutable witnesses. Mathematics: reissues the certificate from the proposal's exact specification and witness tuple and compares digests. """
         recomputed = self.certify(proposal.spec, proposal.witnesses)
         if recomputed.to_dict() != proposal.certificate.to_dict():
             raise StructuralMemoryRefused("proposal certificate does not reproduce from its witness set")
@@ -619,7 +619,7 @@ class StructuralNavigator:
         coordinate: int,
         context: Mapping[str, Any] | None = None,
     ) -> str:
-        """Validate certificate, context, coordinate, and horizon before any cache lookup."""
+        """Validate certificate, context, coordinate, and horizon before any cache lookup. Mathematics: requires matching specification/context digests and t < valid_before_exclusive when a prefix horizon exists. """
         _require_int(coordinate, "coordinate", minimum=0)
         if certificate.spec_digest != spec.digest:
             raise StructuralMemoryRefused("certificate is bound to a different structural spec")
@@ -640,7 +640,7 @@ class StructuralNavigator:
         coordinate: int,
         context: Mapping[str, Any] | None = None,
     ) -> tuple[int, str]:
-        """Return a guarded state value and its verified context digest."""
+        """Return a guarded state value and its verified context digest. Mathematics: returns the guarded generator value G(t) together with the digest of its bound context. """
         context_digest = self.validate(spec, certificate, coordinate, context)
         return self.generators.navigate_guarded(spec, coordinate), context_digest
 
@@ -679,7 +679,7 @@ class StructuralMemoryRegistry:
         domain: str = "integer-orbit",
         context: Mapping[str, Any] | None = None,
     ) -> StructuralMemoryProposal:
-        """Stage a candidate law with independently replayed observations."""
+        """Stage a candidate law with independently replayed observations. Mathematics: creates a staged revision r+1 whose parent digest equals the current active revision digest. """
         _require_nonempty_string(memory_id, "memory_id")
         with self._lock:
             current = self._active.get(memory_id)
@@ -718,7 +718,7 @@ class StructuralMemoryRegistry:
         domain: str = "integer-orbit",
         context: Mapping[str, Any] | None = None,
     ) -> StructuralMemoryProposal:
-        """Recover a known law from a training window and withheld witness suffix."""
+        """Recover a known law from a training window and withheld witness suffix. Mathematics: derives a candidate law from training W and withheld T, then verifies their combined coordinate/value observations. """
         train = self._normalize_samples(training, "training")
         holdout = self._normalize_samples(withheld, "withheld")
         if not train or not holdout:
@@ -748,7 +748,7 @@ class StructuralMemoryRegistry:
         )
 
     def admit(self, proposal_id: str, *, expected_revision: int) -> StructuralMemoryVersion:
-        """Admit one staged proposal after host authorization and revision CAS."""
+        """Admit one staged proposal after host authorization and revision CAS. Mathematics: commits only when active_revision = expected_revision, parent identity matches, and host_policy(proposal) is True. """
         _require_hash(proposal_id, "proposal_id")
         expected = _require_int(expected_revision, "expected_revision", minimum=0)
         with self._lock:
@@ -800,7 +800,7 @@ class StructuralMemoryRegistry:
         *,
         context: Mapping[str, Any] | None = None,
     ) -> StructuralMemoryReadReceipt:
-        """Read one state and return its value together with version/evidence provenance."""
+        """Read one state and return its value together with version/evidence provenance. Mathematics: returns the guarded generator value G(t) together with the digest of its bound context. """
         _require_nonempty_string(memory_id, "memory_id")
         _require_int(coordinate, "coordinate", minimum=0)
         with self._lock:
@@ -851,20 +851,20 @@ class StructuralMemoryRegistry:
             return receipt
 
     def active_version(self, memory_id: str) -> StructuralMemoryVersion | None:
-        """Return the currently admitted immutable version, if one exists."""
+        """Return the currently admitted immutable version, if one exists. Mathematics: projects the active registry mapping at memory identity m, or the empty value when absent. """
         _require_nonempty_string(memory_id, "memory_id")
         with self._lock:
             return self._active.get(memory_id)
 
     def staged_proposal(self, proposal_id: str) -> StructuralMemoryProposal | None:
-        """Return one staged immutable proposal without changing its status."""
+        """Return one staged immutable proposal without changing its status. Mathematics: projects the staged-proposal mapping at proposal digest p, or the empty value when absent. """
         _require_hash(proposal_id, "proposal_id")
         with self._lock:
             return self._staged.get(proposal_id)
 
     @staticmethod
     def _normalize_witnesses(witnesses: Mapping[int, int]) -> tuple[tuple[int, int], ...]:
-        """Detach, validate, and coordinate-sort an integer witness mapping."""
+        """Detach, validate, and coordinate-sort an integer witness mapping. Mathematics: validates and sorts a finite set of unique integer coordinate/value pairs. """
         if not isinstance(witnesses, Mapping):
             raise StructuralMemoryError("witnesses must map integer coordinates to integer observations")
         normalized: list[tuple[int, int]] = []
@@ -879,7 +879,7 @@ class StructuralMemoryRegistry:
 
     @staticmethod
     def _normalize_samples(samples: Sequence[int], name: str) -> list[int]:
-        """Detach and strictly validate one observed integer sequence."""
+        """Detach and strictly validate one observed integer sequence. Mathematics: maps a finite sequence to an integer vector while excluding Boolean coordinates. """
         if isinstance(samples, (str, bytes)) or not isinstance(samples, Sequence):
             raise StructuralMemoryError(f"{name} must be a sequence of integers")
         result = list(samples)
