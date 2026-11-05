@@ -277,7 +277,8 @@ def test_remote_virtual_layer_resolves_memory_only_at_receiver() -> None:
     worker_pid = _worker_pid(receiver_os)
 
     try:
-        assert sender_channel.send(event) == 1
+        assert origin_channel.send(event) == 1
+        origin_transport.service()
         result = receiver_runtime.receive_and_execute(receiver_channel, receiver_os, worker_pid)
         assert result is not None
         assert result.action is HypervisorAction.ALLOW
