@@ -6,6 +6,8 @@ import pytest
 
 import mailcpu.checkpoint as checkpoint_module
 from mailcpu import CheckpointError, HeadlessOS, ServiceSpec, TrajectoryReader, TrajectoryWriter, load_checkpoint
+from mailcpu.law_certifier import Law
+from mailcpu.structural_memory import StructuralMemoryAuthorizationError, StructuralMemoryError
 
 
 def _trajectory_payloads(data_path: Path, index_path: Path) -> list[dict[str, object]]:
@@ -205,3 +207,125 @@ def test_checkpoint_preserves_service_controller(tmp_path: Path) -> None:
     restored = HeadlessOS.restore_checkpoint(path)
     assert restored.services.status("waiter").state == "blocked"
     assert restored.services.status("waiter").pid == os.services.status("waiter").pid
+
+
+def _structural_counter_law(x0: int = 0) -> Law:
+    """Mathematics: define the modular progression x(t)=(x0+t) mod 97 as a known generator family."""
+    return Law(
+        family="int",
+        params={"x0": x0, "step": 1, "mod": 97},
+        order=1,
+        verdict="GROUND",
+    )
+
+
+def test_headless_checkpoint_persists_structural_memory_and_shared_journal(tmp_path: Path) -> None:
+    """Mathematics: restore preserves admitted structural revisions, cached reads, and the exact shared journal chain."""
+
+    operating_system = HeadlessOS(
+        structural_memory_admission_policy=lambda proposal: proposal.spec.domain == "integer-orbit"
+    )
+    proposal = operating_system.structural_memory.propose(
+        "durable-counter",
+        _structural_counter_law(),
+        {0: 0, 1: 1, 2: 2, 3: 3},
+        context={"tenant": "alpha"},
+    )
+    active = operating_system.structural_memory.admit(proposal.proposal_id, expected_revision=0)
+    first = operating_system.structural_memory.read("durable-counter", 12)
+    operating_system.structural_memory.read("durable-counter", 12)
+    checkpoint = tmp_path / "structural-memory.mcpu.json"
+    operating_system.save_checkpoint(checkpoint)
+    journal_before = operating_system.environment.kernel.journal.snapshot()
+
+    restored = HeadlessOS.restore_checkpoint(
+        checkpoint,
+        structural_memory_admission_policy=lambda candidate: candidate.spec.domain == "integer-orbit",
+    )
+    assert restored.structural_memory.active_version("durable-counter") == active
+    assert restored.environment.kernel.journal.snapshot() == journal_before
+    resumed = restored.structural_memory.read("durable-counter", 12)
+    assert resumed.value == first.value
+    assert resumed.receipt_id == first.receipt_id
+    assert resumed.cache_hit is True
+    assert restored.environment.kernel.journal.verify()
+
+    next_law = _structural_counter_law(5)
+    next_proposal = restored.structural_memory.propose(
+        "durable-counter",
+        next_law,
+        {0: 5, 1: 6, 2: 7, 3: 8},
+        context={"tenant": "alpha", "revision": 2},
+    )
+    next_active = restored.structural_memory.admit(next_proposal.proposal_id, expected_revision=1)
+    assert next_active.spec.revision == 2
+    assert restored.structural_memory.read("durable-counter", 0).value == 5
+
+
+def test_restored_structural_memory_requires_host_policy_for_new_admissions(tmp_path: Path) -> None:
+    """Mathematics: checkpoint restore preserves memory state but not executable authority policy."""
+
+    operating_system = HeadlessOS(structural_memory_admission_policy=lambda proposal: True)
+    proposal = operating_system.structural_memory.propose(
+        "policy-boundary",
+        _structural_counter_law(),
+        {0: 0, 1: 1, 2: 2},
+    )
+    operating_system.structural_memory.admit(proposal.proposal_id, expected_revision=0)
+    checkpoint = tmp_path / "policy-boundary.mcpu.json"
+    operating_system.save_checkpoint(checkpoint)
+
+    restored = HeadlessOS.restore_checkpoint(checkpoint)
+    assert restored.structural_memory.read("policy-boundary", 9).value == 9
+    next_law = _structural_counter_law(5)
+    staged = restored.structural_memory.propose(
+        "policy-boundary",
+        next_law,
+        {0: 5, 1: 6, 2: 7},
+    )
+    with pytest.raises(StructuralMemoryAuthorizationError, match="explicit"):
+        restored.structural_memory.admit(staged.proposal_id, expected_revision=1)
+
+
+def test_legacy_checkpoint_without_structural_memory_remains_readable() -> None:
+    """Mathematics: accept an older OS projection without structural-memory fields only when its journal has no structural-memory events."""
+
+    operating_system = HeadlessOS()
+    snapshot = operating_system.snapshot()
+    snapshot.pop("structural_memory")
+    restored = HeadlessOS.from_snapshot(snapshot)
+    assert restored.structural_memory.active_version("legacy") is None
+
+
+def test_checkpoint_cannot_omit_structural_memory_state_when_journal_has_its_events() -> None:
+    """Mathematics: reject a checkpoint projection that contains structural-memory journal events but omits their state relation."""
+
+    operating_system = HeadlessOS(structural_memory_admission_policy=lambda proposal: True)
+    proposal = operating_system.structural_memory.propose(
+        "missing-state",
+        _structural_counter_law(),
+        {0: 0, 1: 1, 2: 2},
+    )
+    operating_system.structural_memory.admit(proposal.proposal_id, expected_revision=0)
+    snapshot = operating_system.snapshot()
+    snapshot.pop("structural_memory")
+
+    with pytest.raises(StructuralMemoryError, match="no structural-memory registry state"):
+        HeadlessOS.from_snapshot(snapshot)
+
+
+def test_checkpoint_restore_rejects_structural_memory_journal_anchor_mismatch() -> None:
+    """Mathematics: require the registry's saved (sequence,digest) anchor to equal the restored kernel event-chain tail."""
+
+    operating_system = HeadlessOS(structural_memory_admission_policy=lambda proposal: True)
+    proposal = operating_system.structural_memory.propose(
+        "anchor-check",
+        _structural_counter_law(),
+        {0: 0, 1: 1, 2: 2},
+    )
+    operating_system.structural_memory.admit(proposal.proposal_id, expected_revision=0)
+    snapshot = operating_system.snapshot()
+    snapshot["structural_memory"]["journal_anchor"]["digest"] = "0" * 64
+
+    with pytest.raises(StructuralMemoryError, match="journal anchor"):
+        HeadlessOS.from_snapshot(snapshot)
