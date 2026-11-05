@@ -69,7 +69,7 @@ On resume, the existing interpreter fetches the instruction at the navigated PC.
 ## Explicit non-goals
 
 This first backend does not:
-- execute or skip an instruction on behalf of the interpreter;
+- retire an instruction or fabricate an interpreter execution event; changing the PC can intentionally select a different next instruction after resume;
 - change code, opcodes, or the program digest;
 - mutate mailboxes, I/O output, syscalls, memory pages, kernel process state, scheduler time, or task lifecycle state;
 - navigate a running task or a task blocked on an external event;
