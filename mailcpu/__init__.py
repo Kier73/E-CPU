@@ -557,6 +557,7 @@ from .navigation_execution import (
     NavigationExecutionResult,
     NavigationExecutionStatus,
 )
+from .native_cpu import NativeCPUContextBackend, NativeCPUContextError
 
 __all__ = [
     "CoordinationDisposition",
@@ -575,6 +576,8 @@ __all__ = [
     "NavigationExecutionError",
     "NavigationExecutionResult",
     "NavigationExecutionStatus",
+    "NativeCPUContextBackend",
+    "NativeCPUContextError",
     "AbstractNavigationCompiler",
     "CompiledNavigation",
     "NavigationCompilationError",
