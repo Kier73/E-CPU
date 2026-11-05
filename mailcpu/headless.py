@@ -1691,7 +1691,6 @@ class HeadlessOS:
         from .service import ServiceSupervisor
 
         admission_policy = self.structural_memory.admission_policy
-        generators = self.structural_memory.generators
         restored = type(self).from_snapshot(
             deepcopy(dict(payload)),
             trajectory=self.vm.trajectory,
@@ -1701,10 +1700,6 @@ class HeadlessOS:
         # registry reconstructed from the same snapshot to that restored
         # journal; retaining the old registry would keep a stale journal
         # reference and split subsequent checkpoint cuts.
-        if generators is not None:
-            restored.structural_memory.generators = generators
-            restored.structural_memory.verifier.generators = generators
-            restored.structural_memory.navigator.generators = generators
         self.environment = restored.environment
         self.vm = restored.vm
         self._pending_exec = restored._pending_exec
