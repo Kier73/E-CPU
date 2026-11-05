@@ -37,6 +37,7 @@ from .kernel import (
     POLLOUT,
     ProcessStatus,
 )
+from .structural_memory import StructuralMemoryProposal, StructuralMemoryRegistry
 from .memory import VirtualMemoryError
 from .model import DEFAULT_MAX_TICKS, Program
 from .owned_network import NetworkAddress, NetworkFrame
@@ -90,8 +91,10 @@ class HeadlessOS:
         environment: VirtualEnvironment | None = None,
         trajectory: TrajectoryWriter | None = None,
         max_resident_pages: int | None = None,
+        *,
+        structural_memory_admission_policy: Callable[[StructuralMemoryProposal], bool] | None = None,
     ) -> None:
-        """Mathematics: compose `OS = (E, VM)` where `E` supplies resources and `VM` supplies execution."""
+        """Mathematics: compose OS=(E,VM,StructuralMemory) with one shared kernel event journal and host-owned admission policy."""
 
         self.environment = environment or VirtualEnvironment.bootstrap()
         self.vm = MailCPUVirtualMachine(
@@ -110,6 +113,10 @@ class HeadlessOS:
         from .seed_admission import HypervisorSeedAdmissionCoordinator
 
         self.seed_admission = HypervisorSeedAdmissionCoordinator(self.environment.kernel.journal)
+        self.structural_memory = StructuralMemoryRegistry(
+            admission_policy=structural_memory_admission_policy,
+            journal=self.environment.kernel.journal,
+        )
         self.posix = PosixCompatibility(self)
         from .service import ServiceSupervisor
 
@@ -1683,7 +1690,16 @@ class HeadlessOS:
 
         from .service import ServiceSupervisor
 
-        restored = type(self).from_snapshot(deepcopy(dict(payload)), trajectory=self.vm.trajectory)
+        admission_policy = self.structural_memory.admission_policy
+        restored = type(self).from_snapshot(
+            deepcopy(dict(payload)),
+            trajectory=self.vm.trajectory,
+            structural_memory_admission_policy=admission_policy,
+        )
+        # Rollback replaces the kernel and its EventJournal. Rebind the
+        # registry reconstructed from the same snapshot to that restored
+        # journal; retaining the old registry would keep a stale journal
+        # reference and split subsequent checkpoint cuts.
         self.environment = restored.environment
         self.vm = restored.vm
         self._pending_exec = restored._pending_exec
@@ -1691,6 +1707,7 @@ class HeadlessOS:
         self.hypervisor = restored.hypervisor
         self.hypervisor_arbitration = restored.hypervisor_arbitration
         self.seed_admission = restored.seed_admission
+        self.structural_memory = restored.structural_memory
         self.posix = PosixCompatibility(self)
         self.services = ServiceSupervisor.from_snapshot(self, restored.services.snapshot())
         self.environment.kernel.terminal_signal_handler = self._handle_terminal_signal
@@ -2231,17 +2248,32 @@ class HeadlessOS:
         return tuple(results)
 
     def snapshot(self) -> dict[str, object]:
-        """Mathematics: serialize `OS = (VM, Services, HypervisorPolicy, SeedAdmission)` into one continuation-capable checkpoint graph."""
+        """Mathematics: serialize OS=(VM,Services,Hypervisor,SeedAdmission,StructuralMemory) at one journal-consistent checkpoint cut."""
 
-        if self._pending_exec or self._pending_fork:
-            raise ValueError("cannot snapshot an uncommitted exec or fork transition")
-        return {
-            "vm": self.vm.snapshot(),
-            "services": self.services.snapshot(),
-            "hypervisor": self.hypervisor.snapshot(),
-            "hypervisor_arbitration": self.hypervisor_arbitration.snapshot(),
-            "seed_admission": self.seed_admission.snapshot(),
-        }
+        with self.structural_memory.checkpoint_guard():
+            if self._pending_exec or self._pending_fork:
+                raise ValueError("cannot snapshot an uncommitted exec or fork transition")
+            vm_state = self.vm.snapshot()
+            environment_state = vm_state.get("environment")
+            if not isinstance(environment_state, dict):
+                raise ValueError("VM checkpoint has no environment state")
+            kernel_state = environment_state.get("kernel")
+            if not isinstance(kernel_state, dict):
+                raise ValueError("VM checkpoint has no kernel state")
+            journal_snapshot = kernel_state.get("journal")
+            if not isinstance(journal_snapshot, list):
+                raise ValueError("VM checkpoint has no event journal snapshot")
+            structural_memory_state = self.structural_memory.snapshot(
+                journal_snapshot=journal_snapshot,
+            )
+            return {
+                "vm": vm_state,
+                "services": self.services.snapshot(),
+                "hypervisor": self.hypervisor.snapshot(),
+                "hypervisor_arbitration": self.hypervisor_arbitration.snapshot(),
+                "seed_admission": self.seed_admission.snapshot(),
+                "structural_memory": structural_memory_state,
+            }
 
     def save_checkpoint(self, path: str) -> str:
         """Mathematics: persist canonical checkpoint `C = JSON(sort_keys(OS))` and return its SHA-256 identity."""
@@ -2255,8 +2287,10 @@ class HeadlessOS:
         cls,
         payload: dict[str, object],
         trajectory: TrajectoryWriter | None = None,
+        *,
+        structural_memory_admission_policy: Callable[[StructuralMemoryProposal], bool] | None = None,
     ) -> "HeadlessOS":
-        """Mathematics: reconstruct headless state `OS'` whose next scheduler transition equals the saved transition."""
+        """Mathematics: reconstruct OS' with replay-equivalent VM, services, policy and structural-memory state; rebind host admission code separately."""
 
         from .service import ServiceSupervisor
 
@@ -2284,6 +2318,21 @@ class HeadlessOS:
             dict(payload.get("seed_admission", {})),
             operating_system.environment.kernel.journal,
         )
+        structural_memory_payload = payload.get("structural_memory")
+        if structural_memory_payload is None:
+            StructuralMemoryRegistry.assert_legacy_snapshot_compatible(
+                operating_system.environment.kernel.journal
+            )
+            operating_system.structural_memory = StructuralMemoryRegistry(
+                admission_policy=structural_memory_admission_policy,
+                journal=operating_system.environment.kernel.journal,
+            )
+        else:
+            operating_system.structural_memory = StructuralMemoryRegistry.from_snapshot(
+                structural_memory_payload,
+                admission_policy=structural_memory_admission_policy,
+                journal=operating_system.environment.kernel.journal,
+            )
         operating_system.services = ServiceSupervisor.from_snapshot(
             operating_system,
             dict(payload.get("services", {})),
@@ -2291,12 +2340,20 @@ class HeadlessOS:
         return operating_system
 
     @classmethod
-    def restore_checkpoint(cls, path: str) -> "HeadlessOS":
-        """Mathematics: load checkpoint `C`, verify its digest, and return a continuation-capable `HeadlessOS` instance."""
+    def restore_checkpoint(
+        cls,
+        path: str,
+        *,
+        structural_memory_admission_policy: Callable[[StructuralMemoryProposal], bool] | None = None,
+    ) -> "HeadlessOS":
+        """Mathematics: load checkpoint C, verify its digest, and rebind the non-serialized host admission policy."""
 
         from .checkpoint import load_checkpoint
 
-        return load_checkpoint(path)
+        return load_checkpoint(
+            path,
+            structural_memory_admission_policy=structural_memory_admission_policy,
+        )
 
     def _ensure_parent_directories(self, path: str) -> None:
         """Mathematics: ensure every prefix in `parent(path)` is a directory vertex in the filesystem graph."""

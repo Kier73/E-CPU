@@ -9,12 +9,15 @@ set; it is not a proof over an infinite domain.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from enum import Enum
 import hashlib
 import json
 import threading
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Callable, Iterator, Mapping, Sequence
+
+from .journal import EventJournal
 
 from .law_certifier import (
     HorizonExceeded,
@@ -29,6 +32,7 @@ STRUCTURAL_MEMORY_SCHEMA = "mailcpu.structural-memory.v1"
 STRUCTURE_READ = "STRUCTURE_READ"
 STRUCTURE_PROPOSE = "STRUCTURE_PROPOSE"
 STRUCTURE_ADMIT = "STRUCTURE_ADMIT"
+STRUCTURAL_MEMORY_REGISTRY_SCHEMA = "mailcpu.structural-memory-registry.v1"
 
 
 class StructuralMemoryError(ValueError):
@@ -296,6 +300,33 @@ class StructuralMemorySpec:
         """Return the stable digest of this immutable record. Mathematics: computes H(to_dict(record)) as the stable identity of this immutable record. """
         return _digest(self.to_dict())
 
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "StructuralMemorySpec":
+        """Reconstruct one immutable spec from its exact typed projection. Mathematics: invert the spec serialization map and require its generator ABI and canonical parameters to validate."""
+        expected = {
+            "schema", "memory_id", "revision", "domain", "family", "parameters",
+            "context", "order", "law_verdict", "first_bad", "parent_digest",
+        }
+        if not isinstance(payload, Mapping) or set(payload) != expected:
+            raise StructuralMemoryError("structural memory spec fields are invalid")
+        parameters = payload["parameters"]
+        context = payload["context"]
+        if not isinstance(parameters, Mapping) or not isinstance(context, Mapping):
+            raise StructuralMemoryError("structural memory parameters and context must be objects")
+        return cls(
+            memory_id=payload["memory_id"],
+            revision=payload["revision"],
+            domain=payload["domain"],
+            family=payload["family"],
+            parameters_json=_canonical_json(parameters),
+            context_json=_canonical_json(context),
+            order=payload["order"],
+            law_verdict=payload["law_verdict"],
+            first_bad=payload["first_bad"],
+            parent_digest=payload["parent_digest"],
+            schema=payload["schema"],
+        )
+
 
 @dataclass(frozen=True)
 class StructuralMemoryCertificate:
@@ -351,6 +382,33 @@ class StructuralMemoryCertificate:
         """Return the stable digest of this immutable certificate. Mathematics: computes H(to_dict(record)) as the stable identity of this immutable record. """
         return _digest(self.to_dict())
 
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "StructuralMemoryCertificate":
+        """Reconstruct one typed evidence certificate. Mathematics: invert certificate serialization while preserving the exact evidence grade, horizon and digest bindings."""
+        expected = {
+            "schema", "spec_digest", "context_digest", "witness_digest", "witness_count",
+            "verification_class", "first_bad", "valid_before_exclusive", "generator_id",
+            "generator_version",
+        }
+        if not isinstance(payload, Mapping) or set(payload) != expected:
+            raise StructuralMemoryError("structural memory certificate fields are invalid")
+        try:
+            verification_class = VerificationClass(payload["verification_class"])
+        except (TypeError, ValueError) as exc:
+            raise StructuralMemoryError("structural memory verification class is invalid") from exc
+        return cls(
+            spec_digest=payload["spec_digest"],
+            context_digest=payload["context_digest"],
+            witness_digest=payload["witness_digest"],
+            witness_count=payload["witness_count"],
+            verification_class=verification_class,
+            first_bad=payload["first_bad"],
+            valid_before_exclusive=payload["valid_before_exclusive"],
+            generator_id=payload["generator_id"],
+            generator_version=payload["generator_version"],
+            schema=payload["schema"],
+        )
+
 
 @dataclass(frozen=True)
 class StructuralMemoryProposal:
@@ -394,6 +452,27 @@ class StructuralMemoryProposal:
             "witnesses": [[coordinate, observed] for coordinate, observed in self.witnesses],
         }
 
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "StructuralMemoryProposal":
+        """Reconstruct a staged proposal and its finite witness set. Mathematics: invert proposal serialization and recompute its content-addressed proposal identity."""
+        expected = {"proposal_id", "spec", "certificate", "witnesses"}
+        if not isinstance(payload, Mapping) or set(payload) != expected:
+            raise StructuralMemoryError("structural memory proposal fields are invalid")
+        raw_witnesses = payload["witnesses"]
+        if not isinstance(raw_witnesses, (list, tuple)):
+            raise StructuralMemoryError("structural memory proposal witnesses must be a sequence")
+        witnesses: list[tuple[int, int]] = []
+        for item in raw_witnesses:
+            if not isinstance(item, (list, tuple)) or len(item) != 2:
+                raise StructuralMemoryError("structural memory proposal witness must be a pair")
+            witnesses.append((item[0], item[1]))
+        return cls(
+            proposal_id=payload["proposal_id"],
+            spec=StructuralMemorySpec.from_dict(payload["spec"]),
+            certificate=StructuralMemoryCertificate.from_dict(payload["certificate"]),
+            witnesses=tuple(witnesses),
+        )
+
 
 @dataclass(frozen=True)
 class StructuralMemoryVersion:
@@ -403,6 +482,18 @@ class StructuralMemoryVersion:
     certificate: StructuralMemoryCertificate
     admitted_proposal_id: str
 
+    def __post_init__(self) -> None:
+        """Validate one admitted version against its exact spec and certificate. Mathematics: require certificate.spec_digest = H(spec) and certificate.context_digest = H(spec.context)."""
+        if not isinstance(self.spec, StructuralMemorySpec):
+            raise StructuralMemoryError("structural memory version spec is invalid")
+        if not isinstance(self.certificate, StructuralMemoryCertificate):
+            raise StructuralMemoryError("structural memory version certificate is invalid")
+        _require_hash(self.admitted_proposal_id, "admitted_proposal_id")
+        if self.certificate.spec_digest != self.spec.digest:
+            raise StructuralMemoryError("version certificate does not bind its spec")
+        if self.certificate.context_digest != self.spec.context_digest:
+            raise StructuralMemoryError("version certificate does not bind its context")
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize this immutable structural-memory record. Mathematics: projects the immutable record onto its schema-defined serialization fields. """
         return {
@@ -410,6 +501,18 @@ class StructuralMemoryVersion:
             "certificate": self.certificate.to_dict(),
             "admitted_proposal_id": self.admitted_proposal_id,
         }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "StructuralMemoryVersion":
+        """Reconstruct one admitted immutable version. Mathematics: map its nested spec and certificate projections back to the typed revision identity."""
+        expected = {"spec", "certificate", "admitted_proposal_id"}
+        if not isinstance(payload, Mapping) or set(payload) != expected:
+            raise StructuralMemoryError("structural memory version fields are invalid")
+        return cls(
+            spec=StructuralMemorySpec.from_dict(payload["spec"]),
+            certificate=StructuralMemoryCertificate.from_dict(payload["certificate"]),
+            admitted_proposal_id=payload["admitted_proposal_id"],
+        )
 
 
 @dataclass(frozen=True)
@@ -429,6 +532,20 @@ class StructuralMemoryReadReceipt:
     witness_digest: str
     cache_hit: bool = False
 
+    def __post_init__(self) -> None:
+        """Validate one immutable structural-read receipt. Mathematics: require every identity to be a 256-bit digest and all coordinates and values to be strict integers."""
+        _require_hash(self.receipt_id, "receipt_id")
+        _require_nonempty_string(self.memory_id, "memory_id")
+        _require_int(self.revision, "revision", minimum=1)
+        for name in ("spec_digest", "certificate_digest", "context_digest", "value_digest", "witness_digest"):
+            _require_hash(getattr(self, name), name)
+        _require_int(self.coordinate, "coordinate", minimum=0)
+        _require_int(self.value, "value")
+        if not isinstance(self.verification_class, VerificationClass):
+            raise StructuralMemoryError("receipt verification class is invalid")
+        if type(self.cache_hit) is not bool:
+            raise StructuralMemoryError("receipt cache_hit flag must be Boolean")
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize this immutable structural-memory record. Mathematics: projects the immutable record onto its schema-defined serialization fields. """
         return {
@@ -445,6 +562,35 @@ class StructuralMemoryReadReceipt:
             "witness_digest": self.witness_digest,
             "cache_hit": self.cache_hit,
         }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "StructuralMemoryReadReceipt":
+        """Reconstruct one typed structural read receipt. Mathematics: invert the full provenance projection without dropping its cache and evidence attributes."""
+        expected = {
+            "receipt_id", "memory_id", "revision", "spec_digest", "certificate_digest",
+            "coordinate", "context_digest", "value", "value_digest", "verification_class",
+            "witness_digest", "cache_hit",
+        }
+        if not isinstance(payload, Mapping) or set(payload) != expected:
+            raise StructuralMemoryError("structural memory read receipt fields are invalid")
+        try:
+            verification_class = VerificationClass(payload["verification_class"])
+        except (TypeError, ValueError) as exc:
+            raise StructuralMemoryError("structural memory receipt verification class is invalid") from exc
+        return cls(
+            receipt_id=payload["receipt_id"],
+            memory_id=payload["memory_id"],
+            revision=payload["revision"],
+            spec_digest=payload["spec_digest"],
+            certificate_digest=payload["certificate_digest"],
+            coordinate=payload["coordinate"],
+            context_digest=payload["context_digest"],
+            value=payload["value"],
+            value_digest=payload["value_digest"],
+            verification_class=verification_class,
+            witness_digest=payload["witness_digest"],
+            cache_hit=payload["cache_hit"],
+        )
 
 
 class ContextMapper:
@@ -652,11 +798,12 @@ class StructuralNavigator:
 
 
 class StructuralMemoryRegistry:
-    """Stage, authorize, admit, and read immutable structural-memory revisions.
+    """Stage, authorize, journal, checkpoint, and read immutable structural-memory revisions.
 
-    A caller may propose a candidate, but proposals do not alter active state.
-    Admission requires both compare-and-swap against the expected active revision
-    and a trusted host-supplied admission policy returning the literal value True.
+    Proposals and admissions share the HeadlessOS event journal when attached.
+    A checkpoint snapshot binds the registry projection to the exact journal cut
+    captured by the VM checkpoint. Host admission policy is executable
+    configuration and is deliberately never serialized.
     """
 
     def __init__(
@@ -664,17 +811,28 @@ class StructuralMemoryRegistry:
         *,
         admission_policy: Callable[[StructuralMemoryProposal], bool] | None = None,
         generators: GeneratorRegistry | None = None,
+        journal: EventJournal | None = None,
     ) -> None:
+        """Mathematics: compose registry state R=(active, staged, admitted, cache) with an optional shared event chain J."""
+        if journal is not None and not isinstance(journal, EventJournal):
+            raise StructuralMemoryError("journal must be an EventJournal or None")
         self.generators = generators or GeneratorRegistry()
         self.context_mapper = ContextMapper()
         self.verifier = StructuralMemoryVerifier(self.generators)
         self.navigator = StructuralNavigator(self.generators, self.context_mapper)
         self.admission_policy = admission_policy
+        self.journal = journal
         self._active: dict[str, StructuralMemoryVersion] = {}
         self._staged: dict[str, StructuralMemoryProposal] = {}
         self._admitted: dict[str, StructuralMemoryVersion] = {}
         self._read_cache: dict[tuple[str, str, str, int], StructuralMemoryReadReceipt] = {}
         self._lock = threading.RLock()
+
+    @contextmanager
+    def checkpoint_guard(self) -> Iterator[None]:
+        """Hold the registry transition lock over a composite OS checkpoint. Mathematics: exclude registry transitions during the interval in which its journal and registry projections are captured."""
+        with self._lock:
+            yield
 
     def propose(
         self,
@@ -685,7 +843,7 @@ class StructuralMemoryRegistry:
         domain: str = "integer-orbit",
         context: Mapping[str, Any] | None = None,
     ) -> StructuralMemoryProposal:
-        """Stage a candidate law with independently replayed observations. Mathematics: creates a staged revision r+1 whose parent digest equals the current active revision digest. """
+        """Stage a candidate law with independently replayed observations. Mathematics: creates a staged revision r+1 whose parent digest equals the current active revision digest."""
         _require_nonempty_string(memory_id, "memory_id")
         with self._lock:
             current = self._active.get(memory_id)
@@ -712,6 +870,13 @@ class StructuralMemoryRegistry:
                 certificate=certificate,
                 witnesses=normalized,
             )
+            existing = self._staged.get(proposal_id)
+            if existing is not None:
+                return existing
+            self._append_journal(
+                "structural_memory.propose",
+                self._proposal_event_payload(proposal),
+            )
             self._staged[proposal_id] = proposal
             return proposal
 
@@ -724,7 +889,7 @@ class StructuralMemoryRegistry:
         domain: str = "integer-orbit",
         context: Mapping[str, Any] | None = None,
     ) -> StructuralMemoryProposal:
-        """Recover a known law from a training window and withheld witness suffix. Mathematics: derives a candidate law from training W and withheld T, then verifies their combined coordinate/value observations. """
+        """Recover a known law from a training window and withheld witness suffix. Mathematics: derives a candidate law from training W and withheld T, then verifies their combined coordinate/value observations."""
         train = self._normalize_samples(training, "training")
         holdout = self._normalize_samples(withheld, "withheld")
         if not train or not holdout:
@@ -754,7 +919,7 @@ class StructuralMemoryRegistry:
         )
 
     def admit(self, proposal_id: str, *, expected_revision: int) -> StructuralMemoryVersion:
-        """Admit one staged proposal after host authorization and revision CAS. Mathematics: commits only when active_revision = expected_revision, parent identity matches, and host_policy(proposal) is True. """
+        """Admit one staged proposal after host authorization and revision CAS. Mathematics: commits only when active_revision = expected_revision, parent identity matches, and host_policy(proposal) is True."""
         _require_hash(proposal_id, "proposal_id")
         expected = _require_int(expected_revision, "expected_revision", minimum=0)
         with self._lock:
@@ -795,6 +960,11 @@ class StructuralMemoryRegistry:
                 certificate=proposal.certificate,
                 admitted_proposal_id=proposal.proposal_id,
             )
+            event_payload = {
+                **self._proposal_event_payload(proposal),
+                "expected_revision": expected,
+            }
+            self._append_journal("structural_memory.admit", event_payload)
             self._active[proposal.spec.memory_id] = version
             self._admitted[proposal_id] = version
             return version
@@ -806,7 +976,7 @@ class StructuralMemoryRegistry:
         *,
         context: Mapping[str, Any] | None = None,
     ) -> StructuralMemoryReadReceipt:
-        """Read one state and return its value together with version/evidence provenance. Mathematics: returns the guarded generator value G(t) together with the digest of its bound context. """
+        """Read one state and return its value with version/evidence provenance. Mathematics: returns the guarded generator value G(t) together with the digest of its bound context."""
         _require_nonempty_string(memory_id, "memory_id")
         _require_int(coordinate, "coordinate", minimum=0)
         with self._lock:
@@ -827,50 +997,409 @@ class StructuralMemoryRegistry:
             )
             cached = self._read_cache.get(cache_key)
             if cached is not None:
-                return replace(cached, cache_hit=True)
+                receipt = replace(cached, cache_hit=True)
+                self._append_journal("structural_memory.read", {"receipt": receipt.to_dict()})
+                return receipt
 
             value = self.generators.navigate_guarded(version.spec, coordinate)
-            value_digest = _digest({"type": "integer", "value": value})
-            receipt_id = _digest({
-                "memory_id": memory_id,
-                "revision": version.spec.revision,
-                "spec_digest": version.spec.digest,
-                "certificate_digest": version.certificate.digest,
-                "coordinate": coordinate,
-                "context_digest": context_digest,
-                "value_digest": value_digest,
-            })
-            receipt = StructuralMemoryReadReceipt(
-                receipt_id=receipt_id,
-                memory_id=memory_id,
-                revision=version.spec.revision,
-                spec_digest=version.spec.digest,
-                certificate_digest=version.certificate.digest,
-                coordinate=coordinate,
-                context_digest=context_digest,
-                value=value,
-                value_digest=value_digest,
-                verification_class=version.certificate.verification_class,
-                witness_digest=version.certificate.witness_digest,
-            )
+            receipt = self._make_read_receipt(version, coordinate, context_digest, value)
+            self._append_journal("structural_memory.read", {"receipt": receipt.to_dict()})
             self._read_cache[cache_key] = receipt
             return receipt
 
     def active_version(self, memory_id: str) -> StructuralMemoryVersion | None:
-        """Return the currently admitted immutable version, if one exists. Mathematics: projects the active registry mapping at memory identity m, or the empty value when absent. """
+        """Return the currently admitted immutable version, if one exists. Mathematics: projects the active registry mapping at memory identity m, or the empty value when absent."""
         _require_nonempty_string(memory_id, "memory_id")
         with self._lock:
             return self._active.get(memory_id)
 
     def staged_proposal(self, proposal_id: str) -> StructuralMemoryProposal | None:
-        """Return one staged immutable proposal without changing its status. Mathematics: projects the staged-proposal mapping at proposal digest p, or the empty value when absent. """
+        """Return one staged immutable proposal without changing its status. Mathematics: projects the staged-proposal mapping at proposal digest p, or the empty value when absent."""
         _require_hash(proposal_id, "proposal_id")
         with self._lock:
             return self._staged.get(proposal_id)
 
+    def snapshot(
+        self,
+        *,
+        journal_snapshot: Sequence[Mapping[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Serialize the complete structural-memory registry. Mathematics: emit a canonical state projection whose journal anchor equals the same captured OS journal cut."""
+        with self._lock:
+            anchor = None
+            if self.journal is None:
+                if journal_snapshot is not None:
+                    raise StructuralMemoryError("journal snapshot was supplied to a registry without a journal")
+            else:
+                current_journal = self.journal.snapshot()
+                selected_journal = current_journal if journal_snapshot is None else _json_value(
+                    journal_snapshot, "journal_snapshot"
+                )
+                if selected_journal != current_journal:
+                    raise StructuralMemoryError(
+                        "event journal changed during the composite structural-memory checkpoint"
+                    )
+                anchor = self._journal_anchor(selected_journal)
+
+            return {
+                "schema": STRUCTURAL_MEMORY_REGISTRY_SCHEMA,
+                "proposals": [
+                    self._staged[key].to_dict()
+                    for key in sorted(self._staged)
+                ],
+                "admitted": sorted(self._admitted),
+                "active": {
+                    memory_id: version.admitted_proposal_id
+                    for memory_id, version in sorted(self._active.items())
+                },
+                "read_cache": [
+                    receipt.to_dict()
+                    for _, receipt in sorted(self._read_cache.items())
+                ],
+                "journal_anchor": anchor,
+            }
+
+    @classmethod
+    def from_snapshot(
+        cls,
+        payload: Mapping[str, Any],
+        *,
+        admission_policy: Callable[[StructuralMemoryProposal], bool] | None = None,
+        generators: GeneratorRegistry | None = None,
+        journal: EventJournal | None = None,
+    ) -> "StructuralMemoryRegistry":
+        """Restore and validate the complete registry against its event journal. Mathematics: reconstruct R from immutable proposals, admissions and receipts, then require their identities to match the journal hash-chain cut."""
+        expected = {"schema", "proposals", "admitted", "active", "read_cache", "journal_anchor"}
+        if not isinstance(payload, Mapping) or set(payload) != expected:
+            raise StructuralMemoryError("structural memory registry snapshot fields are invalid")
+        if payload["schema"] != STRUCTURAL_MEMORY_REGISTRY_SCHEMA:
+            raise StructuralMemoryError("unsupported structural memory registry snapshot schema")
+        if not isinstance(payload["proposals"], (list, tuple)):
+            raise StructuralMemoryError("structural memory proposals must be a sequence")
+        if not isinstance(payload["admitted"], (list, tuple)):
+            raise StructuralMemoryError("structural memory admissions must be a sequence")
+        if not isinstance(payload["active"], Mapping):
+            raise StructuralMemoryError("structural memory active heads must be an object")
+        if not isinstance(payload["read_cache"], (list, tuple)):
+            raise StructuralMemoryError("structural memory read cache must be a sequence")
+
+        registry = cls(
+            admission_policy=admission_policy,
+            generators=generators,
+            journal=journal,
+        )
+        for raw_proposal in payload["proposals"]:
+            proposal = StructuralMemoryProposal.from_dict(raw_proposal)
+            if proposal.proposal_id in registry._staged:
+                raise StructuralMemoryError("duplicate structural memory proposal identity")
+            registry.verifier.verify_proposal(proposal)
+            registry._staged[proposal.proposal_id] = proposal
+
+        admitted_ids: list[str] = []
+        for raw_id in payload["admitted"]:
+            _require_hash(raw_id, "admitted proposal ID")
+            if raw_id in admitted_ids:
+                raise StructuralMemoryError("duplicate structural memory admission identity")
+            if raw_id not in registry._staged:
+                raise StructuralMemoryError("admitted proposal is missing from the staged proposal set")
+            admitted_ids.append(raw_id)
+            proposal = registry._staged[raw_id]
+            registry._admitted[raw_id] = StructuralMemoryVersion(
+                spec=proposal.spec,
+                certificate=proposal.certificate,
+                admitted_proposal_id=raw_id,
+            )
+
+        history: dict[str, list[StructuralMemoryVersion]] = {}
+        for version in registry._admitted.values():
+            history.setdefault(version.spec.memory_id, []).append(version)
+        for memory_id, versions in history.items():
+            versions.sort(key=lambda item: item.spec.revision)
+            for index, version in enumerate(versions, start=1):
+                if version.spec.revision != index:
+                    raise StructuralMemoryError(
+                        f"structural memory {memory_id!r} has a gap in admitted revision history"
+                    )
+                expected_parent = None if index == 1 else versions[index - 2].spec.digest
+                if version.spec.parent_digest != expected_parent:
+                    raise StructuralMemoryError(
+                        f"structural memory {memory_id!r} has broken revision parent lineage"
+                    )
+
+        for memory_id, proposal_id in payload["active"].items():
+            _require_nonempty_string(memory_id, "active memory ID")
+            _require_hash(proposal_id, "active proposal ID")
+            version = registry._admitted.get(proposal_id)
+            if version is None or version.spec.memory_id != memory_id:
+                raise StructuralMemoryError("active structural memory head does not reference an admitted version")
+            latest = max(
+                (item for item in history[memory_id]),
+                key=lambda item: item.spec.revision,
+            )
+            if version != latest:
+                raise StructuralMemoryError("active structural memory head is not the newest admitted revision")
+            registry._active[memory_id] = version
+        if set(registry._active) != set(history):
+            raise StructuralMemoryError("admitted structural memories and active heads do not correspond")
+
+        for raw_receipt in payload["read_cache"]:
+            receipt = StructuralMemoryReadReceipt.from_dict(raw_receipt)
+            if receipt.cache_hit:
+                raise StructuralMemoryError("stored structural memory cache entries must be canonical miss receipts")
+            version = registry._version_for_spec_digest(receipt.spec_digest)
+            if version is None:
+                raise StructuralMemoryError("cached structural read references an unknown revision")
+            registry._verify_read_receipt(receipt, version)
+            key = (
+                receipt.spec_digest,
+                receipt.certificate_digest,
+                receipt.context_digest,
+                receipt.coordinate,
+            )
+            if key in registry._read_cache:
+                raise StructuralMemoryError("duplicate structural memory cache identity")
+            registry._read_cache[key] = receipt
+
+        raw_anchor = payload["journal_anchor"]
+        if journal is None:
+            if raw_anchor is not None:
+                raise StructuralMemoryError("registry snapshot has a journal anchor but no journal was supplied")
+        else:
+            if not isinstance(raw_anchor, Mapping) or set(raw_anchor) != {"sequence", "digest"}:
+                raise StructuralMemoryError("structural memory journal anchor is invalid")
+            sequence = _require_int(raw_anchor["sequence"], "journal anchor sequence", minimum=0)
+            digest = _require_hash(raw_anchor["digest"], "journal anchor digest")
+            if registry._journal_anchor(journal.snapshot()) != {"sequence": sequence, "digest": digest}:
+                raise StructuralMemoryError("structural memory journal anchor does not match the restored OS journal")
+            registry._verify_journal()
+        return registry
+
+    @staticmethod
+    def assert_legacy_snapshot_compatible(journal: EventJournal) -> None:
+        """Permit pre-E0.2 checkpoints only when their journal has no structural-memory events. Mathematics: require the structural-memory event projection of legacy journal J to be empty."""
+        if any(record.kind.startswith("structural_memory.") for record in journal.records()):
+            raise StructuralMemoryError(
+                "checkpoint journal contains structural-memory events but has no structural-memory registry state"
+            )
+
+    def _append_journal(self, kind: str, payload: dict[str, Any]) -> None:
+        """Append one registry transition to the shared OS event chain. Mathematics: extend J with a typed structural-memory event before publishing its corresponding registry mutation."""
+        if self.journal is not None:
+            self.journal.append(kind, payload)
+
+    @staticmethod
+    def _proposal_event_payload(proposal: StructuralMemoryProposal) -> dict[str, Any]:
+        """Project a proposal identity onto its journal event fields. Mathematics: bind proposal ID, memory revision, spec digest and certificate digest in one event payload."""
+        return {
+            "proposal_id": proposal.proposal_id,
+            "memory_id": proposal.spec.memory_id,
+            "revision": proposal.spec.revision,
+            "spec_digest": proposal.spec.digest,
+            "certificate_digest": proposal.certificate.digest,
+        }
+
+    @staticmethod
+    def _journal_anchor(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+        """Return the exact sequence and terminal hash of one captured journal. Mathematics: anchor J by (|J|, H_|J|), using zero digest for the empty chain."""
+        if not isinstance(records, (list, tuple)):
+            raise StructuralMemoryError("journal snapshot must be a sequence")
+        if not records:
+            return {"sequence": 0, "digest": "0" * 64}
+        final = records[-1]
+        if not isinstance(final, Mapping):
+            raise StructuralMemoryError("journal snapshot record must be an object")
+        return {
+            "sequence": len(records),
+            "digest": _require_hash(final.get("digest"), "journal terminal digest"),
+        }
+
+    @staticmethod
+    def _make_read_receipt(
+        version: StructuralMemoryVersion,
+        coordinate: int,
+        context_digest: str,
+        value: int,
+        *,
+        cache_hit: bool = False,
+    ) -> StructuralMemoryReadReceipt:
+        """Bind one generated value to its revision and evidence. Mathematics: derive receipt ID from H(spec), H(certificate), context, coordinate and H(value)."""
+        value_digest = _digest({"type": "integer", "value": value})
+        receipt_id = _digest({
+            "memory_id": version.spec.memory_id,
+            "revision": version.spec.revision,
+            "spec_digest": version.spec.digest,
+            "certificate_digest": version.certificate.digest,
+            "coordinate": coordinate,
+            "context_digest": context_digest,
+            "value_digest": value_digest,
+        })
+        return StructuralMemoryReadReceipt(
+            receipt_id=receipt_id,
+            memory_id=version.spec.memory_id,
+            revision=version.spec.revision,
+            spec_digest=version.spec.digest,
+            certificate_digest=version.certificate.digest,
+            coordinate=coordinate,
+            context_digest=context_digest,
+            value=value,
+            value_digest=value_digest,
+            verification_class=version.certificate.verification_class,
+            witness_digest=version.certificate.witness_digest,
+            cache_hit=cache_hit,
+        )
+
+    def _version_for_spec_digest(self, spec_digest: str) -> StructuralMemoryVersion | None:
+        """Resolve one historical immutable version by spec identity. Mathematics: find the unique admitted revision v with H(v.spec)=spec_digest."""
+        matches = [
+            version for version in self._admitted.values()
+            if version.spec.digest == spec_digest
+        ]
+        if len(matches) > 1:
+            raise StructuralMemoryError("multiple admitted versions share one structural spec digest")
+        return matches[0] if matches else None
+
+    def _verify_read_receipt(
+        self,
+        receipt: StructuralMemoryReadReceipt,
+        version: StructuralMemoryVersion,
+    ) -> None:
+        """Recompute a receipt against its historical generator and certificate. Mathematics: require observed_value = G(coordinate) and receipt_id = H(all bound provenance)."""
+        if (
+            receipt.memory_id != version.spec.memory_id
+            or receipt.revision != version.spec.revision
+            or receipt.spec_digest != version.spec.digest
+            or receipt.certificate_digest != version.certificate.digest
+            or receipt.context_digest != version.spec.context_digest
+            or receipt.verification_class is not version.certificate.verification_class
+            or receipt.witness_digest != version.certificate.witness_digest
+        ):
+            raise StructuralMemoryError("structural read receipt provenance does not match its admitted version")
+        try:
+            self.navigator.validate(
+                version.spec,
+                version.certificate,
+                receipt.coordinate,
+                context=version.spec.context,
+            )
+            expected_value = self.generators.navigate_guarded(version.spec, receipt.coordinate)
+        except StructuralMemoryError:
+            raise
+        except Exception as exc:
+            raise StructuralMemoryError(f"structural read receipt cannot be replayed: {exc}") from exc
+        expected = self._make_read_receipt(
+            version,
+            receipt.coordinate,
+            receipt.context_digest,
+            expected_value,
+            cache_hit=receipt.cache_hit,
+        )
+        if expected.to_dict() != receipt.to_dict():
+            raise StructuralMemoryError("structural read receipt does not reproduce from its generator")
+
+    def _verify_journal(self) -> None:
+        """Reconcile structural-memory journal events with restored state. Mathematics: enforce proposal-before-admission, parent-admission-before-child-proposal, and admission/read order for each revision."""
+        if self.journal is None:
+            return
+        proposed_events: dict[str, tuple[int, dict[str, Any]]] = {}
+        admitted_events: dict[str, tuple[int, dict[str, Any]]] = {}
+        read_receipts: list[tuple[int, StructuralMemoryReadReceipt]] = []
+        for record in self.journal.records():
+            if not record.kind.startswith("structural_memory."):
+                continue
+            if record.kind == "structural_memory.propose":
+                payload = record.payload
+                proposal_id = payload.get("proposal_id")
+                _require_hash(proposal_id, "journal proposal_id")
+                if proposal_id in proposed_events:
+                    raise StructuralMemoryError("duplicate structural-memory proposal journal event")
+                proposed_events[proposal_id] = (record.sequence, payload)
+            elif record.kind == "structural_memory.admit":
+                payload = record.payload
+                proposal_id = payload.get("proposal_id")
+                _require_hash(proposal_id, "journal admission proposal_id")
+                if proposal_id in admitted_events:
+                    raise StructuralMemoryError("duplicate structural-memory admission journal event")
+                admitted_events[proposal_id] = (record.sequence, payload)
+            elif record.kind == "structural_memory.read":
+                payload = record.payload
+                if set(payload) != {"receipt"}:
+                    raise StructuralMemoryError("structural-memory read event payload is invalid")
+                read_receipts.append(
+                    (record.sequence, StructuralMemoryReadReceipt.from_dict(payload["receipt"]))
+                )
+            else:
+                raise StructuralMemoryError(f"unknown structural-memory journal event {record.kind!r}")
+
+        if set(proposed_events) != set(self._staged):
+            raise StructuralMemoryError("structural-memory proposal journal and registry state differ")
+        if set(admitted_events) != set(self._admitted):
+            raise StructuralMemoryError("structural-memory admission journal and registry history differ")
+
+        for proposal_id, proposal in self._staged.items():
+            proposal_sequence, payload = proposed_events[proposal_id]
+            if payload != self._proposal_event_payload(proposal):
+                raise StructuralMemoryError("structural-memory proposal journal payload mismatch")
+
+            parent_digest = proposal.spec.parent_digest
+            if parent_digest is None:
+                if proposal.spec.revision != 1:
+                    raise StructuralMemoryError("root structural-memory proposal has a non-root revision")
+            else:
+                parent = self._version_for_spec_digest(parent_digest)
+                if parent is None:
+                    raise StructuralMemoryError("structural-memory proposal parent is not an admitted revision")
+                if (
+                    parent.spec.memory_id != proposal.spec.memory_id
+                    or proposal.spec.revision != parent.spec.revision + 1
+                ):
+                    raise StructuralMemoryError("structural-memory proposal revision does not immediately extend its parent")
+                parent_sequence = admitted_events.get(parent.admitted_proposal_id, (0, {}))[0]
+                if proposal_sequence <= parent_sequence:
+                    raise StructuralMemoryError("structural-memory child proposal precedes parent admission")
+
+            admitted = admitted_events.get(proposal_id)
+            if admitted is not None and admitted[0] <= proposal_sequence:
+                raise StructuralMemoryError("structural-memory admission precedes its proposal event")
+
+        for proposal_id, version in self._admitted.items():
+            _, payload = admitted_events[proposal_id]
+            expected = {
+                **self._proposal_event_payload(self._staged[proposal_id]),
+                "expected_revision": version.spec.revision - 1,
+            }
+            if payload != expected:
+                raise StructuralMemoryError("structural-memory admission journal payload mismatch")
+
+        admission_by_spec = {
+            version.spec.digest: admitted_events[proposal_id][0]
+            for proposal_id, version in self._admitted.items()
+        }
+        revisions_by_memory: dict[str, list[StructuralMemoryVersion]] = {}
+        for version in self._admitted.values():
+            revisions_by_memory.setdefault(version.spec.memory_id, []).append(version)
+        for versions in revisions_by_memory.values():
+            versions.sort(key=lambda item: item.spec.revision)
+
+        for sequence, receipt in read_receipts:
+            version = self._version_for_spec_digest(receipt.spec_digest)
+            if version is None:
+                raise StructuralMemoryError("structural-memory read journal references an unknown revision")
+            admission_sequence = admission_by_spec[receipt.spec_digest]
+            if sequence <= admission_sequence:
+                raise StructuralMemoryError("structural-memory read precedes revision admission")
+            later_versions = [
+                item for item in revisions_by_memory[version.spec.memory_id]
+                if item.spec.revision > version.spec.revision
+            ]
+            if later_versions:
+                next_admission_sequence = admission_by_spec[later_versions[0].spec.digest]
+                if sequence >= next_admission_sequence:
+                    raise StructuralMemoryError("structural-memory read occurs after a newer revision became active")
+            self._verify_read_receipt(receipt, version)
+
     @staticmethod
     def _normalize_witnesses(witnesses: Mapping[int, int]) -> tuple[tuple[int, int], ...]:
-        """Detach, validate, and coordinate-sort an integer witness mapping. Mathematics: validates and sorts a finite set of unique integer coordinate/value pairs. """
+        """Detach, validate, and coordinate-sort an integer witness mapping. Mathematics: validates and sorts a finite set of unique integer coordinate/value pairs."""
         if not isinstance(witnesses, Mapping):
             raise StructuralMemoryError("witnesses must map integer coordinates to integer observations")
         normalized: list[tuple[int, int]] = []
@@ -885,7 +1414,7 @@ class StructuralMemoryRegistry:
 
     @staticmethod
     def _normalize_samples(samples: Sequence[int], name: str) -> list[int]:
-        """Detach and strictly validate one observed integer sequence. Mathematics: maps a finite sequence to an integer vector while excluding Boolean coordinates. """
+        """Detach and strictly validate one observed integer sequence. Mathematics: maps a finite sequence to an integer vector while excluding Boolean coordinates."""
         if isinstance(samples, (str, bytes)) or not isinstance(samples, Sequence):
             raise StructuralMemoryError(f"{name} must be a sequence of integers")
         result = list(samples)

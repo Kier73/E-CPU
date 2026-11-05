@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from mailcpu.journal import EventJournal
 from mailcpu.law_certifier import Law
 from mailcpu.structural_memory import (
     StructuralMemoryAuthorizationError,
@@ -327,3 +328,138 @@ def test_boolean_coordinates_and_boolean_witnesses_are_rejected():
     registry.admit(proposal.proposal_id, expected_revision=0)
     with pytest.raises(StructuralMemoryError):
         registry.read("counter", True)
+
+
+def test_registry_snapshot_round_trips_active_history_staged_proposals_and_cache():
+    registry = StructuralMemoryRegistry(admission_policy=lambda proposal: True, journal=EventJournal())
+    first = registry.propose("persistent", _integer_law(), {0: 0, 1: 1, 2: 2})
+    active = registry.admit(first.proposal_id, expected_revision=0)
+    first_read = registry.read("persistent", 9)
+    cached_read = registry.read("persistent", 9)
+
+    next_law = _integer_law()
+    next_law.params["x0"] = 5
+    staged = registry.propose("persistent", next_law, {0: 5, 1: 6, 2: 7})
+    snapshot = registry.snapshot()
+    restored = StructuralMemoryRegistry.from_snapshot(
+        snapshot,
+        admission_policy=lambda proposal: True,
+        journal=EventJournal.from_snapshot(registry.journal.snapshot()),
+    )
+
+    assert restored.active_version("persistent") == active
+    assert restored.staged_proposal(staged.proposal_id) == staged
+    resumed_read = restored.read("persistent", 9)
+    assert resumed_read.value == first_read.value
+    assert resumed_read.receipt_id == first_read.receipt_id
+    assert resumed_read.cache_hit is True
+    assert cached_read.cache_hit is True
+
+
+def test_registry_snapshot_refuses_tampered_proposal_witnesses():
+    registry = _registry(lambda proposal: True)
+    proposal = registry.propose("persistent", _integer_law(), {0: 0, 1: 1, 2: 2})
+    snapshot = registry.snapshot()
+    snapshot["proposals"][0]["witnesses"][0][1] = 99
+
+    with pytest.raises(StructuralMemoryError):
+        StructuralMemoryRegistry.from_snapshot(snapshot)
+
+
+def test_registry_journal_reconciles_proposal_admission_and_read_events():
+    journal = EventJournal()
+    registry = StructuralMemoryRegistry(admission_policy=lambda proposal: True, journal=journal)
+    proposal = registry.propose("journaled", _integer_law(), {0: 0, 1: 1, 2: 2})
+    registry.admit(proposal.proposal_id, expected_revision=0)
+    registry.read("journaled", 7)
+    registry.read("journaled", 7)
+
+    kinds = [record.kind for record in journal.records()]
+    assert kinds == [
+        "structural_memory.propose",
+        "structural_memory.admit",
+        "structural_memory.read",
+        "structural_memory.read",
+    ]
+    snapshot = registry.snapshot()
+    restored = StructuralMemoryRegistry.from_snapshot(
+        snapshot,
+        journal=EventJournal.from_snapshot(journal.snapshot()),
+    )
+    assert restored.active_version("journaled") is not None
+
+    snapshot["journal_anchor"]["digest"] = "0" * 64
+    with pytest.raises(StructuralMemoryError, match="anchor"):
+        StructuralMemoryRegistry.from_snapshot(
+            snapshot,
+            journal=EventJournal.from_snapshot(journal.snapshot()),
+        )
+
+
+def _reordered_journal(records, indices):
+    """Mathematics: construct a newly valid hash chain over the selected event permutation."""
+    journal = EventJournal()
+    for index in indices:
+        record = records[index]
+        journal.append(record["kind"], record["payload"])
+    return journal
+
+
+def _bind_snapshot_to_journal(snapshot, journal):
+    """Mathematics: set the registry anchor to the terminal identity of the supplied test journal."""
+    records = journal.snapshot()
+    snapshot["journal_anchor"] = {
+        "sequence": len(records),
+        "digest": "0" * 64 if not records else records[-1]["digest"],
+    }
+
+
+def test_restore_rejects_child_proposal_journaled_before_parent_admission():
+    registry = StructuralMemoryRegistry(admission_policy=lambda proposal: True, journal=EventJournal())
+    parent = registry.propose("ordered", _integer_law(), {0: 0, 1: 1, 2: 2})
+    registry.admit(parent.proposal_id, expected_revision=0)
+    child_law = _integer_law()
+    child_law.params["x0"] = 5
+    registry.propose("ordered", child_law, {0: 5, 1: 6, 2: 7})
+
+    snapshot = registry.snapshot()
+    records = registry.journal.snapshot()
+    reordered = _reordered_journal(records, [0, 2, 1])
+    _bind_snapshot_to_journal(snapshot, reordered)
+
+    with pytest.raises(StructuralMemoryError, match="precedes parent admission"):
+        StructuralMemoryRegistry.from_snapshot(snapshot, journal=reordered)
+
+
+def test_restore_rejects_historical_read_after_new_revision_admission():
+    registry = StructuralMemoryRegistry(admission_policy=lambda proposal: True, journal=EventJournal())
+    first = registry.propose("ordered-read", _integer_law(), {0: 0, 1: 1, 2: 2})
+    registry.admit(first.proposal_id, expected_revision=0)
+    registry.read("ordered-read", 7)
+    second_law = _integer_law()
+    second_law.params["x0"] = 5
+    second = registry.propose("ordered-read", second_law, {0: 5, 1: 6, 2: 7})
+    registry.admit(second.proposal_id, expected_revision=1)
+
+    snapshot = registry.snapshot()
+    records = registry.journal.snapshot()
+    reordered = _reordered_journal(records, [0, 1, 3, 4, 2])
+    _bind_snapshot_to_journal(snapshot, reordered)
+
+    with pytest.raises(StructuralMemoryError, match="after a newer revision"):
+        StructuralMemoryRegistry.from_snapshot(snapshot, journal=reordered)
+
+
+def test_registry_snapshot_persists_staged_proposal_without_serializing_admission_policy():
+    policy = lambda proposal: True
+    registry = StructuralMemoryRegistry(admission_policy=policy, journal=EventJournal())
+    proposal = registry.propose("needs-policy", _integer_law(), {0: 0, 1: 1, 2: 2})
+    snapshot = registry.snapshot()
+    restored = StructuralMemoryRegistry.from_snapshot(
+        snapshot,
+        journal=EventJournal.from_snapshot(registry.journal.snapshot()),
+    )
+
+    assert restored.staged_proposal(proposal.proposal_id) == proposal
+    with pytest.raises(StructuralMemoryAuthorizationError, match="explicit"):
+        restored.admit(proposal.proposal_id, expected_revision=0)

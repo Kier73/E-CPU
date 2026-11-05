@@ -284,6 +284,30 @@ def _remove_seed_control_events(state: dict[str, Any]) -> None:
 
     visit(state)
 
+    # The registry stores an anchor to the shared kernel journal. Seed
+    # normalization removes seed-admission control events from that journal,
+    # so the duplicate anchor must be rebased to the same normalized cut.
+    structural_memory = state.get("structural_memory")
+    vm_state = state.get("vm")
+    if isinstance(structural_memory, dict) and structural_memory.get("journal_anchor") is not None:
+        if not isinstance(vm_state, Mapping):
+            raise SeedNavigationError("structural memory seed projection has no VM state")
+        environment_state = vm_state.get("environment")
+        kernel_state = environment_state.get("kernel") if isinstance(environment_state, Mapping) else None
+        journal = kernel_state.get("journal") if isinstance(kernel_state, Mapping) else None
+        if not isinstance(journal, list) or any(not isinstance(record, Mapping) for record in journal):
+            raise SeedNavigationError("structural memory seed projection has no valid normalized kernel journal")
+        if journal:
+            terminal_digest = journal[-1].get("digest")
+            if not isinstance(terminal_digest, str) or len(terminal_digest) != 64:
+                raise SeedNavigationError("normalized kernel journal has no valid terminal digest")
+        else:
+            terminal_digest = "0" * 64
+        structural_memory["journal_anchor"] = {
+            "sequence": len(journal),
+            "digest": terminal_digest,
+        }
+
 
 @dataclass(frozen=True)
 class SystemSeed:

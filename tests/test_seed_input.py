@@ -241,3 +241,39 @@ def test_headless_seed_input_commit_rolls_back_trajectory_suffix(tmp_path, monke
         writer.flush()
         with TrajectoryReader(data_path, index_path) as reader:
             assert reader.verify() == 1
+
+
+def test_seed_projection_rebases_structural_memory_journal_anchor() -> None:
+    """Mathematics: removing hypervisor seed-control events also rebases the structural-memory anchor to the same normalized journal."""
+
+    from mailcpu.law_certifier import Law
+    from mailcpu.seed import SystemSeed
+    from mailcpu.seed import SystemIdentity, SystemSeedEnvelope
+
+    operating_system = HeadlessOS(structural_memory_admission_policy=lambda proposal: True)
+    law = Law(
+        family="int",
+        params={"x0": 0, "step": 1, "mod": 97},
+        order=1,
+        verdict="GROUND",
+    )
+    proposal = operating_system.structural_memory.propose(
+        "seeded-memory",
+        law,
+        {0: 0, 1: 1, 2: 2},
+    )
+    operating_system.structural_memory.admit(proposal.proposal_id, expected_revision=0)
+
+    origin = SystemSeed.from_system(operating_system)
+    envelope = SystemSeedEnvelope(
+        SystemIdentity("seed-memory", 1),
+        "host",
+        "seed",
+        origin,
+    )
+    assert operating_system.seed_admission.admit(envelope).accepted
+
+    after_control = SystemSeed.from_system(operating_system)
+    assert after_control.origin_digest == origin.origin_digest
+    restored = origin.restore()
+    assert restored.structural_memory.read("seeded-memory", 8).value == 8

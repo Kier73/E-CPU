@@ -7,7 +7,7 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
     from .headless import HeadlessOS
@@ -57,10 +57,15 @@ def save_checkpoint(operating_system: HeadlessOS, path: str | Path) -> str:
     return digest
 
 
-def load_checkpoint(path: str | Path) -> HeadlessOS:
-    """Mathematics: parse `C`, require `format = v1` and `SHA256(state) = digest`, then restore its OS graph."""
+def load_checkpoint(
+    path: str | Path,
+    *,
+    structural_memory_admission_policy: Callable[[Any], bool] | None = None,
+) -> HeadlessOS:
+    """Mathematics: parse C, require format=v1 and SHA256(state)=digest, then restore its OS graph with host code rebound."""
 
     from .headless import HeadlessOS
+    from .kernel import KernelError
 
     try:
         document = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -75,6 +80,9 @@ def load_checkpoint(path: str | Path) -> HeadlessOS:
     if document.get("digest") != expected:
         raise CheckpointError("checkpoint digest mismatch")
     try:
-        return HeadlessOS.from_snapshot(state)
+        return HeadlessOS.from_snapshot(
+            state,
+            structural_memory_admission_policy=structural_memory_admission_policy,
+        )
     except (KeyError, TypeError, ValueError, OSError, KernelError) as exc:
         raise CheckpointError(str(exc)) from exc
