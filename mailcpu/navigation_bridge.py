@@ -138,7 +138,8 @@ def _validate_integer_projection(
             referenced.add(_variable(condition.path, "state condition"))
     for rule in descriptor.transitions:
         for update in rule.updates:
-            referenced.add(_variable(update.path, "transition update"))
+            if update.operation in {UpdateOperation.SET, UpdateOperation.INCREMENT}:
+                referenced.add(_variable(update.path, "transition update"))
     for name in referenced:
         if name in start_state and (not isinstance(start_state[name], int) or isinstance(start_state[name], bool)):
             raise NavigationCompilationError(
