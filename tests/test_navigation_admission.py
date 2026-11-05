@@ -223,6 +223,30 @@ def test_actual_kernel_capability_is_required_even_when_plan_is_ready() -> None:
     assert result.grant is None
 
 
+def test_exact_replay_of_capability_denial_remains_a_typed_refusal() -> None:
+    descriptor, address, context, coordination = _plan()
+    operating_system, pid = _os(capable=False)
+    admitter = _admitter(operating_system, context)
+    arguments = {
+        "pid": pid,
+        "source": "test-runner",
+        "sequence": 2,
+        "descriptor": descriptor,
+        "address": address,
+        "coordination": coordination,
+        "resource": "/jobs/counter",
+    }
+
+    first = admitter.admit(**arguments)
+    replay = admitter.admit(**arguments)
+
+    assert first.status is NavigationAdmissionStatus.REFUSED_CAPABILITY
+    assert replay.status is NavigationAdmissionStatus.REFUSED_CAPABILITY
+    assert replay.replayed
+    assert replay.grant is None
+    assert first.decision_receipt == replay.decision_receipt
+
+
 def test_hypervisor_review_cannot_be_upgraded_by_navigation_proposal() -> None:
     descriptor, address, context, coordination = _plan()
     operating_system, pid = _os(HypervisorDomain.REVIEW)
