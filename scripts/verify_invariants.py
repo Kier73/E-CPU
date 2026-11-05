@@ -194,6 +194,7 @@ def _expected_symbol(establishes: str) -> str | None:
         "virtual_layer": "VirtualLayerWorkload",
         "transit_orbit": "TransitOrbitScheduler",
         "navigation": "ContextualNavigator",
+        "navigation_formal": "AbstractReachabilityAnalyzer",
     }
     return mapping.get(stem)
 
