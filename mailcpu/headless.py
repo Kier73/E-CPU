@@ -1880,6 +1880,27 @@ class HeadlessOS:
             authorized_request,
         )
 
+    def hypervisor_arbitrate_event(
+        self,
+        pid: int,
+        source: str,
+        channel: str,
+        sequence: int,
+        operation: str,
+        resource: str,
+        payload: Mapping[str, Any],
+        required_rights: frozenset[str] = frozenset(),
+        destructive: bool = False,
+    ) -> HypervisorArbitrationResult:
+        """Mathematics: derive rights from the live kernel process and arbitrate one stable event without entering a handler."""
+        request = self._make_hypervisor_request(
+            pid, operation, resource, payload, required_rights, destructive
+        )
+        event = HypervisorArbitrationEvent(
+            source, channel, sequence, self.vm.scheduler.tick, request
+        )
+        return self.hypervisor_arbitration.arbitrate(event)
+
     def hypervisor_dispatch_event(
         self,
         pid: int,

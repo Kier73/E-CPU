@@ -1531,6 +1531,29 @@ class HypervisorArbitrationLoop:
         )
         return result
 
+    def decision_projection_for(
+        self,
+        identity: tuple[str, str, int],
+    ) -> tuple[HypervisorAction, HypervisorDomain, str, int] | None:
+        """Mathematics: read the checkpointed decision projection L[I] without reevaluating policy or changing the journal."""
+        if (
+            not isinstance(identity, tuple)
+            or len(identity) != 3
+            or not isinstance(identity[0], str)
+            or not identity[0]
+            or not isinstance(identity[1], str)
+            or not identity[1]
+            or not isinstance(identity[2], int)
+            or isinstance(identity[2], bool)
+            or identity[2] <= 0
+        ):
+            raise ClassifierError("decision identity must be (non-empty source, non-empty channel, positive sequence)")
+        entry = self._decision_seen.get(identity)
+        if entry is None:
+            return None
+        _, action, domain, receipt, revision = entry
+        return action, domain, receipt, revision
+
     def propose_revision(self, proposal: HypervisorRevisionProposal) -> HypervisorRevisionArbitrationResult:
         """Mathematics: apply revision ledger `L_r[I]` once, replay exact `P`, and refuse `I↦f(P')` conflicts."""
 
