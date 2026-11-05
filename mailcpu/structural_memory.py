@@ -95,6 +95,7 @@ def _digest(value: Any) -> str:
 
 
 def _require_int(value: Any, name: str, *, minimum: int | None = None) -> int:
+    """Validate one strict integer field, excluding Booleans."""
     if type(value) is not int:
         raise StructuralMemoryError(f"{name} must be an integer (booleans are not coordinates)")
     if minimum is not None and value < minimum:
@@ -103,12 +104,14 @@ def _require_int(value: Any, name: str, *, minimum: int | None = None) -> int:
 
 
 def _require_nonempty_string(value: Any, name: str, *, maximum: int = 256) -> str:
+    """Validate one bounded non-empty text identifier."""
     if not isinstance(value, str) or not value.strip() or len(value) > maximum:
         raise StructuralMemoryError(f"{name} must be a non-empty string of at most {maximum} characters")
     return value
 
 
 def _require_hash(value: Any, name: str) -> str:
+    """Validate one lowercase SHA-256 hexadecimal digest."""
     if (
         not isinstance(value, str)
         or len(value) != 64
@@ -263,9 +266,11 @@ class StructuralMemorySpec:
 
     @property
     def context_digest(self) -> str:
+        """Return the SHA-256 digest of the exact canonical context."""
         return hashlib.sha256(self.context_json.encode("utf-8")).hexdigest()
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize this immutable structural-memory record."""
         return {
             "schema": self.schema,
             "memory_id": self.memory_id,
@@ -282,6 +287,7 @@ class StructuralMemorySpec:
 
     @property
     def digest(self) -> str:
+        """Return the stable digest of this immutable record."""
         return _digest(self.to_dict())
 
 
@@ -320,6 +326,7 @@ class StructuralMemoryCertificate:
                 raise StructuralMemoryError("prefix certificate horizon must equal first_bad")
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize this immutable structural-memory record."""
         return {
             "schema": self.schema,
             "spec_digest": self.spec_digest,
@@ -365,6 +372,7 @@ class StructuralMemoryProposal:
             raise StructuralMemoryError("proposal ID does not match its immutable contents")
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize this immutable structural-memory record."""
         return {
             "proposal_id": self.proposal_id,
             "spec": self.spec.to_dict(),
@@ -382,6 +390,7 @@ class StructuralMemoryVersion:
     admitted_proposal_id: str
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize this immutable structural-memory record."""
         return {
             "spec": self.spec.to_dict(),
             "certificate": self.certificate.to_dict(),
@@ -407,6 +416,7 @@ class StructuralMemoryReadReceipt:
     cache_hit: bool = False
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize this immutable structural-memory record."""
         return {
             "receipt_id": self.receipt_id,
             "memory_id": self.memory_id,
@@ -439,6 +449,7 @@ class ContextMapper:
         return encoded, hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
     def bind(self, spec: StructuralMemorySpec, context: Mapping[str, Any] | None) -> str:
+        """Require a read context to equal the exact context bound into the spec."""
         if context is None:
             encoded = spec.context_json
             digest = spec.context_digest
@@ -457,6 +468,7 @@ class GeneratorRegistry:
     SUPPORTED_FAMILIES = frozenset({"int", "lcg", "gf2", "fgraph"})
 
     def build_law(self, spec: StructuralMemorySpec) -> Law:
+        """Reconstruct one whitelisted Law from canonical spec parameters."""
         if spec.family not in self.SUPPORTED_FAMILIES:
             raise StructuralMemoryRefused(f"generator family {spec.family!r} is not supported")
         verdict = "PREFIX-GROUND" if spec.first_bad is not None else "GROUND"
@@ -470,6 +482,7 @@ class GeneratorRegistry:
         )
 
     def navigate_guarded(self, spec: StructuralMemorySpec, coordinate: int) -> int:
+        """Evaluate one coordinate through the law certifier's horizon guard."""
         law = self.build_law(spec)
         try:
             value = navigate_guarded(law, coordinate)
@@ -497,6 +510,7 @@ class StructuralMemoryVerifier:
         spec: StructuralMemorySpec,
         witnesses: tuple[tuple[int, int], ...],
     ) -> StructuralMemoryCertificate:
+        """Issue a certificate only after deterministic witness replay succeeds."""
         if len(witnesses) < 2:
             raise StructuralMemoryRefused("at least two independent witness coordinates are required")
         law_records: list[dict[str, Any]] = []
@@ -560,6 +574,7 @@ class StructuralMemoryVerifier:
         )
 
     def verify_proposal(self, proposal: StructuralMemoryProposal) -> None:
+        """Recompute a staged proposal certificate from its immutable witnesses."""
         recomputed = self.certify(proposal.spec, proposal.witnesses)
         if recomputed.to_dict() != proposal.certificate.to_dict():
             raise StructuralMemoryRefused("proposal certificate does not reproduce from its witness set")
@@ -583,6 +598,7 @@ class StructuralNavigator:
         coordinate: int,
         context: Mapping[str, Any] | None = None,
     ) -> tuple[int, str]:
+        """Return a guarded state value and its verified context digest."""
         _require_int(coordinate, "coordinate", minimum=0)
         if certificate.spec_digest != spec.digest:
             raise StructuralMemoryRefused("certificate is bound to a different structural spec")
@@ -804,6 +820,7 @@ class StructuralMemoryRegistry:
 
     @staticmethod
     def _normalize_witnesses(witnesses: Mapping[int, int]) -> tuple[tuple[int, int], ...]:
+        """Detach, validate, and coordinate-sort an integer witness mapping."""
         if not isinstance(witnesses, Mapping):
             raise StructuralMemoryError("witnesses must map integer coordinates to integer observations")
         normalized: list[tuple[int, int]] = []
@@ -818,6 +835,7 @@ class StructuralMemoryRegistry:
 
     @staticmethod
     def _normalize_samples(samples: Sequence[int], name: str) -> list[int]:
+        """Detach and strictly validate one observed integer sequence."""
         if isinstance(samples, (str, bytes)) or not isinstance(samples, Sequence):
             raise StructuralMemoryError(f"{name} must be a sequence of integers")
         result = list(samples)
