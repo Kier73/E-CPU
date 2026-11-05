@@ -65,9 +65,20 @@ def _canonical_bytes(value: Any) -> bytes:
         raise NavigationExecutionError(f"value is outside canonical JSON: {exc}") from exc
 
 
+def _plain(value: Any) -> Any:
+    """Mathematics: project nested immutable JSON mappings and sequences into canonical mutable JSON values."""
+    if isinstance(value, Mapping):
+        return {str(key): _plain(item) for key, item in value.items()}
+    if isinstance(value, (tuple, list)):
+        return [_plain(item) for item in value]
+    if isinstance(value, (set, frozenset)):
+        return sorted(_plain(item) for item in value)
+    return value
+
+
 def _digest(value: Any) -> str:
     """Mathematics: calculate H(x)=SHA256(J(x)) for a canonical JSON value."""
-    return hashlib.sha256(_canonical_bytes(value)).hexdigest()
+    return hashlib.sha256(_canonical_bytes(_plain(value))).hexdigest()
 
 
 def _valid_digest(value: Any) -> bool:
@@ -81,8 +92,8 @@ def _context_digest(context: ProcessContext) -> str:
     return _digest(
         {
             "process_id": context.process_id,
-            "current_state": None if context.current_state is None else dict(context.current_state),
-            "bindings": dict(context.bindings),
+            "current_state": None if context.current_state is None else _plain(context.current_state),
+            "bindings": _plain(context.bindings),
             "resolved_dependencies": sorted(context.resolved_dependencies),
             "resource_capacity": dict(context.resource_capacity),
             "capabilities": sorted(context.capabilities),
@@ -175,6 +186,7 @@ class NavigationExecutionResult:
     transition_ids: tuple[str, ...]
     commit_receipt: NavigationCommitReceipt | None
     execution_receipt: str | None
+    journal_receipt: str | None
     reason: str | None
     replayed: bool
 
@@ -194,6 +206,8 @@ class NavigationExecutionResult:
             raise NavigationExecutionError("commit_receipt is malformed")
         if self.execution_receipt is not None and not _valid_digest(self.execution_receipt):
             raise NavigationExecutionError("execution_receipt must be lowercase SHA-256 hex")
+        if self.journal_receipt is not None and not _valid_digest(self.journal_receipt):
+            raise NavigationExecutionError("journal_receipt must be lowercase SHA-256 hex")
         if not isinstance(self.replayed, bool):
             raise NavigationExecutionError("replayed must be Boolean")
         successful = self.status in {
@@ -206,6 +220,7 @@ class NavigationExecutionResult:
                 self.commit_receipt is None
                 or not self.commit_receipt.committed
                 or self.execution_receipt is None
+                or self.journal_receipt != self.execution_receipt
             ):
                 raise NavigationExecutionError("successful execution requires a committed backend and journal receipt")
         if self.status is NavigationExecutionStatus.REPLAYED and not self.replayed:
@@ -235,6 +250,7 @@ class NavigationExecutionResult:
             "transition_ids": list(self.transition_ids),
             "commit_receipt": None if self.commit_receipt is None else self.commit_receipt.to_dict(),
             "execution_receipt": self.execution_receipt,
+            "journal_receipt": self.journal_receipt,
             "reason": self.reason,
             "replayed": self.replayed,
         }
@@ -253,9 +269,8 @@ class HypervisorNavigationExecutionAdapter:
         ],
     ) -> None:
         """Mathematics: bind execution to one OS journal, live state projection, and idempotent backend CAS."""
-        if not callable(getattr(operating_system, "vm", None).__class__) or not hasattr(
-            getattr(operating_system, "vm", None), "scheduler"
-        ):
+        vm = getattr(operating_system, "vm", None)
+        if vm is None or not hasattr(vm, "scheduler"):
             raise NavigationExecutionError("operating_system must expose the deterministic VM scheduler")
         if not callable(state_provider):
             raise NavigationExecutionError("a trusted live state_provider is required")
@@ -408,6 +423,7 @@ class HypervisorNavigationExecutionAdapter:
             grant.final_state_digest,
             grant.transition_ids,
             None,
+            None,
             record.digest,
             reason,
             replayed,
@@ -452,6 +468,7 @@ class HypervisorNavigationExecutionAdapter:
             grant.transition_ids,
             receipt,
             record.digest,
+            record.digest,
             None,
             True,
         )
@@ -475,7 +492,6 @@ class HypervisorNavigationExecutionAdapter:
         if existing is not None:
             if (
                 existing.payload.get("grant_digest") != grant.digest
-                or existing.payload.get("admission_receipt") != admission.admission_receipt
             ):
                 raise NavigationExecutionError("execution begin identity is bound to different admission evidence")
             return
@@ -762,6 +778,7 @@ class HypervisorNavigationExecutionAdapter:
                 target_digest,
                 grant.transition_ids,
                 None,
+                None,
                 record.digest,
                 "backend outcome is indeterminate; retry with the same idempotency key: "
                 + f"{type(exc).__name__}: {exc}",
@@ -785,6 +802,7 @@ class HypervisorNavigationExecutionAdapter:
                 target_digest,
                 grant.transition_ids,
                 None,
+                None,
                 record.digest,
                 "backend returned an untyped receipt; reconcile by retrying the same execution ID",
                 False,
@@ -792,7 +810,7 @@ class HypervisorNavigationExecutionAdapter:
         if (
             commit.execution_id != execution_id
             or commit.start_state_digest != grant.start_state_digest
-            or commit.final_state_digest != target_digest
+            or (commit.committed and commit.final_state_digest != target_digest)
         ):
             record = self._journal().append(
                 "hypervisor.navigation.execute.uncertain",
@@ -812,6 +830,7 @@ class HypervisorNavigationExecutionAdapter:
                 target_digest,
                 grant.transition_ids,
                 commit,
+                None,
                 record.digest,
                 "backend receipt does not match the requested state transition",
                 commit.replayed,
@@ -835,6 +854,7 @@ class HypervisorNavigationExecutionAdapter:
                 target_digest,
                 grant.transition_ids,
                 commit,
+                None,
                 record.digest,
                 commit.reason or "backend compare-and-swap rejected",
                 commit.replayed,
@@ -869,6 +889,7 @@ class HypervisorNavigationExecutionAdapter:
                 target_digest,
                 grant.transition_ids,
                 commit,
+                None,
                 record.digest,
                 observation_error,
                 commit.replayed,
@@ -901,6 +922,7 @@ class HypervisorNavigationExecutionAdapter:
             target_digest,
             grant.transition_ids,
             commit,
+            record.digest,
             record.digest,
             None,
             commit.replayed,
