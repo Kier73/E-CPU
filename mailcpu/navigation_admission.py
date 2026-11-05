@@ -38,6 +38,7 @@ class NavigationAdmissionStatus(str, Enum):
     REFUSED_CAPABILITY = "refused_capability"
     REFUSED_POLICY = "refused_policy"
     REFUSED_DOMAIN = "refused_domain"
+    REFUSED_ARBITRATION = "refused_arbitration"
 
 
 def _canonical_bytes(value: Any) -> bytes:
@@ -119,9 +120,11 @@ class NavigationExecutionGrant:
         object.__setattr__(self, "transition_ids", tuple(self.transition_ids))
         if not isinstance(self.required_rights, (tuple, list)):
             raise NavigationAdmissionError("grant required_rights must be a finite sequence")
+        if any(not isinstance(item, str) or not item for item in self.required_rights):
+            raise NavigationAdmissionError("grant rights must contain non-empty strings")
         rights = tuple(sorted(set(self.required_rights)))
-        if not rights or "execute" not in rights or any(not isinstance(item, str) or not item for item in rights):
-            raise NavigationAdmissionError("grant rights must include execute and contain non-empty strings")
+        if not rights or "execute" not in rights:
+            raise NavigationAdmissionError("grant rights must include execute")
         object.__setattr__(self, "required_rights", rights)
         if not isinstance(self.resource_envelope, (tuple, list)):
             raise NavigationAdmissionError("grant resource envelope must be a finite sequence")
@@ -146,7 +149,7 @@ class NavigationExecutionGrant:
             raise NavigationAdmissionError("grant step bound must equal its finite transition path length")
         try:
             canonical_resource = normalize_path(self.resource)
-        except (TypeError, ValueError) as exc:
+        except Exception as exc:
             raise NavigationAdmissionError(f"grant resource path is invalid: {exc}") from exc
         if canonical_resource != self.resource:
             raise NavigationAdmissionError("grant resource must already be canonical")
@@ -222,6 +225,10 @@ class NavigationAdmissionResult:
             _sha256(self.decision_receipt, "decision_receipt")
         if self.grant is not None and not isinstance(self.grant, NavigationExecutionGrant):
             raise NavigationAdmissionError("admission grant is malformed")
+        if self.action is not None and not isinstance(self.action, HypervisorAction):
+            raise NavigationAdmissionError("admission action is malformed")
+        if self.domain is not None and not isinstance(self.domain, HypervisorDomain):
+            raise NavigationAdmissionError("admission domain is malformed")
         if self.status in {NavigationAdmissionStatus.ADMITTED, NavigationAdmissionStatus.REPLAYED}:
             if self.grant is None or self.action is not HypervisorAction.ALLOW or self.domain is not HypervisorDomain.CPU:
                 raise NavigationAdmissionError("successful admission requires a CPU grant and ALLOW decision")
@@ -229,6 +236,8 @@ class NavigationAdmissionResult:
             raise NavigationAdmissionError("refused admission cannot carry a grant")
         if not isinstance(self.replayed, bool):
             raise NavigationAdmissionError("replayed must be Boolean")
+        if self.replayed != (self.status is NavigationAdmissionStatus.REPLAYED):
+            raise NavigationAdmissionError("replayed flag must match the terminal admission status")
 
     @property
     def accepted(self) -> bool:
@@ -345,7 +354,7 @@ class HypervisorNavigationAdmissionCoordinator:
             raise NavigationAdmissionError("required_rights must contain execute and non-empty strings")
         try:
             canonical_resource = normalize_path(resource)
-        except (TypeError, ValueError) as exc:
+        except Exception as exc:
             raise NavigationAdmissionError(f"resource is invalid: {exc}") from exc
 
         request = coordination.admission_request
@@ -429,8 +438,8 @@ class HypervisorNavigationAdmissionCoordinator:
         except Exception as exc:
             return self._refuse(
                 source=source, sequence=sequence, pid=pid,
-                status=NavigationAdmissionStatus.REFUSED_CAPABILITY,
-                reason=f"hypervisor arbitration failed: {type(exc).__name__}: {exc}",
+                status=NavigationAdmissionStatus.REFUSED_ARBITRATION,
+                reason=f"hypervisor arbitration refused: {type(exc).__name__}: {exc}",
                 coordination_digest=coordination_digest,
             )
 
