@@ -62,7 +62,7 @@ The admission proposal binds:
 - concrete witness and final-state digests;
 - readiness evidence;
 - transition IDs and the peak resource envelope;
-- any abstract compilation/result digest;
+- any abstract compilation/result digest and analysis-budget/widening configuration digest;
 - any causal graph and observed-stamp digest;
 - any bisimulation evidence digest and whether equivalence was mandatory.
 
