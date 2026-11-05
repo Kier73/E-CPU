@@ -241,7 +241,7 @@ class VirtualStructuralMemoryRef:
                 raise VirtualLayerError(f"structural-memory {name} must be a lowercase SHA-256 digest")
 
     def to_dict(self) -> dict[str, object]:
-        """Serialize the complete immutable structural-memory address."""
+        """Mathematics: serialize the complete immutable structural-memory address."""
         return {
             "binding": self.binding,
             "memory_id": self.memory_id,
@@ -254,7 +254,7 @@ class VirtualStructuralMemoryRef:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "VirtualStructuralMemoryRef":
-        """Reconstruct an exact digest-pinned structural-memory address."""
+        """Mathematics: reconstruct an exact digest-pinned structural-memory address."""
         expected = {
             "binding", "memory_id", "revision", "context", "coordinate",
             "spec_digest", "certificate_digest",
@@ -274,7 +274,7 @@ class VirtualStructuralMemoryRef:
         version: StructuralMemoryVersion,
         coordinate: int,
     ) -> "VirtualStructuralMemoryRef":
-        """Pin a workload reference to one already-admitted immutable version."""
+        """Mathematics: pin a workload reference to one already-admitted immutable version."""
         if not isinstance(version, StructuralMemoryVersion):
             raise VirtualLayerError("structural-memory reference requires an admitted version")
         return cls(
@@ -324,7 +324,7 @@ class VirtualOperatorRef:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "VirtualOperatorRef":
-        """Reconstruct an operator reference, optionally with pinned structural-memory inputs."""
+        """Mathematics: reconstruct an operator reference with optional pinned structural-memory inputs."""
         if not isinstance(payload, Mapping):
             raise VirtualLayerError("operator reference must be an object")
         raw_memory = payload.get("structural_memory", [])
@@ -721,7 +721,7 @@ class VirtualLayerRuntime:
         input_value: Any,
         references: tuple[VirtualStructuralMemoryRef, ...],
     ) -> tuple[dict[str, object], dict[str, dict[str, object]]]:
-        """Resolve digest-pinned memories under receiver-local read authority.
+        """Mathematics: resolve digest-pinned memories under receiver-local read authority.
 
         The returned operator envelope contains the original input and, for
         each declared binding, both the integer value and its full receipt.
@@ -837,7 +837,7 @@ class VirtualLayerRuntime:
         authorized_event = operating_system.hypervisor_authorize_event(pid, event)
 
         def invoke() -> dict[str, object]:
-            """Resolve receiver-local structural inputs only after hypervisor ALLOW, then run the trusted pure operator."""
+            """Mathematics: resolve receiver-local structural inputs only after hypervisor ALLOW, then run the trusted pure operator."""
             resolved_input: Any = input_value
             memory_receipts: dict[str, dict[str, object]] = {}
             if reference.structural_memory:
