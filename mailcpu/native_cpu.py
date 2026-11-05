@@ -31,7 +31,7 @@ class NativeCPUContextError(ValueError):
 
 
 def _canonical_bytes(value: Any) -> bytes:
-    """Encode a JSON-compatible value in the canonical form used by navigation receipts."""
+    """Mathematics: encode a JSON-compatible value in the canonical form used by navigation receipts."""
     try:
         return json.dumps(
             value,
@@ -45,12 +45,12 @@ def _canonical_bytes(value: Any) -> bytes:
 
 
 def _digest(value: Any) -> str:
-    """Return the SHA-256 identity of one canonical JSON value."""
+    """Mathematics: return the SHA-256 identity of one canonical JSON value."""
     return hashlib.sha256(_canonical_bytes(value)).hexdigest()
 
 
 def _program_digest(program: Program) -> str:
-    """Identify the immutable native instruction image without transport metadata."""
+    """Mathematics: identify the immutable native instruction image without transport metadata."""
     return _digest(
         {
             "schema": "mailcpu.program.v1",
@@ -82,7 +82,7 @@ class NativeCPUContextBackend:
         max_expansions: int = 10_000,
         max_depth: int = 256,
     ) -> None:
-        """Bind one OS instance, an atomic checkpoint destination, and finite navigation budgets."""
+        """Mathematics: bind one OS instance, an atomic checkpoint destination, and finite navigation budgets."""
         if not hasattr(operating_system, "vm") or not hasattr(operating_system.vm, "scheduler"):
             raise NativeCPUContextError("operating_system must expose a MailCPU VM scheduler")
         if not isinstance(checkpoint_path, (str, Path)) or not str(checkpoint_path).strip():
@@ -108,7 +108,7 @@ class NativeCPUContextBackend:
         self.max_depth = max_depth
 
     def _resolve_task(self, pid: int):
-        """Resolve a live task only when it is at a non-blocked suspended instruction boundary."""
+        """Mathematics: resolve a live task only when it is at a non-blocked suspended instruction boundary."""
         if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
             raise NativeCPUContextError("pid must be a positive integer")
         kernel = self.operating_system.environment.kernel
@@ -144,7 +144,7 @@ class NativeCPUContextBackend:
         return process, task
 
     def _native_state(self, pid: int, process_id: str) -> dict[str, Any]:
-        """Project the live scheduler-owned PC/register file and immutable execution coordinates."""
+        """Mathematics: project the live scheduler-owned PC/register file and immutable execution coordinates."""
         _, task = self._resolve_task(pid)
         return {
             "schema": self.STATE_SCHEMA,
@@ -166,7 +166,7 @@ class NativeCPUContextBackend:
         descriptor: ProcessDescriptor,
         address: SemanticAddress,
     ) -> ProcessContext:
-        """Return a complete context whose current_state is the actual native task PC and register file."""
+        """Mathematics: return a complete context whose current_state is the actual native task PC and register file."""
         if not isinstance(descriptor, ProcessDescriptor) or not isinstance(address, SemanticAddress):
             raise NativeCPUContextError("state_provider requires a ProcessDescriptor and SemanticAddress")
         if (
@@ -207,7 +207,7 @@ class NativeCPUContextBackend:
         current_state: Mapping[str, Any],
         grant: Any,
     ) -> dict[str, Any]:
-        """Allow only a bounded PC/register update while binding every other CPU coordinate."""
+        """Mathematics: allow only a bounded PC/register update while binding every other CPU coordinate."""
         if not isinstance(candidate_state, Mapping):
             raise NativeCPUContextError("candidate CPU context must be a mapping")
         candidate = dict(candidate_state)
@@ -267,7 +267,7 @@ class NativeCPUContextBackend:
         candidate_state: Mapping[str, Any],
         grant: Any,
     ) -> NavigationCommitReceipt:
-        """Atomically update scheduler PC/registers and checkpoint the update with its durable receipt."""
+        """Mathematics: atomically update scheduler PC/registers and checkpoint the update with its durable receipt."""
         scheduler = self.operating_system.vm.scheduler
         with scheduler.state_transaction():
             previous_raw = scheduler.navigation_commit_receipts.get(execution_id)
@@ -359,7 +359,7 @@ class NativeCPUContextBackend:
             return receipt
 
     def commit_lookup(self, execution_id: str) -> NavigationCommitReceipt | None:
-        """Read the checkpointed idempotency receipt without reapplying its CPU context update."""
+        """Mathematics: read the checkpointed idempotency receipt without reapplying its CPU context update."""
         scheduler = self.operating_system.vm.scheduler
         with scheduler.state_transaction():
             raw = scheduler.navigation_commit_receipts.get(execution_id)
@@ -369,7 +369,7 @@ class NativeCPUContextBackend:
             return replace(receipt, replayed=True)
 
     def execution_adapter(self) -> HypervisorNavigationExecutionAdapter:
-        """Bind this native CPU provider and atomic commit contract to the generic grant verifier."""
+        """Mathematics: bind this native CPU provider and atomic commit contract to the generic grant verifier."""
         return HypervisorNavigationExecutionAdapter(
             self.operating_system,
             self.state_provider,
