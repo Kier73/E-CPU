@@ -198,6 +198,7 @@ def _expected_symbol(establishes: str) -> str | None:
         "navigation_bridge": "AbstractNavigationCompiler",
         "navigation_coordinator": "NavigationCoordinator",
         "navigation_admission": "HypervisorNavigationAdmissionCoordinator",
+        "navigation_execution": "HypervisorNavigationExecutionAdapter",
     }
     return mapping.get(stem)
 
