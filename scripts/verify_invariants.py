@@ -195,6 +195,7 @@ def _expected_symbol(establishes: str) -> str | None:
         "transit_orbit": "TransitOrbitScheduler",
         "navigation": "ContextualNavigator",
         "navigation_formal": "AbstractReachabilityAnalyzer",
+        "navigation_bridge": "AbstractNavigationCompiler",
     }
     return mapping.get(stem)
 

@@ -525,7 +525,20 @@ from .navigation_formal import (
     verify_bisimulation_relation,
 )
 
+from .navigation_bridge import (
+    AbstractNavigationCompiler,
+    CompiledNavigation,
+    NavigationCompilationError,
+    analyze_compiled_navigation,
+    verify_abstract_compilation,
+)
+
 __all__ = [
+    "AbstractNavigationCompiler",
+    "CompiledNavigation",
+    "NavigationCompilationError",
+    "analyze_compiled_navigation",
+    "verify_abstract_compilation",
     "AbstractProgram",
     "AbstractReachabilityAnalyzer",
     "AbstractReachabilityResult",
