@@ -1,8 +1,8 @@
-# Adaptive Structural Memory Service (E0)
+# Adaptive Structural Memory Service (E0 / E0.2)
 
 ## Purpose
 
-The Structural Memory Service is the first executable layer of Adaptive Structural Emulation. It stores a verified generative description of a state family rather than requiring every state to be materialized. E0.2 connects that description to the HeadlessOS checkpoint and the kernel's hash-chained event journal.
+The Structural Memory Service is the first executable layer of Adaptive Structural Emulation. It stores a verified generative description of a state family rather than requiring every state to be materialized. E0 defines the generator, evidence, read and revision contracts; E0.2 connects those records to the HeadlessOS checkpoint and the kernel's hash-chained event journal.
 
 A structural memory version binds:
 
