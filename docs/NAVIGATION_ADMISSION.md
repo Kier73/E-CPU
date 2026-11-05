@@ -54,8 +54,8 @@ NavigationExecutionGrant binds:
 
 - one kernel PID and semantic process identity;
 - the exact descriptor and semantic-address digests;
-- the complete context and coordination digests;
-- the coordinator proposal, concrete witness, and final-state digests;
+- the complete context and explicit starting-state digests;
+- the coordination, coordinator proposal, concrete witness, and final-state digests;
 - the ordered transition IDs and maximum step count;
 - one normalized resource path, required rights, and peak resource envelope;
 - the hypervisor decision receipt and classifier revision;
