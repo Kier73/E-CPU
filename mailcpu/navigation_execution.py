@@ -223,8 +223,8 @@ class NavigationExecutionResult:
                 or self.journal_receipt != self.execution_receipt
             ):
                 raise NavigationExecutionError("successful execution requires a committed backend and journal receipt")
-        if self.status is NavigationExecutionStatus.REPLAYED and not self.replayed:
-            raise NavigationExecutionError("REPLAYED status requires replayed=true")
+        if self.status in {NavigationExecutionStatus.REPLAYED, NavigationExecutionStatus.RECOVERED} and not self.replayed:
+            raise NavigationExecutionError("REPLAYED and RECOVERED statuses require replayed=true")
         if self.status is NavigationExecutionStatus.EXECUTED and self.replayed:
             raise NavigationExecutionError("EXECUTED status cannot describe a replay")
 
@@ -597,6 +597,29 @@ class HypervisorNavigationExecutionAdapter:
                 record.digest,
                 receipt.reason or "backend durably rejected the compare-and-swap",
                 True,
+            )
+        if not receipt.replayed:
+            record = self._journal().append(
+                "hypervisor.navigation.execute.uncertain",
+                {
+                    "execution_id": execution_id,
+                    "grant_digest": grant.digest,
+                    "reason": "durable backend receipt lookup did not identify a prior commit replay",
+                    "commit_receipt": receipt.to_dict(),
+                },
+            )
+            return NavigationExecutionResult(
+                NavigationExecutionStatus.COMMIT_UNVERIFIED,
+                execution_id,
+                grant.digest,
+                grant.start_state_digest,
+                grant.final_state_digest,
+                grant.transition_ids,
+                receipt,
+                None,
+                record.digest,
+                "backend receipt lookup must return replayed=true for a prior committed execution",
+                False,
             )
         if receipt.final_state_digest != grant.final_state_digest:
             record = self._journal().append(
