@@ -207,7 +207,10 @@ def test_host_admission_policy_is_mandatory_and_denial_preserves_active_state():
 def test_stale_proposal_cannot_replace_newer_active_revision():
     registry = _registry(lambda proposal: True)
     first = registry.propose("counter", _integer_law(), {0: 0, 1: 1, 2: 2})
-    competing = registry.propose("counter", _integer_law(), {0: 0, 1: 1, 2: 2})
+    competing_law = _integer_law()
+    competing_law.params["x0"] = 10
+    competing = registry.propose("counter", competing_law, {0: 10, 1: 11, 2: 12})
+    assert first.proposal_id != competing.proposal_id
 
     active = registry.admit(first.proposal_id, expected_revision=0)
     with pytest.raises(StructuralMemoryConflict):
