@@ -10,7 +10,7 @@ A workload carries references and data, never executable code or authority.
 
 ## 2. Workload contract
 
-The schema identifier is `virtual_layer.workload`, version `1`.
+The schema identifier is `virtual_layer.workload`. Version 1 remains the legacy form; version 2 permits operator-scoped, digest-pinned structural-memory inputs while retaining version-1 decoding.
 
 ```text
 W = (id, I, G, intention, operators, input, budget, time, placement)
@@ -20,7 +20,7 @@ W = (id, I, G, intention, operators, input, budget, time, placement)
 - `I`: hosted-system identity `SystemIdentity(system_id, incarnation)`.
 - `G`: `VirtualGroundRef(origin_digest, state_digest, coordinate, frontier_digest)`.
 - `intention`: finite JSON object containing a `goal` description and optional constraints.
-- `operators`: ordered operator references containing ID, version, preferred substrate and optional target node.
+- `operators`: ordered operator references containing ID, version, preferred substrate, optional target node, and optional structural-memory bindings.
 - `input`: finite JSON value supplied to the selected operator.
 - `budget`: ceilings for virtual energy, encoded bytes and virtual ticks.
 - `time`: non-negative logical coordinate.
@@ -53,6 +53,41 @@ State-changing, idempotent and transactional operators remain on existing native
 `OperatorRegistry.declare(spec)` installs metadata only. `bind(id, version, handler)` attaches an explicitly trusted node-local implementation. Handler code is never serialized, imported or transmitted. A receiving node must bind its own implementation before execution.
 
 Compatibility is bound to the selected operator's contract digest, not the entire node catalog. Nodes can host different additional operators while agreeing on the exact contract used by a workload. The catalog digest remains available for local inventory and checkpoint identity. By default an operator requires the `compute` right; a contract can require additional rights.
+
+
+## 3.1 Structural-memory inputs (workload schema v2)
+
+A schema-v2 `VirtualOperatorRef` may declare one or more `VirtualStructuralMemoryRef` values. Each reference contains:
+
+```text
+R = (binding, memory_id, revision, context, coordinate,
+     spec_digest, certificate_digest)
+```
+
+The reference is an address, not a generator or executable description. Its specification and certificate digests pin the intended immutable revision more strongly than a revision number alone. The receiver must already possess that admitted revision in its local `HeadlessOS.structural_memory` registry.
+
+After the workload has passed ground validation and the hypervisor has granted the operator request, the receiver requires its own process to hold `read` on `/structural-memory/read`. It resolves the exact revision and context through `read_revision`, then checks the returned receipt against the reference's memory identity, revision, coordinate, context digest, specification digest, and certificate digest.
+
+The operator receives one object envelope:
+
+```json
+{
+  "input": {"...": "original workload input"},
+  "structural_memory": {
+    "binding-name": {
+      "value": 123,
+      "receipt": {"...": "complete StructuralMemoryReadReceipt"}
+    }
+  }
+}
+```
+
+Consequently, an operator using structural-memory bindings must declare `input_kind="object"` or `"any"`. Each binding name is unique within its operator reference. The result effect includes the resolved-input digest and every full structural-memory receipt. Since the references are part of the canonical workload digest, the existing hypervisor semantic ledger binds retries to the same pinned memory addresses and replays the original result without repeating the reads.
+
+Sender-side preflight energy accounting includes the serialized input and reference descriptors. The receiver separately applies the declared input and workload byte limits to the fully resolved value-and-receipt envelope. These virtual estimates do not claim measured physical energy or include a hardware-specific generator cost.
+
+A structural-memory binding is read-only. This integration does not replicate memory between hosts, transfer generator descriptions, permit context-to-parameter learning, or make an operator's handler code portable. Registry admission and witness provenance remain governed by the Structural Memory contract.
+
 
 ## 4. Hypervisor integration
 
@@ -93,6 +128,6 @@ The next stage is a Path-State machine that chains operator events while carryin
 
 ## 8. Verification
 
-The acceptance witnesses cover canonical workload serialization, metadata-only catalog transfer, explicit local handler binding, hypervisor capability denial, replay without duplicate handler invocation, stale-ground and budget refusal, and a real TCP loopback operation.
+The acceptance witnesses cover canonical workload serialization (including legacy v1 and structural-memory v2), metadata-only catalog transfer, explicit local handler binding, hypervisor capability denial, receiver-local structural-memory reads with digest-pinned receipts, replay without duplicate handler or memory invocation, stale-ground and budget refusal, and real TCP loopback operations.
 
 The TCP test is E1 loopback evidence, not evidence of public-Internet deployment.
