@@ -880,6 +880,62 @@ class StructuralMemoryRegistry:
             self._staged[proposal_id] = proposal
             return proposal
 
+    def propose_context_revision(
+        self,
+        memory_id: str,
+        context: Mapping[str, Any] | None,
+        witnesses: Mapping[int, int],
+    ) -> StructuralMemoryProposal:
+        """Stage a new context binding while preserving the active generator exactly.
+
+        Mathematics: given active version v=(G,c,r), construct v'=(G,c',r+1)
+        with parent_digest=H(v), then certify fresh caller-supplied observations
+        against the unchanged generator G before host admission.
+        """
+        _require_nonempty_string(memory_id, "memory_id")
+        with self._lock:
+            current = self._active.get(memory_id)
+            if current is None:
+                raise StructuralMemoryRefused(
+                    f"memory {memory_id!r} has no admitted revision to adapt"
+                )
+            context_json, _ = self.context_mapper.encode(context)
+            if context_json == current.spec.context_json:
+                raise StructuralMemoryRefused(
+                    "context-only revision must change the bound context"
+                )
+
+            # Replacing only these three fields makes generator preservation a
+            # construction property, not a comparison left to caller discipline.
+            spec = replace(
+                current.spec,
+                revision=current.spec.revision + 1,
+                context_json=context_json,
+                parent_digest=current.spec.digest,
+            )
+            normalized = self._normalize_witnesses(witnesses)
+            certificate = self.verifier.certify(spec, normalized)
+            proposal_id = _digest({
+                "spec": spec.to_dict(),
+                "certificate": certificate.to_dict(),
+                "witnesses": [[coordinate, observed] for coordinate, observed in normalized],
+            })
+            proposal = StructuralMemoryProposal(
+                proposal_id=proposal_id,
+                spec=spec,
+                certificate=certificate,
+                witnesses=normalized,
+            )
+            existing = self._staged.get(proposal_id)
+            if existing is not None:
+                return existing
+            self._append_journal(
+                "structural_memory.propose",
+                self._proposal_event_payload(proposal),
+            )
+            self._staged[proposal_id] = proposal
+            return proposal
+
     def propose_trace(
         self,
         memory_id: str,
@@ -976,36 +1032,87 @@ class StructuralMemoryRegistry:
         *,
         context: Mapping[str, Any] | None = None,
     ) -> StructuralMemoryReadReceipt:
-        """Read one state and return its value with version/evidence provenance. Mathematics: returns the guarded generator value G(t) together with the digest of its bound context."""
+        """Read the active revision with value and evidence provenance. Mathematics: resolve the active version v and return its guarded value G_v(t)."""
         _require_nonempty_string(memory_id, "memory_id")
         _require_int(coordinate, "coordinate", minimum=0)
         with self._lock:
             version = self._active.get(memory_id)
             if version is None:
                 raise StructuralMemoryRefused(f"memory {memory_id!r} has no admitted version")
-            context_digest = self.navigator.validate(
-                version.spec,
-                version.certificate,
+            return self._read_version(
+                version,
                 coordinate,
                 context=context,
+                event_kind="structural_memory.read",
             )
-            cache_key = (
-                version.spec.digest,
-                version.certificate.digest,
-                context_digest,
-                coordinate,
-            )
-            cached = self._read_cache.get(cache_key)
-            if cached is not None:
-                receipt = replace(cached, cache_hit=True)
-                self._append_journal("structural_memory.read", {"receipt": receipt.to_dict()})
-                return receipt
 
-            value = self.generators.navigate_guarded(version.spec, coordinate)
-            receipt = self._make_read_receipt(version, coordinate, context_digest, value)
-            self._append_journal("structural_memory.read", {"receipt": receipt.to_dict()})
-            self._read_cache[cache_key] = receipt
+    def read_revision(
+        self,
+        memory_id: str,
+        revision: int,
+        coordinate: int,
+        *,
+        context: Mapping[str, Any] | None = None,
+    ) -> StructuralMemoryReadReceipt:
+        """Read one explicitly selected admitted revision, including historical versions.
+
+        Mathematics: resolve the unique admitted v with
+        (v.memory_id, v.revision)=(memory_id, revision), then evaluate its
+        guarded generator under that revision's exact context.
+        """
+        _require_nonempty_string(memory_id, "memory_id")
+        _require_int(revision, "revision", minimum=1)
+        _require_int(coordinate, "coordinate", minimum=0)
+        with self._lock:
+            version = self._version_for_revision(memory_id, revision)
+            if version is None:
+                raise StructuralMemoryRefused(
+                    f"memory {memory_id!r} has no admitted revision {revision}"
+                )
+            return self._read_version(
+                version,
+                coordinate,
+                context=context,
+                event_kind="structural_memory.read_revision",
+            )
+
+    def _read_version(
+        self,
+        version: StructuralMemoryVersion,
+        coordinate: int,
+        *,
+        context: Mapping[str, Any] | None,
+        event_kind: str,
+    ) -> StructuralMemoryReadReceipt:
+        """Evaluate one immutable version and journal the exact active or pinned read mode.
+
+        Mathematics: for admitted version v and coordinate t, validate its
+        exact context, then return the guarded generator value G_v(t) with a
+        receipt whose provenance is bound to v and t.
+        """
+        context_digest = self.navigator.validate(
+            version.spec,
+            version.certificate,
+            coordinate,
+            context=context,
+        )
+        cache_key = (
+            version.spec.digest,
+            version.certificate.digest,
+            context_digest,
+            coordinate,
+        )
+        cached = self._read_cache.get(cache_key)
+        if cached is not None:
+            receipt = replace(cached, cache_hit=True)
+            self._append_journal(event_kind, {"receipt": receipt.to_dict()})
             return receipt
+
+        value = self.generators.navigate_guarded(version.spec, coordinate)
+        receipt = self._make_read_receipt(version, coordinate, context_digest, value)
+        self._append_journal(event_kind, {"receipt": receipt.to_dict()})
+        self._read_cache[cache_key] = receipt
+        return receipt
 
     def active_version(self, memory_id: str) -> StructuralMemoryVersion | None:
         """Return the currently admitted immutable version, if one exists. Mathematics: projects the active registry mapping at memory identity m, or the empty value when absent."""
@@ -1248,6 +1355,16 @@ class StructuralMemoryRegistry:
             cache_hit=cache_hit,
         )
 
+    def _version_for_revision(self, memory_id: str, revision: int) -> StructuralMemoryVersion | None:
+        """Resolve one exact historical revision. Mathematics: find the unique admitted v with (v.memory_id,v.revision)=(m,r)."""
+        matches = [
+            version for version in self._admitted.values()
+            if version.spec.memory_id == memory_id and version.spec.revision == revision
+        ]
+        if len(matches) > 1:
+            raise StructuralMemoryError("multiple admitted versions share one memory revision")
+        return matches[0] if matches else None
+
     def _version_for_spec_digest(self, spec_digest: str) -> StructuralMemoryVersion | None:
         """Resolve one historical immutable version by spec identity. Mathematics: find the unique admitted revision v with H(v.spec)=spec_digest."""
         matches = [
@@ -1302,7 +1419,7 @@ class StructuralMemoryRegistry:
             return
         proposed_events: dict[str, tuple[int, dict[str, Any]]] = {}
         admitted_events: dict[str, tuple[int, dict[str, Any]]] = {}
-        read_receipts: list[tuple[int, StructuralMemoryReadReceipt]] = []
+        read_receipts: list[tuple[int, StructuralMemoryReadReceipt, bool]] = []
         for record in self.journal.records():
             if not record.kind.startswith("structural_memory."):
                 continue
@@ -1320,13 +1437,15 @@ class StructuralMemoryRegistry:
                 if proposal_id in admitted_events:
                     raise StructuralMemoryError("duplicate structural-memory admission journal event")
                 admitted_events[proposal_id] = (record.sequence, payload)
-            elif record.kind == "structural_memory.read":
+            elif record.kind in {"structural_memory.read", "structural_memory.read_revision"}:
                 payload = record.payload
                 if set(payload) != {"receipt"}:
                     raise StructuralMemoryError("structural-memory read event payload is invalid")
-                read_receipts.append(
-                    (record.sequence, StructuralMemoryReadReceipt.from_dict(payload["receipt"]))
-                )
+                read_receipts.append((
+                    record.sequence,
+                    StructuralMemoryReadReceipt.from_dict(payload["receipt"]),
+                    record.kind == "structural_memory.read_revision",
+                ))
             else:
                 raise StructuralMemoryError(f"unknown structural-memory journal event {record.kind!r}")
 
@@ -1380,21 +1499,22 @@ class StructuralMemoryRegistry:
         for versions in revisions_by_memory.values():
             versions.sort(key=lambda item: item.spec.revision)
 
-        for sequence, receipt in read_receipts:
+        for sequence, receipt, pinned_revision in read_receipts:
             version = self._version_for_spec_digest(receipt.spec_digest)
             if version is None:
                 raise StructuralMemoryError("structural-memory read journal references an unknown revision")
             admission_sequence = admission_by_spec[receipt.spec_digest]
             if sequence <= admission_sequence:
                 raise StructuralMemoryError("structural-memory read precedes revision admission")
-            later_versions = [
-                item for item in revisions_by_memory[version.spec.memory_id]
-                if item.spec.revision > version.spec.revision
-            ]
-            if later_versions:
-                next_admission_sequence = admission_by_spec[later_versions[0].spec.digest]
-                if sequence >= next_admission_sequence:
-                    raise StructuralMemoryError("structural-memory read occurs after a newer revision became active")
+            if not pinned_revision:
+                later_versions = [
+                    item for item in revisions_by_memory[version.spec.memory_id]
+                    if item.spec.revision > version.spec.revision
+                ]
+                if later_versions:
+                    next_admission_sequence = admission_by_spec[later_versions[0].spec.digest]
+                    if sequence >= next_admission_sequence:
+                        raise StructuralMemoryError("structural-memory read occurs after a newer revision became active")
             self._verify_read_receipt(receipt, version)
 
     @staticmethod

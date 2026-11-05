@@ -1,8 +1,8 @@
-# Adaptive Structural Memory Service (E0 / E0.2)
+# Adaptive Structural Memory Service (E0 / E0.2 / E0.3)
 
 ## Purpose
 
-The Structural Memory Service is the first executable layer of Adaptive Structural Emulation. It stores a verified generative description of a state family rather than requiring every state to be materialized. E0 defines the generator, evidence, read and revision contracts; E0.2 connects those records to the HeadlessOS checkpoint and the kernel's hash-chained event journal.
+The Structural Memory Service is the first executable layer of Adaptive Structural Emulation. It stores a verified generative description of a state family rather than requiring every state to be materialized. E0 defines the generator, evidence, read and revision contracts; E0.2 connects those records to the HeadlessOS checkpoint and the kernel's hash-chained event journal; E0.3 adds context-only revisions and exact revision-pinned historical reads.
 
 A structural memory version binds:
 
@@ -48,7 +48,7 @@ A closed adapter registry over the four existing law families. It uses the law-c
 
 ### ContextMapper
 
-E0 treats context as an exact boundary identity. The context object is canonicalized and hashed. A read under a different context is refused. Context-to-generator-parameter adaptation is deliberately deferred to a later revision of the service.
+E0 binds context as an exact boundary identity. The context object is canonicalized and hashed; a read under a different context is refused. E0.3 permits a new immutable revision to bind the same generator to a different context after fresh supplied witnesses are replayed. It does not map context fields into generator parameters; that form of adaptation remains deferred.
 
 ### StructuralMemoryVerifier
 
@@ -77,6 +77,20 @@ A law may be supplied directly, or recovered from an observed training window an
 The admission callback is an authority boundary supplied by trusted host code. A model or a proposal cannot authorize itself. With no callback configured, admission fails closed.
 
 Two competing proposals created against the same active revision cannot both win: after one is admitted, the other fails its parent/revision compare-and-swap.
+
+### Context-only adaptation (E0.3)
+
+`StructuralMemoryRegistry.propose_context_revision(memory_id, context, witnesses)` stages a new revision from the currently active revision. It does not accept a replacement `Law` or new generator parameters. The candidate is constructed by copying the active specification and changing only:
+
+- `revision`, incremented by one;
+- `context_json`, replaced by the canonical new context;
+- `parent_digest`, set to the active specification digest.
+
+The generator family, canonical parameters, order, domain, law verdict, and prefix horizon are therefore preserved by construction. A request that supplies the same canonical context is refused. The new witness mapping is replayed against that unchanged generator; a mismatch refuses the proposal. Proposal remains non-authoritative until the normal host admission policy and revision compare-and-swap both succeed.
+
+The new witness set is newly supplied and independently replayed by the verifier. This is not proof of the external origin or independence of the observations; provenance of the observation source remains the caller's responsibility. A context-only revision proves only that the same admitted law agrees with the supplied observations under the new exact context.
+
+`read()` always resolves the active revision. E0.3 also provides `read_revision(memory_id, revision, coordinate, context=...)`, which requires an exact admitted revision number and its exact context. This lets a caller explicitly replay an older immutable context after a newer revision becomes active. Such reads emit `structural_memory.read_revision` events; ordinary active reads continue to emit `structural_memory.read`. Restore verifies both event types against the referenced historical version and its generator. The ordinary active-read chronology rule remains unchanged.
 
 ## Evidence and horizons
 
@@ -121,7 +135,8 @@ The shared kernel event journal records three event kinds:
 
 - structural_memory.propose;
 - structural_memory.admit;
-- structural_memory.read.
+- structural_memory.read;
+- structural_memory.read_revision for explicitly pinned historical reads (E0.3).
 
 A repeated exact proposal returns its original staged proposal and does not create another proposal event. Exact admission replay returns the original version and does not create another admission event. Reads produce a journal receipt even when the value is served from the structural read cache.
 
@@ -134,7 +149,7 @@ Restore verifies the kernel journal hash chain through the existing kernel resto
 3. checks contiguous revision numbering and exact parent-digest lineage;
 4. verifies that each active head points to the latest admitted version;
 5. reconciles every proposal and admission event with its registry record;
-6. replays every journaled read receipt and checks its generator value, context, certificate, and receipt identity;
+6. replays every journaled active or revision-pinned read receipt and checks its generator value, context, certificate, and receipt identity;
 7. requires the saved journal anchor to equal the restored kernel journal tail.
 
 This makes staged proposals and active structural memories continuation-capable across a HeadlessOS process restart. It does not turn the registry into a multi-host consensus service or make the checkpoint atomic with arbitrary external effects.
@@ -156,7 +171,7 @@ Older checkpoints without a structural_memory field remain readable only when th
 
 ### Current persistence boundary
 
-The registry's proposals, versions, read cache, and event receipts persist as part of the local HeadlessOS checkpoint. This is local checkpoint recovery, not a distributed registry or an atomic transaction spanning remote stores and external side effects. Multi-host replication, durable effect coupling, context-to-generator adaptation, heterogeneous generator composition, VFS page providers, CPU macro-transitions, and neural operators remain later stages.
+The registry's proposals, versions, read cache, and event receipts persist as part of the local HeadlessOS checkpoint. This is local checkpoint recovery, not a distributed registry or an atomic transaction spanning remote stores and external side effects. Multi-host replication, durable effect coupling, context-to-generator-parameter adaptation, heterogeneous generator composition, VFS page providers, CPU macro-transitions, and neural operators remain later stages.
 
 ## Example
 
@@ -181,9 +196,9 @@ The example uses a modular progression; actual candidate admission still depends
 
 ## Explicit non-goals and next stages
 
-E0.2 is a locally checkpointed registry and journalled read/admission path. It does not yet:
+E0.3 adds context-only revisions while retaining the E0.2 local checkpoint and journal path. It still does not:
 
-- adapt context fields into a changed generator boundary;
+- adapt context fields into changed generator parameters;
 - use learned models to prioritize or propose generator families;
 - compose heterogeneous generators or coordinate systems;
 - lazily materialize filesystem pages or files;
@@ -192,8 +207,8 @@ E0.2 is a locally checkpointed registry and journalled read/admission path. It d
 
 Those require their own typed contracts, checkpoint/replay obligations, authority rules, and differential or trajectory-level conformance tests.
 
-The next development step is to implement context-only revisions while keeping the generator fixed. Memory-provider integration and CPU macro-transitions should follow only after those context, persistence, and correspondence obligations are tested.
+The next development step is to test broader context-to-parameter maps only under an explicit transformation contract. Memory-provider integration and CPU macro-transitions should follow only after their own correspondence, authority, persistence, and recovery obligations are testable.
 
 ## Test scope
 
-The E0 conformance suite covers proposal staging, host authorization, revision compare-and-swap, immutable parent lineage, canonical context binding, witness replay, prefix escape/horizon behavior, trace-based law recovery, and each admitted generator family. These tests establish the implemented finite contract; they do not certify universality or performance beyond their measured domains.
+The conformance suite covers proposal staging, host authorization, revision compare-and-swap, immutable parent lineage, canonical context binding, context-only adaptation with generator identity preservation, active and revision-pinned reads, journal replay, witness replay, prefix escape/horizon behavior, trace-based law recovery, and each admitted generator family. These tests establish the implemented finite contract; they do not certify universality or performance beyond their measured domains.
