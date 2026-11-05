@@ -236,8 +236,10 @@ class NavigationAdmissionResult:
             raise NavigationAdmissionError("refused admission cannot carry a grant")
         if not isinstance(self.replayed, bool):
             raise NavigationAdmissionError("replayed must be Boolean")
-        if self.replayed != (self.status is NavigationAdmissionStatus.REPLAYED):
-            raise NavigationAdmissionError("replayed flag must match the terminal admission status")
+        if self.status is NavigationAdmissionStatus.REPLAYED and not self.replayed:
+            raise NavigationAdmissionError("REPLAYED status requires the replayed flag")
+        if self.status is NavigationAdmissionStatus.ADMITTED and self.replayed:
+            raise NavigationAdmissionError("ADMITTED status cannot describe a replay")
 
     @property
     def accepted(self) -> bool:
@@ -349,9 +351,11 @@ class HypervisorNavigationAdmissionCoordinator:
             raise NavigationAdmissionError("grant_ttl_ticks must be a positive integer")
         if not isinstance(required_rights, (tuple, list, set, frozenset)):
             raise NavigationAdmissionError("required_rights must be a finite set or sequence")
+        if any(not isinstance(item, str) or not item for item in required_rights):
+            raise NavigationAdmissionError("required_rights must contain non-empty strings")
         rights = frozenset(required_rights)
-        if not rights or "execute" not in rights or any(not isinstance(item, str) or not item for item in rights):
-            raise NavigationAdmissionError("required_rights must contain execute and non-empty strings")
+        if not rights or "execute" not in rights:
+            raise NavigationAdmissionError("required_rights must contain execute")
         try:
             canonical_resource = normalize_path(resource)
         except Exception as exc:
