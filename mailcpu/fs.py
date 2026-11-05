@@ -216,8 +216,16 @@ class VirtualFileSystem:
         self._register_provider_file(path, provider, mode, owner)
 
     def read_file(self, path: str, offset: int = 0, size: int = -1) -> bytes:
-        """Mathematics: return the slice `B[h][offset : offset + size]`, or the suffix when `size < 0`."""
+        """Mathematics: project the byte component of read_file_with_receipt onto the ordinary VFS read ABI."""
+        return self.read_file_with_receipt(path, offset, size)[0]
 
+    def read_file_with_receipt(
+        self,
+        path: str,
+        offset: int = 0,
+        size: int = -1,
+    ) -> tuple[bytes, Any | None]:
+        """Mathematics: resolve a file range and return an optional provider receipt alongside its bytes."""
         if offset < 0:
             raise FsError("offset must be non-negative")
         inode = self._resolve(path)
@@ -227,7 +235,10 @@ class VirtualFileSystem:
             provider = self.providers.get(inode.provider_key)
             count = size if size >= 0 else max(0, provider.size - offset)
             try:
-                return provider.read(offset, count)
+                read_with_receipt = getattr(provider, "read_with_receipt", None)
+                if callable(read_with_receipt):
+                    return read_with_receipt(offset, count)
+                return provider.read(offset, count), None
             except FsError:
                 raise
             except Exception as error:
@@ -235,7 +246,8 @@ class VirtualFileSystem:
         if inode.blob_id is None:
             raise FsError(f"file has no content source: {normalize_path(path)}")
         data = self.blobs.get(inode.blob_id)
-        return data[offset:] if size < 0 else data[offset : offset + size]
+        content = data[offset:] if size < 0 else data[offset : offset + size]
+        return content, None
 
     def write_file(self, path: str, data: bytes, offset: int = 0, truncate: bool = False) -> int:
         """Mathematics: update `B[h'] = old[:o] || data || old[o+|data|:]`, with optional truncation to `old[:o] || data`."""
