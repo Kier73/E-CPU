@@ -262,6 +262,54 @@ def test_headless_checkpoint_persists_structural_memory_and_shared_journal(tmp_p
     assert restored.structural_memory.read("durable-counter", 0).value == 5
 
 
+def test_contextual_structural_adaptation_survives_headless_checkpoint(tmp_path: Path) -> None:
+    """Mathematics: preserve both immutable context bindings across HeadlessOS checkpoint/restore and replay exact revision-pinned reads."""
+
+    policy = lambda proposal: proposal.spec.domain == "integer-orbit"
+    operating_system = HeadlessOS(structural_memory_admission_policy=policy)
+    first = operating_system.structural_memory.propose(
+        "tenant-counter",
+        _structural_counter_law(),
+        {0: 0, 1: 1, 2: 2},
+        context={"tenant": "alpha"},
+    )
+    original = operating_system.structural_memory.admit(first.proposal_id, expected_revision=0)
+
+    second = operating_system.structural_memory.propose_context_revision(
+        "tenant-counter",
+        {"tenant": "beta"},
+        {10: 10, 11: 11, 12: 12},
+    )
+    adapted = operating_system.structural_memory.admit(second.proposal_id, expected_revision=1)
+    assert adapted.spec.parameters == original.spec.parameters
+
+    old_read = operating_system.structural_memory.read_revision(
+        "tenant-counter", 1, 20, context={"tenant": "alpha"}
+    )
+    new_read = operating_system.structural_memory.read(
+        "tenant-counter", 20, context={"tenant": "beta"}
+    )
+    assert old_read.value == new_read.value == 20
+
+    checkpoint = tmp_path / "contextual-structural-memory.mcpu.json"
+    operating_system.save_checkpoint(checkpoint)
+    journal_before = operating_system.environment.kernel.journal.snapshot()
+    restored = HeadlessOS.restore_checkpoint(
+        checkpoint,
+        structural_memory_admission_policy=policy,
+    )
+
+    assert restored.environment.kernel.journal.snapshot() == journal_before
+    assert restored.structural_memory.active_version("tenant-counter") == adapted
+    assert restored.structural_memory.read_revision(
+        "tenant-counter", 1, 20, context={"tenant": "alpha"}
+    ).value == 20
+    assert restored.structural_memory.read(
+        "tenant-counter", 20, context={"tenant": "beta"}
+    ).value == 20
+    assert restored.environment.kernel.journal.verify()
+
+
 def test_restored_structural_memory_requires_host_policy_for_new_admissions(tmp_path: Path) -> None:
     """Mathematics: checkpoint restore preserves memory state but not executable authority policy."""
 
