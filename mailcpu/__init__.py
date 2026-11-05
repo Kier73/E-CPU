@@ -550,6 +550,14 @@ from .navigation_admission import (
     NavigationExecutionGrant,
 )
 
+from .navigation_execution import (
+    HypervisorNavigationExecutionAdapter,
+    NavigationCommitReceipt,
+    NavigationExecutionError,
+    NavigationExecutionResult,
+    NavigationExecutionStatus,
+)
+
 __all__ = [
     "CoordinationDisposition",
     "ExecutionAdmissionRequest",
@@ -562,6 +570,11 @@ __all__ = [
     "NavigationAdmissionResult",
     "NavigationAdmissionStatus",
     "NavigationExecutionGrant",
+    "HypervisorNavigationExecutionAdapter",
+    "NavigationCommitReceipt",
+    "NavigationExecutionError",
+    "NavigationExecutionResult",
+    "NavigationExecutionStatus",
     "AbstractNavigationCompiler",
     "CompiledNavigation",
     "NavigationCompilationError",
