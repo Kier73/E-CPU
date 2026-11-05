@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-from .providers import ProceduralProvider, ProviderRegistry
+from .providers import ProceduralProvider, ProviderRegistry, StructuralMemoryFileProvider
 
 
 class FsError(Exception):
@@ -179,15 +179,8 @@ class VirtualFileSystem:
         inode = self._new_inode(NodeKind.FILE, mode, owner, data)
         parent.children[name] = inode.inode_id
 
-    def register_procedural_file(
-        self,
-        path: str,
-        provider: ProceduralProvider,
-        mode: int = 0o444,
-        owner: int = 0,
-    ) -> None:
-        """Mathematics: add a read-only inode whose bytes are the provider function `P(offset, count)`, not a blob."""
-
+    def _register_provider_file(self, path: str, provider: Any, mode: int, owner: int) -> None:
+        """Mathematics: create one read-only provider inode with a local symbolic provider key."""
         parent, name = self._parent_and_name(path)
         if name in parent.children:
             raise FsError(f"path already exists: {normalize_path(path)}")
@@ -197,6 +190,30 @@ class VirtualFileSystem:
         inode.blob_id = None
         inode.provider_key = provider_key
         parent.children[name] = inode.inode_id
+
+    def register_procedural_file(
+        self,
+        path: str,
+        provider: ProceduralProvider,
+        mode: int = 0o444,
+        owner: int = 0,
+    ) -> None:
+        """Mathematics: add a read-only inode whose bytes are the procedural provider function."""
+        if not isinstance(provider, ProceduralProvider):
+            raise FsError("procedural file requires a ProceduralProvider")
+        self._register_provider_file(path, provider, mode, owner)
+
+    def register_structural_memory_file(
+        self,
+        path: str,
+        provider: StructuralMemoryFileProvider,
+        mode: int = 0o444,
+        owner: int = 0,
+    ) -> None:
+        """Mathematics: add a read-only inode backed by a pinned, receiver-local structural-memory revision."""
+        if not isinstance(provider, StructuralMemoryFileProvider):
+            raise FsError("structural-memory file requires a StructuralMemoryFileProvider")
+        self._register_provider_file(path, provider, mode, owner)
 
     def read_file(self, path: str, offset: int = 0, size: int = -1) -> bytes:
         """Mathematics: return the slice `B[h][offset : offset + size]`, or the suffix when `size < 0`."""
@@ -208,7 +225,13 @@ class VirtualFileSystem:
             raise FsError(f"not a regular file: {normalize_path(path)}")
         if inode.provider_key is not None:
             provider = self.providers.get(inode.provider_key)
-            return provider.read(offset, size if size >= 0 else max(0, provider.size - offset))
+            count = size if size >= 0 else max(0, provider.size - offset)
+            try:
+                return provider.read(offset, count)
+            except FsError:
+                raise
+            except Exception as error:
+                raise FsError(f"provider read failed for {normalize_path(path)}: {error}") from error
         if inode.blob_id is None:
             raise FsError(f"file has no content source: {normalize_path(path)}")
         data = self.blobs.get(inode.blob_id)
