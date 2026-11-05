@@ -31,6 +31,7 @@ Index of specification documents. Documents use defined terms from `GLOSSARY.md`
 | 23 | [`FORMAL_NAVIGATION.md`](FORMAL_NAVIGATION.md) | Integer-affine interval analysis, conservative reachability, strong bisimulation, and vector-clock causal dependency graphs |
 | 24 | [`NAVIGATION_BRIDGE.md`](NAVIGATION_BRIDGE.md) | Conservative compilation from concrete process descriptions to integer-affine abstract navigation |
 | 25 | [`NAVIGATION_COORDINATOR.md`](NAVIGATION_COORDINATOR.md) | Unified formal and concrete navigation, causal and representation gates, and non-authoritative admission proposals |
+| 26 | [`NAVIGATION_ADMISSION.md`](NAVIGATION_ADMISSION.md) | Hypervisor-owned live-context revalidation, kernel capability checks, policy arbitration, bounded path grants, and expiry |
 
 ## Document classes
 
@@ -44,7 +45,7 @@ Index of specification documents. Documents use defined terms from `GLOSSARY.md`
 
 **Procedure & Roadmap.** `PLAN.md`, `BUILDOUT_REQUIREMENTS.md`, `ITERATION_2_BUILD_PLAN.md`, `DOGFOODING_AND_EMPIRICAL_LIMITS.md`. Research plan, evaluation procedure, Iteration 2 build plan, and dogfooding report.
 
-**Runtime & Navigation.** `TRANSIT_COMPUTE.md`, `TRANSIT_PATH_STATE.md`, `STATE_SPACE_NAVIGATION.md`, `CONTEXTUAL_PROCESS_NAVIGATION.md`, `FORMAL_NAVIGATION.md`, `NAVIGATION_BRIDGE.md`, `NAVIGATION_COORDINATOR.md`. Bounded transit execution, persistent path state, orbit scheduling, symbolic capacity, contextual resolution, replayable derivation, abstract reachability, process equivalence, causal dependencies, conservative compilation, and coordinated navigation plans.
+**Runtime & Navigation.** `TRANSIT_COMPUTE.md`, `TRANSIT_PATH_STATE.md`, `STATE_SPACE_NAVIGATION.md`, `CONTEXTUAL_PROCESS_NAVIGATION.md`, `FORMAL_NAVIGATION.md`, `NAVIGATION_BRIDGE.md`, `NAVIGATION_COORDINATOR.md`, `NAVIGATION_ADMISSION.md`. Bounded transit execution, persistent path state, orbit scheduling, symbolic capacity, contextual resolution, replayable derivation, abstract reachability, process equivalence, causal dependencies, conservative compilation, coordinated navigation plans, and hypervisor-owned execution admission.
 
 **Research & Theory.** `COMMUNICATION_SUBSTRATES_AND_INFORMATION_THEORY.md`, `CROSS_SYSTEM_SYNTHESIS_TIME_COMPUTATION_MODELS.md`. Substrate information theory, temporal models, and cross-paradigm synthesis.
 
