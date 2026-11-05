@@ -361,6 +361,13 @@ class StructuralMemoryProposal:
             raise StructuralMemoryError("proposal spec is invalid")
         if not isinstance(self.certificate, StructuralMemoryCertificate):
             raise StructuralMemoryError("proposal certificate is invalid")
+        if not isinstance(self.witnesses, tuple) or len(self.witnesses) < 2:
+            raise StructuralMemoryError("proposal witnesses must be a tuple of at least two coordinate/value pairs")
+        for index, item in enumerate(self.witnesses):
+            if not isinstance(item, tuple) or len(item) != 2:
+                raise StructuralMemoryError(f"proposal witness {index} must be a coordinate/value pair")
+            _require_int(item[0], f"proposal witness {index} coordinate", minimum=0)
+            _require_int(item[1], f"proposal witness {index} value")
         normalized = tuple(sorted(self.witnesses))
         if normalized != self.witnesses or len({item[0] for item in normalized}) != len(normalized):
             raise StructuralMemoryError("proposal witnesses must be unique and sorted by coordinate")
@@ -513,8 +520,20 @@ class StructuralMemoryVerifier:
         witnesses: tuple[tuple[int, int], ...],
     ) -> StructuralMemoryCertificate:
         """Issue a certificate only after deterministic witness replay succeeds."""
-        if len(witnesses) < 2:
+        if not isinstance(spec, StructuralMemorySpec):
+            raise StructuralMemoryError("certificate spec must be a StructuralMemorySpec")
+        if not isinstance(witnesses, tuple) or len(witnesses) < 2:
             raise StructuralMemoryRefused("at least two independent witness coordinates are required")
+        normalized: list[tuple[int, int]] = []
+        for index, item in enumerate(witnesses):
+            if not isinstance(item, tuple) or len(item) != 2:
+                raise StructuralMemoryError(f"witness {index} must be a coordinate/value pair")
+            coordinate = _require_int(item[0], f"witness {index} coordinate", minimum=0)
+            observed = _require_int(item[1], f"witness {index} value")
+            normalized.append((coordinate, observed))
+        if normalized != sorted(normalized) or len({item[0] for item in normalized}) != len(normalized):
+            raise StructuralMemoryError("witnesses must be unique and sorted by coordinate")
+        witnesses = tuple(normalized)
         law_records: list[dict[str, Any]] = []
         boundary_mismatch = False
         prefix_valid_count = 0
