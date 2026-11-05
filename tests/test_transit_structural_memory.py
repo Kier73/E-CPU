@@ -197,7 +197,7 @@ def test_structural_memory_coordinate_read_runs_inside_receiver_transit_path() -
                 time.sleep(0.005)
         assert served is not None
         assert served.action.value == "allow"
-        assert served.domain is HypervisorDomain.CPU
+        assert served.domain is HypervisorDomain.FILESYSTEM
         assert served.executed is True
         assert served.replayed is False
         assert served.effect["memory_id"] == "orbit-alpha"
