@@ -205,7 +205,7 @@ class StructuralMemorySpec:
             raise StructuralMemoryRefused(f"generator family {self.family!r} is not admitted by E0")
         if self.law_verdict not in {"GROUND", "PREFIX-GROUND"}:
             raise StructuralMemoryRefused(
-                f"law verdict {self.law_verdict!r} is not admissible; FITTED and TAPE remain proposals only"
+                f"law verdict {self.law_verdict!r} is not admissible; FITTED and TAPE cannot be admitted by E0"
             )
         if self.law_verdict == "GROUND" and self.first_bad is not None:
             raise StructuralMemoryError("GROUND law cannot carry a first_bad horizon")
@@ -238,6 +238,12 @@ class StructuralMemorySpec:
         """Create a schema-checked immutable spec from an existing Law object. Mathematics: maps a certified law tuple (family, parameters, order, verdict) into an immutable structural specification. """
         if not isinstance(law, Law):
             raise StructuralMemoryError("law must be an existing mailcpu.law_certifier.Law")
+        if law.family not in {"int", "lcg", "gf2", "fgraph"}:
+            raise StructuralMemoryRefused(f"generator family {law.family!r} is not admitted by E0")
+        if law.verdict not in {"GROUND", "PREFIX-GROUND"}:
+            raise StructuralMemoryRefused(
+                f"law verdict {law.verdict!r} is not admissible; FITTED and TAPE cannot be admitted by E0"
+            )
         context_value = {} if context is None else _json_value(context, "context")
         if not isinstance(context_value, dict):
             raise StructuralMemoryError("context must be a JSON object")
