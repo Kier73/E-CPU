@@ -267,8 +267,9 @@ class HypervisorNavigationExecutionAdapter:
             [int, str, str, Mapping[str, Any], NavigationExecutionGrant],
             NavigationCommitReceipt,
         ],
+        commit_lookup: Callable[[str], NavigationCommitReceipt | None],
     ) -> None:
-        """Mathematics: bind execution to one OS journal, live state projection, and idempotent backend CAS."""
+        """Mathematics: bind execution to one OS journal, live state projection, idempotent backend CAS, and receipt lookup."""
         vm = getattr(operating_system, "vm", None)
         if vm is None or not hasattr(vm, "scheduler"):
             raise NavigationExecutionError("operating_system must expose the deterministic VM scheduler")
@@ -276,9 +277,12 @@ class HypervisorNavigationExecutionAdapter:
             raise NavigationExecutionError("a trusted live state_provider is required")
         if not callable(commit_callback):
             raise NavigationExecutionError("an atomic idempotent commit_callback is required")
+        if not callable(commit_lookup):
+            raise NavigationExecutionError("a durable commit_lookup by execution_id is required for crash recovery")
         self.operating_system = operating_system
         self.state_provider = state_provider
         self.commit_callback = commit_callback
+        self.commit_lookup = commit_lookup
 
     def _journal(self):
         """Mathematics: resolve the single append-only journal shared by the kernel and hypervisor."""
@@ -403,18 +407,21 @@ class HypervisorNavigationExecutionAdapter:
     ) -> NavigationExecutionResult:
         """Mathematics: append one typed refusal to the shared journal without calling the backend commit."""
         actual_start = start_state_digest or grant.start_state_digest
-        record = self._journal().append(
-            "hypervisor.navigation.execute.refuse",
-            {
-                "execution_id": execution_id,
-                "grant_digest": grant.digest,
-                "status": status.value,
-                "reason": reason,
-                "start_state_digest": actual_start,
-                "target_state_digest": grant.final_state_digest,
-                "replayed": replayed,
-            },
-        )
+        journal = self._journal()
+        receipt = None
+        if journal.verify():
+            receipt = journal.append(
+                "hypervisor.navigation.execute.refuse",
+                {
+                    "execution_id": execution_id,
+                    "grant_digest": grant.digest,
+                    "status": status.value,
+                    "reason": reason,
+                    "start_state_digest": actual_start,
+                    "target_state_digest": grant.final_state_digest,
+                    "replayed": replayed,
+                },
+            ).digest
         return NavigationExecutionResult(
             status,
             execution_id,
@@ -424,7 +431,7 @@ class HypervisorNavigationExecutionAdapter:
             grant.transition_ids,
             None,
             None,
-            record.digest,
+            receipt,
             reason,
             replayed,
         )
@@ -461,6 +468,175 @@ class HypervisorNavigationExecutionAdapter:
             raise NavigationExecutionError("completed execution receipt does not match the grant")
         return NavigationExecutionResult(
             NavigationExecutionStatus.REPLAYED,
+            execution_id,
+            grant.digest,
+            grant.start_state_digest,
+            grant.final_state_digest,
+            grant.transition_ids,
+            receipt,
+            record.digest,
+            record.digest,
+            None,
+            True,
+        )
+
+    def _recover_backend_commit(
+        self,
+        execution_id: str,
+        grant: NavigationExecutionGrant,
+        admission: NavigationAdmissionResult,
+    ) -> NavigationExecutionResult | None:
+        """Mathematics: reconcile a prior write-ahead intent through the backend's durable idempotency receipt."""
+        begin = next(
+            (
+                item for item in self._journal().records()
+                if item.kind == "hypervisor.navigation.execute.begin"
+                and item.payload.get("execution_id") == execution_id
+            ),
+            None,
+        )
+        if begin is None:
+            return None
+        if begin.payload.get("grant_digest") != grant.digest:
+            raise NavigationExecutionError("write-ahead execution identity is bound to another grant")
+        try:
+            receipt = self.commit_lookup(execution_id)
+        except Exception as exc:
+            record = self._journal().append(
+                "hypervisor.navigation.execute.uncertain",
+                {
+                    "execution_id": execution_id,
+                    "grant_digest": grant.digest,
+                    "reason": f"backend receipt lookup failed: {type(exc).__name__}: {exc}",
+                },
+            )
+            return NavigationExecutionResult(
+                NavigationExecutionStatus.INDETERMINATE,
+                execution_id,
+                grant.digest,
+                grant.start_state_digest,
+                grant.final_state_digest,
+                grant.transition_ids,
+                None,
+                None,
+                record.digest,
+                "backend commit status is unknown; retry receipt lookup using the same execution ID",
+                True,
+            )
+        if receipt is None:
+            return None
+        if not isinstance(receipt, NavigationCommitReceipt):
+            record = self._journal().append(
+                "hypervisor.navigation.execute.uncertain",
+                {
+                    "execution_id": execution_id,
+                    "grant_digest": grant.digest,
+                    "reason": "backend receipt lookup returned an untyped value",
+                },
+            )
+            return NavigationExecutionResult(
+                NavigationExecutionStatus.INDETERMINATE,
+                execution_id,
+                grant.digest,
+                grant.start_state_digest,
+                grant.final_state_digest,
+                grant.transition_ids,
+                None,
+                None,
+                record.digest,
+                "backend receipt lookup is untyped",
+                True,
+            )
+        if (
+            receipt.execution_id != execution_id
+            or receipt.start_state_digest != grant.start_state_digest
+        ):
+            record = self._journal().append(
+                "hypervisor.navigation.execute.uncertain",
+                {
+                    "execution_id": execution_id,
+                    "grant_digest": grant.digest,
+                    "reason": "backend's durable receipt does not identify the admitted state transition",
+                    "commit_receipt": receipt.to_dict(),
+                },
+            )
+            return NavigationExecutionResult(
+                NavigationExecutionStatus.COMMIT_UNVERIFIED,
+                execution_id,
+                grant.digest,
+                grant.start_state_digest,
+                grant.final_state_digest,
+                grant.transition_ids,
+                receipt,
+                None,
+                record.digest,
+                "backend's durable receipt does not match the grant",
+                receipt.replayed,
+            )
+        if not receipt.committed:
+            record = self._journal().append(
+                "hypervisor.navigation.execute.refuse",
+                {
+                    "execution_id": execution_id,
+                    "grant_digest": grant.digest,
+                    "status": NavigationExecutionStatus.COMMIT_CONFLICT.value,
+                    "reason": receipt.reason or "backend durably rejected the compare-and-swap",
+                    "commit_receipt": receipt.to_dict(),
+                    "recovered": True,
+                },
+            )
+            return NavigationExecutionResult(
+                NavigationExecutionStatus.COMMIT_CONFLICT,
+                execution_id,
+                grant.digest,
+                grant.start_state_digest,
+                grant.final_state_digest,
+                grant.transition_ids,
+                receipt,
+                None,
+                record.digest,
+                receipt.reason or "backend durably rejected the compare-and-swap",
+                True,
+            )
+        if receipt.final_state_digest != grant.final_state_digest:
+            record = self._journal().append(
+                "hypervisor.navigation.execute.uncertain",
+                {
+                    "execution_id": execution_id,
+                    "grant_digest": grant.digest,
+                    "reason": "backend committed a different final state",
+                    "commit_receipt": receipt.to_dict(),
+                },
+            )
+            return NavigationExecutionResult(
+                NavigationExecutionStatus.COMMIT_UNVERIFIED,
+                execution_id,
+                grant.digest,
+                grant.start_state_digest,
+                grant.final_state_digest,
+                grant.transition_ids,
+                receipt,
+                None,
+                record.digest,
+                "backend committed a final state different from the authorized target",
+                receipt.replayed,
+            )
+        record = self._journal().append(
+            "hypervisor.navigation.execute.commit",
+            {
+                "execution_id": execution_id,
+                "grant_digest": grant.digest,
+                "admission_receipt": begin.payload.get("admission_receipt"),
+                "decision_receipt": grant.decision_receipt,
+                "transition_ids": list(grant.transition_ids),
+                "start_state_digest": grant.start_state_digest,
+                "target_state_digest": grant.final_state_digest,
+                "commit_receipt": receipt.to_dict(),
+                "recovered_backend_commit": True,
+            },
+        )
+        return NavigationExecutionResult(
+            NavigationExecutionStatus.RECOVERED,
             execution_id,
             grant.digest,
             grant.start_state_digest,
@@ -579,6 +755,18 @@ class HypervisorNavigationExecutionAdapter:
             )
         if replay is not None:
             return replay
+        try:
+            recovered = self._recover_backend_commit(execution_id, grant, admission)
+        except Exception as exc:
+            return self._refuse(
+                NavigationExecutionStatus.REFUSED_PROVENANCE,
+                execution_id,
+                grant,
+                f"backend recovery evidence is invalid: {type(exc).__name__}: {exc}",
+                replayed=admission.replayed,
+            )
+        if recovered is not None:
+            return recovered
 
         try:
             process = self.operating_system.environment.kernel._process(grant.pid)
