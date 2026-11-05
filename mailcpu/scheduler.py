@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from collections import deque
+from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
+from functools import wraps
 import math
-from typing import Any, Callable, Sequence
+from threading import RLock
+from typing import Any, Callable, Iterator, Sequence
 
 from .bus import MailboxBus
 from .chemical_time import HorizonTracker, SystemEpoch
@@ -14,6 +17,16 @@ from .chronofold import ChronoFold
 from .interpreter import ExecutionBackend, Transition, apply_instruction
 from .journal import EventJournal
 from .model import DEFAULT_MAX_TICKS, Instruction, MachineState, Op, Program, RunStatus
+
+
+def _scheduler_locked(method):
+    """Mathematics: serialize scheduler mutations and snapshots against native CPU context transactions."""
+    @wraps(method)
+    def wrapped(self, *args, **kwargs):
+        """Mathematics: acquire the scheduler lock before invoking the decorated operation."""
+        with self._state_lock:
+            return method(self, *args, **kwargs)
+    return wrapped
 
 
 class TaskStatus(str, Enum):
@@ -191,6 +204,9 @@ class DeterministicScheduler:
         self._ready: deque[int] = deque()
         self._next_pid = 1
         self.tick = 0
+        self._state_lock = RLock()
+        self.native_cpu_revisions: dict[int, int] = {}
+        self.navigation_commit_receipts: dict[str, dict[str, Any]] = {}
         self.syscall_handler = syscall_handler
         self.wait_predicate: Callable[[int, dict[str, Any]], bool] | None = None
         self.post_step: Callable[[int], None] | None = None
@@ -200,6 +216,13 @@ class DeterministicScheduler:
             chemical_tau=0.0,
         )
 
+    @contextmanager
+    def state_transaction(self) -> Iterator[None]:
+        """Mathematics: hold the scheduler state lock across one multi-field CPU context transaction."""
+        with self._state_lock:
+            yield
+
+    @_scheduler_locked
     def add(
         self,
         program: Program,
@@ -234,6 +257,7 @@ class DeterministicScheduler:
         self.journal.append("scheduler.add", {"pid": task_pid, "name": name})
         return task_pid
 
+    @_scheduler_locked
     def fork_task(
         self,
         parent_pid: int,
@@ -287,6 +311,7 @@ class DeterministicScheduler:
         )
         return child_pid
 
+    @_scheduler_locked
     def inject(self, pid: int, mailbox: str, values: Sequence[int]) -> None:
         """Mathematics: append input tokens and apply wake rule `BLOCKED ∧ input_available -> RUNNABLE`."""
 
@@ -297,6 +322,7 @@ class DeterministicScheduler:
             task.state.blocked = False
             self._ready.append(pid)
 
+    @_scheduler_locked
     def terminate(self, pid: int) -> None:
         """Mathematics: apply the control transition `T[pid].status := HALTED` and make future scheduling a no-op."""
 
@@ -311,6 +337,7 @@ class DeterministicScheduler:
         self._ready = deque(item for item in self._ready if item != pid)
         self.journal.append("scheduler.terminate", {"pid": pid, "tick": self.tick})
 
+    @_scheduler_locked
     def exec(self, pid: int, program: Program, name: str | None = None) -> None:
         """Mathematics: replace task image `T[pid]=(P,R,pc)` with `(program,0,0)` and enqueue exactly one runnable token."""
 
@@ -327,6 +354,7 @@ class DeterministicScheduler:
         self._ready.append(pid)
         self.journal.append("scheduler.exec", {"pid": pid, "name": task.name})
 
+    @_scheduler_locked
     def reap(self, pid: int) -> None:
         """Mathematics: remove terminal task `T[pid]` from the scheduler relation after its kernel wait transition."""
 
@@ -337,6 +365,7 @@ class DeterministicScheduler:
         del self.tasks[pid]
         self.journal.append("scheduler.reap", {"pid": pid})
 
+    @_scheduler_locked
     def suspend(self, pid: int) -> None:
         """Mathematics: remove task from the runnable transition relation by setting `status := SUSPENDED`."""
 
@@ -346,6 +375,7 @@ class DeterministicScheduler:
             self._ready = deque(item for item in self._ready if item != pid)
             self.journal.append("scheduler.suspend", {"pid": pid, "tick": self.tick})
 
+    @_scheduler_locked
     def resume(self, pid: int) -> None:
         """Mathematics: apply wake transition `SUSPENDED -> RUNNABLE` and enqueue exactly one future scheduling token."""
 
@@ -360,6 +390,7 @@ class DeterministicScheduler:
                 task.state.blocked = True
             self.journal.append("scheduler.resume", {"pid": pid, "tick": self.tick})
 
+    @_scheduler_locked
     def run(self, max_ticks: int = DEFAULT_MAX_TICKS) -> tuple[ScheduleEvent, ...]:
         """Mathematics: iterate round-robin transitions `τ := τ + 1`, interleaving deadline jumps when `R=∅`, until `τ=max_ticks` or no wakeable task remains."""
 
@@ -506,10 +537,11 @@ class DeterministicScheduler:
         except KeyError as exc:
             raise KeyError(f"unknown task: {pid}") from exc
 
+    @_scheduler_locked
     def snapshot(self) -> dict[str, object]:
         """Mathematics: serialize scheduler state `(T, ready, tick)` and each task's machine valuation."""
 
-        return {
+        payload = {
             "tick": self.tick,
             "next_pid": self._next_pid,
             "ready": list(self._ready),
@@ -546,6 +578,17 @@ class DeterministicScheduler:
                 "chemical_tau": self.system_epoch.chemical_tau,
             },
         }
+        if self.native_cpu_revisions:
+            payload["native_cpu_revisions"] = {
+                str(pid): revision
+                for pid, revision in sorted(self.native_cpu_revisions.items())
+            }
+        if self.navigation_commit_receipts:
+            payload["navigation_commit_receipts"] = {
+                execution_id: dict(receipt)
+                for execution_id, receipt in sorted(self.navigation_commit_receipts.items())
+            }
+        return payload
 
     @classmethod
     def from_snapshot(
@@ -560,6 +603,48 @@ class DeterministicScheduler:
         scheduler = cls(bus=bus, journal=journal, syscall_handler=syscall_handler)
         scheduler.tick = int(payload["tick"])
         scheduler._next_pid = int(payload["next_pid"])
+        raw_revisions = payload.get("native_cpu_revisions", {})
+        if not isinstance(raw_revisions, dict):
+            raise ValueError("native CPU revisions must be a mapping")
+        for raw_pid, revision in raw_revisions.items():
+            try:
+                pid = int(raw_pid)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("native CPU revision PID is invalid") from exc
+            if pid <= 0 or str(pid) != str(raw_pid):
+                raise ValueError("native CPU revision PID is invalid")
+            if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
+                raise ValueError("native CPU revision must be a positive integer")
+            scheduler.native_cpu_revisions[pid] = revision
+        raw_receipts = payload.get("navigation_commit_receipts", {})
+        if not isinstance(raw_receipts, dict):
+            raise ValueError("navigation commit receipts must be a mapping")
+        for execution_id, raw_receipt in raw_receipts.items():
+            if (
+                not isinstance(execution_id, str)
+                or len(execution_id) != 64
+                or any(char not in "0123456789abcdef" for char in execution_id)
+                or not isinstance(raw_receipt, dict)
+            ):
+                raise ValueError("navigation commit receipt identity is invalid")
+            if (
+                raw_receipt.get("execution_id") != execution_id
+                or raw_receipt.get("committed") is not True
+                or raw_receipt.get("replayed") is not False
+            ):
+                raise ValueError("only original committed navigation receipts may be checkpointed")
+            for field_name in ("start_state_digest", "final_state_digest"):
+                value = raw_receipt.get(field_name)
+                if (
+                    not isinstance(value, str)
+                    or len(value) != 64
+                    or any(char not in "0123456789abcdef" for char in value)
+                ):
+                    raise ValueError("navigation commit receipt state digest is invalid")
+            revision = raw_receipt.get("backend_revision")
+            if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
+                raise ValueError("navigation commit receipt revision is invalid")
+            scheduler.navigation_commit_receipts[execution_id] = dict(raw_receipt)
         if scheduler.tick < 0 or scheduler._next_pid <= 0:
             raise ValueError("scheduler tick and next_pid must be positive-domain values")
         scheduler._ready = deque(int(pid) for pid in payload.get("ready", ()))
