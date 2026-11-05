@@ -53,7 +53,13 @@ from .transport import InMemoryTransport, Transport
 from .durable_transport import DurableMailboxTransport, DurableTransportError
 from .trajectory import TrajectoryCheckpoint, TrajectoryError, TrajectoryFrame, TrajectoryReader, TrajectoryWriter
 from .protocol import SyscallClient, SyscallRequest, SyscallResponse, SyscallServer
-from .providers import ProceduralProvider, ProviderKind
+from .providers import (
+    ProceduralProvider,
+    ProviderKind,
+    StructuralMemoryFileRef,
+    StructuralMemoryFileReadReceipt,
+    StructuralMemoryFileProvider,
+)
 from .reliability import (
     ReliabilityPolicy,
     ReliableChannel,
@@ -782,6 +788,9 @@ __all__ = [
     "ProceduralWeightField",
     "ProceduralProvider",
     "ProviderKind",
+    "StructuralMemoryFileRef",
+    "StructuralMemoryFileReadReceipt",
+    "StructuralMemoryFileProvider",
     "QueueInterpreter",
     "ReferenceInterpreter",
     "RunResult",
