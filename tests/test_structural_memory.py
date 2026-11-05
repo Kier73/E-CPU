@@ -77,6 +77,27 @@ def test_read_receipt_binds_spec_certificate_context_and_value():
     assert repeated.cache_hit is True
 
 
+def test_cache_hit_does_not_reinvoke_the_generator(monkeypatch):
+    registry = _registry(lambda proposal: True)
+    proposal = registry.propose(
+        "counter",
+        _integer_law(),
+        {0: 0, 1: 1, 2: 2, 3: 3},
+    )
+    registry.admit(proposal.proposal_id, expected_revision=0)
+    original = registry.read("counter", 8)
+
+    def forbidden_navigation(*args, **kwargs):
+        pytest.fail("a cache hit must not evaluate the generator again")
+
+    monkeypatch.setattr(registry.generators, "navigate_guarded", forbidden_navigation)
+    cached = registry.read("counter", 8)
+
+    assert cached.value == original.value
+    assert cached.receipt_id == original.receipt_id
+    assert cached.cache_hit is True
+
+
 def test_context_is_an_exact_revision_boundary():
     registry = _registry(lambda proposal: True)
     proposal = registry.propose(
