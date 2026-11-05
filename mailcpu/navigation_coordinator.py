@@ -323,6 +323,7 @@ class NavigationCoordinationResult:
             expected_abstract = None if self.abstract_reachability is None else _digest(self.abstract_reachability.to_dict())
             expected_bisimulation = None if self.bisimulation is None else _digest(_bisimulation_payload(self.bisimulation))
             expected_witness = None if self.navigation.witness is None else _digest(self.navigation.witness.to_dict())
+            expected_final_state = None if self.navigation.witness is None else self.navigation.witness.final_state_digest
             expected_readiness = _digest({
                 "ready": self.readiness.ready,
                 "blockers": list(self.readiness.blockers),
@@ -331,7 +332,7 @@ class NavigationCoordinationResult:
                 request.abstract_result_digest != expected_abstract
                 or request.bisimulation_digest != expected_bisimulation
                 or request.concrete_witness_digest != expected_witness
-                or request.final_state_digest != self.navigation.witness.final_state_digest
+                or request.final_state_digest != expected_final_state
                 or request.readiness_digest != expected_readiness
                 or request.transition_ids != self.navigation.path
                 or request.resource_envelope != tuple(sorted(self.navigation.resource_envelope.items()))
