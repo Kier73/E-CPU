@@ -17,7 +17,7 @@ An architectural possibility can be important before it is implemented. It must 
 
 ## 1. Present system: what it can do
 
-The following describes the main-line system after Structural Memory E0 was merged in PR #16 (merge commit 77bcd7e).
+The following describes the main-line system after Structural Memory E0 and E0.2 were merged in PR #16 (merge commit 77bcd7e) and PR #17 (merge commit 731cf5a).
 
 ### 1.1 Execute a deterministic machine over a communication model
 
@@ -66,26 +66,30 @@ Main-line Structural Memory E0 provides:
 - witness-grounded and prefix-grounded verification classes;
 - exact context-bound reads and evidence-bearing receipts;
 - staged proposals and host-authorized revision admission;
-- revision lineage and an exact-key read cache.
+- revision lineage and an exact-key read cache;
+- registry checkpointing for staged proposals, admitted history, active heads, and read receipts;
+- proposal, admission, and read journal events tied to the exact VM checkpoint journal cut;
+- restore-time witness replay, lineage checks, read-receipt recomputation, and trusted host-policy rebinding.
 
-A witness-grounded certificate means agreement with the finite witness set. It does not prove an infinite law. A prefix-grounded certificate refuses reads at or beyond its observed first-bad coordinate.
+A witness-grounded certificate means agreement with the finite witness set. It does not prove an infinite law. A prefix-grounded certificate refuses reads at or beyond its observed first-bad coordinate. Host admission policy remains executable configuration and is never restored from checkpoint data.
 
-Evidence: docs/STRUCTURAL_MEMORY.md; tests/test_structural_memory.py; docs/INVARIANTS.md (S-1 through S-6).
+Evidence: docs/STRUCTURAL_MEMORY.md; tests/test_structural_memory.py; tests/test_checkpoint.py; docs/INVARIANTS.md (S-1 through S-13).
 
 ## 2. Building now: what is becoming possible
 
-E0.2 is a development branch, not yet a merged main-line capability. It connects the structural-memory registry to HeadlessOS persistence and the shared kernel event journal.
+E0.2 is merged into main through PR #17 (merge commit 731cf5a). The registry now persists inside the HeadlessOS checkpoint graph and shares the kernel's hash-chained journal. Restore reconciles staged proposals, admissions, read receipts, immutable lineage, cache values, and the exact journal anchor. Host admission code is deliberately rebound by trusted host code after restore; it is not checkpoint data.
 
-The branch adds:
+E0.3 is under active development in branch `feat/contextual-structural-adaptation-e03`. It implements a deliberately narrow form of contextual adaptation:
 
-- registry snapshots for staged proposals, admitted history, active heads, and read-cache receipts;
-- proposal, admission, and read events in the shared hash chain;
-- a journal anchor tying the registry snapshot to the exact journal cut inside the VM checkpoint;
-- restore-time witness replay, revision-lineage checks, read-receipt recomputation, and event reconciliation;
-- explicit rebinding of the trusted host admission policy after restore. Executable policy is not checkpoint data;
-- backward compatibility for older checkpoints that have no structural-memory events.
+- stage a new revision from the active version without accepting a replacement law;
+- change only canonical context, revision number, and parent digest;
+- replay newly supplied witnesses against the unchanged generator;
+- keep the prior revision immutable and allow explicit reads pinned to either admitted revision;
+- journal active and pinned read modes separately and replay both during restore.
 
-The main missing obligations after E0.2 are context-only revisions, context-to-boundary adaptation, heterogeneous generator composition, and deeper persistence/recovery tests under process interruption. The registry is still local to one HeadlessOS checkpoint. It is not a replicated structural-memory service.
+This is a verified re-binding of one law to a new exact context, not learned context-to-parameter transformation. The supplied witnesses are independently replayed, but their external provenance is not established by the verifier. The feature remains Building until its focused tests and repository CI complete.
+
+The registry remains local to one HeadlessOS checkpoint. It is not a replicated structural-memory service. Beyond E0.3, open obligations include explicit context-to-parameter transformation contracts, heterogeneous generator composition, memory-provider integration, and CPU macro-transition correspondence.
 
 ## 3. Novel-to-this-architecture possibilities
 
@@ -123,13 +127,15 @@ Failure condition: a proposed jump changes observable state, trace, resource, or
 
 ### 3.4 Context becomes a boundary transformation rather than a new program
 
-E0 currently treats context as an exact identity. It refuses a read when the supplied context differs from the context bound to the revision.
+Each revision still treats context as an exact identity: a read under a different context is refused. E0.3 now builds on that rule with a context-only revision API. The API copies the active generator specification and changes only the canonical context, revision number, and parent digest. A new witness set must replay against the unchanged generator before host admission.
 
-Potential consequence: a later context mapper could transform one structural memory across tenants, partitions, initial conditions, temporal coordinates, or resource domains while retaining the generator law. This would make one verified law reusable across many boundary instances.
+Potential consequence: one compact, deterministic law can be rebound to multiple exact boundary instances while preserving each context as an independently addressable immutable revision. Revision-pinned reads preserve access to older contexts even after a newer one becomes active.
 
-Experiment: introduce one narrowly typed context-only revision for a modular orbit. Hold the generator fixed, transform only its boundary parameter, verify new independent witnesses, and prove that the parent revision remains immutable.
+Experiment: apply the same modular progression to two tenant contexts using newly supplied witnesses; compare generator identity, values, evidence receipts, stale-context refusal, and both revisions after HeadlessOS checkpoint restore.
 
-Failure condition: the context change actually alters the transition law, the transformation is ambiguous, or values leak across context identities.
+Failure condition: any generator-defining field changes during context-only proposal; a mismatching witness is admitted; a read crosses a context boundary; an old revision cannot be replayed from its explicit pin; or checkpoint restore cannot reconcile both read modes.
+
+Boundary: this does not yet infer or transform generator parameters from context fields, and it cannot prove that submitted observations originated from the claimed external context. Those require a stronger context-transform and observation-provenance contract.
 
 ### 3.5 Heterogeneous structural composition
 
