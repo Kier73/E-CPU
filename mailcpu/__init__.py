@@ -235,6 +235,12 @@ from .virtual_layer import (
 )
 from .transit_compute import TransitComputeError, TransitComputeHost
 from .transit_memory import TransitMemoryTransferError, TransitMemoryTransferHost
+from .transit_structural_memory import (
+    TRANSIT_STRUCTURAL_MEMORY_OPERATION,
+    TRANSIT_STRUCTURAL_MEMORY_RESOURCE,
+    TransitStructuralMemoryError,
+    TransitStructuralMemoryHost,
+)
 from .transit_router import TransitBackendRouter, TransitBackendRouterError
 from .transit_session import TransitComputeSession
 from .transit_simt import TransitSIMTError, TransitSIMTHost
@@ -884,6 +890,10 @@ __all__ = [
     "TransitComputeHost",
     "TransitMemoryTransferError",
     "TransitMemoryTransferHost",
+    "TRANSIT_STRUCTURAL_MEMORY_OPERATION",
+    "TRANSIT_STRUCTURAL_MEMORY_RESOURCE",
+    "TransitStructuralMemoryError",
+    "TransitStructuralMemoryHost",
     "TransitBackendRouter",
     "TransitBackendRouterError",
     "TransitComputeSession",
