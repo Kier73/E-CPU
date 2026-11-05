@@ -80,6 +80,7 @@ class NavigationExecutionGrant:
     descriptor_digest: str
     address_digest: str
     context_digest: str
+    start_state_digest: str
     coordination_digest: str
     proposal_digest: str
     witness_digest: str
@@ -109,7 +110,7 @@ class NavigationExecutionGrant:
             raise NavigationAdmissionError("navigation grants are restricted to the CPU domain")
         for name in (
             "descriptor_digest", "address_digest", "context_digest",
-            "coordination_digest", "proposal_digest", "witness_digest",
+            "start_state_digest", "coordination_digest", "proposal_digest", "witness_digest",
             "final_state_digest", "decision_receipt",
         ):
             _sha256(getattr(self, name), name)
@@ -186,6 +187,7 @@ class NavigationExecutionGrant:
             "descriptor_digest": self.descriptor_digest,
             "address_digest": self.address_digest,
             "context_digest": self.context_digest,
+            "start_state_digest": self.start_state_digest,
             "coordination_digest": self.coordination_digest,
             "proposal_digest": self.proposal_digest,
             "witness_digest": self.witness_digest,
@@ -413,6 +415,7 @@ class HypervisorNavigationAdmissionCoordinator:
             "descriptor_digest": descriptor.digest,
             "address_digest": address.digest,
             "context_digest": coordination.context_digest,
+            "start_state_digest": request.start_state_digest,
             "coordination_digest": coordination_digest,
             "proposal_digest": request.digest,
             "witness_digest": request.concrete_witness_digest,
@@ -449,6 +452,14 @@ class HypervisorNavigationAdmissionCoordinator:
 
         decision = arbitration.decision
         replayed = arbitration.replayed
+        if arbitration.logical_time != scheduler_tick:
+            return self._refuse(
+                source=source, sequence=sequence, pid=pid,
+                status=NavigationAdmissionStatus.REFUSED_ARBITRATION,
+                reason="scheduler tick changed between live-plan validation and hypervisor arbitration",
+                coordination_digest=coordination_digest,
+                replayed=replayed,
+            )
         if decision is not None:
             action, domain = decision.action, decision.domain
             decision_receipt = decision.receipt
@@ -504,6 +515,7 @@ class HypervisorNavigationAdmissionCoordinator:
             descriptor_digest=descriptor.digest,
             address_digest=address.digest,
             context_digest=coordination.context_digest,
+            start_state_digest=request.start_state_digest,
             coordination_digest=coordination_digest,
             proposal_digest=request.digest,
             witness_digest=request.concrete_witness_digest,
