@@ -1690,7 +1690,21 @@ class HeadlessOS:
 
         from .service import ServiceSupervisor
 
-        restored = type(self).from_snapshot(deepcopy(dict(payload)), trajectory=self.vm.trajectory)
+        admission_policy = self.structural_memory.admission_policy
+        generators = self.structural_memory.generators
+        restored = type(self).from_snapshot(
+            deepcopy(dict(payload)),
+            trajectory=self.vm.trajectory,
+            structural_memory_admission_policy=admission_policy,
+        )
+        # Rollback replaces the kernel and its EventJournal. Rebind the
+        # registry reconstructed from the same snapshot to that restored
+        # journal; retaining the old registry would keep a stale journal
+        # reference and split subsequent checkpoint cuts.
+        if generators is not None:
+            restored.structural_memory.generators = generators
+            restored.structural_memory.verifier.generators = generators
+            restored.structural_memory.navigator.generators = generators
         self.environment = restored.environment
         self.vm = restored.vm
         self._pending_exec = restored._pending_exec
@@ -1698,6 +1712,7 @@ class HeadlessOS:
         self.hypervisor = restored.hypervisor
         self.hypervisor_arbitration = restored.hypervisor_arbitration
         self.seed_admission = restored.seed_admission
+        self.structural_memory = restored.structural_memory
         self.posix = PosixCompatibility(self)
         self.services = ServiceSupervisor.from_snapshot(self, restored.services.snapshot())
         self.environment.kernel.terminal_signal_handler = self._handle_terminal_signal
