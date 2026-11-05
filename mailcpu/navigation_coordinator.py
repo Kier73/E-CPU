@@ -285,20 +285,43 @@ class NavigationCoordinationResult:
                 raise NavigationCoordinationError(f"{name} must be a lowercase SHA-256 digest")
         if not isinstance(self.navigation, NavigationResult) or not isinstance(self.readiness, ReadinessResult):
             raise NavigationCoordinationError("coordination result requires concrete navigation and readiness evidence")
-        if self.compilation_digest is not None and re.fullmatch(r"[0-9a-f]{64}", self.compilation_digest) is None:
-            raise NavigationCoordinationError("compilation_digest must be absent or a SHA-256 digest")
-        if self.compilation_error is not None and not isinstance(self.compilation_error, str):
-            raise NavigationCoordinationError("compilation_error must be text or absent")
+        for name in ("compilation_digest", "causal_graph_digest", "causal_evidence_digest"):
+            value = getattr(self, name)
+            if value is not None and re.fullmatch(r"[0-9a-f]{64}", value) is None:
+                raise NavigationCoordinationError(f"{name} must be absent or a SHA-256 digest")
+        if self.compilation_error is not None and (not isinstance(self.compilation_error, str) or not self.compilation_error):
+            raise NavigationCoordinationError("compilation_error must be non-empty text or absent")
         if self.abstract_reachability is not None and not isinstance(self.abstract_reachability, AbstractReachabilityResult):
             raise NavigationCoordinationError("abstract reachability evidence is malformed")
         if self.causal_dependencies is not None and not isinstance(self.causal_dependencies, CausalDependencyResult):
             raise NavigationCoordinationError("causal dependency evidence is malformed")
         if self.bisimulation is not None and not isinstance(self.bisimulation, BisimulationResult):
             raise NavigationCoordinationError("bisimulation evidence is malformed")
+        if (self.causal_dependencies is None) != (self.causal_graph_digest is None or self.causal_evidence_digest is None):
+            raise NavigationCoordinationError("causal evidence and its source digests must be supplied together")
+        if self.representation_equivalence_required and self.bisimulation is None:
+            raise NavigationCoordinationError("required representation equivalence needs bisimulation evidence")
         if not isinstance(self.representation_equivalence_required, bool):
             raise NavigationCoordinationError("representation_equivalence_required must be Boolean")
         if self.admission_request is not None and not isinstance(self.admission_request, ExecutionAdmissionRequest):
             raise NavigationCoordinationError("admission_request is malformed")
+        if self.admission_request is not None:
+            request = self.admission_request
+            expected = {
+                "descriptor_digest": self.descriptor_digest,
+                "address_digest": self.address_digest,
+                "context_digest": self.context_digest,
+                "start_state_digest": self.start_state_digest,
+                "compilation_digest": self.compilation_digest,
+                "causal_graph_digest": self.causal_graph_digest,
+                "causal_evidence_digest": self.causal_evidence_digest,
+            }
+            if any(getattr(request, name) != value for name, value in expected.items()):
+                raise NavigationCoordinationError("admission proposal does not bind the coordination source evidence")
+            expected_abstract = None if self.abstract_reachability is None else _digest(self.abstract_reachability.to_dict())
+            expected_bisimulation = None if self.bisimulation is None else _digest(_bisimulation_payload(self.bisimulation))
+            if request.abstract_result_digest != expected_abstract or request.bisimulation_digest != expected_bisimulation:
+                raise NavigationCoordinationError("admission proposal does not bind the formal analysis evidence")
         if self.disposition is CoordinationDisposition.READY:
             if (
                 self.admission_request is None
