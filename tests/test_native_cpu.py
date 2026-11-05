@@ -10,9 +10,10 @@ from mailcpu import (
     Capability,
     HeadlessOS,
     HypervisorNavigationAdmissionCoordinator,
-    HypervisorNavigationExecutionAdapter,
     NavigationCoordinator,
     NativeCPUContextBackend,
+    Instruction,
+    ProcessDescriptor,
     Op,
     Program,
     SemanticAddress,
@@ -61,7 +62,7 @@ def _native_system(checkpoint_path: Path):
     operating_system = HeadlessOS()
     program = Program(
         (
-            __import__("mailcpu").Instruction(Op.SET, ("rax", 0)),
+            Instruction(Op.SET, ("rax", 0)),
             __import__("mailcpu").Instruction(Op.HALT),
         )
     )
@@ -76,7 +77,7 @@ def _native_system(checkpoint_path: Path):
         checkpoint_path,
         resource_path="/cpu/context",
     )
-    descriptor = __import__("mailcpu").ProcessDescriptor(
+    descriptor = ProcessDescriptor(
         "native-cpu-test",
         "1",
         (
