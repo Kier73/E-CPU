@@ -95,7 +95,7 @@ responsibilities of the surrounding communication system.
 ## Tests
 
 The suite checks successful plan creation and independent replay, context
-digest coverage, readiness refusal, missing and concurrent causal events,
+digest and analysis-configuration binding, readiness refusal, missing and concurrent causal events,
 strict vector-clock precedence, mandatory and advisory bisimulation, explicit
 abstract-compilation unavailability, abstract/concrete unreachability,
 already-satisfied targets, resource refusal, bounded-search exhaustion, and
