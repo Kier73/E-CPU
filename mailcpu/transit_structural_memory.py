@@ -10,7 +10,7 @@ from .structural_memory import StructuralMemoryError, StructuralMemoryReadReceip
 
 
 TRANSIT_STRUCTURAL_MEMORY_OPERATION = (
-    "execute deterministic CPU program for structural-memory coordinate read"
+    "read admitted structural-memory revision coordinate"
 )
 TRANSIT_STRUCTURAL_MEMORY_RESOURCE = "/structural-memory/read"
 _TRANSIT_STRUCTURAL_MEMORY_RIGHTS = frozenset({"read"})
