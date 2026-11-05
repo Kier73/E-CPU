@@ -139,6 +139,10 @@ Restore verifies the kernel journal hash chain through the existing kernel resto
 
 This makes staged proposals and active structural memories continuation-capable across a HeadlessOS process restart. It does not turn the registry into a multi-host consensus service or make the checkpoint atomic with arbitrary external effects.
 
+In-place OS rollback is also a registry rebind boundary. When a rollback replaces the VM and kernel journal, HeadlessOS replaces the registry with the instance reconstructed from the same snapshot, ensuring that the registry points to the restored journal rather than the discarded journal object. The original trusted host admission callback is rebound from the live host object; it is not read from snapshot data.
+
+System-seed projection deliberately removes `hypervisor.seed.*` control events before computing its canonical origin digest. Because the structural-memory snapshot carries a duplicate journal anchor, the seed projection recomputes that anchor from the same filtered and re-chained kernel journal. This preserves the existing seed-admission equivalence relation while retaining structural-memory proposal, admission, and read events in the seed state.
+
 ### Host policy is not checkpoint state
 
 admission_policy is trusted executable host configuration. It is never serialized, hashed into the memory specification, or reconstructed from checkpoint data. A restored HeadlessOS can read previously admitted memories and can inspect staged proposals, but a new admission fails closed until trusted host code explicitly supplies a policy again:
