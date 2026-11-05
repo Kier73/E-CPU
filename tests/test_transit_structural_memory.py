@@ -390,8 +390,8 @@ def test_transit_worker_checkpoint_restores_structural_memory_and_replays_same_s
         assert replay is not None
         assert replay.replayed is True
         assert replay.effect == first.effect
-        assert restored_worker_hosts[0].handle.__self__.operating_system.structural_memory.active_version("orbit-alpha") == version
-        assert restored_worker_hosts[0].__dict__.get("calls", 0) == 0
+        assert restored_worker_hosts[0].operating_system.structural_memory.active_version("orbit-alpha") == version
+        assert initial_host_calls["count"] == 1
 
         replay_result = _wait_for_response(restored_response_client)
         assert replay_result.replayed is True
