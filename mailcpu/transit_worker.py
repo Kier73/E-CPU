@@ -15,6 +15,10 @@ from .hypervisor_transport import (
 )
 from .reliability import ReliableChannel
 from .transit_compute import TransitComputeHost
+from .transit_structural_memory import (
+    TRANSIT_STRUCTURAL_MEMORY_OPERATION,
+    TRANSIT_STRUCTURAL_MEMORY_RESOURCE,
+)
 
 
 class TransitComputeWorker:
@@ -55,10 +59,21 @@ class TransitComputeWorker:
             raise TypeError("transit worker request must be a HypervisorOperationChannel")
         if not isinstance(response, HypervisorOperationResultChannel):
             raise TypeError("transit worker response must be a HypervisorOperationResultChannel")
+        handlers = {HypervisorDomain.CPU: self.compute_host.handle}
+        # A structural-memory coordinate is classified as a read/data resource.
+        # Expose the filesystem decision to the router only when the exact
+        # structural-memory operation is registered; the router still performs
+        # strict operation/resource dispatch and the backend rechecks authority.
+        manifest = self._backend_manifest(self.compute_host)
+        if (
+            TRANSIT_STRUCTURAL_MEMORY_OPERATION,
+            TRANSIT_STRUCTURAL_MEMORY_RESOURCE,
+        ) in manifest:
+            handlers[HypervisorDomain.FILESYSTEM] = self.compute_host.handle
         return request.receive_and_reply_event(
             self.operating_system.hypervisor_arbitration,
             self._authorize,
-            {HypervisorDomain.CPU: self.compute_host.handle},
+            handlers,
             response,
         )
 
