@@ -212,3 +212,14 @@ The next development step is to test broader context-to-parameter maps only unde
 ## Test scope
 
 The conformance suite covers proposal staging, host authorization, revision compare-and-swap, immutable parent lineage, canonical context binding, context-only adaptation with generator identity preservation, active and revision-pinned reads, journal replay, witness replay, prefix escape/horizon behavior, trace-based law recovery, and each admitted generator family. These tests establish the implemented finite contract; they do not certify universality or performance beyond their measured domains.
+
+
+## Virtual Layer operator bindings
+
+Virtual Layer workload schema v2 can carry an operator-scoped address into an admitted structural-memory revision. The address binds memory identity, immutable revision, exact context, coordinate, specification digest, and certificate digest. It carries no generator or executable material.
+
+The receiving Virtual Layer runtime performs the read only after the existing hypervisor has authorized the operator operation. Its local authority process must independently hold `read` on `/structural-memory/read`. The runtime calls the receiver's existing `StructuralMemoryRegistry.read_revision`, checks the complete receipt against the pinned address, and presents the operator with the integer value alongside the full receipt. The operator result includes those receipts and a digest of the resolved input.
+
+The workload's canonical digest binds the references. The existing hypervisor semantic execution ledger therefore replays the original effect for an exact semantic retry without invoking the memory backend or appending a second read event. Structural-memory registries remain receiver-local: this integration does not replicate revisions, transfer generator descriptions, or authenticate the external origin of the original witnesses.
+
+See `docs/VIRTUAL_LAYER_WORKLOAD.md` for the workload schema, operator input envelope, byte-budget rules, and tested integration path.

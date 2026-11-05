@@ -92,6 +92,16 @@ The intended emergence is a path that can address a compressed, locally admitted
 
 The registry remains local to one HeadlessOS checkpoint. Further obligations include cross-host memory distribution and admission, authenticated witness provenance, heterogeneous generator composition, memory-provider integration, and CPU macro-transition correspondence.
 
+
+
+### 2.1 Virtual Layer / Structural Memory operator binding
+
+The next integration connects portable Virtual Layer intent to the receiver's admitted structural-memory registry. Workload schema v2 adds operator-scoped references that pin memory identity, revision, context, coordinate, specification digest, and certificate digest. The address crosses the existing workload channel; the generator remains receiver-local.
+
+The receiver first validates the workload's admitted Virtual Ground and obtains hypervisor authorization for the operator. Only the authorized handler resolves the structural reference, under a separate receiver-local `read` capability on `/structural-memory/read`. It passes the operator a typed input envelope containing the caller's original input plus each resolved integer and full read receipt. The returned operator effect includes the resolved-input digest and those receipts, so the semantic execution ledger can replay the complete result without re-reading memory.
+
+This integration composes three previously separate facilities: portable intent and operator contracts, verified addressable state families, and receiver-side authority/replay. It does not distribute the memory registry, carry generator code, infer generator parameters from context, or make operator handlers portable.
+
 ## 3. Novel-to-this-architecture possibilities
 
 This section records research opportunities created by the combination of existing and planned primitives. These are not claims of global historical priority. Related ideas may exist in symbolic execution, program synthesis, proof-carrying computation, procedural generation, distributed systems, databases, and other fields. The question is what a working combination inside E-CPU enables that its current components do not provide separately.

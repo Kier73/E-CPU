@@ -232,6 +232,7 @@ from .virtual_layer import (
     VirtualLayerRuntime,
     VirtualLayerWorkload,
     VirtualOperatorRef,
+    VirtualStructuralMemoryRef,
 )
 from .transit_compute import TransitComputeError, TransitComputeHost
 from .transit_memory import TransitMemoryTransferError, TransitMemoryTransferHost
@@ -886,6 +887,7 @@ __all__ = [
     "VirtualLayerRuntime",
     "VirtualLayerWorkload",
     "VirtualOperatorRef",
+    "VirtualStructuralMemoryRef",
     "TransitComputeError",
     "TransitComputeHost",
     "TransitMemoryTransferError",
