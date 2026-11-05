@@ -193,6 +193,7 @@ def _expected_symbol(establishes: str) -> str | None:
         "substrate_sim": "WanSubstrateSimulator",
         "virtual_layer": "VirtualLayerWorkload",
         "transit_orbit": "TransitOrbitScheduler",
+        "navigation": "ContextualNavigator",
     }
     return mapping.get(stem)
 
