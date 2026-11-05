@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import wraps
 from typing import Any, Callable, Sequence
 
 from .environment import VirtualEnvironment
@@ -14,6 +15,16 @@ from .observation import (
 )
 from .scheduler import DeterministicScheduler, ScheduleEvent
 from .trajectory import TrajectoryWriter
+
+
+def _scheduler_transaction(method):
+    """Mathematics: bind one VM state mutation to the scheduler's shared state lock."""
+    @wraps(method)
+    def wrapped(self, *args, **kwargs):
+        """Mathematics: perform the VM operation while native CPU state is transactionally stable."""
+        with self.scheduler.state_transaction():
+            return method(self, *args, **kwargs)
+    return wrapped
 
 
 class MailCPUVirtualMachine:
@@ -127,6 +138,7 @@ class MailCPUVirtualMachine:
             self.trajectory.flush()
         return events
 
+    @_scheduler_transaction
     def apply_substrate_observation(
         self,
         pid: int,
