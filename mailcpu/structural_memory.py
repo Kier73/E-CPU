@@ -1084,7 +1084,12 @@ class StructuralMemoryRegistry:
         context: Mapping[str, Any] | None,
         event_kind: str,
     ) -> StructuralMemoryReadReceipt:
-        """Evaluate one immutable version and journal the exact active or pinned read mode."""
+        """Evaluate one immutable version and journal the exact active or pinned read mode.
+
+        Mathematics: for admitted version v and coordinate t, validate its
+        exact context, then return the guarded generator value G_v(t) with a
+        receipt whose provenance is bound to v and t.
+        """
         context_digest = self.navigator.validate(
             version.spec,
             version.certificate,
