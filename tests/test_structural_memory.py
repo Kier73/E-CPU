@@ -11,6 +11,8 @@ from mailcpu.structural_memory import (
     StructuralMemoryError,
     StructuralMemoryRefused,
     StructuralMemoryRegistry,
+    StructuralMemorySpec,
+    StructuralMemoryVerifier,
     VerificationClass,
 )
 
@@ -304,6 +306,14 @@ def test_fgraph_generator_adapter_navigates_preperiod_and_cycle():
     proposal = registry.propose("fgraph", law, {i: value for i, value in enumerate(lane)})
     registry.admit(proposal.proposal_id, expected_revision=0)
     assert registry.read("fgraph", 8).value == 50
+
+
+def test_verifier_rejects_boolean_coordinates_even_when_called_directly():
+    spec = StructuralMemorySpec.from_law("counter", 1, "integer-orbit", _integer_law())
+    verifier = StructuralMemoryVerifier()
+
+    with pytest.raises(StructuralMemoryError):
+        verifier.certify(spec, ((False, 0), (1, 1)))
 
 
 def test_boolean_coordinates_and_boolean_witnesses_are_rejected():
