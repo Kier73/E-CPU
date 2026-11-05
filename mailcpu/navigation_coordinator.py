@@ -162,6 +162,7 @@ class ExecutionAdmissionRequest:
     resource_envelope: tuple[tuple[str, int], ...]
     compilation_digest: str | None = None
     abstract_result_digest: str | None = None
+    abstract_analysis_config_digest: str | None = None
     causal_graph_digest: str | None = None
     causal_evidence_digest: str | None = None
     bisimulation_digest: str | None = None
@@ -181,6 +182,7 @@ class ExecutionAdmissionRequest:
         optional = (
             "compilation_digest",
             "abstract_result_digest",
+            "abstract_analysis_config_digest",
             "causal_graph_digest",
             "causal_evidence_digest",
             "bisimulation_digest",
@@ -244,6 +246,7 @@ class ExecutionAdmissionRequest:
             "resource_envelope": {name: amount for name, amount in self.resource_envelope},
             "compilation_digest": self.compilation_digest,
             "abstract_result_digest": self.abstract_result_digest,
+            "abstract_analysis_config_digest": self.abstract_analysis_config_digest,
             "causal_graph_digest": self.causal_graph_digest,
             "causal_evidence_digest": self.causal_evidence_digest,
             "bisimulation_digest": self.bisimulation_digest,
@@ -264,6 +267,7 @@ class NavigationCoordinationResult:
     readiness: ReadinessResult
     compilation_digest: str | None
     compilation_error: str | None
+    abstract_analysis_config_digest: str | None
     abstract_reachability: AbstractReachabilityResult | None
     causal_dependencies: CausalDependencyResult | None
     causal_graph_digest: str | None
@@ -285,7 +289,7 @@ class NavigationCoordinationResult:
                 raise NavigationCoordinationError(f"{name} must be a lowercase SHA-256 digest")
         if not isinstance(self.navigation, NavigationResult) or not isinstance(self.readiness, ReadinessResult):
             raise NavigationCoordinationError("coordination result requires concrete navigation and readiness evidence")
-        for name in ("compilation_digest", "causal_graph_digest", "causal_evidence_digest"):
+        for name in ("compilation_digest", "abstract_analysis_config_digest", "causal_graph_digest", "causal_evidence_digest"):
             value = getattr(self, name)
             if value is not None and (
                 not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None
@@ -318,6 +322,7 @@ class NavigationCoordinationResult:
                 "context_digest": self.context_digest,
                 "start_state_digest": self.start_state_digest,
                 "compilation_digest": self.compilation_digest,
+                "abstract_analysis_config_digest": self.abstract_analysis_config_digest,
                 "causal_graph_digest": self.causal_graph_digest,
                 "causal_evidence_digest": self.causal_evidence_digest,
                 "representation_equivalence_required": self.representation_equivalence_required,
@@ -377,6 +382,7 @@ class NavigationCoordinationResult:
             },
             "compilation_digest": self.compilation_digest,
             "compilation_error": self.compilation_error,
+            "abstract_analysis_config_digest": self.abstract_analysis_config_digest,
             "abstract_reachability": None if self.abstract_reachability is None else self.abstract_reachability.to_dict(),
             "causal_dependencies": None if self.causal_dependencies is None else _causal_payload(self.causal_dependencies),
             "causal_graph_digest": self.causal_graph_digest,
@@ -453,8 +459,13 @@ class NavigationCoordinator:
         compilation: CompiledNavigation | None = None
         abstract: AbstractReachabilityResult | None = None
         compilation_error: str | None = None
+        abstract_analysis_config_digest: str | None = None
         try:
             compilation = AbstractNavigationCompiler().compile(descriptor, address, context)
+            abstract_analysis_config_digest = _digest({
+                "max_abstract_updates": max_abstract_updates,
+                "widen_after": widen_after,
+            })
             abstract = analyze_compiled_navigation(
                 compilation,
                 max_updates=max_abstract_updates,
@@ -523,6 +534,7 @@ class NavigationCoordinator:
                 resource_envelope=tuple(sorted(navigation.resource_envelope.items())),
                 compilation_digest=None if compilation is None else compilation.digest,
                 abstract_result_digest=None if abstract is None else _digest(abstract.to_dict()),
+                abstract_analysis_config_digest=abstract_analysis_config_digest,
                 causal_graph_digest=causal_graph_digest,
                 causal_evidence_digest=causal_evidence_digest,
                 bisimulation_digest=None if bisimulation is None else _digest(_bisimulation_payload(bisimulation)),
@@ -539,6 +551,7 @@ class NavigationCoordinator:
             readiness=readiness,
             compilation_digest=None if compilation is None else compilation.digest,
             compilation_error=compilation_error,
+            abstract_analysis_config_digest=abstract_analysis_config_digest,
             abstract_reachability=abstract,
             causal_dependencies=causal_result,
             causal_graph_digest=causal_graph_digest,
