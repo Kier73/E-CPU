@@ -20,9 +20,10 @@ from .model import DEFAULT_MAX_TICKS, Instruction, MachineState, Op, Program, Ru
 
 
 def _scheduler_locked(method):
-    """Serialize scheduler mutations and snapshots against native CPU context transactions."""
+    """Mathematics: serialize scheduler mutations and snapshots against native CPU context transactions."""
     @wraps(method)
     def wrapped(self, *args, **kwargs):
+        """Mathematics: acquire the scheduler lock before invoking the decorated operation."""
         with self._state_lock:
             return method(self, *args, **kwargs)
     return wrapped
@@ -137,7 +138,6 @@ class SchedulerBackend:
         except ValueError:
             return raw_value
 
-    @_scheduler_locked
     def snapshot(self) -> dict[str, Any]:
         """Mathematics: serialize backend valuation `R`, queues `I`, and output sequence `O` for exact continuation."""
 
@@ -148,7 +148,6 @@ class SchedulerBackend:
             "outputs": [list(item) for item in self.outputs],
         }
 
-    @_scheduler_locked
     def inject(self, mailbox: str, values: Sequence[int]) -> None:
         """Mathematics: extend local input sequence `I_mailbox := I_mailbox || values` for deterministic tests."""
 
@@ -219,7 +218,7 @@ class DeterministicScheduler:
 
     @contextmanager
     def state_transaction(self) -> Iterator[None]:
-        """Hold the scheduler state lock across one multi-field CPU context transaction."""
+        """Mathematics: hold the scheduler state lock across one multi-field CPU context transaction."""
         with self._state_lock:
             yield
 
@@ -312,6 +311,7 @@ class DeterministicScheduler:
         )
         return child_pid
 
+    @_scheduler_locked
     def inject(self, pid: int, mailbox: str, values: Sequence[int]) -> None:
         """Mathematics: append input tokens and apply wake rule `BLOCKED ∧ input_available -> RUNNABLE`."""
 
@@ -537,6 +537,7 @@ class DeterministicScheduler:
         except KeyError as exc:
             raise KeyError(f"unknown task: {pid}") from exc
 
+    @_scheduler_locked
     def snapshot(self) -> dict[str, object]:
         """Mathematics: serialize scheduler state `(T, ready, tick)` and each task's machine valuation."""
 
