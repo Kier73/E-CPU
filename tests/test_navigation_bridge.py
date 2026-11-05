@@ -207,6 +207,23 @@ def test_compiler_rejects_boolean_and_float_numeric_operands() -> None:
         AbstractNavigationCompiler().compile(descriptor, float_address, context)
 
 
+def test_compiler_refuses_referenced_non_integer_initial_state_fields() -> None:
+    descriptor = ProcessDescriptor("float-state", "1", (), {"count": 0.5})
+    address = SemanticAddress("float-state", "1", StatePattern((StateCondition(("count",), ConditionOperator.GT, 0),)))
+
+    with pytest.raises(NavigationCompilationError, match="not an integer coordinate"):
+        AbstractNavigationCompiler().compile(descriptor, address, ProcessContext("float-state"))
+
+
+def test_compiler_allows_unreferenced_non_integer_json_fields() -> None:
+    descriptor = ProcessDescriptor("projected", "1", (), {"count": 0, "metadata": {"mode": "cpu"}})
+    address = SemanticAddress("projected", "1", StatePattern((_eq("count", 0),)))
+
+    compilation = AbstractNavigationCompiler().compile(descriptor, address, ProcessContext("projected"))
+
+    assert set(compilation.program.initial_state.as_mapping()) == {"count"}
+
+
 def test_compilation_verifier_binds_context_and_source_descriptions() -> None:
     descriptor = ProcessDescriptor(
         "bound",
