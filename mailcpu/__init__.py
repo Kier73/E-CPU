@@ -542,6 +542,14 @@ from .navigation_coordinator import (
     verify_navigation_coordination,
 )
 
+from .navigation_admission import (
+    HypervisorNavigationAdmissionCoordinator,
+    NavigationAdmissionError,
+    NavigationAdmissionResult,
+    NavigationAdmissionStatus,
+    NavigationExecutionGrant,
+)
+
 __all__ = [
     "CoordinationDisposition",
     "ExecutionAdmissionRequest",
@@ -549,6 +557,11 @@ __all__ = [
     "NavigationCoordinationResult",
     "NavigationCoordinator",
     "verify_navigation_coordination",
+    "HypervisorNavigationAdmissionCoordinator",
+    "NavigationAdmissionError",
+    "NavigationAdmissionResult",
+    "NavigationAdmissionStatus",
+    "NavigationExecutionGrant",
     "AbstractNavigationCompiler",
     "CompiledNavigation",
     "NavigationCompilationError",
