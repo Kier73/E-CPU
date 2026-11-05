@@ -320,7 +320,10 @@ def test_non_ready_navigation_result_cannot_receive_hypervisor_grant() -> None:
 def test_same_event_identity_cannot_be_rebound_to_another_plan() -> None:
     descriptor, address, context, coordination = _plan()
     operating_system, pid = _os()
-    admitter = _admitter(operating_system, context)
+    admitter = HypervisorNavigationAdmissionCoordinator(
+        operating_system,
+        lambda pid, descriptor, address: ProcessContext(descriptor.process_id),
+    )
     first = admitter.admit(
         pid=pid,
         source="test-runner",
@@ -342,5 +345,5 @@ def test_same_event_identity_cannot_be_rebound_to_another_plan() -> None:
     )
 
     assert first.accepted
-    assert second.status is NavigationAdmissionStatus.REFUSED_CAPABILITY
+    assert second.status is NavigationAdmissionStatus.REFUSED_ARBITRATION
     assert second.grant is None
