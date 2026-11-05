@@ -301,6 +301,7 @@ def test_transit_worker_checkpoint_restores_structural_memory_and_replays_same_s
     )
     receiver, authority_pid, version = _prepare_receiver()
     initial_host_calls = {"count": 0}
+    replacement_transports: list[SocketTransport] = []
 
     class CountingHost(TransitStructuralMemoryHost):
         """Count receiver host entries, independently of generator read-cache use."""
@@ -350,6 +351,12 @@ def test_transit_worker_checkpoint_restores_structural_memory_and_replays_same_s
         # Process restart: rebuild each logical channel on newly authenticated TCP streams.
         new_request_client_transport, new_request_worker_transport = _tcp_pair("client", "worker")
         new_response_worker_transport, new_response_client_transport = _tcp_pair("worker", "client")
+        replacement_transports.extend((
+            new_request_client_transport,
+            new_request_worker_transport,
+            new_response_worker_transport,
+            new_response_client_transport,
+        ))
         restored_request_client = HypervisorOperationChannel(
             ReliableChannel.from_snapshot(client_request_state, new_request_client_transport)
         )
@@ -405,6 +412,7 @@ def test_transit_worker_checkpoint_restores_structural_memory_and_replays_same_s
             request_worker_transport,
             response_worker_transport,
             response_client_transport,
+            *replacement_transports,
         ):
             if not transport.closed:
                 transport.close()
