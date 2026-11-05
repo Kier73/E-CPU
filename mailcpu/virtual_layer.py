@@ -18,6 +18,7 @@ from typing import Any, Callable, Mapping
 from .classifier import HypervisorArbitrationEvent, HypervisorDomain, HypervisorExecutionResult, HypervisorRequest
 from .hypervisor_transport import HypervisorOperationChannel
 from .seed import SystemIdentity, SystemSeedEnvelope
+from .structural_memory import StructuralMemoryError, StructuralMemoryReadReceipt, StructuralMemoryVersion
 
 
 class VirtualLayerError(ValueError):
@@ -206,6 +207,88 @@ class VirtualBudget:
 
 
 @dataclass(frozen=True)
+class VirtualStructuralMemoryRef:
+    """A portable, revision- and digest-pinned address into receiver-local structural memory.
+
+    Mathematics: identify one admitted value by (memory_id, revision, context,
+    coordinate, spec_digest, certificate_digest), without carrying a generator.
+    """
+
+    binding: str
+    memory_id: str
+    revision: int
+    context: Mapping[str, Any]
+    coordinate: int
+    spec_digest: str
+    certificate_digest: str
+
+    def __post_init__(self) -> None:
+        _operator_id(self.binding)
+        _label(self.memory_id, "structural-memory identity")
+        if len(self.memory_id) > 256:
+            raise VirtualLayerError("structural-memory identity exceeds 256 characters")
+        _positive_int(self.revision, "structural-memory revision")
+        _positive_int(self.coordinate, "structural-memory coordinate", allow_zero=True)
+        if not isinstance(self.context, Mapping):
+            raise VirtualLayerError("structural-memory context must be an object")
+        context = _copy_json(dict(self.context), "structural-memory context")
+        object.__setattr__(self, "context", _freeze_json(context))
+        for name, value in (
+            ("spec_digest", self.spec_digest),
+            ("certificate_digest", self.certificate_digest),
+        ):
+            if not isinstance(value, str) or len(value) != 64 or any(c not in "0123456789abcdef" for c in value):
+                raise VirtualLayerError(f"structural-memory {name} must be a lowercase SHA-256 digest")
+
+    def to_dict(self) -> dict[str, object]:
+        """Serialize the complete immutable structural-memory address."""
+        return {
+            "binding": self.binding,
+            "memory_id": self.memory_id,
+            "revision": self.revision,
+            "context": _copy_json(dict(self.context), "structural-memory context"),
+            "coordinate": self.coordinate,
+            "spec_digest": self.spec_digest,
+            "certificate_digest": self.certificate_digest,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "VirtualStructuralMemoryRef":
+        """Reconstruct an exact digest-pinned structural-memory address."""
+        expected = {
+            "binding", "memory_id", "revision", "context", "coordinate",
+            "spec_digest", "certificate_digest",
+        }
+        if not isinstance(payload, Mapping) or set(payload) != expected:
+            raise VirtualLayerError("structural-memory reference fields are invalid")
+        return cls(
+            payload["binding"], payload["memory_id"], payload["revision"],
+            payload["context"], payload["coordinate"], payload["spec_digest"],
+            payload["certificate_digest"],
+        )
+
+    @classmethod
+    def from_version(
+        cls,
+        binding: str,
+        version: StructuralMemoryVersion,
+        coordinate: int,
+    ) -> "VirtualStructuralMemoryRef":
+        """Pin a workload reference to one already-admitted immutable version."""
+        if not isinstance(version, StructuralMemoryVersion):
+            raise VirtualLayerError("structural-memory reference requires an admitted version")
+        return cls(
+            binding=binding,
+            memory_id=version.spec.memory_id,
+            revision=version.spec.revision,
+            context=version.spec.context,
+            coordinate=coordinate,
+            spec_digest=version.spec.digest,
+            certificate_digest=version.certificate.digest,
+        )
+
+
+@dataclass(frozen=True)
 class VirtualOperatorRef:
     """Mathematics: A name/version reference to an operator; never an executable payload."""
 
@@ -213,6 +296,7 @@ class VirtualOperatorRef:
     version: int = 1
     preferred_substrate: str | None = None
     target_node: str | None = None
+    structural_memory: tuple[VirtualStructuralMemoryRef, ...] = ()
 
     def __post_init__(self) -> None:
         _operator_id(self.operator_id)
@@ -221,17 +305,36 @@ class VirtualOperatorRef:
             raise VirtualLayerError("preferred_substrate is not a registered substrate kind")
         if self.target_node is not None:
             _label(self.target_node, "target_node")
+        references = tuple(self.structural_memory)
+        if any(not isinstance(item, VirtualStructuralMemoryRef) for item in references):
+            raise VirtualLayerError("structural_memory must contain typed VirtualStructuralMemoryRef values")
+        if len({item.binding for item in references}) != len(references):
+            raise VirtualLayerError("structural-memory binding names must be unique per operator")
+        object.__setattr__(self, "structural_memory", references)
 
     def to_dict(self) -> dict[str, object]:
-        """Mathematics: Serialize the full declarative operator contract."""
-        return {"operator_id": self.operator_id, "version": self.version, "preferred_substrate": self.preferred_substrate, "target_node": self.target_node}
+        """Mathematics: Serialize the operator reference and its non-executable state addresses."""
+        payload: dict[str, object] = {
+            "operator_id": self.operator_id, "version": self.version,
+            "preferred_substrate": self.preferred_substrate, "target_node": self.target_node,
+        }
+        if self.structural_memory:
+            payload["structural_memory"] = [item.to_dict() for item in self.structural_memory]
+        return payload
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "VirtualOperatorRef":
-        """Mathematics: Reconstruct a name/version reference without accepting executable code."""
+        """Reconstruct an operator reference, optionally with pinned structural-memory inputs."""
         if not isinstance(payload, Mapping):
             raise VirtualLayerError("operator reference must be an object")
-        return cls(payload.get("operator_id", ""), payload.get("version", 1), payload.get("preferred_substrate"), payload.get("target_node"))
+        raw_memory = payload.get("structural_memory", [])
+        if not isinstance(raw_memory, list) or any(not isinstance(item, Mapping) for item in raw_memory):
+            raise VirtualLayerError("operator structural_memory must be an array of reference objects")
+        return cls(
+            payload.get("operator_id", ""), payload.get("version", 1),
+            payload.get("preferred_substrate"), payload.get("target_node"),
+            tuple(VirtualStructuralMemoryRef.from_dict(item) for item in raw_memory),
+        )
 
 
 @dataclass(frozen=True)
@@ -276,8 +379,11 @@ class VirtualLayerWorkload:
         _positive_int(self.logical_time, "logical_time", allow_zero=True)
         _positive_int(self.max_hops, "max_hops")
         _positive_int(self.schema_version, "schema_version")
-        if self.schema_version != 1:
+        if self.schema_version not in {1, 2}:
             raise VirtualLayerError("unsupported Virtual Layer workload schema version")
+        has_structural_memory = any(item.structural_memory for item in operators)
+        if has_structural_memory and self.schema_version < 2:
+            raise VirtualLayerError("structural-memory operator bindings require workload schema version 2")
         if not isinstance(self.eligible_nodes, (tuple, list)):
             raise VirtualLayerError("eligible_nodes must be a sequence")
         nodes = tuple(_label(node, "eligible node") for node in self.eligible_nodes)
@@ -575,11 +681,19 @@ class VirtualLayerRuntime:
             if workload.eligible_nodes and self.node_id not in workload.eligible_nodes:
                 raise VirtualLayerError("this node is outside the workload's eligible node set")
         input_value = _copy_json(workload.input_value, "input_value")
-        if not _value_matches(input_value, spec.input_kind):
+        if reference.structural_memory:
+            if spec.input_kind not in {"object", "any"}:
+                raise VirtualLayerError("operators with structural-memory bindings must accept an object input envelope")
+        elif not _value_matches(input_value, spec.input_kind):
             raise VirtualLayerError(f"operator input does not match {spec.input_kind}")
-        input_bytes = len(_canonical_bytes(input_value, "input_value"))
+        # Preflight cost is based only on sender-known input and address bytes.
+        # The receiver separately bounds the fully resolved value-and-receipt envelope.
+        input_bytes = len(_canonical_bytes(input_value, "input_value")) + sum(
+            len(_canonical_bytes(item.to_dict(), "structural-memory reference"))
+            for item in reference.structural_memory
+        )
         if input_bytes > spec.max_input_bytes or input_bytes > min(workload.budget.max_bytes, self.max_bytes):
-            raise VirtualLayerError("operator input exceeds byte budget")
+            raise VirtualLayerError("operator input description exceeds byte budget")
         energy = spec.estimated_energy(input_bytes)
         ticks = max(1, math.ceil(energy / self.virtual_capacity))
         if energy > min(workload.budget.max_energy, self.max_energy):
@@ -600,6 +714,65 @@ class VirtualLayerRuntime:
         if envelope.identity != workload.system or local_ground != workload.ground:
             raise VirtualLayerError("workload Virtual Ground or causal frontier is stale or mismatched")
 
+    def _resolve_structural_memory_inputs(
+        self,
+        operating_system: Any,
+        pid: int,
+        input_value: Any,
+        references: tuple[VirtualStructuralMemoryRef, ...],
+    ) -> tuple[dict[str, object], dict[str, dict[str, object]]]:
+        """Resolve digest-pinned memories under receiver-local read authority.
+
+        The returned operator envelope contains the original input and, for
+        each declared binding, both the integer value and its full receipt.
+        No generator or callable crosses the workload boundary.
+        """
+        try:
+            process = operating_system.environment.kernel._process(pid)
+        except Exception as exc:
+            raise VirtualLayerError(f"structural-memory receiver process is unavailable: {exc}") from exc
+        if not any(
+            capability.allows("/structural-memory/read", "read")
+            for capability in process.capabilities
+        ):
+            raise VirtualLayerError("receiver authority lacks 'read' permission for /structural-memory/read")
+
+        bound_values: dict[str, object] = {}
+        receipts: dict[str, dict[str, object]] = {}
+        for reference in references:
+            try:
+                receipt = operating_system.structural_memory.read_revision(
+                    reference.memory_id,
+                    reference.revision,
+                    reference.coordinate,
+                    context=dict(reference.context),
+                )
+            except StructuralMemoryError as exc:
+                raise VirtualLayerError(f"structural-memory read refused: {exc}") from exc
+            if not isinstance(receipt, StructuralMemoryReadReceipt):
+                raise VirtualLayerError("structural-memory registry returned an invalid receipt")
+            if (
+                receipt.memory_id != reference.memory_id
+                or receipt.revision != reference.revision
+                or receipt.coordinate != reference.coordinate
+                or receipt.spec_digest != reference.spec_digest
+                or receipt.certificate_digest != reference.certificate_digest
+                or receipt.context_digest != _digest(dict(reference.context), "structural-memory context")
+            ):
+                raise VirtualLayerError("structural-memory receipt does not match the pinned reference")
+            receipt_dict = receipt.to_dict()
+            receipts[reference.binding] = receipt_dict
+            bound_values[reference.binding] = {
+                "value": receipt.value,
+                "receipt": receipt_dict,
+            }
+
+        resolved = {
+            "input": _copy_json(input_value, "input_value"),
+            "structural_memory": bound_values,
+        }
+        return resolved, receipts
+
     def build_event(self, source: str, channel: str, sequence: int, logical_time: int, workload: VirtualLayerWorkload, operator_id: str) -> HypervisorArbitrationEvent:
         """Mathematics: Build a typed operation event; it contains operator references, never executable code or authority."""
         if not isinstance(workload, VirtualLayerWorkload):
@@ -616,6 +789,7 @@ class VirtualLayerRuntime:
                 "workload": workload.to_dict(), "workload_digest": workload.digest,
                 "operator_id": spec.operator_id, "operator_version": spec.version,
                 "operator_contract_digest": spec.digest, "input_digest": _digest(input_value, "operator input"),
+                "structural_memory_digest": _digest([item.to_dict() for item in reference.structural_memory], "structural-memory references"),
                 "estimated_energy": energy, "estimated_virtual_ticks": ticks, "input_bytes": input_bytes,
             },
             required_rights=spec.required_rights, granted_rights=frozenset(), destructive=False,
@@ -650,6 +824,11 @@ class VirtualLayerRuntime:
             raise VirtualLayerError("operation resource or required rights differ from the local operator contract")
         if payload.get("input_digest") != _digest(input_value, "operator input"):
             raise VirtualLayerError("operator input digest mismatch")
+        if payload.get("structural_memory_digest") != _digest(
+            [item.to_dict() for item in reference.structural_memory],
+            "structural-memory references",
+        ):
+            raise VirtualLayerError("structural-memory reference digest mismatch")
         for field_name, expected in (("input_bytes", input_bytes), ("estimated_energy", energy), ("estimated_virtual_ticks", ticks)):
             claimed = payload.get(field_name)
             if not isinstance(claimed, int) or isinstance(claimed, bool) or claimed != expected:
@@ -658,15 +837,26 @@ class VirtualLayerRuntime:
         authorized_event = operating_system.hypervisor_authorize_event(pid, event)
 
         def invoke() -> dict[str, object]:
-            """Mathematics: Execute the local pure operator and return a canonical, digest-bound result effect."""
-            result = handler(input_value, workload)
+            """Resolve receiver-local structural inputs only after hypervisor ALLOW, then run the trusted pure operator."""
+            resolved_input: Any = input_value
+            memory_receipts: dict[str, dict[str, object]] = {}
+            if reference.structural_memory:
+                resolved_input, memory_receipts = self._resolve_structural_memory_inputs(
+                    operating_system, pid, input_value, reference.structural_memory
+                )
+            if not _value_matches(resolved_input, spec.input_kind):
+                raise VirtualLayerError(f"resolved operator input does not match {spec.input_kind}")
+            resolved_input_bytes = len(_canonical_bytes(resolved_input, "resolved operator input"))
+            if resolved_input_bytes > spec.max_input_bytes:
+                raise VirtualLayerError("resolved operator input exceeds the operator byte bound")
+            result = handler(resolved_input, workload)
             if not _value_matches(result, spec.output_kind):
                 raise VirtualLayerError(f"operator output does not match {spec.output_kind}")
             result_copy = _copy_json(result, "operator output")
             result_bytes = len(_canonical_bytes(result_copy, "operator output"))
-            if result_bytes > spec.max_output_bytes or input_bytes + result_bytes > min(workload.budget.max_bytes, self.max_bytes):
+            if result_bytes > spec.max_output_bytes or resolved_input_bytes + result_bytes > min(workload.budget.max_bytes, self.max_bytes):
                 raise VirtualLayerError("operator output exceeds its declared or workload byte budget")
-            return {
+            effect: dict[str, object] = {
                 "kind": "virtual_layer.operator_result", "schema_version": 1,
                 "workload_id": workload.workload_id, "workload_digest": workload.digest,
                 "operator_id": spec.operator_id, "operator_version": spec.version,
@@ -677,6 +867,10 @@ class VirtualLayerRuntime:
                 "input_digest": _digest(input_value, "operator input"),
                 "result_digest": _digest(result_copy, "operator output"), "result": result_copy,
             }
+            if memory_receipts:
+                effect["resolved_input_digest"] = _digest(resolved_input, "resolved operator input")
+                effect["structural_memory_receipts"] = memory_receipts
+            return effect
 
         return authorized_event, invoke
 
