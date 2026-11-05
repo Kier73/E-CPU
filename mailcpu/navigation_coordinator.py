@@ -287,7 +287,9 @@ class NavigationCoordinationResult:
             raise NavigationCoordinationError("coordination result requires concrete navigation and readiness evidence")
         for name in ("compilation_digest", "causal_graph_digest", "causal_evidence_digest"):
             value = getattr(self, name)
-            if value is not None and re.fullmatch(r"[0-9a-f]{64}", value) is None:
+            if value is not None and (
+                not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None
+            ):
                 raise NavigationCoordinationError(f"{name} must be absent or a SHA-256 digest")
         if self.compilation_error is not None and (not isinstance(self.compilation_error, str) or not self.compilation_error):
             raise NavigationCoordinationError("compilation_error must be non-empty text or absent")
@@ -299,10 +301,10 @@ class NavigationCoordinationResult:
             raise NavigationCoordinationError("bisimulation evidence is malformed")
         if (self.causal_dependencies is None) != (self.causal_graph_digest is None or self.causal_evidence_digest is None):
             raise NavigationCoordinationError("causal evidence and its source digests must be supplied together")
-        if self.representation_equivalence_required and self.bisimulation is None:
-            raise NavigationCoordinationError("required representation equivalence needs bisimulation evidence")
         if not isinstance(self.representation_equivalence_required, bool):
             raise NavigationCoordinationError("representation_equivalence_required must be Boolean")
+        if self.representation_equivalence_required and self.bisimulation is None:
+            raise NavigationCoordinationError("required representation equivalence needs bisimulation evidence")
         if self.admission_request is not None and not isinstance(self.admission_request, ExecutionAdmissionRequest):
             raise NavigationCoordinationError("admission_request is malformed")
         if self.admission_request is not None:
@@ -320,8 +322,21 @@ class NavigationCoordinationResult:
                 raise NavigationCoordinationError("admission proposal does not bind the coordination source evidence")
             expected_abstract = None if self.abstract_reachability is None else _digest(self.abstract_reachability.to_dict())
             expected_bisimulation = None if self.bisimulation is None else _digest(_bisimulation_payload(self.bisimulation))
-            if request.abstract_result_digest != expected_abstract or request.bisimulation_digest != expected_bisimulation:
-                raise NavigationCoordinationError("admission proposal does not bind the formal analysis evidence")
+            expected_witness = None if self.navigation.witness is None else _digest(self.navigation.witness.to_dict())
+            expected_readiness = _digest({
+                "ready": self.readiness.ready,
+                "blockers": list(self.readiness.blockers),
+            })
+            if (
+                request.abstract_result_digest != expected_abstract
+                or request.bisimulation_digest != expected_bisimulation
+                or request.concrete_witness_digest != expected_witness
+                or request.final_state_digest != self.navigation.witness.final_state_digest
+                or request.readiness_digest != expected_readiness
+                or request.transition_ids != self.navigation.path
+                or request.resource_envelope != tuple(sorted(self.navigation.resource_envelope.items()))
+            ):
+                raise NavigationCoordinationError("admission proposal does not bind the formal or concrete evidence")
         if self.disposition is CoordinationDisposition.READY:
             if (
                 self.admission_request is None
