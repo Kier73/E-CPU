@@ -30,9 +30,11 @@ semantics.
 Only integer-valued initial fields are projected. Other untouched fields may
 remain in the concrete JSON state, but they must not be referenced or mutated
 by the compiled transition, invariant, or goal descriptions. A referenced
-field absent from the integer projection is represented as unconstrained in the
-abstract domain, which can introduce false positives but cannot exclude a
-concrete integer value.
+field that exists initially must have an exact integer value; Boolean and
+floating-point coordinates are refused because the abstract domain is integer
+only. A referenced field absent from the initial state is represented as
+unconstrained in the abstract domain, which can introduce false positives but
+cannot exclude a concrete integer value.
 
 ## Meaning of the result
 
