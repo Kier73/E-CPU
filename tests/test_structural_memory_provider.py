@@ -50,14 +50,17 @@ def test_structural_memory_file_reads_bounded_byte_slices_with_provenance() -> N
     reference = _reference(version)
     path = operating_system.register_structural_memory_file("/data/model.bin", reference)
 
-    provider = operating_system.environment.kernel.fs.providers.structural_memory_providers()[0]
-    first, receipt = provider.read_with_receipt(2, 4)
+    first, receipt = operating_system.environment.kernel.fs.read_file_with_receipt(path, 2, 4)
     assert first == b"CDEF"
     assert receipt.memory_id == "byte-memory"
     assert receipt.revision == 1
     assert receipt.offset == 2
     assert receipt.length == 4
     assert receipt.coordinate_start == 2
+    assert receipt.spec_digest == version.spec.digest
+    assert receipt.certificate_digest == version.certificate.digest
+    assert receipt.context_digest == version.spec.context_digest
+    assert receipt.cache_hit_count == 0
     assert len(receipt.content_digest) == 64
     assert len(receipt.value_receipt_ids) == 4
 
