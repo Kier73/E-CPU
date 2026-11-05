@@ -29,7 +29,7 @@ from mailcpu.navigation_formal import (
     FiniteTransitionSystem,
     LabeledTransition,
 )
-from mailcpu.temporal import CausalStamp
+from mailcpu.temporal import CausalStamp, TemporalFrame
 
 
 def _eq(path: str, value: object) -> StateCondition:
@@ -105,12 +105,22 @@ def test_full_context_digest_binds_capabilities_and_temporal_coordinates() -> No
     descriptor, address, context = _counter()
     baseline = NavigationCoordinator().coordinate(descriptor, address, context)
     with_capability = ProcessContext("counter", bindings={"target": 4}, capabilities={"execute"})
-    changed = NavigationCoordinator().coordinate(descriptor, address, with_capability)
+    with_temporal = ProcessContext(
+        "counter",
+        bindings={"target": 4},
+        temporal_frame=TemporalFrame("counter", causal=CausalStamp.create("counter", 1, {"counter": 1})),
+    )
+    capability_result = NavigationCoordinator().coordinate(descriptor, address, with_capability)
+    temporal_result = NavigationCoordinator().coordinate(descriptor, address, with_temporal)
 
     assert baseline.disposition is CoordinationDisposition.READY
-    assert changed.disposition is CoordinationDisposition.READY
-    assert baseline.context_digest != changed.context_digest
-    assert baseline.admission_request.digest != changed.admission_request.digest
+    assert capability_result.disposition is CoordinationDisposition.READY
+    assert temporal_result.disposition is CoordinationDisposition.READY
+    assert baseline.context_digest != capability_result.context_digest
+    assert baseline.context_digest != temporal_result.context_digest
+    assert capability_result.context_digest != temporal_result.context_digest
+    assert baseline.admission_request.digest != capability_result.admission_request.digest
+    assert baseline.admission_request.digest != temporal_result.admission_request.digest
 
 
 def test_readiness_failure_prevents_an_admission_proposal() -> None:
