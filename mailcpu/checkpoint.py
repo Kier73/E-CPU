@@ -65,6 +65,7 @@ def load_checkpoint(
     """Mathematics: parse C, require format=v1 and SHA256(state)=digest, then restore its OS graph with host code rebound."""
 
     from .headless import HeadlessOS
+    from .kernel import KernelError
 
     try:
         document = json.loads(Path(path).read_text(encoding="utf-8"))
