@@ -59,9 +59,9 @@ The intended direction is to move interpretation and execution selection into th
 
 The current path can host bounded reference backends for scalar MailCPU arithmetic, a lane-oriented SIMT interpreter, private process-memory transfer, and structural-memory coordinate reads. A typed router selects the backend by the exact operation/resource pair after the receiver has reconstructed local authority. These are semantic reference implementations, not GPU hardware or proof of a speed advantage over local execution.
 
-## Structural-memory reads inside the path (E0.4)
+## Structural-memory reads inside the path (E0.4 branch)
 
-The path can now address an admitted structural-memory revision as a receiver-side resource. The request carries exactly four semantic fields:
+The E0.4 branch adds a receiver-side resource for addressing an admitted structural-memory revision. The request carries exactly four semantic fields:
 
 - `memory_id`: the stable structural-memory identity;
 - `revision`: the explicit admitted immutable revision;
