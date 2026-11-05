@@ -55,6 +55,7 @@ class MailCPUVirtualMachine:
         self.host_syscall_handler: Callable[[int, str, dict[str, Any]], Any] | None = None
         self._resolver_observation_receipts: dict[tuple[int, str, int], tuple[Any, ...]] = {}
 
+    @_scheduler_transaction
     def create_shared_memory(self, name: str, size: int) -> SharedRegion:
         """Mathematics: extend shared map `S := S[name↦region]` with zero-filled region of byte cardinality `size`."""
 
@@ -68,6 +69,7 @@ class MailCPUVirtualMachine:
         )
         return region
 
+    @_scheduler_transaction
     def attach_shared_memory(self, pid: int, name: str, start: int, writable: bool = True) -> None:
         """Mathematics: add shared mapping `M_pid[start/P+j] := S[name][j]` for every page `j`."""
 
@@ -83,6 +85,7 @@ class MailCPUVirtualMachine:
             {"pid": pid, "name": name, "start": start, "writable": writable},
         )
 
+    @_scheduler_transaction
     def spawn_program(
         self,
         program: Program,
@@ -217,6 +220,7 @@ class MailCPUVirtualMachine:
             raise RuntimeError(f"program syscall {name} returned non-integer result")
         return result
 
+    @_scheduler_transaction
     def exec_program(self, pid: int, program: Program, name: str | None = None) -> None:
         """Mathematics: atomically replace task code and private memory while preserving PID and VM-wide resident invariant."""
 
@@ -237,6 +241,7 @@ class MailCPUVirtualMachine:
         self.scheduler.exec(pid, program, name)
         self.memories[pid] = replacement
 
+    @_scheduler_transaction
     def fork_program(
         self,
         parent_pid: int,
@@ -279,6 +284,7 @@ class MailCPUVirtualMachine:
         self.environment.kernel._process(actual_pid).errno = parent_process.errno
         return actual_pid
 
+    @_scheduler_transaction
     def reap_process(self, pid: int) -> None:
         """Mathematics: remove exited process state `T[pid],M[pid]` after parent wait, releasing its resident mappings."""
 
@@ -287,6 +293,7 @@ class MailCPUVirtualMachine:
         self.scheduler.reap(pid)
         del self.memories[pid]
 
+    @_scheduler_transaction
     def snapshot(self) -> dict[str, Any]:
         """Mathematics: serialize the composed product state `VM = (E, S, {M_pid})` for replay inspection."""
 
