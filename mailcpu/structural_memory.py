@@ -1348,6 +1348,11 @@ class StructuralMemoryRegistry:
                 parent = self._version_for_spec_digest(parent_digest)
                 if parent is None:
                     raise StructuralMemoryError("structural-memory proposal parent is not an admitted revision")
+                if (
+                    parent.spec.memory_id != proposal.spec.memory_id
+                    or proposal.spec.revision != parent.spec.revision + 1
+                ):
+                    raise StructuralMemoryError("structural-memory proposal revision does not immediately extend its parent")
                 parent_sequence = admitted_events.get(parent.admitted_proposal_id, (0, {}))[0]
                 if proposal_sequence <= parent_sequence:
                     raise StructuralMemoryError("structural-memory child proposal precedes parent admission")
