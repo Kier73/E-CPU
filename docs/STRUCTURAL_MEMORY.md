@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The Structural Memory Service is the first executable layer of Adaptive Structural Emulation. It stores a verified generative description of a state family rather than requiring every state to be materialized.
+The Structural Memory Service is the first executable layer of Adaptive Structural Emulation. It stores a verified generative description of a state family rather than requiring every state to be materialized. E0.2 connects that description to the HeadlessOS checkpoint and the kernel's hash-chained event journal.
 
 A structural memory version binds:
 
@@ -105,6 +105,55 @@ Coordinates must be non-negative integers; Boolean values are rejected even thou
 
 The receipt is provenance for a structural read. It is not an execution grant, hypervisor authorization, CPU retirement event, or proof that an external machine has been mutated.
 
+## Persistence and replay (E0.2)
+
+The HeadlessOS now owns one StructuralMemoryRegistry instance, exposed as os.structural_memory. Its registry state is part of the same composite checkpoint graph as the VM, services, hypervisor policy, arbitration ledger, seed admission, and kernel journal.
+
+The registry snapshot contains:
+
+- all staged proposals, including immutable specifications, certificates, and finite witness sets;
+- all admitted proposal identities and historical immutable versions;
+- the active revision head for every memory identity;
+- canonical read-cache receipts;
+- a journal anchor (sequence, terminal_digest) identifying the exact event-chain cut.
+
+The shared kernel event journal records three event kinds:
+
+- structural_memory.propose;
+- structural_memory.admit;
+- structural_memory.read.
+
+A repeated exact proposal returns its original staged proposal and does not create another proposal event. Exact admission replay returns the original version and does not create another admission event. Reads produce a journal receipt even when the value is served from the structural read cache.
+
+A composite HeadlessOS snapshot holds the registry transition lock while it captures the VM and registry state. The registry checks that the live event journal is byte-for-byte equal to the journal projection already captured inside the VM snapshot. If the journal changes between those two captures, checkpoint creation fails rather than publishing a split registry/journal cut.
+
+Restore verifies the kernel journal hash chain through the existing kernel restore path. The structural registry then:
+
+1. reconstructs every typed specification, certificate, proposal, version, and cached receipt;
+2. replays every proposal witness set against the exact deterministic generator;
+3. checks contiguous revision numbering and exact parent-digest lineage;
+4. verifies that each active head points to the latest admitted version;
+5. reconciles every proposal and admission event with its registry record;
+6. replays every journaled read receipt and checks its generator value, context, certificate, and receipt identity;
+7. requires the saved journal anchor to equal the restored kernel journal tail.
+
+This makes staged proposals and active structural memories continuation-capable across a HeadlessOS process restart. It does not turn the registry into a multi-host consensus service or make the checkpoint atomic with arbitrary external effects.
+
+### Host policy is not checkpoint state
+
+admission_policy is trusted executable host configuration. It is never serialized, hashed into the memory specification, or reconstructed from checkpoint data. A restored HeadlessOS can read previously admitted memories and can inspect staged proposals, but a new admission fails closed until trusted host code explicitly supplies a policy again:
+
+    restored = HeadlessOS.restore_checkpoint(
+        checkpoint_path,
+        structural_memory_admission_policy=trusted_policy,
+    )
+
+Older checkpoints without a structural_memory field remain readable only when their kernel journal contains no structural-memory events. Removing the registry projection from a checkpoint whose journal contains structural-memory events is refused.
+
+### Current persistence boundary
+
+The registry's proposals, versions, read cache, and event receipts persist as part of the local HeadlessOS checkpoint. This is local checkpoint recovery, not a distributed registry or an atomic transaction spanning remote stores and external side effects. Multi-host replication, durable effect coupling, context-to-generator adaptation, heterogeneous generator composition, VFS page providers, CPU macro-transitions, and neural operators remain later stages.
+
 ## Example
 
     from mailcpu.structural_memory import StructuralMemoryRegistry
@@ -128,10 +177,8 @@ The example uses a modular progression; actual candidate admission still depends
 
 ## Explicit non-goals and next stages
 
-E0 is an in-process registry and read path. It does not yet:
+E0.2 is a locally checkpointed registry and journalled read/admission path. It does not yet:
 
-- persist staged proposals, active versions, receipts, or cache state into HeadlessOS checkpoints;
-- append structural-memory admission/read receipts to the event journal;
 - adapt context fields into a changed generator boundary;
 - use learned models to prioritize or propose generator families;
 - compose heterogeneous generators or coordinate systems;
@@ -141,7 +188,7 @@ E0 is an in-process registry and read path. It does not yet:
 
 Those require their own typed contracts, checkpoint/replay obligations, authority rules, and differential or trajectory-level conformance tests.
 
-The next development step is to connect the registry's immutable records and proposal/admission results to the existing checkpoint and hypervisor journal, then implement context-only revisions while keeping the generator fixed. Memory-provider integration and CPU macro-transitions should follow only after those persistence and correspondence obligations are tested.
+The next development step is to implement context-only revisions while keeping the generator fixed. Memory-provider integration and CPU macro-transitions should follow only after those context, persistence, and correspondence obligations are tested.
 
 ## Test scope
 
