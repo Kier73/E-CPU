@@ -486,4 +486,4 @@ class ProviderRegistry:
             self._providers[key]
             for key in sorted(self._providers)
             if isinstance(self._providers[key], StructuralMemoryFileProvider)
-        )y
+        )
