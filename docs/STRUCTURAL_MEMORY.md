@@ -223,3 +223,16 @@ The receiving Virtual Layer runtime performs the read only after the existing hy
 The workload's canonical digest binds the references. The existing hypervisor semantic execution ledger therefore replays the original effect for an exact semantic retry without invoking the memory backend or appending a second read event. Structural-memory registries remain receiver-local: this integration does not replicate revisions, transfer generator descriptions, or authenticate the external origin of the original witnesses.
 
 See `docs/VIRTUAL_LAYER_WORKLOAD.md` for the workload schema, operator input envelope, byte-budget rules, and tested integration path.
+
+
+## VFS file provider
+
+A structural-memory revision can be explicitly exposed as a bounded, read-only virtual file. `StructuralMemoryFileRef` binds the memory identity, immutable revision, exact context, coordinate start, byte length, specification digest, and certificate digest. Byte offset `o` maps to generator coordinate `coordinate_start + o`.
+
+The first provider contract uses one unsigned integer value per byte. The receiver refuses any value outside `0..255`; it never truncates, wraps, or silently converts a wider integer. File size is bounded to 1 MiB and each read is bounded by a configurable maximum (4 KiB by default). Reads are lazy: only coordinates in the requested byte range are resolved. Every coordinate read uses the registry's existing `read_revision` contract, and the provider checks the complete read receipt against the pinned reference before exposing the byte.
+
+The VFS inode is registered as a read-only provider-backed file. Normal VFS path/mode and process-open authorization remain the file-access boundary. A provider's range-read receipt binds the returned byte digest to the ordered coordinate receipt IDs. Provider cache entries contain only values already verified against those receipts.
+
+Filesystem checkpoints serialize the symbolic file reference and read limit, never a registry pointer or executable callback. On `HeadlessOS.from_snapshot`, the host first restores the structural-memory registry from its checked snapshot and then rebinds the inert provider descriptors to that local registry. The host admission policy remains non-serialized, as before.
+
+This is a VFS-backed file provider, not yet a demand-paged `VirtualMemory.PageBacking` implementation. The next step can reuse this reference and receipt contract to bind a page reservation to a structural file slice without changing page identity or copy-on-write semantics.
