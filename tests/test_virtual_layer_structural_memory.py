@@ -152,13 +152,8 @@ def test_structural_memory_reference_round_trips_and_requires_schema_v2() -> Non
     assert reference.to_dict()["spec_digest"] == version.spec.digest
     assert reference.to_dict()["certificate_digest"] == version.certificate.digest
 
-    legacy = replace(workload, schema_version=1)
     with pytest.raises(VirtualLayerError, match="schema version 2"):
-        legacy.to_dict() if legacy.schema_version == 2 else VirtualLayerWorkload(
-            legacy.workload_id, legacy.system, legacy.ground, legacy.intention,
-            legacy.operators, legacy.input_value, legacy.budget, legacy.logical_time,
-            legacy.eligible_nodes, legacy.max_hops, 1,
-        )
+        replace(workload, schema_version=1)
 
     corrupted = reference.to_dict() | {"spec_digest": "not-a-digest"}
     with pytest.raises(VirtualLayerError, match="SHA-256"):
