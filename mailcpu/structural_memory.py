@@ -1297,7 +1297,7 @@ class StructuralMemoryRegistry:
             raise StructuralMemoryError("structural read receipt does not reproduce from its generator")
 
     def _verify_journal(self) -> None:
-        """Reconcile all structural-memory journal events with restored registry state. Mathematics: require one proposal event per staged proposal, one admission event per admitted revision, and replayable read receipts."""
+        """Reconcile structural-memory journal events with restored state. Mathematics: enforce proposal-before-admission, parent-admission-before-child-proposal, and admission/read order for each revision."""
         if self.journal is None:
             return
         proposed_events: dict[str, tuple[int, dict[str, Any]]] = {}
@@ -1332,15 +1332,30 @@ class StructuralMemoryRegistry:
 
         if set(proposed_events) != set(self._staged):
             raise StructuralMemoryError("structural-memory proposal journal and registry state differ")
-        for proposal_id, proposal in self._staged.items():
-            sequence, payload = proposed_events[proposal_id]
-            if payload != self._proposal_event_payload(proposal):
-                raise StructuralMemoryError("structural-memory proposal journal payload mismatch")
-            if proposal_id in admitted_events and admitted_events[proposal_id][0] <= sequence:
-                raise StructuralMemoryError("structural-memory admission precedes its proposal event")
-
         if set(admitted_events) != set(self._admitted):
             raise StructuralMemoryError("structural-memory admission journal and registry history differ")
+
+        for proposal_id, proposal in self._staged.items():
+            proposal_sequence, payload = proposed_events[proposal_id]
+            if payload != self._proposal_event_payload(proposal):
+                raise StructuralMemoryError("structural-memory proposal journal payload mismatch")
+
+            parent_digest = proposal.spec.parent_digest
+            if parent_digest is None:
+                if proposal.spec.revision != 1:
+                    raise StructuralMemoryError("root structural-memory proposal has a non-root revision")
+            else:
+                parent = self._version_for_spec_digest(parent_digest)
+                if parent is None:
+                    raise StructuralMemoryError("structural-memory proposal parent is not an admitted revision")
+                parent_sequence = admitted_events.get(parent.admitted_proposal_id, (0, {}))[0]
+                if proposal_sequence <= parent_sequence:
+                    raise StructuralMemoryError("structural-memory child proposal precedes parent admission")
+
+            admitted = admitted_events.get(proposal_id)
+            if admitted is not None and admitted[0] <= proposal_sequence:
+                raise StructuralMemoryError("structural-memory admission precedes its proposal event")
+
         for proposal_id, version in self._admitted.items():
             _, payload = admitted_events[proposal_id]
             expected = {
@@ -1350,13 +1365,31 @@ class StructuralMemoryRegistry:
             if payload != expected:
                 raise StructuralMemoryError("structural-memory admission journal payload mismatch")
 
+        admission_by_spec = {
+            version.spec.digest: admitted_events[proposal_id][0]
+            for proposal_id, version in self._admitted.items()
+        }
+        revisions_by_memory: dict[str, list[StructuralMemoryVersion]] = {}
+        for version in self._admitted.values():
+            revisions_by_memory.setdefault(version.spec.memory_id, []).append(version)
+        for versions in revisions_by_memory.values():
+            versions.sort(key=lambda item: item.spec.revision)
+
         for sequence, receipt in read_receipts:
             version = self._version_for_spec_digest(receipt.spec_digest)
             if version is None:
                 raise StructuralMemoryError("structural-memory read journal references an unknown revision")
-            admission_sequence = admitted_events.get(version.admitted_proposal_id, (0, {}))[0]
+            admission_sequence = admission_by_spec[receipt.spec_digest]
             if sequence <= admission_sequence:
                 raise StructuralMemoryError("structural-memory read precedes revision admission")
+            later_versions = [
+                item for item in revisions_by_memory[version.spec.memory_id]
+                if item.spec.revision > version.spec.revision
+            ]
+            if later_versions:
+                next_admission_sequence = admission_by_spec[later_versions[0].spec.digest]
+                if sequence >= next_admission_sequence:
+                    raise StructuralMemoryError("structural-memory read occurs after a newer revision became active")
             self._verify_read_receipt(receipt, version)
 
     @staticmethod
