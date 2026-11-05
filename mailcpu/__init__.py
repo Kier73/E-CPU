@@ -533,7 +533,22 @@ from .navigation_bridge import (
     verify_abstract_compilation,
 )
 
+from .navigation_coordinator import (
+    CoordinationDisposition,
+    ExecutionAdmissionRequest,
+    NavigationCoordinationError,
+    NavigationCoordinationResult,
+    NavigationCoordinator,
+    verify_navigation_coordination,
+)
+
 __all__ = [
+    "CoordinationDisposition",
+    "ExecutionAdmissionRequest",
+    "NavigationCoordinationError",
+    "NavigationCoordinationResult",
+    "NavigationCoordinator",
+    "verify_navigation_coordination",
     "AbstractNavigationCompiler",
     "CompiledNavigation",
     "NavigationCompilationError",
