@@ -84,6 +84,8 @@ def _variable(path: tuple[str, ...], label: str) -> str:
     """Mathematics: project a concrete state path onto the flat integer variable basis."""
     if len(path) != 1:
         raise NavigationCompilationError(f"{label} requires a single-level state path")
+    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", path[0]) is None:
+        raise NavigationCompilationError(f"{label} uses a variable name outside the abstract identifier domain")
     return path[0]
 
 
