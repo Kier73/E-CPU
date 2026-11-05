@@ -17,7 +17,7 @@ An architectural possibility can be important before it is implemented. It must 
 
 ## 1. Present system: what it can do
 
-The following describes the main-line system after Structural Memory E0 and E0.2 were merged in PR #16 (merge commit 77bcd7e) and PR #17 (merge commit 731cf5a).
+The following describes the main-line system after Structural Memory E0, E0.2, and E0.3 were merged in PR #16 (merge commit 77bcd7e), PR #17 (merge commit 731cf5a), and PR #18 (merge commit af2058f).
 
 ### 1.1 Execute a deterministic machine over a communication model
 
@@ -51,11 +51,11 @@ Evidence: docs/FORMAL_NAVIGATION.md; docs/NAVIGATION_COORDINATOR.md; docs/NATIVE
 ### 1.4 Execute bounded work inside receiver-side communication paths
 
 - Transit compute has a receiver-side worker, reliable input and result channels, receiver-local capability checks, and semantic result/replay ledgers.
-- The current operation router includes scalar MailCPU arithmetic, a bounded SIMT reference interpreter, and private process-memory transfer.
+- The current operation router includes scalar MailCPU arithmetic, a bounded SIMT reference interpreter, private process-memory transfer, and a receiver-side structural-memory coordinate-read backend. The new backend carries memory identity, explicit revision, exact context, and coordinate; it returns the registry's evidence-bearing read receipt.
 - The SIMT implementation is a deterministic CPU reference model for lane masks, divergence, reconvergence, and a conservative barrier rule. It is not a GPU driver or evidence of GPU acceleration.
 - Process-restart tests exercise the logical receiver state over loopback and restore the semantic operation ledger. They do not establish deployment across separate physical hosts or atomicity with arbitrary external side effects.
 
-Evidence: docs/TRANSIT_PATH_STATE.md; tests/test_transit_compute.py; tests/test_external_connections.py; tests/test_seed_commit_process_recovery.py.
+Evidence: docs/TRANSIT_PATH_STATE.md; tests/test_transit_compute.py; tests/test_transit_structural_memory.py; tests/test_external_connections.py; tests/test_seed_commit_process_recovery.py.
 
 ### 1.5 Store generative descriptions of state families
 
@@ -77,19 +77,20 @@ Evidence: docs/STRUCTURAL_MEMORY.md; tests/test_structural_memory.py; tests/test
 
 ## 2. Building now: what is becoming possible
 
-E0.2 is merged into main through PR #17 (merge commit 731cf5a). The registry now persists inside the HeadlessOS checkpoint graph and shares the kernel's hash-chained journal. Restore reconciles staged proposals, admissions, read receipts, immutable lineage, cache values, and the exact journal anchor. Host admission code is deliberately rebound by trusted host code after restore; it is not checkpoint data.
+E0.2 and E0.3 are merged into main through PR #17 (merge commit 731cf5a) and PR #18 (merge commit af2058f). The registry persists inside the HeadlessOS checkpoint graph and shares the kernel's hash-chained journal. Context-only revisions retain the generator while changing only the exact context and revision lineage. Restore reconciles staged proposals, admissions, active and revision-pinned read receipts, immutable lineage, cache values, and the exact journal anchor. Host admission code is deliberately rebound by trusted host code after restore; it is not checkpoint data.
 
-E0.3 is under active development in branch `feat/contextual-structural-adaptation-e03`. It implements a deliberately narrow form of contextual adaptation:
+E0.4 is under active development in branch `feat/transit-structural-memory-e04`. It connects that registry to the receiver-side TransitCompute operation path:
 
-- stage a new revision from the active version without accepting a replacement law;
-- change only canonical context, revision number, and parent digest;
-- replay newly supplied witnesses against the unchanged generator;
-- keep the prior revision immutable and allow explicit reads pinned to either admitted revision;
-- journal active and pinned read modes separately and replay both during restore.
+- a request carries memory identity, explicit revision, context, and coordinate;
+- the exact operation/resource pair selects a structural-memory read backend;
+- the worker derives `read` authority from its receiver-local capability process, and the backend independently rechecks the capability;
+- the backend delegates to `StructuralMemoryRegistry.read_revision` and returns the complete evidence-bearing receipt;
+- the existing hypervisor execution ledger replays the committed receipt when the same semantic operation arrives under a new transport frame;
+- the existing worker checkpoint restores both the structural-memory registry and semantic execution ledger, then rebinds the backend by its operation/resource manifest.
 
-This is a verified re-binding of one law to a new exact context, not learned context-to-parameter transformation. The supplied witnesses are independently replayed, but their external provenance is not established by the verifier. The feature remains Building until its focused tests and repository CI complete.
+The intended emergence is a path that can address a compressed, locally admitted state family rather than require every value to be transmitted or materialized. The path carries the *address of a verified generator state* and resolves it at the receiving boundary. This branch remains Building until its focused tests and repository CI complete. It does not transfer or replicate generator definitions across hosts, learn context-to-parameter transformations, or provide distributed consensus.
 
-The registry remains local to one HeadlessOS checkpoint. It is not a replicated structural-memory service. Beyond E0.3, open obligations include explicit context-to-parameter transformation contracts, heterogeneous generator composition, memory-provider integration, and CPU macro-transition correspondence.
+The registry remains local to one HeadlessOS checkpoint. Further obligations include cross-host memory distribution and admission, authenticated witness provenance, heterogeneous generator composition, memory-provider integration, and CPU macro-transition correspondence.
 
 ## 3. Novel-to-this-architecture possibilities
 
