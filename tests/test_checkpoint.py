@@ -329,3 +329,39 @@ def test_checkpoint_restore_rejects_structural_memory_journal_anchor_mismatch() 
 
     with pytest.raises(StructuralMemoryError, match="journal anchor"):
         HeadlessOS.from_snapshot(snapshot)
+
+
+def test_in_place_rollback_rebinds_structural_memory_journal_and_host_policy() -> None:
+    """Mathematics: rollback restores registry R and binds R.journal to the replacement kernel journal without changing its trusted policy."""
+
+    policy = lambda proposal: proposal.spec.domain == "integer-orbit"
+    operating_system = HeadlessOS(structural_memory_admission_policy=policy)
+    proposal = operating_system.structural_memory.propose(
+        "rollback-memory",
+        _structural_counter_law(),
+        {0: 0, 1: 1, 2: 2},
+    )
+    operating_system.structural_memory.admit(proposal.proposal_id, expected_revision=0)
+    before = operating_system.snapshot()
+    previous_registry = operating_system.structural_memory
+
+    operating_system.environment.kernel.journal.append("test.rollback.cut", {"discard": True})
+    operating_system._restore_snapshot_in_place(before)
+
+    assert operating_system.structural_memory is not previous_registry
+    assert operating_system.structural_memory.journal is operating_system.environment.kernel.journal
+    assert operating_system.structural_memory.admission_policy is policy
+    assert operating_system.structural_memory.read("rollback-memory", 8).value == 8
+
+    next_law = _structural_counter_law(5)
+    next_proposal = operating_system.structural_memory.propose(
+        "rollback-memory",
+        next_law,
+        {0: 5, 1: 6, 2: 7},
+        context={"rollback": "recovered"},
+    )
+    admitted = operating_system.structural_memory.admit(
+        next_proposal.proposal_id,
+        expected_revision=1,
+    )
+    assert admitted.spec.revision == 2
