@@ -51,11 +51,11 @@ Evidence: docs/FORMAL_NAVIGATION.md; docs/NAVIGATION_COORDINATOR.md; docs/NATIVE
 ### 1.4 Execute bounded work inside receiver-side communication paths
 
 - Transit compute has a receiver-side worker, reliable input and result channels, receiver-local capability checks, and semantic result/replay ledgers.
-- The current operation router includes scalar MailCPU arithmetic, a bounded SIMT reference interpreter, private process-memory transfer, and a receiver-side structural-memory coordinate-read backend. The new backend carries memory identity, explicit revision, exact context, and coordinate; it returns the registry's evidence-bearing read receipt.
+- The main-line operation router includes scalar MailCPU arithmetic, a bounded SIMT reference interpreter, and private process-memory transfer.
 - The SIMT implementation is a deterministic CPU reference model for lane masks, divergence, reconvergence, and a conservative barrier rule. It is not a GPU driver or evidence of GPU acceleration.
 - Process-restart tests exercise the logical receiver state over loopback and restore the semantic operation ledger. They do not establish deployment across separate physical hosts or atomicity with arbitrary external side effects.
 
-Evidence: docs/TRANSIT_PATH_STATE.md; tests/test_transit_compute.py; tests/test_transit_structural_memory.py; tests/test_external_connections.py; tests/test_seed_commit_process_recovery.py.
+Evidence: docs/TRANSIT_PATH_STATE.md; tests/test_transit_compute.py; tests/test_external_connections.py; tests/test_seed_commit_process_recovery.py.
 
 ### 1.5 Store generative descriptions of state families
 
@@ -128,15 +128,17 @@ Failure condition: a proposed jump changes observable state, trace, resource, or
 
 ### 3.4 Context becomes a boundary transformation rather than a new program
 
-Each revision still treats context as an exact identity: a read under a different context is refused. E0.3 now builds on that rule with a context-only revision API. The API copies the active generator specification and changes only the canonical context, revision number, and parent digest. A new witness set must replay against the unchanged generator before host admission.
+**Demonstrated:** E0.3 provides immutable context-only revisions. It copies the active generator specification and changes only canonical context, revision number, and parent digest. A new supplied witness set must replay against the unchanged generator before host admission. Explicit revision-pinned reads preserve access to older contexts after a newer one becomes active, including after HeadlessOS checkpoint restore.
 
-Potential consequence: one compact, deterministic law can be rebound to multiple exact boundary instances while preserving each context as an independently addressable immutable revision. Revision-pinned reads preserve access to older contexts even after a newer one becomes active.
+**New integration under E0.4:** a transit request can carry memory identity, revision, context, and coordinate to the receiving path. The backend resolves the exact pinned revision and returns its structural receipt under receiver-local read authority. This makes the context-bound generator usable as a path-addressable state resource, not merely as an in-process registry entry.
 
-Experiment: apply the same modular progression to two tenant contexts using newly supplied witnesses; compare generator identity, values, evidence receipts, stale-context refusal, and both revisions after HeadlessOS checkpoint restore.
+Potential consequence: one compact deterministic law can be rebound to multiple exact boundary instances and queried through different communication paths without transmitting a materialized state table. Each boundary remains independently addressable and evidence-bearing.
 
-Failure condition: any generator-defining field changes during context-only proposal; a mismatching witness is admitted; a read crosses a context boundary; an old revision cannot be replayed from its explicit pin; or checkpoint restore cannot reconcile both read modes.
+Experiment: use the same modular progression through two tenant contexts, send requests over two receiver paths with different read capabilities, and compare generator identity, values, receipts, stale-context refusal, replay, and checkpoint restore. Measure transport and verification cost against direct local reads and explicit stepping.
 
-Boundary: this does not yet infer or transform generator parameters from context fields, and it cannot prove that submitted observations originated from the claimed external context. Those require a stronger context-transform and observation-provenance contract.
+Failure condition: a context change mutates generator-defining fields; a mismatching witness or stale context is admitted; one path reads a revision outside its local authority; a retry repeats the generator operation; or the restored path cannot reproduce the exact receipt.
+
+Boundary: E0.3/ E0.4 do not infer generator parameters from context fields, authenticate the external provenance of supplied witnesses, distribute registry state between hosts, or provide distributed consensus.
 
 ### 3.5 Heterogeneous structural composition
 
