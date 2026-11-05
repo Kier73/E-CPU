@@ -22,7 +22,7 @@ Index of specification documents. Documents use defined terms from `GLOSSARY.md`
 | 14 | [`DOGFOODING_AND_EMPIRICAL_LIMITS.md`](DOGFOODING_AND_EMPIRICAL_LIMITS.md) | Empirical evaluation, discovered boundaries, ergonomic repairs, and Iteration 3 roadmap |
 | 15 | [`VIRTUAL_LAYER_WORKLOAD.md`](VIRTUAL_LAYER_WORKLOAD.md) | Typed portable workload, operator registry, hypervisor and reliable-channel integration boundaries |
 | 16 | [`TRANSIT_COMPUTE.md`](TRANSIT_COMPUTE.md) | Receiver-side bounded compute capsules and authenticated transit execution |
-| 17 | [`TRANSIT_PATH_STATE.md`](TRANSIT_PATH_STATE.md) | Persistent path state, SIMT and memory backends, recovery, and deterministic orbit scheduling |
+| 17 | [`TRANSIT_PATH_STATE.md`](TRANSIT_PATH_STATE.md) | Persistent path state, SIMT, private-memory and structural-memory backends, evidence-bearing coordinate reads, recovery, and deterministic orbit scheduling |
 | 18 | [`STATE_SPACE_NAVIGATION.md`](STATE_SPACE_NAVIGATION.md) | Symbolic capacity, finite trajectories, and time-budgeted state-space navigation |
 | 19 | [`TRANSIT_PATH_MODES.md`](TRANSIT_PATH_MODES.md) | One path switching between RRNS memory, RTT sensing, and bounded processing |
 | 20 | [`TRANSIT_PATH_BINDING.md`](TRANSIT_PATH_BINDING.md) | Live session binding for requester RTT, receiver service time, queue state, ACKs, and retries |

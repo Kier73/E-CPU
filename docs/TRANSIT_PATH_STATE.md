@@ -57,7 +57,36 @@ The intended direction is to move interpretation and execution selection into th
 4. The backend executes the admitted transition.
 5. The path commits a typed result and causal receipt, then acknowledges delivery.
 
-The current path can host three bounded reference backends: scalar MailCPU arithmetic, a lane-oriented SIMT interpreter, and private process-memory transfer. A typed router selects the backend by the exact operation/resource pair after the receiver has reconstructed local authority. These are semantic reference implementations, not GPU hardware or proof of a speed advantage over local execution.
+The current path can host bounded reference backends for scalar MailCPU arithmetic, a lane-oriented SIMT interpreter, private process-memory transfer, and structural-memory coordinate reads. A typed router selects the backend by the exact operation/resource pair after the receiver has reconstructed local authority. These are semantic reference implementations, not GPU hardware or proof of a speed advantage over local execution.
+
+## Structural-memory reads inside the path (E0.4 branch)
+
+The E0.4 branch adds a receiver-side resource for addressing an admitted structural-memory revision. The request carries exactly four semantic fields:
+
+- `memory_id`: the stable structural-memory identity;
+- `revision`: the explicit admitted immutable revision;
+- `context`: the exact context object bound to that revision;
+- `coordinate`: the non-negative integer state coordinate to resolve.
+
+The operation is routed under the exact pair `(read admitted structural-memory revision coordinate, /structural-memory/read)`. The receiver worker replaces peer-supplied grants with capabilities held by its own authority process. The classifier recognizes this as a read/data-resource request and selects the existing `FILESYSTEM` policy domain. The worker exposes that domain to its router only when the exact structural-memory operation/resource pair is in the restored backend manifest. The router still dispatches by the exact pair, and the backend independently rechecks the receiver-local `read` capability before calling `os.structural_memory.read_revision(memory_id, revision, coordinate, context=...)`.
+
+The backend does not carry a generator, law, or Python callable over the wire. It resolves only a revision already admitted into the receiver's checkpointed structural-memory registry. The returned effect is the complete `StructuralMemoryReadReceipt` projection: value, memory/revision identity, coordinate, spec and certificate digests, context and value digests, witness digest, verification class, receipt identity, and cache indication.
+
+This gives the path a compact state-family address rather than a materialized value stream. The path resolves the coordinate at the receiving boundary and returns the receipt through the existing result channel. The registry retains responsibility for generator whitelist enforcement, prefix horizons, context matching, caching, and journal receipts.
+
+### Authority, replay, and recovery
+
+The resource `/structural-memory/read` requires receiver-local `read` authority. A peer-supplied `granted_rights` field is not trusted: the worker reconstructs it from the local authority process, and the structural-memory backend checks the actual capability again before calling the registry. Context mismatch, unknown memory/revision, malformed coordinates, and missing read authority refuse before a result is returned.
+
+The semantic operation identity remains the hypervisor event identity `(source, channel, sequence)`; the reliable transport frame sequence remains a separate delivery identity. A retry under a new transport frame but with the same semantic event is answered from the hypervisor execution ledger. The structural-memory generator is not invoked again, and the previously committed read receipt is returned unchanged.
+
+The receiver worker checkpoint already composes the HeadlessOS snapshot, which contains the structural-memory registry and journal, with the hypervisor decision/execution ledger and reliable-channel state. Restore rebinds the exact backend manifest through a trusted `compute_host_factory`. As with the other transit backends, executable handler objects are not serialized. A restored structural-memory host binds to the restored HeadlessOS instance and the receiver authority PID, then serves the same logical request path over replacement transports.
+
+### Exact boundary and limits
+
+A read is always revision-pinned. It does not silently follow a later active revision; the sender must supply the intended revision. Context is exact, not inferred or transformed. The receiver must already possess the admitted revision locally, and its evidence remains finite witness or prefix evidence as defined by Structural Memory. This operation is read-only: it does not propose, admit, mutate, or replicate a structural-memory revision.
+
+The integration demonstrates receiver-side access to a local generative state family through a communication path. It does not yet transfer structural memories between hosts, replicate registry state, prove the external origin of witness observations, learn context-to-generator transformations, provide a distributed consensus layer, or demonstrate a performance advantage over local reads.
 
 ## CPU, SIMT, and memory movement
 
