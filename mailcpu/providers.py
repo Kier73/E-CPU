@@ -223,6 +223,9 @@ class StructuralMemoryFileReadReceipt:
     length: int
     coordinate_start: int
     content_digest: str
+    spec_digest: str
+    certificate_digest: str
+    context_digest: str
     value_receipt_ids: tuple[str, ...]
     cache_hit_count: int
 
@@ -231,6 +234,9 @@ class StructuralMemoryFileReadReceipt:
         for name, digest in (
             ("receipt_id", self.receipt_id),
             ("content_digest", self.content_digest),
+            ("spec_digest", self.spec_digest),
+            ("certificate_digest", self.certificate_digest),
+            ("context_digest", self.context_digest),
         ):
             if (
                 not isinstance(digest, str)
@@ -266,6 +272,9 @@ class StructuralMemoryFileReadReceipt:
             "length": self.length,
             "coordinate_start": self.coordinate_start,
             "content_digest": self.content_digest,
+            "spec_digest": self.spec_digest,
+            "certificate_digest": self.certificate_digest,
+            "context_digest": self.context_digest,
             "value_receipt_ids": list(self.value_receipt_ids),
             "cache_hit_count": self.cache_hit_count,
         }
@@ -370,6 +379,9 @@ class StructuralMemoryFileProvider:
             "revision": self.reference.revision,
             "spec_digest": self.reference.spec_digest,
             "certificate_digest": self.reference.certificate_digest,
+            "context_digest": hashlib.sha256(
+                _provider_canonical_json(dict(self.reference.context)).encode("utf-8")
+            ).hexdigest(),
             "offset": offset,
             "length": len(content),
             "coordinate_start": self.reference.coordinate_start + offset,
@@ -385,6 +397,11 @@ class StructuralMemoryFileProvider:
             length=len(content),
             coordinate_start=self.reference.coordinate_start + offset,
             content_digest=content_digest,
+            spec_digest=self.reference.spec_digest,
+            certificate_digest=self.reference.certificate_digest,
+            context_digest=hashlib.sha256(
+                _provider_canonical_json(dict(self.reference.context)).encode("utf-8")
+            ).hexdigest(),
             value_receipt_ids=receipt_ids,
             cache_hit_count=cache_hits,
         )
