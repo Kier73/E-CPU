@@ -9,12 +9,15 @@ set; it is not a proof over an infinite domain.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from enum import Enum
 import hashlib
 import json
 import threading
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Callable, Iterator, Mapping, Sequence
+
+from .journal import EventJournal
 
 from .law_certifier import (
     HorizonExceeded,
@@ -29,6 +32,7 @@ STRUCTURAL_MEMORY_SCHEMA = "mailcpu.structural-memory.v1"
 STRUCTURE_READ = "STRUCTURE_READ"
 STRUCTURE_PROPOSE = "STRUCTURE_PROPOSE"
 STRUCTURE_ADMIT = "STRUCTURE_ADMIT"
+STRUCTURAL_MEMORY_REGISTRY_SCHEMA = "mailcpu.structural-memory-registry.v1"
 
 
 class StructuralMemoryError(ValueError):
@@ -296,6 +300,33 @@ class StructuralMemorySpec:
         """Return the stable digest of this immutable record. Mathematics: computes H(to_dict(record)) as the stable identity of this immutable record. """
         return _digest(self.to_dict())
 
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "StructuralMemorySpec":
+        """Reconstruct one immutable spec from its exact typed projection. Mathematics: invert the spec serialization map and require its generator ABI and canonical parameters to validate."""
+        expected = {
+            "schema", "memory_id", "revision", "domain", "family", "parameters",
+            "context", "order", "law_verdict", "first_bad", "parent_digest",
+        }
+        if not isinstance(payload, Mapping) or set(payload) != expected:
+            raise StructuralMemoryError("structural memory spec fields are invalid")
+        parameters = payload["parameters"]
+        context = payload["context"]
+        if not isinstance(parameters, Mapping) or not isinstance(context, Mapping):
+            raise StructuralMemoryError("structural memory parameters and context must be objects")
+        return cls(
+            memory_id=payload["memory_id"],
+            revision=payload["revision"],
+            domain=payload["domain"],
+            family=payload["family"],
+            parameters_json=_canonical_json(parameters),
+            context_json=_canonical_json(context),
+            order=payload["order"],
+            law_verdict=payload["law_verdict"],
+            first_bad=payload["first_bad"],
+            parent_digest=payload["parent_digest"],
+            schema=payload["schema"],
+        )
+
 
 @dataclass(frozen=True)
 class StructuralMemoryCertificate:
@@ -351,6 +382,33 @@ class StructuralMemoryCertificate:
         """Return the stable digest of this immutable certificate. Mathematics: computes H(to_dict(record)) as the stable identity of this immutable record. """
         return _digest(self.to_dict())
 
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "StructuralMemoryCertificate":
+        """Reconstruct one typed evidence certificate. Mathematics: invert certificate serialization while preserving the exact evidence grade, horizon and digest bindings."""
+        expected = {
+            "schema", "spec_digest", "context_digest", "witness_digest", "witness_count",
+            "verification_class", "first_bad", "valid_before_exclusive", "generator_id",
+            "generator_version",
+        }
+        if not isinstance(payload, Mapping) or set(payload) != expected:
+            raise StructuralMemoryError("structural memory certificate fields are invalid")
+        try:
+            verification_class = VerificationClass(payload["verification_class"])
+        except (TypeError, ValueError) as exc:
+            raise StructuralMemoryError("structural memory verification class is invalid") from exc
+        return cls(
+            spec_digest=payload["spec_digest"],
+            context_digest=payload["context_digest"],
+            witness_digest=payload["witness_digest"],
+            witness_count=payload["witness_count"],
+            verification_class=verification_class,
+            first_bad=payload["first_bad"],
+            valid_before_exclusive=payload["valid_before_exclusive"],
+            generator_id=payload["generator_id"],
+            generator_version=payload["generator_version"],
+            schema=payload["schema"],
+        )
+
 
 @dataclass(frozen=True)
 class StructuralMemoryProposal:
@@ -394,6 +452,27 @@ class StructuralMemoryProposal:
             "witnesses": [[coordinate, observed] for coordinate, observed in self.witnesses],
         }
 
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "StructuralMemoryProposal":
+        """Reconstruct a staged proposal and its finite witness set. Mathematics: invert proposal serialization and recompute its content-addressed proposal identity."""
+        expected = {"proposal_id", "spec", "certificate", "witnesses"}
+        if not isinstance(payload, Mapping) or set(payload) != expected:
+            raise StructuralMemoryError("structural memory proposal fields are invalid")
+        raw_witnesses = payload["witnesses"]
+        if not isinstance(raw_witnesses, (list, tuple)):
+            raise StructuralMemoryError("structural memory proposal witnesses must be a sequence")
+        witnesses: list[tuple[int, int]] = []
+        for item in raw_witnesses:
+            if not isinstance(item, (list, tuple)) or len(item) != 2:
+                raise StructuralMemoryError("structural memory proposal witness must be a pair")
+            witnesses.append((item[0], item[1]))
+        return cls(
+            proposal_id=payload["proposal_id"],
+            spec=StructuralMemorySpec.from_dict(payload["spec"]),
+            certificate=StructuralMemoryCertificate.from_dict(payload["certificate"]),
+            witnesses=tuple(witnesses),
+        )
+
 
 @dataclass(frozen=True)
 class StructuralMemoryVersion:
@@ -403,6 +482,18 @@ class StructuralMemoryVersion:
     certificate: StructuralMemoryCertificate
     admitted_proposal_id: str
 
+    def __post_init__(self) -> None:
+        """Validate one admitted version against its exact spec and certificate. Mathematics: require certificate.spec_digest = H(spec) and certificate.context_digest = H(spec.context)."""
+        if not isinstance(self.spec, StructuralMemorySpec):
+            raise StructuralMemoryError("structural memory version spec is invalid")
+        if not isinstance(self.certificate, StructuralMemoryCertificate):
+            raise StructuralMemoryError("structural memory version certificate is invalid")
+        _require_hash(self.admitted_proposal_id, "admitted_proposal_id")
+        if self.certificate.spec_digest != self.spec.digest:
+            raise StructuralMemoryError("version certificate does not bind its spec")
+        if self.certificate.context_digest != self.spec.context_digest:
+            raise StructuralMemoryError("version certificate does not bind its context")
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize this immutable structural-memory record. Mathematics: projects the immutable record onto its schema-defined serialization fields. """
         return {
@@ -410,6 +501,18 @@ class StructuralMemoryVersion:
             "certificate": self.certificate.to_dict(),
             "admitted_proposal_id": self.admitted_proposal_id,
         }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "StructuralMemoryVersion":
+        """Reconstruct one admitted immutable version. Mathematics: map its nested spec and certificate projections back to the typed revision identity."""
+        expected = {"spec", "certificate", "admitted_proposal_id"}
+        if not isinstance(payload, Mapping) or set(payload) != expected:
+            raise StructuralMemoryError("structural memory version fields are invalid")
+        return cls(
+            spec=StructuralMemorySpec.from_dict(payload["spec"]),
+            certificate=StructuralMemoryCertificate.from_dict(payload["certificate"]),
+            admitted_proposal_id=payload["admitted_proposal_id"],
+        )
 
 
 @dataclass(frozen=True)
@@ -429,6 +532,20 @@ class StructuralMemoryReadReceipt:
     witness_digest: str
     cache_hit: bool = False
 
+    def __post_init__(self) -> None:
+        """Validate one immutable structural-read receipt. Mathematics: require every identity to be a 256-bit digest and all coordinates and values to be strict integers."""
+        _require_hash(self.receipt_id, "receipt_id")
+        _require_nonempty_string(self.memory_id, "memory_id")
+        _require_int(self.revision, "revision", minimum=1)
+        for name in ("spec_digest", "certificate_digest", "context_digest", "value_digest", "witness_digest"):
+            _require_hash(getattr(self, name), name)
+        _require_int(self.coordinate, "coordinate", minimum=0)
+        _require_int(self.value, "value")
+        if not isinstance(self.verification_class, VerificationClass):
+            raise StructuralMemoryError("receipt verification class is invalid")
+        if type(self.cache_hit) is not bool:
+            raise StructuralMemoryError("receipt cache_hit flag must be Boolean")
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize this immutable structural-memory record. Mathematics: projects the immutable record onto its schema-defined serialization fields. """
         return {
@@ -445,6 +562,35 @@ class StructuralMemoryReadReceipt:
             "witness_digest": self.witness_digest,
             "cache_hit": self.cache_hit,
         }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "StructuralMemoryReadReceipt":
+        """Reconstruct one typed structural read receipt. Mathematics: invert the full provenance projection without dropping its cache and evidence attributes."""
+        expected = {
+            "receipt_id", "memory_id", "revision", "spec_digest", "certificate_digest",
+            "coordinate", "context_digest", "value", "value_digest", "verification_class",
+            "witness_digest", "cache_hit",
+        }
+        if not isinstance(payload, Mapping) or set(payload) != expected:
+            raise StructuralMemoryError("structural memory read receipt fields are invalid")
+        try:
+            verification_class = VerificationClass(payload["verification_class"])
+        except (TypeError, ValueError) as exc:
+            raise StructuralMemoryError("structural memory receipt verification class is invalid") from exc
+        return cls(
+            receipt_id=payload["receipt_id"],
+            memory_id=payload["memory_id"],
+            revision=payload["revision"],
+            spec_digest=payload["spec_digest"],
+            certificate_digest=payload["certificate_digest"],
+            coordinate=payload["coordinate"],
+            context_digest=payload["context_digest"],
+            value=payload["value"],
+            value_digest=payload["value_digest"],
+            verification_class=verification_class,
+            witness_digest=payload["witness_digest"],
+            cache_hit=payload["cache_hit"],
+        )
 
 
 class ContextMapper:
