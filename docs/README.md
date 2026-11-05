@@ -27,6 +27,7 @@ Index of specification documents. Documents use defined terms from `GLOSSARY.md`
 | 19 | [`TRANSIT_PATH_MODES.md`](TRANSIT_PATH_MODES.md) | One path switching between RRNS memory, RTT sensing, and bounded processing |
 | 20 | [`TRANSIT_PATH_BINDING.md`](TRANSIT_PATH_BINDING.md) | Live session binding for requester RTT, receiver service time, queue state, ACKs, and retries |
 | 21 | [`TEMPORAL_CLOCK_FABRIC.md`](TEMPORAL_CLOCK_FABRIC.md) | Process-selected wall, monotonic, causal, scheduler, event, chronon, and chemical temporal domains |
+| 22 | [`CONTEXTUAL_PROCESS_NAVIGATION.md`](CONTEXTUAL_PROCESS_NAVIGATION.md) | Context-resolved process addresses, declarative transition logic, bounded navigation, replay witnesses, and readiness contracts |
 
 ## Document classes
 
@@ -40,7 +41,7 @@ Index of specification documents. Documents use defined terms from `GLOSSARY.md`
 
 **Procedure & Roadmap.** `PLAN.md`, `BUILDOUT_REQUIREMENTS.md`, `ITERATION_2_BUILD_PLAN.md`, `DOGFOODING_AND_EMPIRICAL_LIMITS.md`. Research plan, evaluation procedure, Iteration 2 build plan, and dogfooding report.
 
-**Runtime & Navigation.** `TRANSIT_COMPUTE.md`, `TRANSIT_PATH_STATE.md`, `STATE_SPACE_NAVIGATION.md`. Bounded transit execution, persistent path state, orbit scheduling, and symbolic navigation.
+**Runtime & Navigation.** `TRANSIT_COMPUTE.md`, `TRANSIT_PATH_STATE.md`, `STATE_SPACE_NAVIGATION.md`, `CONTEXTUAL_PROCESS_NAVIGATION.md`. Bounded transit execution, persistent path state, orbit scheduling, symbolic capacity, contextual resolution, and replayable path derivation.
 
 **Research & Theory.** `COMMUNICATION_SUBSTRATES_AND_INFORMATION_THEORY.md`, `CROSS_SYSTEM_SYNTHESIS_TIME_COMPUTATION_MODELS.md`. Substrate information theory, temporal models, and cross-paradigm synthesis.
 
