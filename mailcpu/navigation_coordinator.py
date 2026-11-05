@@ -299,8 +299,11 @@ class NavigationCoordinationResult:
             raise NavigationCoordinationError("causal dependency evidence is malformed")
         if self.bisimulation is not None and not isinstance(self.bisimulation, BisimulationResult):
             raise NavigationCoordinationError("bisimulation evidence is malformed")
-        if (self.causal_dependencies is None) != (self.causal_graph_digest is None or self.causal_evidence_digest is None):
-            raise NavigationCoordinationError("causal evidence and its source digests must be supplied together")
+        if self.causal_dependencies is None:
+            if self.causal_graph_digest is not None or self.causal_evidence_digest is not None:
+                raise NavigationCoordinationError("causal source digests require causal dependency evidence")
+        elif self.causal_graph_digest is None or self.causal_evidence_digest is None:
+            raise NavigationCoordinationError("causal dependency evidence requires both source digests")
         if not isinstance(self.representation_equivalence_required, bool):
             raise NavigationCoordinationError("representation_equivalence_required must be Boolean")
         if self.representation_equivalence_required and self.bisimulation is None:
@@ -317,6 +320,7 @@ class NavigationCoordinationResult:
                 "compilation_digest": self.compilation_digest,
                 "causal_graph_digest": self.causal_graph_digest,
                 "causal_evidence_digest": self.causal_evidence_digest,
+                "representation_equivalence_required": self.representation_equivalence_required,
             }
             if any(getattr(request, name) != value for name, value in expected.items()):
                 raise NavigationCoordinationError("admission proposal does not bind the coordination source evidence")
