@@ -449,7 +449,6 @@ def test_receiver_restart_after_response_publish_before_request_ack(tmp_path: Pa
         assert all(result.effect["registers"]["answer"] == 12 for result in duplicate_results)
         assert all(result.replayed is True for result in duplicate_results)
         assert duplicate_results[0].fingerprint == duplicate_results[1].fingerprint
-        assert hosts_calls_not_visible := True
         _wait_request_ack(request_client.channel, (1,))
         assert response_client.channel.next_receive_sequence == 3
 
