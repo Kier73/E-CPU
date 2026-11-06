@@ -1385,3 +1385,539 @@ def test_structural_memory_fans_out_to_independent_cpu_branches_and_joins_after_
         for transport in (*transports, *replacement_transports):
             if not transport.closed:
                 transport.close()
+
+
+def test_navigable_computation_dag_resumes_only_unfinished_branches_after_crash() -> None:
+    """Mathematics: restore G and receiver state after branch B commits but before response; replay B, execute only C, then join A+B+C."""
+
+    receiver = HeadlessOS(
+        structural_memory_admission_policy=lambda proposal: proposal.spec.domain == "integer-orbit"
+    )
+    law = Law(
+        family="int",
+        params={"x0": 13, "step": 9, "mod": 251},
+        order=1,
+        verdict="GROUND",
+    )
+    proposal = receiver.structural_memory.propose(
+        "multi-branch-recovery",
+        law,
+        {0: 13, 1: 22, 2: 31, 3: 40},
+        domain="integer-orbit",
+        context=_CONTEXT,
+    )
+    admitted = receiver.structural_memory.admit(proposal.proposal_id, expected_revision=0)
+    authority_pid = receiver.environment.kernel.spawn(
+        "multi-branch-recovery-receiver",
+        capabilities=(
+            Capability(TRANSIT_STRUCTURAL_MEMORY_RESOURCE, frozenset({"read"})),
+            Capability(_CPU_RESOURCE, frozenset({"execute"})),
+        ),
+        parent_pid=receiver.environment.init_pid,
+    )
+    receiver.hypervisor.policy = HypervisorPolicy(
+        review_confidence=0.0,
+        automatic_confidence=0.0,
+        destructive_confidence=0.0,
+        danger_review_probability=1.0,
+        embedding_review_confidence=1.0,
+    )
+
+    original_host = _CountingHost()
+    transports, request_client, request_worker, response_worker, response_client = _channels()
+    session = TransitComputeSession(
+        TransitComputeWorker(
+            receiver,
+            authority_pid,
+            _router(receiver, authority_pid, original_host),
+        ),
+        request_worker,
+        response_worker,
+    )
+    replacement_transports: tuple[SocketTransport, ...] = ()
+    restored_hosts: list[_CountingHost] = []
+
+    class SimulatedCrash(RuntimeError):
+        """Represent abrupt loss at the selected Transit commit boundary."""
+
+    try:
+        coordinate = 23
+        memory_payload = {
+            "memory_id": "multi-branch-recovery",
+            "revision": admitted.spec.revision,
+            "context": _CONTEXT,
+            "coordinate": coordinate,
+        }
+        memory_event = HypervisorArbitrationEvent(
+            "client",
+            _CHANNEL,
+            1,
+            9401,
+            HypervisorRequest(
+                TRANSIT_STRUCTURAL_MEMORY_OPERATION,
+                TRANSIT_STRUCTURAL_MEMORY_RESOURCE,
+                memory_payload,
+                frozenset({"read"}),
+                frozenset(),
+            ),
+        )
+        memory_result, _ = _serve(
+            session, request_client, response_client,
+            request_worker, response_worker, memory_event, 1,
+        )
+        receipt = {
+            key: value
+            for key, value in memory_result.effect.items()
+            if key not in {"_semantic_translation", "_semantic_oracle"}
+        }
+        expected_value = (13 + 9 * coordinate) % 251
+        assert receipt["value"] == expected_value == 220
+        memory_translation = TransitTranslationEvidence.from_dict(
+            memory_result.effect["_semantic_translation"]
+        )
+        memory_oracle = TransitOracleEvidence.from_dict(
+            memory_result.effect["_semantic_oracle"]
+        )
+        memory_translation.validate_execution_result(memory_result, require_oracle=True)
+        assert memory_oracle.equivalent is True
+        memory_edge = EvidencePathEdge.from_execution_result(
+            memory_result,
+            (
+                RouteMetric("latency_us", "us", 7),
+                RouteMetric("energy_nj", "nJ", 35),
+            ),
+        )
+
+        branch_programs = {
+            "branch-a": "\\n".join((
+                f"set structural_value {expected_value}",
+                "set offset 19",
+                "add answer structural_value offset",
+                "halt",
+            )),
+            "branch-b": "\\n".join((
+                f"set structural_value {expected_value}",
+                f"set answer {expected_value}",
+                "add answer answer structural_value",
+                "add answer answer structural_value",
+                "halt",
+            )),
+            "branch-c": "\\n".join((
+                f"set structural_value {expected_value}",
+                f"set answer {expected_value}",
+                "add answer answer structural_value",
+                "set offset 7",
+                "add answer answer offset",
+                "halt",
+            )),
+        }
+        branch_payloads = {
+            node_id: {
+                "source": source,
+                "initial_registers": {
+                    "memory_coordinate": coordinate,
+                    "memory_revision": admitted.spec.revision,
+                },
+                "max_ticks": 20,
+            }
+            for node_id, source in branch_programs.items()
+        }
+        branch_contexts = {
+            node_id: canonical_value_digest({
+                "operation": _CPU_OPERATION,
+                "resource": _CPU_RESOURCE,
+                "payload": payload,
+            })
+            for node_id, payload in branch_payloads.items()
+        }
+        branch_events = {
+            node_id: HypervisorArbitrationEvent(
+                "client",
+                _CHANNEL,
+                event_sequence,
+                9400 + event_sequence,
+                HypervisorRequest(
+                    _CPU_OPERATION,
+                    _CPU_RESOURCE,
+                    branch_payloads[node_id],
+                    frozenset({"execute"}),
+                    frozenset(),
+                ),
+            )
+            for node_id, event_sequence in (
+                ("branch-a", 2),
+                ("branch-b", 3),
+                ("branch-c", 4),
+            )
+        }
+
+        memory_context = canonical_value_digest({
+            "operation": memory_event.request.operation,
+            "resource": memory_event.request.resource,
+            "payload": memory_payload,
+        })
+        join_placeholder = {
+            "source": "HALT",
+            "initial_registers": {"join_pending": 1},
+            "max_ticks": 8,
+        }
+        join_placeholder_context = canonical_value_digest({
+            "operation": "join verified branch results",
+            "resource": "/computation/join",
+            "payload": join_placeholder,
+        })
+        graph = NavigableComputationDAG((
+            ComputationNode(
+                "memory", 1, TRANSIT_STRUCTURAL_MEMORY_OPERATION,
+                TRANSIT_STRUCTURAL_MEMORY_RESOURCE, memory_context, (), memory_payload,
+            ),
+            *(
+                ComputationNode(
+                    node_id,
+                    1,
+                    _CPU_OPERATION,
+                    _CPU_RESOURCE,
+                    branch_contexts[node_id],
+                    ("memory",),
+                    branch_payloads[node_id],
+                )
+                for node_id in ("branch-a", "branch-b", "branch-c")
+            ),
+            ComputationNode(
+                "join", 1, "join verified branch results", "/computation/join",
+                join_placeholder_context, ("branch-a", "branch-b", "branch-c"),
+                join_placeholder,
+            ),
+        ))
+        assert graph.commit("memory", receipt) is False
+        assert {node.node_id for node in graph.ready_nodes()} == {
+            "branch-a", "branch-b", "branch-c"
+        }
+
+        branch_a_result, _ = _serve(
+            session, request_client, response_client,
+            request_worker, response_worker, branch_events["branch-a"], 2,
+        )
+        assert branch_a_result.effect["registers"]["answer"] == 239
+        branch_a_translation = TransitTranslationEvidence.from_dict(
+            branch_a_result.effect["_semantic_translation"]
+        )
+        branch_a_oracle = TransitOracleEvidence.from_dict(
+            branch_a_result.effect["_semantic_oracle"]
+        )
+        branch_a_translation.validate_execution_result(branch_a_result, require_oracle=True)
+        assert branch_a_oracle.equivalent is True
+        assert graph.commit("branch-a", branch_a_result.effect) is False
+        assert original_host.calls == 1
+        assert {node.node_id for node in graph.ready_nodes()} == {"branch-b", "branch-c"}
+        assert "join" not in {node.node_id for node in graph.ready_nodes()}
+
+        # Build the exact evidence route to branch B, the operation interrupted
+        # after its hypervisor execution commit but before response publication.
+        branch_b_event = branch_events["branch-b"]
+        authorized_b = receiver.hypervisor_authorize_event(authority_pid, branch_b_event)
+        branch_b_ref = RepresentationRef.from_payload(
+            "mailcpu.transit.authorized-event", 1, authorized_b.to_dict()
+        )
+        branch_b_context = branch_contexts["branch-b"]
+        handoff_precondition = canonical_value_digest({
+            "precondition": "shared Structural Memory receipt is committed and oracle verified"
+        })
+        handoff_invariant = canonical_value_digest({
+            "invariant": "branch B input equals the exact shared receipt value"
+        })
+        handoff = TranslationContract(
+            contract_id="mailcpu.multibranch-recovery.receipt-to-branch-b",
+            revision=1,
+            source=memory_edge.target,
+            target=branch_b_ref,
+            mapping=RepresentationRef.from_payload(
+                "mailcpu.multibranch-recovery.branch-b-adapter",
+                1,
+                {
+                    "receipt_digest": canonical_value_digest(receipt),
+                    "request_digest": canonical_value_digest(branch_b_event.to_dict()),
+                },
+            ),
+            observation=ObservationContract.from_definition(
+                "mailcpu.multibranch-recovery.branch-b-operand",
+                1,
+                {"fields": ["value"], "comparison": "canonical-json-exact"},
+            ),
+            context_digest=branch_b_context,
+            precondition_digests=(handoff_precondition,),
+            invariant_digests=(handoff_invariant,),
+            resource_bounds=(
+                ResourceBound("latency_us", 9, "us"),
+                ResourceBound("energy_nj", 36, "nJ"),
+            ),
+            authority_requirements=(
+                CapabilityRequirement(TRANSIT_STRUCTURAL_MEMORY_RESOURCE, ("read",)),
+                CapabilityRequirement(_CPU_RESOURCE, ("execute",)),
+            ),
+            effect_class=EffectClass.PURE,
+            replay_class=ReplayClass.DETERMINISTIC,
+        )
+        handoff_comparison = compare_projected_observations(
+            handoff,
+            case_payload={"receipt_digest": canonical_value_digest(receipt)},
+            source_observation={"value": expected_value},
+            target_observation={"value": expected_value},
+        )
+        assert handoff_comparison.equivalent is True
+        catalogue = EvidencePathCatalogue()
+        catalogue.register(memory_edge)
+        catalogue.register(EvidencePathEdge(
+            handoff,
+            handoff_comparison,
+            (
+                RouteMetric("latency_us", "us", 5),
+                RouteMetric("energy_nj", "nJ", 18),
+            ),
+        ))
+        route_request = EvidencePathRequest(
+            source=memory_edge.source,
+            target=branch_b_ref,
+            context_digest=branch_b_context,
+            accepted_context_digests=tuple(sorted({
+                memory_edge.contract.context_digest,
+                branch_b_context,
+            })),
+            metric_order=(
+                RouteMetricKey("latency_us", "us"),
+                RouteMetricKey("energy_nj", "nJ"),
+            ),
+            resource_ceilings=(
+                RouteMetric("latency_us", "us", 50),
+                RouteMetric("energy_nj", "nJ", 500),
+            ),
+            satisfied_preconditions=tuple(sorted({
+                handoff_precondition,
+                *memory_edge.contract.precondition_digests,
+            })),
+            satisfied_invariants=tuple(sorted({
+                handoff_invariant,
+                *memory_edge.contract.invariant_digests,
+            })),
+            minimum_evidence=EvidenceStrength.PAIRED_CASE,
+            max_hops=3,
+            max_expansions=12,
+        )
+        route = EvidencePathResolver().resolve(
+            catalogue, route_request, receiver, authority_pid
+        )
+        assert route.status is EvidencePathStatus.FOUND
+
+        # Branch B's reliable request is in flight. The execution ledger commits
+        # it, then the injected cut prevents publication/ACK.
+        checkpoint_path = "multibranch-after-execution-commit.json"
+
+        def stop_after_commit(stage: str) -> None:
+            if stage == "after_execution_commit":
+                checkpoint = NavigableComputationCheckpoint.capture(
+                    session,
+                    request_client,
+                    response_client,
+                    catalogue,
+                    route_request,
+                    route,
+                    branch_b_event,
+                    allow_inflight=True,
+                    computation_dag=graph,
+                )
+                NavigableComputationCheckpoint.save(checkpoint, checkpoint_path)
+                raise SimulatedCrash(stage)
+
+        assert request_client.send(branch_b_event) == 3
+        with pytest.raises(SimulatedCrash, match="after_execution_commit"):
+            session.serve_once(fault_hook=stop_after_commit)
+        assert original_host.calls == 2
+        assert session.phase == "request-ready"
+
+        checkpoint = NavigableComputationCheckpoint.load(checkpoint_path)
+        assert checkpoint["state"]["version"] == 3
+        assert checkpoint["state"]["capture_mode"] == "inflight"
+
+        # Simulate the whole requester/receiver process replacement: close all
+        # original sockets, then reconstruct every endpoint over new streams.
+        for transport in transports:
+            if not transport.closed:
+                transport.close()
+        (
+            replacement_transports,
+            _new_request_client,
+            _new_request_worker,
+            _new_response_worker,
+            _new_response_client,
+        ) = _channels()
+        new_client_request_transport, new_worker_request_transport, new_worker_response_transport, new_client_response_transport = replacement_transports
+
+        def restored_factory(restored_os: HeadlessOS, restored_pid: int):
+            host = _CountingHost()
+            restored_hosts.append(host)
+            return _router(restored_os, restored_pid, host)
+
+        restored = NavigableComputationCheckpoint.restore(
+            checkpoint,
+            client_request_transport=new_client_request_transport,
+            client_response_transport=new_client_response_transport,
+            worker_request_transport=new_worker_request_transport,
+            worker_response_transport=new_worker_response_transport,
+            compute_host_factory=restored_factory,
+        )
+        restored_graph = restored.computation_dag
+        assert restored_graph is not None
+        assert restored_graph.digest == graph.digest
+        assert restored_graph.committed_nodes == ("branch-a", "memory")
+        assert set(node.node_id for node in restored_graph.ready_nodes()) == {
+            "branch-b", "branch-c"
+        }
+        assert "join" not in {node.node_id for node in restored_graph.ready_nodes()}
+        assert restored.retry_event.identity == branch_b_event.identity
+        assert restored.route_result == route.to_dict()
+        assert len(restored_hosts) == 1
+        assert restored_hosts[0].calls == 0
+
+        # Re-deliver branch B's exact reliable frame. The receiver execution
+        # ledger returns the committed effect and evidence without a backend call.
+        assert restored.request_client.channel.retransmit(3) is True
+        replay_b = restored.session.serve_once()
+        assert replay_b is not None
+        assert replay_b.executed is True
+        assert replay_b.replayed is True
+        returned_b = _wait_for_response(restored.response_client)
+        assert returned_b.effect == replay_b.effect
+        _wait_for_ack(restored.request_client.channel, (3,))
+        _wait_for_ack(restored.session.response.channel, (3,))
+        assert restored.session.phase == "idle"
+        replay_b_translation = TransitTranslationEvidence.from_dict(
+            replay_b.effect["_semantic_translation"]
+        )
+        replay_b_oracle = TransitOracleEvidence.from_dict(
+            replay_b.effect["_semantic_oracle"]
+        )
+        assert replay_b_translation.validate_execution_result(replay_b, require_oracle=True)
+        assert replay_b_oracle.equivalent is True
+        assert restored_hosts[0].calls == 0
+        assert restored_graph.commit("branch-b", replay_b.effect) is False
+        assert set(node.node_id for node in restored_graph.ready_nodes()) == {"branch-c"}
+        assert restored_graph.result("branch-a") == branch_a_result.effect
+
+        # Only branch C is still executable as new work. Branch A is not resent,
+        # and branch B is not re-entered after its semantic replay.
+        branch_c_result, _ = _serve(
+            restored.session,
+            restored.request_client,
+            restored.response_client,
+            restored.session.request,
+            restored.session.response,
+            branch_events["branch-c"],
+            4,
+        )
+        assert branch_c_result.effect["registers"]["answer"] == 447
+        branch_c_translation = TransitTranslationEvidence.from_dict(
+            branch_c_result.effect["_semantic_translation"]
+        )
+        branch_c_oracle = TransitOracleEvidence.from_dict(
+            branch_c_result.effect["_semantic_oracle"]
+        )
+        branch_c_translation.validate_execution_result(branch_c_result, require_oracle=True)
+        assert branch_c_oracle.equivalent is True
+        assert restored_graph.commit("branch-c", branch_c_result.effect) is False
+        assert {node.node_id for node in restored_graph.ready_nodes()} == {"join"}
+
+        branch_values = {
+            node_id: restored_graph.result(node_id)["registers"]["answer"]
+            for node_id in ("branch-a", "branch-b", "branch-c")
+        }
+        assert branch_values == {"branch-a": 239, "branch-b": 660, "branch-c": 447}
+        join_source = "\\n".join((
+            f"set branch_a {branch_values['branch-a']}",
+            f"set branch_b {branch_values['branch-b']}",
+            f"set branch_c {branch_values['branch-c']}",
+            "add partial branch_a branch_b",
+            "add total partial branch_c",
+            "halt",
+        ))
+        join_payload = {
+            "source": join_source,
+            "initial_registers": {"branch_count": 3},
+            "max_ticks": 20,
+        }
+        join_node = ComputationNode(
+            "join",
+            2,
+            _CPU_OPERATION,
+            _CPU_RESOURCE,
+            canonical_value_digest({
+                "operation": _CPU_OPERATION,
+                "resource": _CPU_RESOURCE,
+                "payload": join_payload,
+            }),
+            ("branch-a", "branch-b", "branch-c"),
+            join_payload,
+        )
+        assert restored_graph.revise_node(join_node) == join_node.digest
+        join_event = HypervisorArbitrationEvent(
+            "client",
+            _CHANNEL,
+            5,
+            9405,
+            HypervisorRequest(
+                _CPU_OPERATION,
+                _CPU_RESOURCE,
+                join_payload,
+                frozenset({"execute"}),
+                frozenset(),
+            ),
+        )
+        join_result, _ = _serve(
+            restored.session,
+            restored.request_client,
+            restored.response_client,
+            restored.session.request,
+            restored.session.response,
+            join_event,
+            5,
+        )
+        assert join_result.effect["registers"]["total"] == 1346
+        assert restored_graph.commit("join", join_result.effect) is False
+        assert restored_graph.is_complete
+        assert set(restored_graph.lineage("join")) == {
+            "memory", "branch-a", "branch-b", "branch-c"
+        }
+        assert restored_graph.commit("join", join_result.effect) is True
+
+        final_checkpoint = NavigableComputationCheckpoint.capture(
+            restored.session,
+            restored.request_client,
+            restored.response_client,
+            restored.catalogue,
+            restored.route_request,
+            EvidencePathResolver().resolve(
+                restored.catalogue,
+                restored.route_request,
+                restored.session.worker.operating_system,
+                restored.session.worker.authority_pid,
+            ),
+            restored.retry_event,
+            computation_dag=restored_graph,
+        )
+        assert final_checkpoint["state"]["version"] == 3
+        final_graph = NavigableComputationDAG.from_snapshot(
+            final_checkpoint["state"]["computation_dag"]
+        )
+        assert final_graph.is_complete
+        assert final_graph.result("join")["registers"]["total"] == 1346
+
+        # Across the restart, A ran once before the cut, B ran once before the
+        # cut and was replayed afterward, C ran once afterward, and the join
+        # ran once. No committed sibling is executed a second time.
+        assert original_host.calls == 2
+        assert restored_hosts[0].calls == 2
+        assert original_host.calls + restored_hosts[0].calls == 4
+        assert restored.session.worker.operating_system.environment.kernel.journal.verify()
+    finally:
+        for transport in (*transports, *replacement_transports):
+            if not transport.closed:
+                transport.close()
