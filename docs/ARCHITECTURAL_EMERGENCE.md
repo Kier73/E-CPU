@@ -122,24 +122,28 @@ and its definition digest, exact context, precondition and invariant digests,
 resource ceilings, declared receiver-side capability requirements, and
 effect/replay classes.
 
-The first executable pairing is deliberately conservative: the existing
-reference and queue interpreters run the same validated MailCPU program, and
-the existing `canonical_result` projection compares status, state, trace, and
-outputs. The paired-check record binds one contract, one case digest, one
-projection digest, and both observation digests. It compares exact canonical
-JSON values.
+The first conformance pairing runs the same validated MailCPU program
+through `ReferenceInterpreter` and `QueueInterpreter`; the existing
+`canonical_result` projection compares status, state, trace, and outputs.
+The contract also pins a content-addressed mapping definition, so changing the
+claimed adapter/rule changes contract identity even when both endpoint
+representations remain the same.
 
-This is an integration of the current conformance boundary, not yet a general
-translation runtime. It does not execute a translator, verify that a caller
-applied the declared projection correctly, prove equivalence for untested
-inputs, infer preconditions, or authorize effects. Capability declarations
-remain non-authoritative labels until a receiving host checks live policy.
+A second pairing now exercises a real representation change: an admitted
+Structural Memory specification is resolved into coordinate values and then
+materialized as a demand-paged VM page through `StructuralMemoryPageBacking`.
+The paired observation compares exact bytes, the page digest, and ordered
+coordinate receipt IDs from the two paths. This verifies one pinned page and
+context while preserving structural provenance; it does not extend the finite
+witness-grounded certificate into an infinite proof.
 
-The next milestone is to attach this contract to one actual representation
-change—such as a MailCPU workload mapped to a Transit operator or a Structural
-Memory interval materialized as a VM page—and retain the resulting evidence
-and recovery boundary. The contract should only grow in response to fields
-that a real integration needs.
+This remains a declarative contract plus paired checker, not a general
+translation runtime. It does not execute arbitrary translators, verify that
+the caller applied the declared projection correctly, prove equivalence for
+untested inputs, infer preconditions, or authorize effects. Capability
+declarations remain non-authoritative labels until a receiving host checks
+live policy. New contract fields should be added only when an integration
+requires them.
 
 ## 3. Novel-to-this-architecture possibilities
 
