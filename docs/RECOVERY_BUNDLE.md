@@ -29,10 +29,10 @@ Generation directories use the form
 
 | File | Contents |
 |---|---|
-| `requester.json` | Exact requester-side reliable-channel checkpoint bytes |
-| `receiver.json` | Exact receiver-side Transit session checkpoint bytes |
-| `backend-manifest.json` | Canonical operation/resource domain extracted from the receiver checkpoint |
-| `manifest.json` | Canonical, versioned checkpoint manifest bound to all three payloads |
+| **requester.json** | Exact requester-side reliable-channel checkpoint bytes |
+| **receiver.json** | Exact receiver-side Transit session checkpoint bytes |
+| **backend-manifest.json** | Canonical operation/resource domain extracted from the receiver checkpoint |
+| **manifest.json** | Canonical, versioned checkpoint manifest bound to all three payloads |
 
 Directories are immutable. A retry may reuse a generation only when every
 artifact byte is identical. A partial prepare or commit can therefore be
