@@ -22,6 +22,7 @@ from mailcpu import (
     TransitBackendRouter,
     TransitComputeSession,
     TransitComputeWorker,
+    TransitTranslationEvidence,
 )
 from mailcpu.transit_compute import TransitComputeError, TransitComputeHost
 
@@ -276,6 +277,10 @@ def test_persistent_worker_serves_multiple_independent_requests() -> None:
             served = worker.serve_once(request_worker, response_worker)
             assert served is not None and served.executed is True
             assert served.action.value == "allow"
+            evidence = TransitTranslationEvidence.from_dict(served.effect["_semantic_translation"])
+            evidence.validate_execution_result(served)
+            assert evidence.operation == "execute deterministic CPU arithmetic program"
+            assert evidence.resource == "/cpu/compute"
             returned = response_origin.receive()
             assert returned is not None
             assert returned.effect == served.effect
@@ -371,6 +376,8 @@ def test_reconstructed_worker_restores_execution_ledger_and_replays_without_reex
         assert request_origin.send(event) == 1
         first = worker.serve_once(request_worker, response_worker)
         assert first is not None and first.executed is True and first.replayed is False
+        first_evidence = TransitTranslationEvidence.from_dict(first.effect["_semantic_translation"])
+        first_evidence.validate_execution_result(first)
         try:
             worker.snapshot(request_worker, response_worker)
         except ValueError as exc:
@@ -418,6 +425,9 @@ def test_reconstructed_worker_restores_execution_ledger_and_replays_without_reex
         assert replay.executed is True
         assert replay.replayed is True
         assert replay.effect == first.effect
+        replay_evidence = TransitTranslationEvidence.from_dict(replay.effect["_semantic_translation"])
+        assert replay_evidence == first_evidence
+        replay_evidence.validate_execution_result(replay)
         assert restarted_host.calls == 0
 
         replay_response = response_origin.receive()

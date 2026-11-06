@@ -19,6 +19,10 @@ from .transit_structural_memory import (
     TRANSIT_STRUCTURAL_MEMORY_OPERATION,
     TRANSIT_STRUCTURAL_MEMORY_RESOURCE,
 )
+from .semantic_translation import (
+    SemanticTranslationError,
+    build_transit_translation_evidence,
+)
 
 
 class TransitComputeWorker:
@@ -70,11 +74,57 @@ class TransitComputeWorker:
             TRANSIT_STRUCTURAL_MEMORY_RESOURCE,
         ) in manifest:
             handlers[HypervisorDomain.FILESYSTEM] = self.compute_host.handle
+        authorized_events: list[HypervisorArbitrationEvent] = []
+
+        def authorize(event: HypervisorArbitrationEvent) -> HypervisorArbitrationEvent:
+            """Mathematics: retain the exact receiver-authorized event e' for the effect-encoding proof boundary."""
+            authorized = self._authorize(event)
+            authorized_events[:] = [authorized]
+            return authorized
+
+        def encode_effect(raw_effect: Any) -> dict[str, Any]:
+            """Mathematics: bind handler effect E to event identity I, decision receipt D, backend manifest M, and canonical round-trip E'=E."""
+            if not authorized_events:
+                raise SemanticTranslationError("Transit effect has no receiver-authorized event")
+            event = authorized_events[0]
+            decision = self.operating_system.hypervisor_arbitration.decision_projection_for(event.identity)
+            if decision is None:
+                raise SemanticTranslationError("Transit effect has no committed hypervisor decision")
+            _action, domain, decision_receipt, _revision = decision
+            if not isinstance(raw_effect, Mapping):
+                raise SemanticTranslationError("Transit backend effects must be JSON objects")
+            if "_semantic_translation" in raw_effect:
+                raise SemanticTranslationError("Transit backend effect uses the reserved semantic evidence field")
+            try:
+                canonical_effect = json.loads(
+                    json.dumps(
+                        raw_effect,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                        ensure_ascii=False,
+                        allow_nan=False,
+                    )
+                )
+            except (TypeError, ValueError) as exc:
+                raise SemanticTranslationError("Transit backend effect is outside canonical JSON") from exc
+            evidence = build_transit_translation_evidence(
+                event,
+                raw_effect,
+                canonical_effect,
+                backend_manifest=manifest,
+                decision_receipt=decision_receipt,
+                domain=domain.value,
+            )
+            encoded = dict(canonical_effect)
+            encoded["_semantic_translation"] = evidence.to_dict()
+            return encoded
+
         return request.receive_and_reply_event(
             self.operating_system.hypervisor_arbitration,
-            self._authorize,
+            authorize,
             handlers,
             response,
+            encode_effect,
         )
 
     @staticmethod
