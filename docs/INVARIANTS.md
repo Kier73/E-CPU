@@ -429,3 +429,10 @@ resolvable test is rejected by `scripts/verify_invariants.py`.
 | `S-22` | A multi-page access resolves every externally backed page before consuming any reservation; a failed later page leaves the complete reservation relation unchanged. | `mailcpu/memory.py` | `tests/test_structural_memory_page_backing.py::test_failed_structural_page_resolution_does_not_consume_any_reservation` | `STRUCTURAL_MEMORY.md` Structural-memory demand paging |
 | `S-23` | Writes to a structurally reconstructed page allocate a new content hash and do not mutate the original structural page; reclaimed private COW pages are persisted by the backing. | `mailcpu/memory.py` | `tests/test_structural_memory_page_backing.py::test_structural_memory_page_fault_preserves_copy_on_write_identity`, `tests/test_structural_memory_page_backing.py::test_reclaimed_cow_pages_are_persisted_and_snapshot_as_local_content` | `STRUCTURAL_MEMORY.md` Structural-memory demand paging |
 | `S-24` | VM checkpoints store only symbolic structural page references and locally persisted non-structural bytes; HeadlessOS restore rebinds inert page providers to the restored local structural-memory registry. | `mailcpu/vm.py` | `tests/test_structural_memory_page_backing.py::test_headless_checkpoint_restores_inert_page_references_then_rebinds_registry` | `STRUCTURAL_MEMORY.md` Structural-memory demand paging and Persistence and replay |
+
+
+## Semantic translation contracts
+
+| ID | Statement | Establishes | Enforced by | Required by |
+|---|---|---|---|---|
+| `TR-1` | A paired translation check binds one exact contract, input case, projection definition, and source/target observations; equivalence is true iff the canonical observation digests match. | `mailcpu/semantic_translation.py` | `tests/test_semantic_translation.py::test_reference_and_queue_interpreters_match_under_translation_contract`, `tests/test_semantic_translation.py::test_mismatching_observations_are_reported_not_raised_as_success` | `SEMANTIC_TRANSLATION.md` Paired observation check |
