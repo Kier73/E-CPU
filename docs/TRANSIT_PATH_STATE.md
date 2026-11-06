@@ -144,6 +144,12 @@ energy readings, and are not comparable across oracle families. The exact
 limits and projection fields are specified in
 [`SEMANTIC_TRANSLATION.md`](SEMANTIC_TRANSLATION.md).
 
+Legacy pre-oracle execution-ledger entries remain replayable. Their
+translation evidence can be validated without an oracle requirement, but that
+does not upgrade them to oracle-checked results. New supported operations
+produce the oracle record before commit and can be validated strictly with
+`require_oracle=True`.
+
 
 ## CPU, SIMT, and memory movement
 
