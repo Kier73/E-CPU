@@ -171,7 +171,7 @@ Older checkpoints without a structural_memory field remain readable only when th
 
 ### Current persistence boundary
 
-The registry's proposals, versions, read cache, and event receipts persist as part of the local HeadlessOS checkpoint. This is local checkpoint recovery, not a distributed registry or an atomic transaction spanning remote stores and external side effects. Multi-host replication, durable effect coupling, context-to-generator-parameter adaptation, heterogeneous generator composition, VFS page providers, CPU macro-transitions, and neural operators remain later stages.
+The registry's proposals, versions, read cache, and event receipts persist as part of the local HeadlessOS checkpoint. This is local checkpoint recovery, not a distributed registry or an atomic transaction spanning remote stores and external side effects. Multi-host replication, durable effect coupling, context-to-generator-parameter adaptation, heterogeneous generator composition, distributed page-store replication, writable shared file mappings, CPU macro-transitions, and neural operators remain later stages.
 
 ## Example
 
@@ -201,13 +201,13 @@ E0.3 adds context-only revisions while retaining the E0.2 local checkpoint and j
 - adapt context fields into changed generator parameters;
 - use learned models to prioritize or propose generator families;
 - compose heterogeneous generators or coordinate systems;
-- lazily materialize filesystem pages or files;
+- general-purpose mutable file-backed mappings or paging of arbitrary filesystem/device state;
 - perform CPU instruction macro-transitions or change native vCPU state;
 - execute model weights, recurrent state, or neural operators.
 
 Those require their own typed contracts, checkpoint/replay obligations, authority rules, and differential or trajectory-level conformance tests.
 
-The next development step is to test broader context-to-parameter maps only under an explicit transformation contract. Memory-provider integration and CPU macro-transitions should follow only after their own correspondence, authority, persistence, and recovery obligations are testable.
+Further work should keep broader context-to-parameter maps behind an explicit transformation contract. Distributed page-store replication, writable shared file mappings, and CPU macro-transitions remain separate stages with their own correspondence, authority, persistence, and recovery obligations.
 
 ## Test scope
 
