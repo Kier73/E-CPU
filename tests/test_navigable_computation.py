@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 
 import pytest
 
@@ -428,6 +429,11 @@ def test_structural_memory_value_navigates_into_oracle_checked_transit_computati
             source=memory_edge.source,
             target=cpu_result_ref,
             context_digest=cpu_translation.contract.context_digest,
+            accepted_context_digests=(
+                memory_edge.contract.context_digest,
+                bridge_contract.context_digest,
+                cpu_translation.contract.context_digest,
+            ),
             metric_order=(
                 RouteMetricKey("latency_us", "us"),
                 RouteMetricKey("energy_nj", "nJ"),
@@ -448,7 +454,22 @@ def test_structural_memory_value_navigates_into_oracle_checked_transit_computati
             max_hops=4,
             max_expansions=16,
         )
-        route = EvidencePathResolver().resolve(
+        resolver = EvidencePathResolver()
+        # Without an explicit operation-context set, the memory edge is
+        # blocked rather than silently treated as having the CPU context.
+        narrow_route = resolver.resolve(
+            restored_catalogue,
+            replace(route_request, accepted_context_digests=()),
+            operating_system,
+            authority_pid,
+        )
+        assert narrow_route.status is EvidencePathStatus.BLOCKED
+        assert any(
+            blocker.code is EvidencePathBlockerCode.CONTEXT_MISMATCH
+            for blocker in narrow_route.blockers
+        )
+
+        route = resolver.resolve(
             restored_catalogue,
             route_request,
             operating_system,
