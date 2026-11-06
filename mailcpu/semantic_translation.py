@@ -602,7 +602,7 @@ def _transit_oracle_effect_projection(
     oracle_type_id: str,
     effect: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """Project only the operation's semantic result, excluding transport and provenance noise."""
+    """Project only the operation's semantic result, excluding transport and provenance noise. Mathematics: apply the registered projection π to remove transport-specific fields while preserving the operation observation."""
     if not isinstance(effect, Mapping):
         raise SemanticTranslationError("oracle effect must be an object")
     if oracle_type_id == _CPU_ORACLE_REF.type_id:
@@ -700,21 +700,21 @@ class TransitOracleEvidence:
 
     @property
     def expected_digest(self) -> str:
-        """Return the canonical digest of the independently derived observation."""
+        """Return the canonical digest of the independently derived observation. Mathematics: H_e = SHA256(canonical_json(expected_observation))."""
         return canonical_value_digest(self.expected_observation)
 
     @property
     def observed_digest(self) -> str:
-        """Return the canonical digest of the backend's projected observation."""
+        """Return the canonical digest of the backend's projected observation. Mathematics: H_o = SHA256(canonical_json(observed_observation))."""
         return canonical_value_digest(self.observed_observation)
 
     @property
     def digest(self) -> str:
-        """Return the stable digest of this complete oracle evidence record."""
+        """Return the stable digest of this complete oracle evidence record. Mathematics: H_evidence = SHA256(canonical_json(to_dict()))."""
         return canonical_value_digest(self.to_dict())
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize the strict schema-defined oracle evidence projection."""
+        """Serialize the strict schema-defined oracle evidence projection. Mathematics: emit the canonical record fields R under schema v1."""
         return {
             "schema": _ORACLE_EVIDENCE_SCHEMA,
             "oracle": self.oracle.to_dict(),
@@ -732,7 +732,7 @@ class TransitOracleEvidence:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "TransitOracleEvidence":
-        """Reconstruct oracle evidence and revalidate its schema, digests, and cost."""
+        """Reconstruct oracle evidence and revalidate its schema, digests, and cost. Mathematics: accept only R' where schema(R')=v1 and all bound hashes and limits hold."""
         expected_fields = {
             "schema", "oracle", "request_fingerprint", "case_digest",
             "projection_digest", "expected_observation", "observed_observation",
@@ -771,7 +771,7 @@ class TransitOracleEvidence:
         *,
         request_fingerprint: str,
     ) -> None:
-        """Recheck the observed projection against the committed raw handler effect."""
+        """Recheck the observed projection against the committed raw handler effect. Mathematics: require H(π(effect))=observed_digest and request_fingerprint=F."""
         if request_fingerprint != self.request_fingerprint:
             raise SemanticTranslationError("oracle request fingerprint does not match Transit evidence")
         if not self.equivalent:
