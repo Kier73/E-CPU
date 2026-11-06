@@ -1159,6 +1159,7 @@ __all__ = [
     "PROT_EXEC",
     "PROT_READ",
     "PROT_WRITE",
+    "WNOHANG",
     "CapabilityRequirement",
     "EffectClass",
     "ObservationComparison",
