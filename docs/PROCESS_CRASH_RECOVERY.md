@@ -66,7 +66,11 @@ interpreter. This process:
 3. retransmits branch B's exact outstanding reliable frame;
 4. requires the execution ledger to return B's exact committed effect as a
    semantic replay, without invoking the replacement CPU backend;
-5. commits B into the DAG, executes only branch C, then materializes and
+5. reads the returned B result as a first-seen response at the requester.
+   Therefore the receiver execution result has `replayed=true`, while the
+   client's response-channel duplicate flag is `false`: these flags describe
+   different ledgers and must not be conflated;
+6. commits B into the DAG, executes only branch C, then materializes and
    executes the join after all branch dependencies are committed.
 
 A corrupted checkpoint is sent to a separate restore interpreter as a
