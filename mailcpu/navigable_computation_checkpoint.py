@@ -299,7 +299,8 @@ class NavigableComputationCheckpoint:
         elif state_version == 3:
             schema_valid = (
                 set(state) == cls._STATE_FIELDS_V3
-                and state.get("capture_mode") in {"inflight", "quiescent"}
+                and isinstance(state.get("capture_mode"), str)
+                and state.get("capture_mode") in ("inflight", "quiescent")
             )
         else:
             schema_valid = False
