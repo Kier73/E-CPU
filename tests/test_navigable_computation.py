@@ -253,6 +253,14 @@ def test_structural_memory_value_navigates_into_oracle_checked_transit_computati
         memory_translation.validate_execution_result(memory_result, require_oracle=True)
         assert memory_oracle.equivalent is True
         assert memory_oracle.work_units <= memory_oracle.work_limit
+        memory_edge = EvidencePathEdge.from_execution_result(
+            memory_result,
+            (
+                RouteMetric("latency_us", "us", 6),
+                RouteMetric("energy_nj", "nJ", 30),
+            ),
+        )
+        assert memory_edge.evidence_strength is EvidenceStrength.INDEPENDENT_ORACLE
 
         raw_memory_receipt = {
             key: value
@@ -329,11 +337,8 @@ def test_structural_memory_value_navigates_into_oracle_checked_transit_computati
         # translation edge: structural receipt -> authorized CPU request.
         # The following edge is ingested only from the receiver-committed
         # execution result and carries the independent CPU oracle evidence.
-        memory_ref = RepresentationRef.from_payload(
-            "mailcpu.experiment.structural-memory-receipt",
-            1,
-            raw_memory_receipt,
-        )
+        memory_ref = memory_edge.target
+        assert memory_ref == memory_translation.contract.target
         cpu_request_ref = cpu_translation.contract.source
         cpu_result_ref = cpu_translation.contract.target
 
@@ -413,13 +418,14 @@ def test_structural_memory_value_navigates_into_oracle_checked_transit_computati
         assert cpu_edge.evidence_strength is EvidenceStrength.INDEPENDENT_ORACLE
 
         catalogue = EvidencePathCatalogue()
+        memory_edge_id = catalogue.register(memory_edge)
         bridge_id = catalogue.register(bridge_edge)
         cpu_edge_id = catalogue.register(cpu_edge)
         restored_catalogue = EvidencePathCatalogue.from_dict(catalogue.to_dict())
         assert restored_catalogue.digest == catalogue.digest
 
         route_request = EvidencePathRequest(
-            source=memory_ref,
+            source=memory_edge.source,
             target=cpu_result_ref,
             context_digest=cpu_translation.contract.context_digest,
             metric_order=(
@@ -427,8 +433,8 @@ def test_structural_memory_value_navigates_into_oracle_checked_transit_computati
                 RouteMetricKey("energy_nj", "nJ"),
             ),
             resource_ceilings=(
-                RouteMetric("latency_us", "us", 30),
-                RouteMetric("energy_nj", "nJ", 300),
+                RouteMetric("latency_us", "us", 40),
+                RouteMetric("energy_nj", "nJ", 400),
             ),
             satisfied_preconditions=(
                 bridge_precondition,
@@ -449,12 +455,12 @@ def test_structural_memory_value_navigates_into_oracle_checked_transit_computati
             authority_pid,
         )
         assert route.status is EvidencePathStatus.FOUND
-        assert route.edge_ids == (bridge_id, cpu_edge_id)
+        assert route.edge_ids == (memory_edge_id, bridge_id, cpu_edge_id)
         assert route.authoritative is False
         assert route.evidence_strength is EvidenceStrength.PAIRED_CASE
         assert {item.name: item.amount for item in route.total_costs} == {
-            "latency_us": 22,
-            "energy_nj": 252,
+            "latency_us": 28,
+            "energy_nj": 282,
         }
 
         # Negative control 1: a changed immediate no longer satisfies the
