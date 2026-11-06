@@ -1,5 +1,13 @@
 # MailCPU Architecture
 
+For the supported pure CPU arithmetic and Structural Memory coordinate
+operations, `TransitComputeWorker` additionally computes a bounded
+independent oracle observation before commit. It compares exact projected
+terminal state or pinned coordinate provenance/value and records deterministic
+work units. A mismatch or exhausted oracle budget prevents commit. The
+operation-specific scope and finite-case proof boundary are documented in
+[`SEMANTIC_TRANSLATION.md`](SEMANTIC_TRANSLATION.md).
+
 Normative specification of the MailCPU state model, its lifting of conventional
 hardware surfaces, the capability model, and the evidence-tier vocabulary.
 
