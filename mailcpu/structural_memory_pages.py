@@ -61,6 +61,8 @@ class StructuralMemoryPageBacking:
         """Bind symbolic page references to a trusted, host-local structural-memory registry."""
         if not callable(getattr(registry, "read_revision", None)):
             raise ValueError("page backing binding requires a structural-memory read_revision interface")
+        if self._registry is registry:
+            return
         self._registry = registry
         self._providers = {
             digest: StructuralMemoryFileProvider(
@@ -83,9 +85,8 @@ class StructuralMemoryPageBacking:
         existing = self._references.get(digest)
         if existing is not None and existing.to_dict() != reference.to_dict():
             raise ValueError("page digest is already bound to a different structural-memory reference")
-        local = self._local_pages.get(digest)
-        if local is not None and len(local) != reference.size:
-            raise ValueError("local page size does not match structural-memory page reference")
+        if digest in self._local_pages:
+            raise ValueError("page digest is already backed by local page content")
         self._references[digest] = reference
         if self._registry is not None:
             self._providers[digest] = StructuralMemoryFileProvider(
