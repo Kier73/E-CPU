@@ -460,6 +460,12 @@ class RecoveryLineageCoordinator:
         # certificate-members projection differ from the retry.
         existing_certificate: SeedCommitCertificate | None = None
         for authority in self.authorities.values():
+            # A participant may hold a minority prepare for a conflicting
+            # value at this slot. It is not part of this proposal's quorum and
+            # must not prevent the compatible majority from progressing.
+            occupied = authority.proposal_at(proposal.slot)
+            if occupied is None or occupied.digest != proposal.digest:
+                continue
             if authority.decision(proposal) is None:
                 continue
             stored = authority.certificate(proposal)
