@@ -116,6 +116,16 @@ Structural Memory specification projection to the same representation
 reference. It preserves the existing spec digest, so the new contract does
 not invent a second identity for that object.
 
+A second conformance case exercises the existing Structural Memory demand-page
+path. It pins one admitted structural-memory specification, resolves its
+coordinate values directly with receipts, then registers the exact byte-range
+reference with `StructuralMemoryPageBacking` and faults the page into
+`VirtualMemory`. The paired observation includes bytes, content digest, and
+the ordered coordinate receipt IDs. This tests that the resident VM page
+preserves both content and coordinate provenance for that page-size/context
+case. It does not prove the generator law outside its certificate's evidence
+boundary or establish universal translation correctness.
+
 ## Composition
 
 Suppose translations T1:A->B and T2:B->C preserve the same observation
