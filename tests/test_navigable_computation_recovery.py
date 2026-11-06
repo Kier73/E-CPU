@@ -539,10 +539,10 @@ def test_navigable_computation_restores_route_and_replays_without_reexecution() 
         with pytest.raises(NavigableComputationCheckpointError, match="digest mismatch"):
             NavigableComputationCheckpoint.restore(
                 tampered,
-                client_request_transport=_tcp_pair("client", "worker")[0],
-                client_response_transport=_tcp_pair("client", "worker")[0],
-                worker_request_transport=_tcp_pair("worker", "client")[0],
-                worker_response_transport=_tcp_pair("worker", "client")[0],
+                client_request_transport=None,
+                client_response_transport=None,
+                worker_request_transport=None,
+                worker_response_transport=None,
             )
 
         # 6. Destroy the original transports and reconstruct all protocol
