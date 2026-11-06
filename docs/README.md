@@ -9,6 +9,7 @@ Index of specification documents. Documents use defined terms from `GLOSSARY.md`
 | 1 | [`../README.md`](../README.md) | What the system is, how to run it, and its architecture |
 | 2 | [`GLOSSARY.md`](GLOSSARY.md) | The defined terms relied on across the documentation |
 | 3 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | State model, lifting table, capability model, evidence tiers |
+| 4 | [`SEMANTIC_TRANSLATION.md`](SEMANTIC_TRANSLATION.md) | Representation identities, observable equivalence, context, resource, authority, and replay obligations |
 | 4 | [`REPLACEMENT_SPEC.md`](REPLACEMENT_SPEC.md) | The replacement target and its acceptance criteria |
 | 5 | [`INTEGRATION_SPEC.md`](INTEGRATION_SPEC.md) | Adopted mechanisms and their integration boundaries |
 | 6 | [`HYPERVISOR_PROFILE.md`](HYPERVISOR_PROFILE.md) | Deep operational profile of the classifier, policy, time, replay, and revision control plane |
