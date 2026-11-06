@@ -42,6 +42,13 @@ The marker is not the checkpoint and does not authorize recovery. It only lets
 the supervisor know that the checkpoint save returned and the selected
 transaction cut is still held.
 
+For the existing quorum-owner process regression test, stopping participant
+threads is followed by a bounded quiescence loop: already-sent TCP frames can
+still be in flight after the last participant thread exits. The owner retries
+only an explicit moving-boundary rejection while socket snapshots drain those
+frames; the core checkpoint capture still requires two identical complete
+projections and does not accept a moving cut.
+
 ### Supervisor — hard termination
 
 The parent verifies the marker, loads the checkpoint independently, checks its
