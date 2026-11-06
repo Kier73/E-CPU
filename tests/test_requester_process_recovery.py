@@ -135,6 +135,36 @@ def test_requester_process_death_restores_durable_channel_capsule(tmp_path: Path
         ).encode("utf-8")
         assert hashlib.sha256(canonical).hexdigest() == client_envelope["digest"]
 
+        # Tamper with a copy of the durable client capsule. Restore must
+        # reject it before opening either replacement TCP connection.
+        tampered_checkpoint = tmp_path / "tampered-requester-channels.json"
+        tampered_envelope = json.loads(client_checkpoint.read_text(encoding="utf-8"))
+        tampered_envelope["state"]["untrusted_extra"] = "mutation"
+        tampered_checkpoint.write_text(
+            json.dumps(tampered_envelope, sort_keys=True, separators=(",", ":")) + "\\n",
+            encoding="utf-8",
+        )
+        rejected_result = tmp_path / "tampered-requester-result.json"
+        rejected = subprocess.run(
+            [
+                sys.executable,
+                str(worker_script),
+                "client-restore",
+                str(initial_ready["request_port"]),
+                str(initial_ready["response_port"]),
+                str(tampered_checkpoint),
+                str(rejected_result),
+            ],
+            cwd=repository_root,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        assert rejected.returncode != 0
+        assert "client checkpoint digest mismatch" in rejected.stderr
+        assert not rejected_result.exists()
+
         original_client.kill()
         original_client.communicate(timeout=10)
         assert original_client.returncode != 0
