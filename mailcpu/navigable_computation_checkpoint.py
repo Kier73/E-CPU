@@ -5,10 +5,14 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
+import tempfile
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from .classifier import HypervisorArbitrationEvent
+from .computation_dag import NavigableComputationDAG
 from .evidence_path_resolver import (
     EvidencePathCatalogue,
     EvidencePathRequest,
@@ -22,7 +26,7 @@ from .hypervisor_transport import (
     HypervisorOperationResultChannel,
 )
 from .reliability import ReliableChannel
-from .semantic_translation import RepresentationRef
+from .semantic_translation import RepresentationRef, canonical_value_digest
 from .transit_compute import TransitComputeHost
 from .transit_session import TransitComputeSession
 
@@ -33,7 +37,7 @@ class NavigableComputationCheckpointError(ValueError):
 
 @dataclass(frozen=True)
 class RestoredNavigableComputation:
-    """Restored protocol, receiver, route, and retry identities at one verified cut."""
+    """Restored protocol, receiver, route, retry identity, and optional ready computation DAG at one verified cut."""
 
     session: TransitComputeSession
     request_client: HypervisorOperationChannel
@@ -42,13 +46,14 @@ class RestoredNavigableComputation:
     route_request: EvidencePathRequest
     route_result: Mapping[str, Any]
     retry_event: HypervisorArbitrationEvent
+    computation_dag: NavigableComputationDAG | None = None
 
 
 class NavigableComputationCheckpoint:
-    """Bind receiver/session state, requester cursors, route evidence, and retry identity."""
+    """Bind receiver/session state, requester cursors, route evidence, retry identity, and optional DAG frontier."""
 
     FORMAT = "mailcpu-navigable-computation-checkpoint-v1"
-    _STATE_FIELDS = frozenset({
+    _STATE_FIELDS_V1 = frozenset({
         "version",
         "session",
         "client_request_channel",
@@ -58,10 +63,41 @@ class NavigableComputationCheckpoint:
         "route_result",
         "retry_event",
     })
+    _STATE_FIELDS_V2 = _STATE_FIELDS_V1 | {"capture_mode"}
+    _STATE_FIELDS_V3 = _STATE_FIELDS_V2 | {"computation_dag"}
+
+    @staticmethod
+    def _validate_dag_retry(
+        computation_dag: NavigableComputationDAG,
+        retry_event: HypervisorArbitrationEvent,
+    ) -> str:
+        """Mathematics: require exactly one ready node n with op/resource/context/payload equal to the exact retry request projection."""
+
+        request = retry_event.request
+        expected_context = canonical_value_digest({
+            "operation": request.operation,
+            "resource": request.resource,
+            "payload": request.payload,
+        })
+        matches = [
+            node
+            for node in computation_dag.ready_nodes()
+            if (
+                node.operation == request.operation
+                and node.resource == request.resource
+                and node.context_digest == expected_context
+                and node.payload == dict(request.payload)
+            )
+        ]
+        if len(matches) != 1:
+            raise NavigableComputationCheckpointError(
+                "checkpoint DAG must expose exactly one ready node for the exact retry event"
+            )
+        return matches[0].node_id
 
     @staticmethod
     def _canonical(value: Any) -> bytes:
-        """Encode a value as deterministic UTF-8 JSON for checkpoint hashing."""
+        """Mathematics: define injective canonical projection J(x)=UTF8(JSON_sort_keys(x)) for digest identity."""
         try:
             return json.dumps(
                 value,
@@ -85,8 +121,11 @@ class NavigableComputationCheckpoint:
         route_request: EvidencePathRequest,
         route_result: Any,
         retry_event: HypervisorArbitrationEvent,
+        *,
+        allow_inflight: bool = False,
+        computation_dag: NavigableComputationDAG | None = None,
     ) -> dict[str, Any]:
-        """Capture all durable route and Transit ledgers at a quiescent, fully resolved cut."""
+        """Mathematics: capture C=(session,client cursors,route,retry,DAG) under one digest, preserving in-flight ledgers when requested."""
         if not isinstance(session, TransitComputeSession):
             raise NavigableComputationCheckpointError("checkpoint requires a TransitComputeSession")
         if not isinstance(request_client, HypervisorOperationChannel):
@@ -99,6 +138,8 @@ class NavigableComputationCheckpoint:
             raise NavigableComputationCheckpointError("checkpoint requires an EvidencePathRequest")
         if not isinstance(retry_event, HypervisorArbitrationEvent):
             raise NavigableComputationCheckpointError("checkpoint requires a typed retry event")
+        if computation_dag is not None and not isinstance(computation_dag, NavigableComputationDAG):
+            raise NavigableComputationCheckpointError("checkpoint DAG must be a NavigableComputationDAG")
         if not isinstance(route_result, EvidencePathResult):
             raise NavigableComputationCheckpointError("checkpoint route result must be an EvidencePathResult")
 
@@ -112,29 +153,32 @@ class NavigableComputationCheckpoint:
             raise NavigableComputationCheckpointError(
                 "checkpoint route result must be FOUND and bound to the exact request and catalogue"
             )
-        if session.phase != "idle":
+        if not isinstance(allow_inflight, bool):
+            raise NavigableComputationCheckpointError("allow_inflight must be a boolean")
+        if not allow_inflight and session.phase != "idle":
             raise NavigableComputationCheckpointError(
                 "cannot checkpoint a navigable computation with an active Transit phase"
             )
 
         client_request = request_client.channel
         client_response = response_client.channel
-        if (
-            client_request.pending_sequences()
-            or client_request.peek() is not None
-            or client_request.transport.pending() != 0
-        ):
-            raise NavigableComputationCheckpointError(
-                "cannot checkpoint with pending client request transport data"
-            )
-        if (
-            client_response.pending_sequences()
-            or client_response.peek() is not None
-            or client_response.transport.pending() != 0
-        ):
-            raise NavigableComputationCheckpointError(
-                "cannot checkpoint with unacknowledged client result transport data"
-            )
+        if not allow_inflight:
+            if (
+                client_request.pending_sequences()
+                or client_request.peek() is not None
+                or client_request.transport.pending() != 0
+            ):
+                raise NavigableComputationCheckpointError(
+                    "cannot checkpoint with pending client request transport data"
+                )
+            if (
+                client_response.pending_sequences()
+                or client_response.peek() is not None
+                or client_response.transport.pending() != 0
+            ):
+                raise NavigableComputationCheckpointError(
+                    "cannot checkpoint with unacknowledged client result transport data"
+                )
         if (
             retry_event.source != client_request.source
             or retry_event.channel != client_request.channel
@@ -144,10 +188,13 @@ class NavigableComputationCheckpoint:
             raise NavigableComputationCheckpointError(
                 "retry event identity does not match the checkpointed client channels"
             )
+        if computation_dag is not None:
+            cls._validate_dag_retry(computation_dag, retry_event)
 
+        state_version = 3 if computation_dag is not None else (2 if allow_inflight else 1)
         state = {
-            "version": 1,
-            "session": session.snapshot(),
+            "version": state_version,
+            "session": session.snapshot(allow_inflight=allow_inflight),
             "client_request_channel": client_request.snapshot(),
             "client_response_channel": response_client.snapshot(),
             "catalogue": catalogue.to_dict(),
@@ -155,12 +202,97 @@ class NavigableComputationCheckpoint:
             "route_result": route_projection,
             "retry_event": retry_event.to_dict(),
         }
+        if allow_inflight or computation_dag is not None:
+            state["capture_mode"] = "inflight" if allow_inflight else "quiescent"
+        if computation_dag is not None:
+            state["computation_dag"] = computation_dag.snapshot()
         digest = hashlib.sha256(cls._canonical(state)).hexdigest()
         return {
             "format": cls.FORMAT,
             "digest": digest,
             "state": state,
         }
+
+    @classmethod
+    def save(cls, payload: Mapping[str, Any], path: str | os.PathLike[str]) -> str:
+        """Mathematics: publish C via fsync(temp)→replace→fsync(directory), after requiring SHA256(J(state))=digest."""
+
+        if (
+            not isinstance(payload, Mapping)
+            or set(payload) != {"format", "digest", "state"}
+            or payload.get("format") != cls.FORMAT
+            or not isinstance(payload.get("state"), Mapping)
+        ):
+            raise NavigableComputationCheckpointError("cannot save an invalid checkpoint envelope")
+        expected = hashlib.sha256(cls._canonical(payload["state"])).hexdigest()
+        supplied = payload.get("digest")
+        if not isinstance(supplied, str) or not hmac.compare_digest(supplied, expected):
+            raise NavigableComputationCheckpointError("cannot save a checkpoint with an invalid digest")
+
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        encoded = cls._canonical(payload) + b"\n"
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{target.name}.",
+            suffix=".tmp",
+            dir=str(target.parent),
+        )
+        temporary = Path(temporary_name)
+        try:
+            if hasattr(os, "fchmod"):
+                os.fchmod(descriptor, 0o600)
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(encoded)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, target)
+            try:
+                directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+                directory_fd = os.open(str(target.parent), directory_flags)
+            except OSError:
+                directory_fd = None
+            if directory_fd is not None:
+                try:
+                    os.fsync(directory_fd)
+                except OSError:
+                    pass
+                finally:
+                    os.close(directory_fd)
+        except Exception:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
+            raise
+        return supplied
+
+    @classmethod
+    def load(cls, path: str | os.PathLike[str]) -> dict[str, Any]:
+        """Mathematics: accept loaded C only when SHA256(J(state))=digest; malformed or modified envelopes are rejected."""
+
+        source = Path(path)
+        try:
+            payload = json.loads(source.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise NavigableComputationCheckpointError(
+                f"cannot read navigable computation checkpoint: {exc}"
+            ) from exc
+        if (
+            not isinstance(payload, Mapping)
+            or set(payload) != {"format", "digest", "state"}
+            or payload.get("format") != cls.FORMAT
+            or not isinstance(payload.get("state"), Mapping)
+        ):
+            raise NavigableComputationCheckpointError("navigable computation checkpoint envelope is invalid")
+        expected = hashlib.sha256(cls._canonical(payload["state"])).hexdigest()
+        supplied = payload.get("digest")
+        if not isinstance(supplied, str) or not hmac.compare_digest(supplied, expected):
+            raise NavigableComputationCheckpointError("navigable computation checkpoint digest mismatch")
+        return dict(payload)
 
     @classmethod
     def restore(
@@ -173,7 +305,7 @@ class NavigableComputationCheckpoint:
         worker_response_transport: Any,
         compute_host_factory: Callable[[HeadlessOS, int], TransitComputeHost] | None = None,
     ) -> RestoredNavigableComputation:
-        """Verify and restore the complete cut, then recompute the saved route before exposing it."""
+        """Mathematics: restore C only when integrity, transport emptiness, typed identity, live authorization, and resolver projection all agree."""
         if (
             not isinstance(payload, Mapping)
             or set(payload) != {"format", "digest", "state"}
@@ -183,12 +315,27 @@ class NavigableComputationCheckpoint:
                 "navigable computation checkpoint format or fields are invalid"
             )
         state = payload.get("state")
-        if (
-            not isinstance(state, Mapping)
-            or set(state) != cls._STATE_FIELDS
-            or type(state.get("version")) is not int
-            or state.get("version") != 1
-        ):
+        if not isinstance(state, Mapping) or type(state.get("version")) is not int:
+            raise NavigableComputationCheckpointError(
+                "navigable computation checkpoint state schema is invalid"
+            )
+        state_version = state.get("version")
+        if state_version == 1:
+            schema_valid = set(state) == cls._STATE_FIELDS_V1
+        elif state_version == 2:
+            schema_valid = (
+                set(state) == cls._STATE_FIELDS_V2
+                and state.get("capture_mode") == "inflight"
+            )
+        elif state_version == 3:
+            schema_valid = (
+                set(state) == cls._STATE_FIELDS_V3
+                and isinstance(state.get("capture_mode"), str)
+                and state.get("capture_mode") in ("inflight", "quiescent")
+            )
+        else:
+            schema_valid = False
+        if not schema_valid:
             raise NavigableComputationCheckpointError(
                 "navigable computation checkpoint state schema is invalid"
             )
@@ -207,6 +354,15 @@ class NavigableComputationCheckpoint:
             raise NavigableComputationCheckpointError(
                 "navigable computation checkpoint digest mismatch"
             )
+
+        computation_dag = None
+        if state_version == 3:
+            try:
+                computation_dag = NavigableComputationDAG.from_snapshot(state["computation_dag"])
+            except Exception as exc:
+                raise NavigableComputationCheckpointError(
+                    f"saved computation DAG restore failed: {type(exc).__name__}: {exc}"
+                ) from exc
 
         supplied_transports = (
             ("client request", client_request_transport),
@@ -252,6 +408,8 @@ class NavigableComputationCheckpoint:
             catalogue = EvidencePathCatalogue.from_dict(catalogue_payload)
             route_request = EvidencePathRequest.from_dict(request_payload)
             retry_event = HypervisorArbitrationEvent.from_dict(raw_retry_event)
+            if computation_dag is not None:
+                cls._validate_dag_retry(computation_dag, retry_event)
             session = TransitComputeSession.from_snapshot(
                 session_state,
                 worker_request_transport,
@@ -301,9 +459,12 @@ class NavigableComputationCheckpoint:
             1,
             authorized_retry.to_dict(),
         )
-        if not any(edge.source == retry_ref for edge in catalogue.edges):
+        if (
+            route_request.target != retry_ref
+            and not any(edge.source == retry_ref for edge in catalogue.edges)
+        ):
             raise NavigableComputationCheckpointError(
-                "retry event does not identify a source representation in the saved route catalogue"
+                "retry event is neither the saved route target nor a source representation in the catalogue"
             )
 
         # Re-run the resolver against the restored receiver's live capability
@@ -333,4 +494,5 @@ class NavigableComputationCheckpoint:
             route_request=route_request,
             route_result=route.to_dict(),
             retry_event=retry_event,
+            computation_dag=computation_dag,
         )

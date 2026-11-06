@@ -100,8 +100,9 @@ class HypervisorOperationChannel:
         handlers: Mapping[HypervisorDomain | str, Callable[[HypervisorArbitrationEvent], Any]],
         response: "HypervisorOperationResultChannel",
         effect_encoder: Callable[[Any], Any] | None = None,
+        fault_hook: Callable[[str], None] | None = None,
     ) -> HypervisorExecutionResult | None:
-        """Mathematics: dispatch authorized event e into H_domain(e), commit its typed result to R, then ACK the request frame."""
+        """Mathematics: order authorize(e)→commit(E[e])→publish(R[e])→ACK(q), exposing hooks at each recovery cut."""
 
         if not isinstance(response, HypervisorOperationResultChannel):
             raise HypervisorOperationTransportError("operation reply requires a HypervisorOperationResultChannel")
@@ -111,13 +112,23 @@ class HypervisorOperationChannel:
         if prepared is None:
             return None
         transport_sequence, authorized = prepared
+        if fault_hook is not None:
+            if not callable(fault_hook):
+                raise HypervisorOperationTransportError("fault hook must be callable")
+            fault_hook("before_execution")
         bound_handlers = {
             domain: (lambda handler=handler, event=authorized: handler(event))
             for domain, handler in handlers.items()
         }
         result = arbitration.execute(authorized, bound_handlers, effect_encoder)
+        if fault_hook is not None:
+            fault_hook("after_execution_commit")
         response.send(result)
+        if fault_hook is not None:
+            fault_hook("after_response_publish")
         self._consume_after_execution(transport_sequence)
+        if fault_hook is not None:
+            fault_hook("after_request_ack")
         return result
 
     def _prepare_execution(
