@@ -113,6 +113,30 @@ The schema-v3 envelope contains the DAG with A committed and B/C ready, together
 
 The test accounts for CPU backend calls on both sides of the simulated restart: two before the cut (A and B), two after restore (C and the join), and four total. The B retry is a protocol replay, not a fifth execution. It asserts no response was pending at the selected cut, so the experiment covers the execution-commit-before-publication boundary rather than a later delivery boundary.
 
+## Genuine subprocess termination
+
+The integrated DAG test is now complemented by
+`tests/test_process_crash_recovery.py::test_navigable_computation_recovers_after_real_worker_process_kill`.
+A supervisor starts a separate Python interpreter, which builds the same
+Structural Memory → A/B/C → join path, executes A, then executes B. At the
+existing `after_execution_commit` hook, the child durably publishes the
+combined schema-v3 checkpoint and blocks before response publication or ACK.
+The supervisor verifies the saved state and hard-terminates that child with
+`Popen.kill()` (SIGKILL on POSIX; process termination on Windows).
+
+A second Python interpreter loads the checkpoint, creates fresh TCP socket
+pairs, restores the receiver/requester/worker state, and retransmits B. The
+execution ledger replays B without entering the replacement backend; only C
+and the join execute after restart. The expected backend accounting remains
+two calls before termination and two after restart, with the join result 1346.
+A separate restore process must reject a modified checkpoint before writing a
+result.
+
+This establishes recovery after actual worker-process death with a retained
+local checkpoint. The original requester endpoints are also hosted in the
+supervised child in this first process harness, so this is not yet a
+receiver-only restart with a separate client that survives independently.
+
 ## Proof boundary
 
 This demonstrates deterministic same-process test harnesses simulating a

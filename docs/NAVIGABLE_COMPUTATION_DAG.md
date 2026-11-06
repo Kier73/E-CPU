@@ -79,7 +79,7 @@ The multi-branch recovery experiment goes further. It commits branch A, then sen
 - branch C remains ready and unexecuted; and
 - the join remains blocked because B and C have not both entered the graph's commit map.
 
-The single schema-v3 checkpoint binds this graph state to the receiver ledger, requester/worker cursors, exact route, and branch-B retry event. Restore rebuilds the graph with A committed and B/C ready. Retrying B returns the receiver's stored result without entering the replacement CPU backend; the test then commits B, executes only C as new work, materializes the join from all three committed results, and runs that join through Transit. This is deterministic same-process reconstruction over fresh TCP streams, not an OS process-kill test.
+The single schema-v3 checkpoint binds this graph state to the receiver ledger, requester/worker cursors, exact route, and branch-B retry event. Restore rebuilds the graph with A committed and B/C ready. Retrying B returns the receiver's stored result without entering the replacement CPU backend; the test then commits B, executes only C as new work, materializes the join from all three committed results, and runs that join through Transit. The same transaction cut is also exercised by a separate supervisor/child-process test that hard-terminates the worker interpreter and restores in a new interpreter; see `PROCESS_CRASH_RECOVERY.md`. The DAG branches in both harnesses are still executed sequentially, not concurrently.
 
 ## Proof boundary
 
