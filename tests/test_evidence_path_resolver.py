@@ -1,0 +1,495 @@
+"""Tests for evidence-indexed, resource-aware representation routing."""
+
+from __future__ import annotations
+
+import pytest
+
+from mailcpu import (
+    Capability,
+    CapabilityRequirement,
+    EffectClass,
+    HeadlessOS,
+    ObservationContract,
+    ReplayClass,
+    RepresentationRef,
+    ResourceBound,
+    TranslationContract,
+    canonical_value_digest,
+    compare_projected_observations,
+)
+from mailcpu.evidence_path_resolver import (
+    EvidencePathBlockerCode,
+    EvidencePathCatalogue,
+    EvidencePathEdge,
+    EvidencePathRequest,
+    EvidencePathResolver,
+    EvidencePathStatus,
+    EvidenceStrength,
+    RouteMetric,
+    RouteMetricKey,
+)
+
+
+_CONTEXT = {"tenant": "alpha", "partition": 3}
+_CONTEXT_DIGEST = canonical_value_digest(_CONTEXT)
+_METRIC_ORDER = (
+    RouteMetricKey("latency_us", "us"),
+    RouteMetricKey("energy_nj", "nJ"),
+)
+
+
+def _ref(name: str) -> RepresentationRef:
+    """Mathematics: map a stable node label to a content-addressed representation identity."""
+    return RepresentationRef.from_payload(
+        "test.semantic.representation",
+        1,
+        {"node": name},
+    )
+
+
+def _os(*resources: str) -> tuple[HeadlessOS, int]:
+    """Mathematics: create one receiver process whose live authority is exactly the supplied resource/right pairs."""
+    operating_system = HeadlessOS()
+    capabilities = tuple(
+        Capability(resource, frozenset({"execute"}))
+        for resource in resources
+    )
+    pid = operating_system.environment.kernel.spawn(
+        "evidence-path-test",
+        capabilities=capabilities,
+        parent_pid=operating_system.environment.init_pid,
+    )
+    return operating_system, pid
+
+
+def _edge(
+    edge_name: str,
+    source: RepresentationRef,
+    target: RepresentationRef,
+    *,
+    latency: int,
+    energy: int,
+    resource: str = "/cpu/execute",
+    context_digest: str = _CONTEXT_DIGEST,
+    preconditions: tuple[str, ...] = (),
+    invariants: tuple[str, ...] = (),
+) -> EvidencePathEdge:
+    """Build a finite paired-case translation edge with explicit resource/authority declarations."""
+    contract = TranslationContract(
+        contract_id=f"test.edge.{edge_name}",
+        revision=1,
+        source=source,
+        target=target,
+        mapping=RepresentationRef.from_payload(
+            "test.semantic.mapping",
+            1,
+            {"edge": edge_name},
+        ),
+        observation=ObservationContract.from_definition(
+            "test.route.observation",
+            1,
+            {"visible_fields": ["value"], "comparison": "exact"},
+        ),
+        context_digest=context_digest,
+        precondition_digests=preconditions,
+        invariant_digests=invariants,
+        resource_bounds=(
+            ResourceBound("energy_nj", 10_000, "nJ"),
+            ResourceBound("latency_us", 10_000, "us"),
+        ),
+        authority_requirements=(
+            CapabilityRequirement(resource, ("execute",)),
+        ),
+        effect_class=EffectClass.PURE,
+        replay_class=ReplayClass.DETERMINISTIC,
+    )
+    comparison = compare_projected_observations(
+        contract,
+        case_payload={"case": edge_name},
+        source_observation={"value": edge_name},
+        target_observation={"value": edge_name},
+    )
+    return EvidencePathEdge(
+        contract=contract,
+        comparison=comparison,
+        costs=(
+            RouteMetric("latency_us", "us", latency),
+            RouteMetric("energy_nj", "nJ", energy),
+        ),
+    )
+
+
+def _request(
+    source: RepresentationRef,
+    target: RepresentationRef,
+    *,
+    energy_limit: int | None = None,
+    context_digest: str = _CONTEXT_DIGEST,
+    preconditions: tuple[str, ...] = (),
+    invariants: tuple[str, ...] = (),
+    minimum_evidence: EvidenceStrength = EvidenceStrength.PAIRED_CASE,
+    metric_order: tuple[RouteMetricKey, ...] = _METRIC_ORDER,
+    max_hops: int = 16,
+    max_expansions: int = 128,
+) -> EvidencePathRequest:
+    """Build one deterministic route request with explicit metric priority and optional energy ceiling."""
+    ceilings = (
+        ()
+        if energy_limit is None
+        else (RouteMetric("energy_nj", "nJ", energy_limit),)
+    )
+    return EvidencePathRequest(
+        source=source,
+        target=target,
+        context_digest=context_digest,
+        metric_order=metric_order,
+        resource_ceilings=ceilings,
+        satisfied_preconditions=preconditions,
+        satisfied_invariants=invariants,
+        minimum_evidence=minimum_evidence,
+        max_hops=max_hops,
+        max_expansions=max_expansions,
+    )
+
+
+def test_resolver_uses_explicit_lexicographic_objective_not_mixed_units() -> None:
+    """Mathematics: minimize total latency first, then energy, without adding unlike metric units."""
+    source, via_fast, via_efficient, target = map(_ref, ("source", "fast", "efficient", "target"))
+    catalogue = EvidencePathCatalogue()
+    fast_path = (
+        _edge("fast-1", source, via_fast, latency=1, energy=7),
+        _edge("fast-2", via_fast, target, latency=1, energy=1),
+    )
+    efficient_path = (
+        _edge("efficient-1", source, via_efficient, latency=2, energy=1, resource="/gpu/execute"),
+        _edge("efficient-2", via_efficient, target, latency=2, energy=1, resource="/gpu/execute"),
+    )
+    for edge in (*fast_path, *efficient_path):
+        catalogue.register(edge)
+    operating_system, pid = _os("/cpu/execute", "/gpu/execute")
+
+    result = EvidencePathResolver().resolve(
+        catalogue,
+        _request(source, target),
+        operating_system,
+        pid,
+    )
+
+    assert result.status is EvidencePathStatus.FOUND
+    assert result.edge_ids == tuple(edge.edge_id for edge in fast_path)
+    assert result.total_costs == (
+        RouteMetric("energy_nj", "nJ", 8),
+        RouteMetric("latency_us", "us", 2),
+    )
+    assert result.authoritative is False
+
+
+def test_global_resource_ceiling_excludes_the_lexicographically_cheapest_path() -> None:
+    """Mathematics: select the least-latency path among feasible paths after enforcing the aggregate energy ceiling."""
+    source, via_fast, via_efficient, target = map(_ref, ("source", "fast", "efficient", "target"))
+    fast_path = (
+        _edge("fast-budget-1", source, via_fast, latency=1, energy=6),
+        _edge("fast-budget-2", via_fast, target, latency=1, energy=1),
+    )
+    efficient_path = (
+        _edge("efficient-budget-1", source, via_efficient, latency=2, energy=1, resource="/gpu/execute"),
+        _edge("efficient-budget-2", via_efficient, target, latency=2, energy=1, resource="/gpu/execute"),
+    )
+    catalogue = EvidencePathCatalogue()
+    for edge in (*fast_path, *efficient_path):
+        catalogue.register(edge)
+    operating_system, pid = _os("/cpu/execute", "/gpu/execute")
+
+    result = EvidencePathResolver().resolve(
+        catalogue,
+        _request(source, target, energy_limit=5),
+        operating_system,
+        pid,
+    )
+
+    assert result.status is EvidencePathStatus.FOUND
+    assert result.edge_ids == tuple(edge.edge_id for edge in efficient_path)
+    assert dict((item.name, item.amount) for item in result.total_costs) == {
+        "energy_nj": 2,
+        "latency_us": 4,
+    }
+    assert any(item.code is EvidencePathBlockerCode.RESOURCE_LIMIT for item in result.blockers)
+
+
+def test_live_receiver_capability_is_required_and_is_read_from_kernel_state() -> None:
+    """Mathematics: a route edge is eligible iff every declared resource/right pair is present in the receiving process."""
+    source, target = _ref("source"), _ref("target")
+    edge = _edge(
+        "gpu-only",
+        source,
+        target,
+        latency=1,
+        energy=1,
+        resource="/gpu/execute",
+    )
+    catalogue = EvidencePathCatalogue()
+    catalogue.register(edge)
+    operating_system, pid = _os("/cpu/execute")
+
+    denied = EvidencePathResolver().resolve(
+        catalogue,
+        _request(source, target),
+        operating_system,
+        pid,
+    )
+    assert denied.status is EvidencePathStatus.BLOCKED
+    assert any(item.code is EvidencePathBlockerCode.AUTHORITY_MISSING for item in denied.blockers)
+
+    gpu_pid = operating_system.environment.kernel.spawn(
+        "gpu-capable-test",
+        capabilities=(Capability("/gpu/execute", frozenset({"execute"})),),
+        parent_pid=operating_system.environment.init_pid,
+    )
+    allowed = EvidencePathResolver().resolve(
+        catalogue,
+        _request(source, target),
+        operating_system,
+        gpu_pid,
+    )
+    assert allowed.status is EvidencePathStatus.FOUND
+    assert allowed.edge_ids == (edge.edge_id,)
+    assert allowed.authority_digest != denied.authority_digest
+
+
+def test_context_preconditions_and_invariants_are_independent_route_filters() -> None:
+    """Mathematics: an edge is eligible only when its exact context and all declared prerequisite digests are present."""
+    source, target = _ref("source"), _ref("target")
+    precondition = canonical_value_digest({"precondition": "memory-pinned"})
+    invariant = canonical_value_digest({"invariant": "input-stable"})
+    edge = _edge(
+        "gated",
+        source,
+        target,
+        latency=1,
+        energy=1,
+        preconditions=(precondition,),
+        invariants=(invariant,),
+    )
+    catalogue = EvidencePathCatalogue()
+    catalogue.register(edge)
+    operating_system, pid = _os("/cpu/execute")
+
+    missing = EvidencePathResolver().resolve(
+        catalogue,
+        _request(source, target, preconditions=(precondition,)),
+        operating_system,
+        pid,
+    )
+    assert missing.status is EvidencePathStatus.BLOCKED
+    assert any(item.code is EvidencePathBlockerCode.INVARIANT_MISSING for item in missing.blockers)
+
+    wrong_context = EvidencePathResolver().resolve(
+        catalogue,
+        _request(
+            source,
+            target,
+            context_digest=canonical_value_digest({"tenant": "beta"}),
+            preconditions=(precondition,),
+            invariants=(invariant,),
+        ),
+        operating_system,
+        pid,
+    )
+    assert wrong_context.status is EvidencePathStatus.BLOCKED
+    assert any(item.code is EvidencePathBlockerCode.CONTEXT_MISMATCH for item in wrong_context.blockers)
+
+    ready = EvidencePathResolver().resolve(
+        catalogue,
+        _request(
+            source,
+            target,
+            preconditions=(precondition,),
+            invariants=(invariant,),
+        ),
+        operating_system,
+        pid,
+    )
+    assert ready.status is EvidencePathStatus.FOUND
+
+
+def test_oracle_evidence_requirement_does_not_upgrade_a_paired_case_check() -> None:
+    """Mathematics: PAIRED_CASE evidence is excluded whenever the request minimum is INDEPENDENT_ORACLE."""
+    source, target = _ref("source"), _ref("target")
+    edge = _edge("paired-only", source, target, latency=1, energy=1)
+    catalogue = EvidencePathCatalogue()
+    catalogue.register(edge)
+    operating_system, pid = _os("/cpu/execute")
+
+    result = EvidencePathResolver().resolve(
+        catalogue,
+        _request(
+            source,
+            target,
+            minimum_evidence=EvidenceStrength.INDEPENDENT_ORACLE,
+        ),
+        operating_system,
+        pid,
+    )
+
+    assert result.status is EvidencePathStatus.BLOCKED
+    assert any(item.code is EvidencePathBlockerCode.EVIDENCE_INSUFFICIENT for item in result.blockers)
+
+
+def test_catalogue_snapshot_round_trip_preserves_edge_identity_and_digest() -> None:
+    """Mathematics: canonical catalogue serialization is a fixed point under strict edge reconstruction."""
+    source, target = _ref("source"), _ref("target")
+    edge = _edge("round-trip", source, target, latency=3, energy=2)
+    catalogue = EvidencePathCatalogue(max_edges=8)
+    first_id = catalogue.register(edge)
+    assert catalogue.register(edge) == first_id
+
+    restored = EvidencePathCatalogue.from_dict(catalogue.to_dict())
+
+    assert restored.digest == catalogue.digest
+    assert restored.edges == (edge,)
+    assert restored.remove(first_id) is True
+    assert restored.remove(first_id) is False
+
+
+def test_exact_representation_content_identity_is_required_for_edge_chaining() -> None:
+    """Mathematics: adjacent route steps compose only when target and next source RepresentationRefs are exactly equal."""
+    source, intermediate_left, intermediate_right, target = map(
+        _ref,
+        ("source", "intermediate-left", "intermediate-right", "target"),
+    )
+    catalogue = EvidencePathCatalogue()
+    catalogue.register(_edge("left", source, intermediate_left, latency=1, energy=1))
+    catalogue.register(_edge("right", intermediate_right, target, latency=1, energy=1))
+    operating_system, pid = _os("/cpu/execute")
+
+    result = EvidencePathResolver().resolve(
+        catalogue,
+        _request(source, target),
+        operating_system,
+        pid,
+    )
+
+    assert result.status is EvidencePathStatus.UNREACHABLE
+    assert not result.edge_ids
+
+
+def test_hop_and_expansion_exhaustion_are_not_reported_as_unreachable() -> None:
+    """Mathematics: finite resolver limits produce BUDGET_EXHAUSTED rather than a false unreachability claim."""
+    source, middle, target = map(_ref, ("source", "middle", "target"))
+    catalogue = EvidencePathCatalogue()
+    catalogue.register(_edge("one", source, middle, latency=1, energy=1))
+    catalogue.register(_edge("two", middle, target, latency=1, energy=1))
+    operating_system, pid = _os("/cpu/execute")
+
+    hop_limited = EvidencePathResolver().resolve(
+        catalogue,
+        _request(source, target, max_hops=1),
+        operating_system,
+        pid,
+    )
+    assert hop_limited.status is EvidencePathStatus.BUDGET_EXHAUSTED
+    assert any(item.code is EvidencePathBlockerCode.HOP_LIMIT for item in hop_limited.blockers)
+
+    expansion_limited = EvidencePathResolver().resolve(
+        catalogue,
+        _request(source, target, max_expansions=1),
+        operating_system,
+        pid,
+    )
+    assert expansion_limited.status is EvidencePathStatus.BUDGET_EXHAUSTED
+
+
+def test_already_satisfied_target_needs_no_route_or_extra_capability() -> None:
+    """Mathematics: source=target returns the empty route without inspecting graph edges or requesting an operation grant."""
+    source = _ref("already-here")
+    catalogue = EvidencePathCatalogue()
+    operating_system, pid = _os()
+
+    result = EvidencePathResolver().resolve(
+        catalogue,
+        _request(source, source),
+        operating_system,
+        pid,
+    )
+
+    assert result.status is EvidencePathStatus.ALREADY_AT_TARGET
+    assert result.edge_ids == ()
+    assert result.authoritative is False
+
+
+def test_route_metric_unit_mismatch_is_a_blocker_not_a_silent_conversion() -> None:
+    """Mathematics: the resolver never compares amounts whose metric names match but units differ."""
+    source, target = _ref("source"), _ref("target")
+    edge = _edge("units", source, target, latency=1, energy=1)
+    catalogue = EvidencePathCatalogue()
+    catalogue.register(edge)
+    operating_system, pid = _os("/cpu/execute")
+    request = _request(
+        source,
+        target,
+        metric_order=(
+            RouteMetricKey("latency_us", "ms"),
+            RouteMetricKey("energy_nj", "nJ"),
+        ),
+    )
+
+    result = EvidencePathResolver().resolve(catalogue, request, operating_system, pid)
+
+    assert result.status is EvidencePathStatus.BLOCKED
+    assert any(item.code is EvidencePathBlockerCode.METRIC_MISMATCH for item in result.blockers)
+
+
+def test_route_evidence_and_cost_contract_mismatch_are_rejected_at_registration() -> None:
+    """Mathematics: route registration rejects an observation pair bound to another contract and any cost above a declared contract ceiling."""
+    source, target = _ref("source"), _ref("target")
+    edge = _edge("first", source, target, latency=1, energy=1)
+    other = _edge("other", source, target, latency=1, energy=1)
+
+    with pytest.raises(ValueError, match="exact contract"):
+        EvidencePathEdge(
+            contract=edge.contract,
+            comparison=other.comparison,
+            costs=edge.costs,
+        )
+
+
+def test_route_result_digest_binds_request_and_receiver_authority_snapshot() -> None:
+    """Mathematics: the same route and context under distinct live capability states produce distinct result digests."""
+    source, target = _ref("source"), _ref("target")
+    catalogue = EvidencePathCatalogue()
+    catalogue.register(_edge("authority", source, target, latency=1, energy=1))
+    cpu_os, cpu_pid = _os("/cpu/execute")
+    gpu_pid = cpu_os.environment.kernel.spawn(
+        "other-authority",
+        capabilities=(Capability("/gpu/execute", frozenset({"execute"})),),
+        parent_pid=cpu_os.environment.init_pid,
+    )
+    cpu_result = EvidencePathResolver().resolve(
+        catalogue,
+        _request(source, target),
+        cpu_os,
+        cpu_pid,
+    )
+    gpu_result = EvidencePathResolver().resolve(
+        catalogue,
+        _request(source, target),
+        cpu_os,
+        gpu_pid,
+    )
+
+    assert cpu_result.status is EvidencePathStatus.FOUND
+    assert gpu_result.status is EvidencePathStatus.FOUND
+    assert cpu_result.authority_digest != gpu_result.authority_digest
+    assert cpu_result.digest != gpu_result.digest
+
+
+def test_execution_result_ingestion_rejects_non_receiver_results() -> None:
+    """Mathematics: only a typed committed hypervisor execution result can introduce a Transit oracle edge."""
+    with pytest.raises(ValueError, match="HypervisorExecutionResult"):
+        EvidencePathEdge.from_execution_result(
+            {"effect": {"_semantic_translation": {}, "_semantic_oracle": {}}},
+            (
+                RouteMetric("latency_us", "us", 1),
+                RouteMetric("energy_nj", "nJ", 1),
+            ),
+        )
