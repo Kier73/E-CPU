@@ -558,6 +558,46 @@ class EvidencePathRequest:
             "max_expansions": self.max_expansions,
         }
 
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "EvidencePathRequest":
+        """Restore the exact versioned route query after strict schema and typed-field validation."""
+        expected = {
+            "schema", "source", "target", "context_digest",
+            "accepted_context_digests", "metric_order", "resource_ceilings",
+            "satisfied_preconditions", "satisfied_invariants",
+            "minimum_evidence", "max_hops", "max_expansions",
+        }
+        if (
+            not isinstance(payload, Mapping)
+            or set(payload) != expected
+            or payload.get("schema") != "mailcpu.evidence-path-request.v2"
+        ):
+            raise EvidencePathError("evidence path request schema or fields are invalid")
+        for name in (
+            "source", "target",
+        ):
+            if not isinstance(payload[name], Mapping):
+                raise EvidencePathError(f"route request {name} must be an object")
+        for name in (
+            "accepted_context_digests", "metric_order", "resource_ceilings",
+            "satisfied_preconditions", "satisfied_invariants",
+        ):
+            if not isinstance(payload[name], (tuple, list)):
+                raise EvidencePathError(f"route request {name} must be an array")
+        return cls(
+            source=RepresentationRef.from_dict(payload["source"]),
+            target=RepresentationRef.from_dict(payload["target"]),
+            context_digest=payload["context_digest"],
+            accepted_context_digests=tuple(payload["accepted_context_digests"]),
+            metric_order=tuple(RouteMetricKey.from_dict(item) for item in payload["metric_order"]),
+            resource_ceilings=tuple(RouteMetric.from_dict(item) for item in payload["resource_ceilings"]),
+            satisfied_preconditions=tuple(payload["satisfied_preconditions"]),
+            satisfied_invariants=tuple(payload["satisfied_invariants"]),
+            minimum_evidence=payload["minimum_evidence"],
+            max_hops=payload["max_hops"],
+            max_expansions=payload["max_expansions"],
+        )
+
 
 @dataclass(frozen=True)
 class EvidencePathBlocker:
