@@ -167,7 +167,7 @@ class HeadlessOS:
         page_digest: str,
         reference: StructuralMemoryFileRef,
     ) -> str:
-        """Register one immutable page hash against a pinned structural-memory byte interval.
+        """Mathematics: bind page digest `h` to one pinned interval `r`, making `h` available to VM demand reservations.
 
         The returned digest can be supplied to VirtualMemory.reserve(...,
         backing_blob_ids=(digest,)) to create a demand-paged reservation.
