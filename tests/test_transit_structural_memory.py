@@ -229,6 +229,9 @@ def test_structural_memory_coordinate_read_runs_inside_receiver_transit_path() -
         assert canonical_value_digest(raw_effect) == evidence.effect_digest
         assert evidence.contract.target.content_digest == evidence.effect_digest
         assert evidence.digest == TransitTranslationEvidence.from_dict(evidence.to_dict()).digest
+        evidence.validate_execution_result(served)
+        with pytest.raises(ValueError):
+            TransitTranslationEvidence.from_dict({**evidence.to_dict(), "unknown": True})
         assert calls["count"] == 1
         assert session.phase == "response-unacknowledged"
 
@@ -257,6 +260,7 @@ def test_structural_memory_coordinate_read_runs_inside_receiver_transit_path() -
         replay_evidence = TransitTranslationEvidence.from_dict(replay.effect["_semantic_translation"])
         assert replay_evidence == evidence
         assert replay_evidence.digest == evidence.digest
+        replay_evidence.validate_execution_result(replay)
         assert calls["count"] == 1
         replayed_response = _wait_for_response(response_client)
         assert replayed_response.replayed is True
@@ -353,6 +357,7 @@ def test_transit_worker_checkpoint_restores_structural_memory_and_replays_same_s
         checkpoint_evidence = TransitTranslationEvidence.from_dict(first.effect["_semantic_translation"])
         assert checkpoint_evidence.identity == event.identity
         assert checkpoint_evidence.request_fingerprint == first.fingerprint
+        checkpoint_evidence.validate_execution_result(first)
         first_result = _wait_for_response(response_client)
         assert first_result.effect == first.effect
         _wait_for_ack(request_client.channel, (1,))
@@ -426,6 +431,7 @@ def test_transit_worker_checkpoint_restores_structural_memory_and_replays_same_s
         restored_evidence = TransitTranslationEvidence.from_dict(replay.effect["_semantic_translation"])
         assert restored_evidence == checkpoint_evidence
         assert restored_evidence.digest == checkpoint_evidence.digest
+        restored_evidence.validate_execution_result(replay)
         assert restored_worker_hosts[0].operating_system.structural_memory.active_version("orbit-alpha") == version
         assert initial_host_calls["count"] == 1
 
