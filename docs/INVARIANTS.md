@@ -431,6 +431,12 @@ resolvable test is rejected by `scripts/verify_invariants.py`.
 | `S-24` | VM checkpoints store only symbolic structural page references and locally persisted non-structural bytes; HeadlessOS restore rebinds inert page providers to the restored local structural-memory registry. | `mailcpu/vm.py` | `tests/test_structural_memory_page_backing.py::test_headless_checkpoint_restores_inert_page_references_then_rebinds_registry` | `STRUCTURAL_MEMORY.md` Structural-memory demand paging and Persistence and replay |
 
 
+## Navigable computation recovery
+
+| ID | Statement | Establishes | Enforced by | Required by |
+|---|---|---|---|---|
+| X-11 | A combined navigable-computation checkpoint is capturable only at a quiescent cut; its integrity-bound envelope binds receiver/worker state, requester-side reliable cursors, the exact evidence catalogue, route query/result, and retry event; restore rebinds the same backend manifest, reauthorizes the retry event against live receiver capabilities, and reproduces the saved route before exposing the recovered session. The digest detects modification but is not an authentication signature. | `mailcpu/navigable_computation_checkpoint.py` | `tests/test_navigable_computation_recovery.py::test_navigable_computation_restores_route_and_replays_without_reexecution` | `NAVIGABLE_COMPUTATION_RECOVERY.md` Combined checkpoint envelope; Restore protocol; Proof boundary |
+
 ## Semantic translation contracts
 
 | ID | Statement | Establishes | Enforced by | Required by |

@@ -269,6 +269,11 @@ from .transit_structural_memory import (
 )
 from .transit_router import TransitBackendRouter, TransitBackendRouterError
 from .transit_session import TransitComputeSession
+from .navigable_computation_checkpoint import (
+    NavigableComputationCheckpoint,
+    NavigableComputationCheckpointError,
+    RestoredNavigableComputation,
+)
 from .transit_simt import TransitSIMTError, TransitSIMTHost
 from .transit_worker import TransitComputeWorker
 from .transit_orbit import (
@@ -943,6 +948,9 @@ __all__ = [
     "TransitBackendRouter",
     "TransitBackendRouterError",
     "TransitComputeSession",
+    "NavigableComputationCheckpoint",
+    "NavigableComputationCheckpointError",
+    "RestoredNavigableComputation",
     "TransitSIMTError",
     "TransitSIMTHost",
     "TransitComputeWorker",

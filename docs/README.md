@@ -39,6 +39,7 @@ Index of specification documents. Documents use defined terms from `GLOSSARY.md`
 | 31 | [`ARCHITECTURAL_EMERGENCE.md`](ARCHITECTURAL_EMERGENCE.md) | Present capabilities, current build boundaries, and testable possibilities created by architectural composition |
 | 32 | [`EVIDENCE_PATH_RESOLVER.md`](EVIDENCE_PATH_RESOLVER.md) | Evidence-indexed representation routes, multidimensional resource costs, receiver-local capability filtering, and non-authoritative path proposals |
 | 33 | [`NAVIGABLE_COMPUTATION_EXPERIMENT.md`](NAVIGABLE_COMPUTATION_EXPERIMENT.md) | End-to-end Structural Memory to Transit CPU composition, evidence-backed representation routing, replay, and measured boundaries |
+| 34 | [NAVIGABLE_COMPUTATION_RECOVERY.md](NAVIGABLE_COMPUTATION_RECOVERY.md) | Integrity-bound recovery of receiver state, both channel endpoints, evidence route catalogue, and semantic retry identity |
 
 ## Document classes
 
