@@ -300,6 +300,41 @@ Experiment: define an attention budget with explicit units—for example, candid
 
 Failure condition: attention only changes scheduling labels without improving useful coverage per unit cost, or it permits lower verification quality to be mistaken for higher confidence.
 
+### 3.8 A complete Structural Memory-to-CPU navigation path
+
+A focused integration test composes the receiver-side Structural Memory Transit
+read, pure CPU Transit execution, semantic translation contracts, independent
+operation oracles, and evidence-indexed route resolution.
+
+One admitted integer recurrence supplies a coordinate value to a second CPU
+request. The route has three exact representation edges: the committed
+Structural Memory read and its independent oracle; a paired, case-specific
+receipt-to-CPU-request handoff; and the committed CPU result with its
+independent oracle. Because the read and CPU request have distinct exact
+Transit contexts, the route request explicitly binds both edge-local context
+digests rather than rewriting either operation's identity. The bridge edge
+checks the one-case value handoff; accepted context membership itself is not a
+claim of general context equivalence.
+
+Before the CPU request is submitted, a two-edge preflight route is
+resolved to the exact receiver-authorized CPU-request representation. The
+request is sent only after the proposal is found; the Transit worker still
+performs independent live authorization and hypervisor execution. Once the
+CPU result is committed, a third edge is appended and the complete route is
+resolved. Both resolutions satisfy live capabilities, explicit context
+scopes, and aggregate resource ceilings. A route with only the primary CPU
+context is blocked.
+
+The test also checks a semantic replay under a new transport frame, a stable
+catalogue snapshot digest, negative controls for context mismatch, translation
+mismatch and missing authority, and the kernel journal chain. The route remains
+a non-authoritative proposal and the two operations remain independently
+authorized. The current test does not yet include one combined process-restart
+recovery across both operations and the route catalogue.
+
+See [NAVIGABLE_COMPUTATION_EXPERIMENT.md](NAVIGABLE_COMPUTATION_EXPERIMENT.md)
+for the exact workload, assumptions, commands, and proof boundaries.
+
 ## 4. Questions to ask at every milestone
 
 1. What can now be done that was not previously executable?

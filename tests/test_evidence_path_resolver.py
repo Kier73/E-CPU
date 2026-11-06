@@ -647,3 +647,67 @@ def test_committed_oracle_checked_transit_result_becomes_a_routable_edge() -> No
     replay_edge = EvidencePathEdge.from_execution_result(replay, costs)
     assert replay_edge.edge_id == edge.edge_id
 
+
+
+def test_route_request_binds_explicit_operation_context_scopes() -> None:
+    """Mathematics: an edge context is eligible iff it is explicitly listed in the request's bounded context set."""
+    source, target = _ref("context-source"), _ref("context-target")
+    operation_context = canonical_value_digest({"operation": "structural-read"})
+    edge = _edge(
+        "scoped-context",
+        source,
+        target,
+        latency=3,
+        energy=5,
+        context_digest=operation_context,
+    )
+    catalogue = EvidencePathCatalogue()
+    catalogue.register(edge)
+    operating_system, pid = _os("/cpu/execute")
+
+    primary_only = _request(source, target)
+    blocked = EvidencePathResolver().resolve(
+        catalogue,
+        primary_only,
+        operating_system,
+        pid,
+    )
+    assert blocked.status is EvidencePathStatus.BLOCKED
+    assert any(
+        item.code is EvidencePathBlockerCode.CONTEXT_MISMATCH
+        for item in blocked.blockers
+    )
+
+    scoped = EvidencePathRequest(
+        source=source,
+        target=target,
+        context_digest=_CONTEXT_DIGEST,
+        accepted_context_digests=(operation_context,),
+        metric_order=_METRIC_ORDER,
+    )
+    assert scoped.accepted_context_digests == tuple(
+        sorted({_CONTEXT_DIGEST, operation_context})
+    )
+    assert scoped.to_dict()["schema"] == "mailcpu.evidence-path-request.v2"
+    assert scoped.digest != primary_only.digest
+    found = EvidencePathResolver().resolve(
+        catalogue,
+        scoped,
+        operating_system,
+        pid,
+    )
+    assert found.status is EvidencePathStatus.FOUND
+    assert found.context_digest == _CONTEXT_DIGEST
+
+    too_many = tuple(
+        canonical_value_digest({"context_index": index})
+        for index in range(65)
+    )
+    with pytest.raises(ValueError, match="64-context request limit"):
+        EvidencePathRequest(
+            source=source,
+            target=target,
+            context_digest=_CONTEXT_DIGEST,
+            accepted_context_digests=too_many,
+            metric_order=_METRIC_ORDER,
+        )

@@ -483,12 +483,22 @@ class EvidencePathRequest:
     minimum_evidence: EvidenceStrength = EvidenceStrength.PAIRED_CASE
     max_hops: int = 64
     max_expansions: int = 10_000
+    accepted_context_digests: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         """Mathematics: validate exact endpoints/context, an ordered additive metric basis, digest gates, and finite search ceilings."""
         if not isinstance(self.source, RepresentationRef) or not isinstance(self.target, RepresentationRef):
             raise EvidencePathError("route source and target must be RepresentationRef values")
         _digest(self.context_digest, "route context_digest")
+        accepted_contexts = tuple(self.accepted_context_digests)
+        for value in accepted_contexts:
+            _digest(value, "accepted_context_digests")
+        if len(set(accepted_contexts)) != len(accepted_contexts):
+            raise EvidencePathError("accepted_context_digests must be unique")
+        accepted_contexts = tuple(sorted(set(accepted_contexts) | {self.context_digest}))
+        if len(accepted_contexts) > 64:
+            raise EvidencePathError("accepted_context_digests exceeds the 64-context request limit including the primary context")
+        object.__setattr__(self, "accepted_context_digests", accepted_contexts)
         metrics = tuple(self.metric_order)
         if not metrics or any(not isinstance(item, RouteMetricKey) for item in metrics):
             raise EvidencePathError("metric_order must be a non-empty sequence of RouteMetricKey values")
@@ -534,10 +544,11 @@ class EvidencePathRequest:
     def to_dict(self) -> dict[str, Any]:
         """Mathematics: serialize the complete query tuple while omitting grants and executable content."""
         return {
-            "schema": "mailcpu.evidence-path-request.v1",
+            "schema": "mailcpu.evidence-path-request.v2",
             "source": self.source.to_dict(),
             "target": self.target.to_dict(),
             "context_digest": self.context_digest,
+            "accepted_context_digests": list(self.accepted_context_digests),
             "metric_order": [item.to_dict() for item in self.metric_order],
             "resource_ceilings": [item.to_dict() for item in self.resource_ceilings],
             "satisfied_preconditions": list(self.satisfied_preconditions),
@@ -795,7 +806,7 @@ class EvidencePathResolver:
 
         for edge in edges:
             reasons: list[EvidencePathBlockerCode] = []
-            if edge.contract.context_digest != request.context_digest:
+            if edge.contract.context_digest not in request.accepted_context_digests:
                 reasons.append(EvidencePathBlockerCode.CONTEXT_MISMATCH)
             if not set(edge.contract.precondition_digests).issubset(request.satisfied_preconditions):
                 reasons.append(EvidencePathBlockerCode.PRECONDITION_MISSING)
