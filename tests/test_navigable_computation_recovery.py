@@ -584,9 +584,12 @@ def test_navigable_computation_restores_route_and_replays_without_reexecution() 
         assert restored.catalogue.digest == catalogue.digest
         assert restored.route_request.digest == complete_request.digest
         assert restored.route_result == route.to_dict()
-        assert restored.session.worker.operating_system.structural_memory.active_version(
+        restored_memory = restored.session.worker.operating_system.structural_memory.active_version(
             "recovery-orbit"
-        ) == admitted
+        )
+        assert restored_memory is not None
+        assert restored_memory.spec.digest == admitted.spec.digest
+        assert restored_memory.certificate.digest == admitted.certificate.digest
         assert restored.session.worker.operating_system.environment.kernel.journal.verify()
 
         # 7. Retry the original CPU semantic identity in a new transport
