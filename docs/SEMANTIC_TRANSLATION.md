@@ -229,6 +229,15 @@ prefix-grounded; the new oracle does not promote finite witnesses into an
 infinite proof. The record is produced by the trusted receiver and is not a
 signature or remote attestation against a malicious receiver.
 
+For checkpoint compatibility, `TransitTranslationEvidence.validate_execution_result`
+accepts a pre-oracle ledger effect that contains no `_semantic_oracle` when
+called with its default `require_oracle=False`. This validates the original
+translation provenance and effect digest only; it does **not** imply that an
+independent oracle ran. Callers validating a result produced under the current
+worker contract can set `require_oracle=True`; newly committed supported
+CPU and Structural Memory effects always take that path and fail before
+commit if their oracle comparison is absent, mismatched, or over budget.
+
 
 ## Composition
 
