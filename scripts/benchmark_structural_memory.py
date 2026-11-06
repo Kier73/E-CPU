@@ -43,7 +43,7 @@ def _timed(operation: Callable[[], Any]) -> tuple[Any, int]:
     return result, perf_counter_ns() - started
 
 
-def _new_admitted_memory(memory_id: str):
+def _new_admitted_memory(memory_id: str, page_size: int):
     """Create one fresh registry containing the benchmark's admitted byte-valued law."""
     journal = EventJournal()
     registry = StructuralMemoryRegistry(
@@ -64,7 +64,7 @@ def _new_admitted_memory(memory_id: str):
         context={"benchmark": "structural-memory-page-v1"},
     )
     version = registry.admit(proposal.proposal_id, expected_revision=0)
-    reference = StructuralMemoryFileRef.from_version(version, 0, 1)
+    reference = StructuralMemoryFileRef.from_version(version, 0, page_size)
     return registry, journal, version, reference
 
 
@@ -101,7 +101,7 @@ def _run_once(page_size: int, repeat_index: int) -> dict[str, Any]:
     # Direct file-provider path: cold coordinates enter the registry journal;
     # the provider-local cache makes the second identical range read hot.
     direct_registry, direct_journal, direct_version, direct_reference = _new_admitted_memory(
-        f"bench-direct-{page_size}-{repeat_index}"
+        f"bench-direct-{page_size}-{repeat_index}", page_size
     )
     direct_provider = StructuralMemoryFileProvider(
         direct_reference,
@@ -121,7 +121,7 @@ def _run_once(page_size: int, repeat_index: int) -> dict[str, Any]:
     )
 
     random_registry, random_journal, _, random_reference = _new_admitted_memory(
-        f"bench-random-{page_size}-{repeat_index}"
+        f"bench-random-{page_size}-{repeat_index}", page_size
     )
     random_provider = StructuralMemoryFileProvider(
         random_reference,
@@ -143,7 +143,7 @@ def _run_once(page_size: int, repeat_index: int) -> dict[str, Any]:
     # VM path: an immutable page digest resolves to the same pinned byte range.
     # The first VM read faults the page in; subsequent reads use resident bytes.
     page_registry, page_journal, page_version, page_reference = _new_admitted_memory(
-        f"bench-page-{page_size}-{repeat_index}"
+        f"bench-page-{page_size}-{repeat_index}", page_size
     )
     backing = StructuralMemoryPageBacking(page_registry)
     backing.register_page_reference(expected_digest, page_reference)
