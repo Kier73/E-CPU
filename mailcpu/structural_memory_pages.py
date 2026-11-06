@@ -38,7 +38,7 @@ class StructuralMemoryPageBacking:
 
     @staticmethod
     def _validate_digest(digest: str) -> None:
-        """Require a canonical lowercase hexadecimal SHA-256 page identity."""
+        """Mathematics: require `h∈{0,…,f}^64`, the canonical lowercase SHA-256 identity domain."""
         if (
             type(digest) is not str
             or len(digest) != 64
@@ -48,7 +48,7 @@ class StructuralMemoryPageBacking:
 
     @classmethod
     def _validate_reference(cls, digest: str, reference: StructuralMemoryFileRef) -> None:
-        """Require a valid digest and a single supported power-of-two page reference."""
+        """Mathematics: admit `(h,r)` only when `r.size=2^k`, `1≤r.size≤65536`, and `h` is canonical SHA-256."""
         cls._validate_digest(digest)
         if not isinstance(reference, StructuralMemoryFileRef):
             raise ValueError("page backing requires a StructuralMemoryFileRef")
@@ -60,7 +60,7 @@ class StructuralMemoryPageBacking:
             raise ValueError("structural-memory page size must be a power of two in [1, 65536]")
 
     def bind_registry(self, registry: Any) -> None:
-        """Bind symbolic page references to a trusted, host-local structural-memory registry."""
+        """Mathematics: bind symbolic reference set `R` to one trusted local registry `G`, without changing reference identity."""
         if not callable(getattr(registry, "read_revision", None)):
             raise ValueError("page backing binding requires a structural-memory read_revision interface")
         if self._registry is registry:
@@ -82,7 +82,7 @@ class StructuralMemoryPageBacking:
         digest: str,
         reference: StructuralMemoryFileRef,
     ) -> str:
-        """Bind one page hash to one exact, immutable structural-memory byte interval."""
+        """Mathematics: extend `R[h↦r]` only when `r` is valid and no conflicting or local page already owns `h`."""
         self._validate_reference(digest, reference)
         existing = self._references.get(digest)
         if existing is not None and existing.to_dict() != reference.to_dict():
@@ -101,7 +101,7 @@ class StructuralMemoryPageBacking:
         return digest
 
     def page_size_for(self, digest: str) -> int:
-        """Return a registered page's exact byte length without materializing its content."""
+        """Mathematics: return `|page(h)|` from its symbolic reference or local content without evaluating the generator."""
         self._validate_digest(digest)
         reference = self._references.get(digest)
         if reference is not None:
@@ -112,7 +112,7 @@ class StructuralMemoryPageBacking:
         raise KeyError(f"page backing has no registered page: {digest}")
 
     def get_page(self, digest: str) -> bytes:
-        """Resolve a page lazily and require its bytes to reproduce the requested SHA-256 identity."""
+        """Mathematics: resolve `G(r_h)=b` only when `|b|=r_h.size` and `SHA256(b)=h`."""
         self._validate_digest(digest)
         local = self._local_pages.get(digest)
         if local is not None:
@@ -140,7 +140,7 @@ class StructuralMemoryPageBacking:
         return content
 
     def put_page(self, data: bytes) -> str:
-        """Persist a private page produced by COW or reclaim and return its immutable content hash."""
+        """Mathematics: map private page bytes `b` to immutable identity `h=SHA256(b)`, preserving any structural owner of `h`."""
         if not isinstance(data, bytes) or not data:
             raise ValueError("page backing accepts non-empty immutable byte strings")
         digest = hashlib.sha256(data).hexdigest()
@@ -155,12 +155,12 @@ class StructuralMemoryPageBacking:
         return digest
 
     def read_receipt(self, digest: str) -> StructuralMemoryFileReadReceipt | None:
-        """Return the evidence receipt from the most recent structural reconstruction of a page."""
+        """Mathematics: project the latest structural read receipt `ρ_h` for page identity `h`, or `⊥` when not read."""
         self._validate_digest(digest)
         return self._receipts.get(digest)
 
     def snapshot(self) -> dict[str, Any]:
-        """Serialize only symbolic structural references and non-structural page bytes."""
+        """Mathematics: serialize `(R,L)`—symbolic references and local page bytes—without host registry state."""
         return {
             "provider_type": self.SNAPSHOT_KIND,
             "schema_version": self.SNAPSHOT_VERSION,
@@ -176,7 +176,7 @@ class StructuralMemoryPageBacking:
 
     @classmethod
     def from_snapshot(cls, payload: Mapping[str, Any]) -> "StructuralMemoryPageBacking":
-        """Restore an inert page backing; a trusted host must bind the local registry before reads."""
+        """Mathematics: reconstruct `(R,L)` as an inert descriptor, requiring trusted host rebinding before any `G(r)` read."""
         if (
             not isinstance(payload, Mapping)
             or payload.get("provider_type") != cls.SNAPSHOT_KIND
