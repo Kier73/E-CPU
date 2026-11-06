@@ -429,11 +429,11 @@ def test_structural_memory_value_navigates_into_oracle_checked_transit_computati
             source=memory_edge.source,
             target=cpu_result_ref,
             context_digest=cpu_translation.contract.context_digest,
-            accepted_context_digests=(
+            accepted_context_digests=tuple(sorted({
                 memory_edge.contract.context_digest,
                 bridge_contract.context_digest,
                 cpu_translation.contract.context_digest,
-            ),
+            })),
             metric_order=(
                 RouteMetricKey("latency_us", "us"),
                 RouteMetricKey("energy_nj", "nJ"),
