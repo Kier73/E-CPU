@@ -45,12 +45,15 @@ differential tests over a larger corpus.
 ## Contract structure
 
 `TranslationContract` is a versioned directed edge from one
-`RepresentationRef` to another.
+`RepresentationRef` to another, with a third content-addressed reference that
+pins the mapping definition itself. The mapping may describe a named adapter,
+compiler rule, interpreter relation, or externally supplied transform; the
+contract carries its identity, not its executable code.
 
 | Field | Meaning |
 |---|---|
 | `contract_id`, `revision` | Stable translation identity and immutable revision |
-| `source`, `target` | Representation type, schema version, and content digest |
+| `source`, `target` | Representation type, schema version, and content digest |\n| `mapping` | Content-addressed identity of the translation rule or adapter definition |
 | `observation` | Projection ID/version/digest and comparison relation |
 | `context_digest` | Exact context boundary the declaration is scoped to |
 | `precondition_digests` | Content identities of required preconditions |
@@ -61,7 +64,8 @@ differential tests over a larger corpus.
 | `replay_class` | `deterministic`, `semantic-ledger`, or `non-replayable` |
 
 All digests are SHA-256 over canonical JSON or an existing canonical content
-identity. Set-like declarations are sorted before hashing, and duplicate
+identity. Changing the mapping definition changes the contract digest, even
+when the source and target representations remain the same. Set-like declarations are sorted before hashing, and duplicate
 resource names, capability rights, and proof-obligation digests are rejected.
 Unknown schema fields are refused rather than silently ignored.
 
