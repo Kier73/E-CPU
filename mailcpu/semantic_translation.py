@@ -967,12 +967,20 @@ class TransitTranslationEvidence:
             comparison=ObservationComparison.from_dict(payload["comparison"]),
         )
 
-    def validate_execution_result(self, result: Any) -> None:
-        """Cross-check this evidence against the outer committed or replayed HypervisorExecutionResult.
+    def validate_execution_result(
+        self,
+        result: Any,
+        *,
+        require_oracle: bool = False,
+    ) -> None:
+        """Cross-check translation provenance and, when required, independent oracle evidence.
 
         Mathematics: require result.identity=I, result.fingerprint=F,
         result.decision_receipt=D, result.domain=domain, result.executed=1,
-        and H(result.effect without the evidence field)=H(E).
+        and H(result.effect without reserved evidence)=H(E); additionally
+        require oracle evidence O when require_oracle=True. Absence of O is
+        accepted only as a pre-oracle legacy ledger record, never as proof of
+        semantic correctness.
         """
         from .classifier import HypervisorAction, HypervisorExecutionResult
 
@@ -1013,8 +1021,10 @@ class TransitTranslationEvidence:
             expected_oracle_type = _STRUCTURAL_MEMORY_ORACLE_REF.type_id
         else:
             expected_oracle_type = None
-        if expected_oracle_type is not None and raw_oracle is None:
-            raise SemanticTranslationError("supported Transit operation is missing independent oracle evidence")
+        if expected_oracle_type is not None and raw_oracle is None and require_oracle:
+            raise SemanticTranslationError("supported Transit operation is missing required independent oracle evidence")
+        if type(require_oracle) is not bool:
+            raise SemanticTranslationError("require_oracle must be a Boolean")
         if raw_oracle is not None:
             if not isinstance(raw_oracle, Mapping):
                 raise SemanticTranslationError("embedded Transit oracle evidence must be an object")
