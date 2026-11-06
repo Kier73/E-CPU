@@ -37,7 +37,7 @@ class NavigableComputationCheckpointError(ValueError):
 
 @dataclass(frozen=True)
 class RestoredNavigableComputation:
-    """Restored protocol, receiver, route, and retry identities at one verified cut."""
+    """Restored protocol, receiver, route, retry identity, and optional ready computation DAG at one verified cut."""
 
     session: TransitComputeSession
     request_client: HypervisorOperationChannel
@@ -50,7 +50,7 @@ class RestoredNavigableComputation:
 
 
 class NavigableComputationCheckpoint:
-    """Bind receiver/session state, requester cursors, route evidence, and retry identity."""
+    """Bind receiver/session state, requester cursors, route evidence, retry identity, and optional DAG frontier."""
 
     FORMAT = "mailcpu-navigable-computation-checkpoint-v1"
     _STATE_FIELDS_V1 = frozenset({
