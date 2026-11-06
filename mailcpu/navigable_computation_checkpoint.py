@@ -26,7 +26,7 @@ from .hypervisor_transport import (
     HypervisorOperationResultChannel,
 )
 from .reliability import ReliableChannel
-from .semantic_translation import RepresentationRef
+from .semantic_translation import RepresentationRef, canonical_value_digest
 from .transit_compute import TransitComputeHost
 from .transit_session import TransitComputeSession
 
@@ -65,6 +65,35 @@ class NavigableComputationCheckpoint:
     })
     _STATE_FIELDS_V2 = _STATE_FIELDS_V1 | {"capture_mode"}
     _STATE_FIELDS_V3 = _STATE_FIELDS_V2 | {"computation_dag"}
+
+    @staticmethod
+    def _validate_dag_retry(
+        computation_dag: NavigableComputationDAG,
+        retry_event: HypervisorArbitrationEvent,
+    ) -> str:
+        """Mathematics: require exactly one ready node n with op/resource/context/payload equal to the exact retry request projection."""
+
+        request = retry_event.request
+        expected_context = canonical_value_digest({
+            "operation": request.operation,
+            "resource": request.resource,
+            "payload": request.payload,
+        })
+        matches = [
+            node
+            for node in computation_dag.ready_nodes()
+            if (
+                node.operation == request.operation
+                and node.resource == request.resource
+                and node.context_digest == expected_context
+                and node.payload == dict(request.payload)
+            )
+        ]
+        if len(matches) != 1:
+            raise NavigableComputationCheckpointError(
+                "checkpoint DAG must expose exactly one ready node for the exact retry event"
+            )
+        return matches[0].node_id
 
     @staticmethod
     def _canonical(value: Any) -> bytes:
@@ -159,6 +188,8 @@ class NavigableComputationCheckpoint:
             raise NavigableComputationCheckpointError(
                 "retry event identity does not match the checkpointed client channels"
             )
+        if computation_dag is not None:
+            cls._validate_dag_retry(computation_dag, retry_event)
 
         state_version = 3 if computation_dag is not None else (2 if allow_inflight else 1)
         state = {
@@ -377,6 +408,8 @@ class NavigableComputationCheckpoint:
             catalogue = EvidencePathCatalogue.from_dict(catalogue_payload)
             route_request = EvidencePathRequest.from_dict(request_payload)
             retry_event = HypervisorArbitrationEvent.from_dict(raw_retry_event)
+            if computation_dag is not None:
+                cls._validate_dag_retry(computation_dag, retry_event)
             session = TransitComputeSession.from_snapshot(
                 session_state,
                 worker_request_transport,
