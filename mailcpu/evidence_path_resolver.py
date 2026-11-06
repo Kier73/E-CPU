@@ -491,13 +491,13 @@ class EvidencePathRequest:
             raise EvidencePathError("route source and target must be RepresentationRef values")
         _digest(self.context_digest, "route context_digest")
         accepted_contexts = tuple(self.accepted_context_digests)
-        if len(accepted_contexts) > 63:
-            raise EvidencePathError("accepted_context_digests exceeds the 64-context request limit including the primary context")
         for value in accepted_contexts:
             _digest(value, "accepted_context_digests")
         if len(set(accepted_contexts)) != len(accepted_contexts):
             raise EvidencePathError("accepted_context_digests must be unique")
         accepted_contexts = tuple(sorted(set(accepted_contexts) | {self.context_digest}))
+        if len(accepted_contexts) > 64:
+            raise EvidencePathError("accepted_context_digests exceeds the 64-context request limit including the primary context")
         object.__setattr__(self, "accepted_context_digests", accepted_contexts)
         metrics = tuple(self.metric_order)
         if not metrics or any(not isinstance(item, RouteMetricKey) for item in metrics):
