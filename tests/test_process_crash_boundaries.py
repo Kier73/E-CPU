@@ -75,6 +75,7 @@ def _start_client(
     marker_or_result: Path,
     ports: dict[str, Any],
     cut: str | None = None,
+    server_result_path: Path | None = None,
 ) -> subprocess.Popen[str]:
     args = [
         sys.executable,
@@ -86,7 +87,9 @@ def _start_client(
         str(ports["response_port"]),
     ]
     if cut is not None:
-        args.append(cut)
+        if server_result_path is None:
+            raise ValueError("client restore requires the receiver completion path")
+        args.extend([str(server_result_path), cut])
     return subprocess.Popen(
         args,
         cwd=root,
@@ -183,6 +186,7 @@ def test_requester_and_receiver_processes_recover_at_each_transit_crash_cut(
             client_result_path,
             restored_ports,
             cut,
+            server_result_path,
         )
         processes.append(restored_client)
 
