@@ -52,6 +52,7 @@ class TransitOracleError(ValueError):
 
 
 def _strict_integer(value: Any, name: str, *, minimum: int | None = None) -> int:
+    """Validate a non-Boolean integer field and its optional lower bound."""
     if type(value) is not int:
         raise TransitOracleError(f"{name} must be a strict integer")
     if minimum is not None and value < minimum:
@@ -60,6 +61,7 @@ def _strict_integer(value: Any, name: str, *, minimum: int | None = None) -> int
 
 
 def _fingerprint(event: HypervisorArbitrationEvent) -> str:
+    """Return the canonical request identity digest used by the hypervisor ledger."""
     return canonical_value_digest(event.to_dict())
 
 
@@ -264,6 +266,7 @@ def _reference_structural_value(
     params = spec.parameters
 
     def check_integer_width(value: Any, path: str = "parameters") -> None:
+        """Reject recursively nested integer values that exceed the oracle's bit-width budget."""
         if type(value) is int and value.bit_length() > MAX_STRUCTURAL_ORACLE_INTEGER_BITS:
             raise TransitOracleError(f"Structural Memory {path} exceeds the oracle integer-width limit")
         if isinstance(value, Mapping):
@@ -296,6 +299,7 @@ def _read_version(
     memory_id: str,
     revision: int,
 ) -> StructuralMemoryVersion:
+    """Resolve one immutable admitted revision without changing registry state."""
     registry = getattr(operating_system, "structural_memory", None)
     if registry is None or not callable(getattr(registry, "version_for_revision", None)):
         raise TransitOracleError("receiver does not expose exact admitted Structural Memory revisions")
@@ -312,6 +316,7 @@ def _structural_expected_observation(
     event: HypervisorArbitrationEvent,
     operating_system: Any,
 ) -> tuple[dict[str, Any], int, dict[str, Any]]:
+    """Validate the pinned request and independently derive its coordinate observation."""
     request = event.request
     if (
         request.operation != TRANSIT_STRUCTURAL_MEMORY_OPERATION
