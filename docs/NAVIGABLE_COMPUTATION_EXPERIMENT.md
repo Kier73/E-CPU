@@ -49,32 +49,44 @@ request does not carry a sender-supplied grant.
 
 ## Representation route
 
-The route contains two exact content-addressed edges:
+The route contains three exact content-addressed edges:
 
 | Edge | Source | Target | Evidence |
 |---|---|---|---|
-| 1 | Structural Memory read receipt | Receiver-authorized CPU request | Successful paired observation of the embedded immediate |
-| 2 | Receiver-authorized CPU request | Committed CPU handler effect | Transit translation evidence plus independent CPU oracle |
+| 1 | Receiver-authorized Structural Memory read event | Exact Structural Memory receipt | Transit translation evidence plus independent Structural Memory oracle |
+| 2 | Exact Structural Memory receipt | Receiver-authorized CPU request | Successful paired observation of the embedded immediate |
+| 3 | Receiver-authorized CPU request | Committed CPU handler effect | Transit translation evidence plus independent CPU oracle |
 
-The first edge's mapping identity binds the receipt digest and exact CPU
-request. Its observation compares the read value with the literal operand
-embedded in the CPU program. The second edge is accepted only from the typed
-receiver-committed execution result.
+The first edge is ingested only from the receiver-committed memory execution
+result. Its target identity is the exact receipt representation. The second
+edge binds that receipt digest to the exact CPU request and compares the read
+value with the literal operand embedded in the CPU program. The third edge is
+also ingested only from the typed receiver-committed execution result.
+
+The Structural Memory read and CPU execution have different exact Transit
+request contexts. The request therefore declares both edge-local context
+digests in `accepted_context_digests`, while retaining the CPU request context
+as its primary context. This set is included in the request digest and is
+bounded to 64 contexts. It does not assert that the contexts are equivalent:
+the explicit receipt-to-request translation edge provides the case-specific
+handoff comparison. A route request omitting the memory-read context is
+required to return BLOCKED with a context-mismatch blocker.
 
 The route request explicitly supplies the prerequisite and invariant digests
-for both edges. These are caller-asserted facts whose identities the resolver
-checks; this test's construction and assertions establish the stated
+for all three edges. These are caller-asserted facts whose identities the
+resolver checks; this test's construction and assertions establish the stated
 one-case relation. The resolver does not authenticate arbitrary caller claims.
 
 The receiver process must possess both the Structural Memory read capability
 and CPU execute capability. Costs are declared test inputs, not measured
 latency or energy:
 
+- Structural Memory read edge: 6 us, 30 nJ;
 - receipt-to-request mapping: 4 us, 12 nJ;
 - CPU execution edge: 18 us, 240 nJ;
-- route ceiling: 30 us, 300 nJ.
+- route ceiling: 40 us, 400 nJ.
 
-The selected path therefore has a declared total of 22 us and 252 nJ. These
+The selected path therefore has a declared total of 28 us and 282 nJ. These
 figures exercise the multidimensional cost model and are not benchmark data.
 
 ## Replay and retained identity
