@@ -4,7 +4,7 @@
 
 A computation that has been routed through Transit should be able to preserve more than one operation identity. It should preserve a dependency structure: which operations share an input, which may proceed independently, and which result must wait for the complete set of predecessor results.
 
-\`NavigableComputationDAG\` adds that dependency structure as a bounded, content-addressed object. It is a state and readiness layer, not an alternate execution engine. Every operation still travels through the existing receiver-side Transit authorization, backend dispatch, semantic translation, and oracle checks.
+`NavigableComputationDAG` adds that dependency structure as a bounded, content-addressed object. It is a state and readiness layer, not an alternate execution engine. Every operation still travels through the existing receiver-side Transit authorization, backend dispatch, semantic translation, and oracle checks.
 
 ## Formal model
 
@@ -41,9 +41,9 @@ The receiver reads coordinate \(t=23\), obtaining \(x=220\). That receipt become
 
 | Branch | Operation | Result |
 |---|---|---:|
-| \`plus-19\` | \(x+19\) | 239 |
-| \`triple\` | \(3x\) | 660 |
-| \`double-plus-7\` | \(2x+7\) | 447 |
+| `plus-19` | \(x+19\) | 239 |
+| `triple` | \(3x\) | 660 |
+| `double-plus-7` | \(2x+7\) | 447 |
 
 The three branches become ready together. Each is separately submitted to Transit and receives its own receiver-authorized execution result, semantic translation record, and independent CPU oracle evidence.
 
