@@ -48,6 +48,11 @@ from mailcpu.evidence_path_resolver import (
     RouteMetric,
     RouteMetricKey,
 )
+from mailcpu.computation_dag import (
+    ComputationDAGError,
+    ComputationNode,
+    NavigableComputationDAG,
+)
 from mailcpu.law_certifier import Law
 from mailcpu.transit_structural_memory import (
     TRANSIT_STRUCTURAL_MEMORY_OPERATION,
@@ -964,6 +969,364 @@ def test_navigable_computation_recovers_at_each_transit_crash_cut(cut: str, tmp_
         )
         translation.validate_execution_result(replay_or_execution, require_oracle=True)
         assert oracle.equivalent is True
+    finally:
+        for transport in (*transports, *replacement_transports):
+            if not transport.closed:
+                transport.close()
+
+
+def test_structural_memory_fans_out_to_independent_cpu_branches_and_joins_after_restart() -> None:
+    """Mathematics: execute a dependency DAG where shared receipt r unlocks three branches and join j only after all branch commits."""
+
+    receiver = HeadlessOS(
+        structural_memory_admission_policy=lambda proposal: proposal.spec.domain == "integer-orbit"
+    )
+    law = Law(
+        family="int",
+        params={"x0": 13, "step": 9, "mod": 251},
+        order=1,
+        verdict="GROUND",
+    )
+    proposal = receiver.structural_memory.propose(
+        "branching-orbit",
+        law,
+        {0: 13, 1: 22, 2: 31, 3: 40},
+        domain="integer-orbit",
+        context=_CONTEXT,
+    )
+    admitted = receiver.structural_memory.admit(proposal.proposal_id, expected_revision=0)
+    authority_pid = receiver.environment.kernel.spawn(
+        "branching-transit-receiver",
+        capabilities=(
+            Capability(TRANSIT_STRUCTURAL_MEMORY_RESOURCE, frozenset({"read"})),
+            Capability(_CPU_RESOURCE, frozenset({"execute"})),
+        ),
+        parent_pid=receiver.environment.init_pid,
+    )
+    receiver.hypervisor.policy = HypervisorPolicy(
+        review_confidence=0.0,
+        automatic_confidence=0.0,
+        destructive_confidence=0.0,
+        danger_review_probability=1.0,
+        embedding_review_confidence=1.0,
+    )
+    initial_host = _CountingHost()
+    transports, request_client, request_worker, response_worker, response_client = _channels()
+    worker = TransitComputeWorker(
+        receiver,
+        authority_pid,
+        _router(receiver, authority_pid, initial_host),
+    )
+    session = TransitComputeSession(worker, request_worker, response_worker)
+
+    replacement_transports: tuple[SocketTransport, ...] = ()
+    try:
+        coordinate = 23
+        memory_payload = {
+            "memory_id": "branching-orbit",
+            "revision": admitted.spec.revision,
+            "context": _CONTEXT,
+            "coordinate": coordinate,
+        }
+        memory_event = HypervisorArbitrationEvent(
+            "client",
+            _CHANNEL,
+            1,
+            9201,
+            HypervisorRequest(
+                TRANSIT_STRUCTURAL_MEMORY_OPERATION,
+                TRANSIT_STRUCTURAL_MEMORY_RESOURCE,
+                memory_payload,
+                frozenset({"read"}),
+                frozenset(),
+            ),
+        )
+        memory_result, _memory_response = _serve(
+            session,
+            request_client,
+            response_client,
+            request_worker,
+            response_worker,
+            memory_event,
+            1,
+        )
+        memory_translation = TransitTranslationEvidence.from_dict(
+            memory_result.effect["_semantic_translation"]
+        )
+        memory_oracle = TransitOracleEvidence.from_dict(
+            memory_result.effect["_semantic_oracle"]
+        )
+        memory_translation.validate_execution_result(memory_result, require_oracle=True)
+        assert memory_oracle.equivalent is True
+        receipt = {
+            key: value
+            for key, value in memory_result.effect.items()
+            if key not in {"_semantic_translation", "_semantic_oracle"}
+        }
+        expected_value = (13 + 9 * coordinate) % 251
+        assert receipt["value"] == expected_value == 220
+
+        memory_context = canonical_value_digest({
+            "operation": TRANSIT_STRUCTURAL_MEMORY_OPERATION,
+            "resource": TRANSIT_STRUCTURAL_MEMORY_RESOURCE,
+            "payload": memory_payload,
+        })
+        branch_programs = {
+            "plus-19": "\\n".join((
+                f"set structural_value {expected_value}",
+                "set offset 19",
+                "add answer structural_value offset",
+                "halt",
+            )),
+            "triple": "\\n".join((
+                f"set structural_value {expected_value}",
+                "copy answer structural_value",
+                "add answer structural_value",
+                "add answer structural_value",
+                "halt",
+            )),
+            "double-plus-7": "\\n".join((
+                f"set structural_value {expected_value}",
+                "copy answer structural_value",
+                "add answer structural_value",
+                "set offset 7",
+                "add answer answer offset",
+                "halt",
+            )),
+        }
+        branch_nodes = []
+        for node_id, source in branch_programs.items():
+            payload = {
+                "source": source,
+                "initial_registers": {
+                    "memory_coordinate": coordinate,
+                    "memory_revision": admitted.spec.revision,
+                    "branch_index": len(branch_nodes),
+                },
+                "max_ticks": 20,
+            }
+            context_digest = canonical_value_digest({
+                "operation": _CPU_OPERATION,
+                "resource": _CPU_RESOURCE,
+                "payload": payload,
+            })
+            branch_nodes.append(ComputationNode(
+                node_id=node_id,
+                revision=1,
+                operation=_CPU_OPERATION,
+                resource=_CPU_RESOURCE,
+                context_digest=context_digest,
+                dependencies=("memory",),
+                payload=payload,
+            ))
+
+        join_payload = {
+            "source": "HALT",
+            "initial_registers": {"join_pending": 1},
+            "max_ticks": 8,
+        }
+        join_context = canonical_value_digest({
+            "operation": "join verified branch results",
+            "resource": "/computation/join",
+            "payload": join_payload,
+        })
+        graph = NavigableComputationDAG((
+            ComputationNode(
+                node_id="memory",
+                revision=1,
+                operation=TRANSIT_STRUCTURAL_MEMORY_OPERATION,
+                resource=TRANSIT_STRUCTURAL_MEMORY_RESOURCE,
+                context_digest=memory_context,
+                dependencies=(),
+                payload=memory_payload,
+            ),
+            *branch_nodes,
+            ComputationNode(
+                node_id="join",
+                revision=1,
+                operation="join verified branch results",
+                resource="/computation/join",
+                context_digest=join_context,
+                dependencies=("plus-19", "triple", "double-plus-7"),
+                payload=join_payload,
+            ),
+        ))
+        graph.commit("memory", receipt)
+        assert {node.node_id for node in graph.ready_nodes()} == set(branch_programs)
+        assert "join" not in {node.node_id for node in graph.ready_nodes()}
+
+        transport_sequence = 2
+        event_sequence = 2
+
+        def execute_branch(node_id: str) -> None:
+            """Mathematics: map each ready DAG node to one receiver-authorized CPU event, then commit its evidence-bearing effect."""
+
+            nonlocal transport_sequence, event_sequence
+            node = next(item for item in graph.ready_nodes() if item.node_id == node_id)
+            event = HypervisorArbitrationEvent(
+                "client",
+                _CHANNEL,
+                event_sequence,
+                9300 + event_sequence,
+                HypervisorRequest(
+                    node.operation,
+                    node.resource,
+                    node.payload,
+                    frozenset({"execute"}),
+                    frozenset(),
+                ),
+            )
+            result, _returned = _serve(
+                session,
+                request_client,
+                response_client,
+                request_worker,
+                response_worker,
+                event,
+                transport_sequence,
+            )
+            assert result.action.value == "allow"
+            assert result.executed is True
+            assert result.replayed is False
+            translation = TransitTranslationEvidence.from_dict(
+                result.effect["_semantic_translation"]
+            )
+            oracle = TransitOracleEvidence.from_dict(
+                result.effect["_semantic_oracle"]
+            )
+            translation.validate_execution_result(result, require_oracle=True)
+            assert oracle.equivalent is True
+            assert result.effect["registers"]["answer"] == {
+                "plus-19": 239,
+                "triple": 660,
+                "double-plus-7": 447,
+            }[node_id]
+            assert graph.commit(node_id, result.effect) is False
+            transport_sequence += 1
+            event_sequence += 1
+
+        # Execute two independent branches, then serialize the graph while the
+        # third branch remains ready and the join remains causally blocked.
+        execute_branch("plus-19")
+        execute_branch("triple")
+        assert {node.node_id for node in graph.ready_nodes()} == {"double-plus-7"}
+        assert not graph.is_complete
+        checkpoint = json.loads(json.dumps(graph.snapshot(), sort_keys=True))
+        restored_graph = NavigableComputationDAG.from_snapshot(checkpoint)
+        assert restored_graph.digest == graph.digest
+        assert restored_graph.committed_nodes == graph.committed_nodes
+        assert {node.node_id for node in restored_graph.ready_nodes()} == {"double-plus-7"}
+        graph = restored_graph
+
+        execute_branch("double-plus-7")
+        assert {node.node_id for node in graph.ready_nodes()} == {"join"}
+
+        branch_values = {
+            "plus-19": graph.result("plus-19")["registers"]["answer"],
+            "triple": graph.result("triple")["registers"]["answer"],
+            "double-plus-7": graph.result("double-plus-7")["registers"]["answer"],
+        }
+        joined_total = sum(branch_values.values())
+        assert branch_values == {
+            "plus-19": 239,
+            "triple": 660,
+            "double-plus-7": 447,
+        }
+        assert joined_total == 1346
+        join_source = "\\n".join((
+            f"set branch_a {branch_values['plus-19']}",
+            f"set branch_b {branch_values['triple']}",
+            f"set branch_c {branch_values['double-plus-7']}",
+            "add partial branch_a branch_b",
+            "add total partial branch_c",
+            "halt",
+        ))
+        join_payload = {
+            "source": join_source,
+            "initial_registers": {
+                "branch_a_digest": graph.result("plus-19")["state_digest"],
+                "branch_b_digest": graph.result("triple")["state_digest"],
+                "branch_c_digest": graph.result("double-plus-7")["state_digest"],
+            },
+            "max_ticks": 20,
+        }
+        # The join operation is materialized from committed branch state, so
+        # its exact payload is a new revision of the declared join node.
+        old_join = next(node for node in graph.nodes if node.node_id == "join")
+        new_join = ComputationNode(
+            node_id="join",
+            revision=2,
+            operation=_CPU_OPERATION,
+            resource=_CPU_RESOURCE,
+            context_digest=canonical_value_digest({
+                "operation": _CPU_OPERATION,
+                "resource": _CPU_RESOURCE,
+                "payload": join_payload,
+            }),
+            dependencies=("plus-19", "triple", "double-plus-7"),
+            payload=join_payload,
+        )
+        # Graph identity is immutable; reconstruct a graph with the refined
+        # join descriptor while preserving verified branch commits.
+        branch_commit_values = {
+            node_id: graph.result(node_id)
+            for node_id in ("memory", "plus-19", "triple", "double-plus-7")
+        }
+        nodes = [
+            node if node.node_id != "join" else new_join
+            for node in graph.nodes
+        ]
+        completed_branches = NavigableComputationDAG(nodes)
+        for node_id in ("memory", "plus-19", "triple", "double-plus-7"):
+            assert completed_branches.commit(node_id, branch_commit_values[node_id]) is False
+        graph = completed_branches
+        join_event = HypervisorArbitrationEvent(
+            "client",
+            _CHANNEL,
+            event_sequence,
+            9300 + event_sequence,
+            HypervisorRequest(
+                _CPU_OPERATION,
+                _CPU_RESOURCE,
+                join_payload,
+                frozenset({"execute"}),
+                frozenset(),
+            ),
+        )
+        join_result, _join_returned = _serve(
+            session,
+            request_client,
+            response_client,
+            request_worker,
+            response_worker,
+            join_event,
+            transport_sequence,
+        )
+        assert join_result.effect["registers"]["total"] == joined_total
+        assert join_result.effect["registers"]["total"] == 1346
+        assert graph.commit("join", join_result.effect) is False
+        assert graph.is_complete
+        assert graph.lineage("join") == (
+            "memory",
+            "double-plus-7",
+            "plus-19",
+            "triple",
+        ) or set(graph.lineage("join")) == {
+            "memory", "plus-19", "triple", "double-plus-7"
+        }
+        assert graph.commit("join", join_result.effect) is True
+        with pytest.raises(ComputationDAGError, match="conflicting result"):
+            graph.commit("join", {"registers": {"total": -1}})
+        final_snapshot = graph.snapshot()
+        final_restored = NavigableComputationDAG.from_snapshot(
+            json.loads(json.dumps(final_snapshot))
+        )
+        assert final_restored.is_complete
+        assert final_restored.digest == graph.digest
+        assert final_restored.result("join")["registers"]["total"] == 1346
+        assert initial_host.calls == 4
+        assert session.phase == "idle"
+        assert receiver.environment.kernel.journal.verify()
     finally:
         for transport in (*transports, *replacement_transports):
             if not transport.closed:
