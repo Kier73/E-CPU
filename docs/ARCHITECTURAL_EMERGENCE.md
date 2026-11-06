@@ -197,6 +197,31 @@ witness-grounded laws into universal proofs or attest against a malicious
 receiver.
 
 
+
+## 2.8 Evidence-indexed representation routing
+
+The next navigation layer now has a concrete implementation. The existing
+contextual navigator explores the state space of one process description;
+the evidence-path resolver instead connects exact representation identities
+through successful translation contracts. It retains the evidence and
+cost vector for each edge, checks exact context and prerequisite digests,
+reads live receiver capabilities, and searches a bounded graph for a feasible
+route.
+
+The route objective is an explicit lexicographic order over named metrics.
+Latency, energy, work, and data movement remain separate dimensions with
+separate units; ceilings filter paths before selection. Nondominated partial
+routes are retained so a locally attractive path cannot erase another path
+that is feasible under a global budget. The output is a digest-bound,
+non-authoritative proposal, not a permission to execute the steps.
+
+The current catalogue stores finite-case evidence and locally declared cost
+vectors. It does not yet replicate catalogues between hosts, calibrate cost
+metrics automatically, or dispatch a whole route. Those are separate
+experiments: the next step is to connect an admitted route edge to a concrete
+receiver backend and have each edge pass through its own hypervisor admission.
+
+
 ## 3. Novel-to-this-architecture possibilities
 
 This section records research opportunities created by the combination of integrated and planned primitives. These are not claims of global historical priority. Related ideas may exist in symbolic execution, program synthesis, proof-carrying computation, procedural generation, distributed systems, databases, and other fields. The question is what a working combination inside E-CPU enables that its current components do not provide separately.
@@ -274,6 +299,51 @@ Potential consequence: attention could choose which coordinates, candidate laws,
 Experiment: define an attention budget with explicit units—for example, candidate evaluations, witness queries, or cost-weighted state-space expansions. Compare learned or heuristic allocation against uniform search while keeping the same deterministic verifier.
 
 Failure condition: attention only changes scheduling labels without improving useful coverage per unit cost, or it permits lower verification quality to be mistaken for higher confidence.
+
+### 3.8 A complete Structural Memory-to-CPU navigation path
+
+A focused integration test composes the receiver-side Structural Memory Transit
+read, pure CPU Transit execution, semantic translation contracts, independent
+operation oracles, and evidence-indexed route resolution.
+
+One admitted integer recurrence supplies a coordinate value to a second CPU
+request. The route has three exact representation edges: the committed
+Structural Memory read and its independent oracle; a paired, case-specific
+receipt-to-CPU-request handoff; and the committed CPU result with its
+independent oracle. Because the read and CPU request have distinct exact
+Transit contexts, the route request explicitly binds both edge-local context
+digests rather than rewriting either operation's identity. The bridge edge
+checks the one-case value handoff; accepted context membership itself is not a
+claim of general context equivalence.
+
+Before the CPU request is submitted, a two-edge preflight route is
+resolved to the exact receiver-authorized CPU-request representation. The
+request is sent only after the proposal is found; the Transit worker still
+performs independent live authorization and hypervisor execution. Once the
+CPU result is committed, a third edge is appended and the complete route is
+resolved. Both resolutions satisfy live capabilities, explicit context
+scopes, and aggregate resource ceilings. A route with only the primary CPU
+context is blocked.
+
+The test also checks a semantic replay under a new transport frame, a stable
+catalogue snapshot digest, negative controls for context mismatch, translation
+mismatch and missing authority, and the kernel journal chain. The route remains
+a non-authoritative proposal and the two operations remain independently
+authorized.
+
+A subsequent recovery experiment adds an integrity-bound envelope spanning
+the receiver worker checkpoint, requester-side reliable cursors, evidence
+catalogue, exact route query/result, and retry event. Restore uses fresh TCP
+transports, rebinds the trusted backend manifest, reauthorizes the retry event,
+and reruns route resolution against restored live capabilities. Only after
+the saved route is reproduced can the requester retransmit the CPU event;
+the hypervisor ledger must replay the original effect without invoking the
+replacement CPU backend.
+
+See [NAVIGABLE_COMPUTATION_EXPERIMENT.md](NAVIGABLE_COMPUTATION_EXPERIMENT.md)
+for the initial composition and
+[NAVIGABLE_COMPUTATION_RECOVERY.md](NAVIGABLE_COMPUTATION_RECOVERY.md)
+for the combined recovery contract and proof boundaries.
 
 ## 4. Questions to ask at every milestone
 

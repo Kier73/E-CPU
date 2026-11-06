@@ -269,6 +269,11 @@ from .transit_structural_memory import (
 )
 from .transit_router import TransitBackendRouter, TransitBackendRouterError
 from .transit_session import TransitComputeSession
+from .navigable_computation_checkpoint import (
+    NavigableComputationCheckpoint,
+    NavigableComputationCheckpointError,
+    RestoredNavigableComputation,
+)
 from .transit_simt import TransitSIMTError, TransitSIMTHost
 from .transit_worker import TransitComputeWorker
 from .transit_orbit import (
@@ -572,6 +577,21 @@ from .navigation_coordinator import (
     NavigationCoordinationResult,
     NavigationCoordinator,
     verify_navigation_coordination,
+)
+
+from .evidence_path_resolver import (
+    EvidencePathBlocker,
+    EvidencePathBlockerCode,
+    EvidencePathCatalogue,
+    EvidencePathEdge,
+    EvidencePathError,
+    EvidencePathRequest,
+    EvidencePathResolver,
+    EvidencePathResult,
+    EvidencePathStatus,
+    EvidenceStrength,
+    RouteMetric,
+    RouteMetricKey,
 )
 
 from .navigation_admission import (
@@ -928,6 +948,9 @@ __all__ = [
     "TransitBackendRouter",
     "TransitBackendRouterError",
     "TransitComputeSession",
+    "NavigableComputationCheckpoint",
+    "NavigableComputationCheckpointError",
+    "RestoredNavigableComputation",
     "TransitSIMTError",
     "TransitSIMTHost",
     "TransitComputeWorker",
@@ -1177,4 +1200,16 @@ __all__ = [
     "compare_projected_observations",
     "program_representation_ref",
     "structural_memory_spec_representation_ref",
+    "EvidencePathBlocker",
+    "EvidencePathBlockerCode",
+    "EvidencePathCatalogue",
+    "EvidencePathEdge",
+    "EvidencePathError",
+    "EvidencePathRequest",
+    "EvidencePathResolver",
+    "EvidencePathResult",
+    "EvidencePathStatus",
+    "EvidenceStrength",
+    "RouteMetric",
+    "RouteMetricKey",
 ]
