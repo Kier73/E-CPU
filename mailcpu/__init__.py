@@ -574,6 +574,21 @@ from .navigation_coordinator import (
     verify_navigation_coordination,
 )
 
+from .evidence_path_resolver import (
+    EvidencePathBlocker,
+    EvidencePathBlockerCode,
+    EvidencePathCatalogue,
+    EvidencePathEdge,
+    EvidencePathError,
+    EvidencePathRequest,
+    EvidencePathResolver,
+    EvidencePathResult,
+    EvidencePathStatus,
+    EvidenceStrength,
+    RouteMetric,
+    RouteMetricKey,
+)
+
 from .navigation_admission import (
     HypervisorNavigationAdmissionCoordinator,
     NavigationAdmissionError,
