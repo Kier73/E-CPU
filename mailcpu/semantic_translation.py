@@ -700,17 +700,21 @@ class TransitOracleEvidence:
 
     @property
     def expected_digest(self) -> str:
+        """Return the canonical digest of the independently derived observation."""
         return canonical_value_digest(self.expected_observation)
 
     @property
     def observed_digest(self) -> str:
+        """Return the canonical digest of the backend's projected observation."""
         return canonical_value_digest(self.observed_observation)
 
     @property
     def digest(self) -> str:
+        """Return the stable digest of this complete oracle evidence record."""
         return canonical_value_digest(self.to_dict())
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize the strict schema-defined oracle evidence projection."""
         return {
             "schema": _ORACLE_EVIDENCE_SCHEMA,
             "oracle": self.oracle.to_dict(),
@@ -728,6 +732,7 @@ class TransitOracleEvidence:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "TransitOracleEvidence":
+        """Reconstruct oracle evidence and revalidate its schema, digests, and cost."""
         expected_fields = {
             "schema", "oracle", "request_fingerprint", "case_digest",
             "projection_digest", "expected_observation", "observed_observation",
