@@ -23,7 +23,6 @@ from mailcpu import (  # noqa: E402
     ReliabilityPolicy,
     ReliableChannel,
     SocketTransport,
-    TransitBackendRouter,
     TransitComputeHost,
     TransitComputeSession,
     TransitComputeWorker,
@@ -77,7 +76,6 @@ def make_session(
         embedding_review_confidence=1.0,
     )
     host = CountingHost()
-    router = TransitBackendRouter(host)
     policy = ReliabilityPolicy(lease_ticks=1, max_attempts=5, window_size=8)
     request = HypervisorOperationChannel(
         ReliableChannel(
@@ -102,7 +100,7 @@ def make_session(
         CHANNEL,
     )
     return TransitComputeSession(
-        TransitComputeWorker(operating_system, authority_pid, router),
+        TransitComputeWorker(operating_system, authority_pid, host),
         request,
         response,
     ), host
@@ -238,6 +236,11 @@ def restore_and_continue(checkpoint_path: Path, result_path: Path) -> None:
     assert new_operation.executed is True and new_operation.replayed is False
     assert new_operation.effect["registers"]["answer"] == 42
     assert hosts[0].calls == 1
+    deadline = time.monotonic() + 10.0
+    while session.response.channel.pending_sequences() and time.monotonic() < deadline:
+        session.response.channel.process_ack()
+        time.sleep(0.002)
+    assert session.response.channel.pending_sequences() == ()
     assert session.worker.operating_system.environment.kernel.journal.verify()
     write_json_durable(result_path, {
         "pid": os.getpid(),
