@@ -23,6 +23,7 @@ from .semantic_translation import (
     SemanticTranslationError,
     build_transit_translation_evidence,
 )
+from .transit_oracles import build_transit_oracle_evidence
 
 
 class TransitComputeWorker:
@@ -93,8 +94,8 @@ class TransitComputeWorker:
             _action, domain, decision_receipt, _revision = decision
             if not isinstance(raw_effect, Mapping):
                 raise SemanticTranslationError("Transit backend effects must be JSON objects")
-            if "_semantic_translation" in raw_effect:
-                raise SemanticTranslationError("Transit backend effect uses the reserved semantic evidence field")
+            if {"_semantic_translation", "_semantic_oracle"} & set(raw_effect):
+                raise SemanticTranslationError("Transit backend effect uses a reserved semantic evidence field")
             try:
                 canonical_effect = json.loads(
                     json.dumps(
@@ -115,8 +116,15 @@ class TransitComputeWorker:
                 decision_receipt=decision_receipt,
                 domain=domain.value,
             )
+            oracle_evidence = build_transit_oracle_evidence(
+                event,
+                canonical_effect,
+                self.operating_system,
+            )
             encoded = dict(canonical_effect)
             encoded["_semantic_translation"] = evidence.to_dict()
+            if oracle_evidence is not None:
+                encoded["_semantic_oracle"] = oracle_evidence.to_dict()
             return encoded
 
         return request.receive_and_reply_event(
