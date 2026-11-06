@@ -220,7 +220,7 @@ def _run_once(page_size: int, repeat_index: int) -> dict[str, Any]:
             "hot_read_journal": page_hot_journal,
             "page_digest": expected_digest,
             "reserved_vm_snapshot_bytes": reserved_snapshot_bytes,
-            "resident_vm_snapshot_bytes": resident_snapshot_bytes,
+            "resident_vm_snapshot_bytes": resident_snapshot_bytes,\n            "vm_snapshot_scope": (\n                "VirtualMemory.snapshot() only; excludes HeadlessOS, registry, journal, and backing rebind state"\n            ),
             "page_backing_descriptor_bytes": backing_descriptor_bytes,
             "generator_spec_certificate_reference_bytes": generator_descriptor_bytes,
         },
