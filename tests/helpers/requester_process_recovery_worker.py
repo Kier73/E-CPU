@@ -593,6 +593,12 @@ def main(arguments: list[str]) -> int:
     if mode == "server" and len(arguments) == 6:
         serve(*(Path(item) for item in arguments[1:]))
         return 0
+    if mode == "server-cut" and len(arguments) == 3:
+        server_cut(Path(arguments[1]), Path(arguments[2]))
+        return 0
+    if mode == "server-restore" and len(arguments) == 3:
+        server_restore(Path(arguments[1]), Path(arguments[2]))
+        return 0
     if mode == "client-prepare" and len(arguments) == 5:
         _request_port, _response_port, checkpoint, marker = arguments[1:]
         client_prepare(
@@ -612,6 +618,8 @@ def main(arguments: list[str]) -> int:
     raise SystemExit(
         "usage: requester_process_recovery_worker.py "
         "server SERVER_CHECKPOINT CUT_MARKER RELEASE REBIND_READY RESULT | "
+        "server-cut SERVER_CHECKPOINT CUT_MARKER | "
+        "server-restore SERVER_CHECKPOINT RESULT | "
         "client-prepare REQUEST_PORT RESPONSE_PORT CLIENT_CHECKPOINT CLIENT_MARKER | "
         "client-restore REQUEST_PORT RESPONSE_PORT CLIENT_CHECKPOINT RESULT"
     )
