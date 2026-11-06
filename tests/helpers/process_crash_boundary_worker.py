@@ -205,11 +205,12 @@ def client_prepare(checkpoint: Path, marker: Path, request_port: int, response_p
 def client_restore(
     checkpoint: Path,
     result_path: Path,
+    server_result_path: Path,
     request_port: int,
     response_port: int,
     cut: str,
 ) -> None:
-    """Restore the requester, consume the expected old result copies, and submit fresh work."""
+    """Restore the requester, consume results, and keep TCP open until receiver ACK drain."""
 
     ports = {"request_port": request_port, "response_port": response_port}
     envelope = _read_client_checkpoint(checkpoint)
@@ -272,6 +273,16 @@ def client_restore(
         "response_receive_cursor": response.channel.next_receive_sequence,
         "semantic_results_seen": len(response.snapshot()["seen"]),
     })
+    # Keep the client transports alive until the receiver confirms that every
+    # reliable response ACK has crossed the stream and drained its sender window.
+    deadline = time.monotonic() + 30.0
+    while time.monotonic() < deadline and not server_result_path.is_file():
+        time.sleep(0.005)
+    if not server_result_path.is_file():
+        raise TimeoutError("receiver did not publish its ACK-drained completion record")
+    server_state = json.loads(server_result_path.read_text(encoding="utf-8"))
+    assert server_state["response_pending"] == []
+    assert server_state["journal_valid"] is True
     for transport in transports:
         transport.close()
 
@@ -293,10 +304,11 @@ def main(arguments: list[str]) -> int:
             Path(arguments[1]), Path(arguments[2]), int(arguments[3]), int(arguments[4])
         )
     elif mode == "client-restore":
-        if len(arguments) != 6:
-            raise ValueError("client-restore requires checkpoint, result, two ports, and cut")
+        if len(arguments) != 7:
+            raise ValueError("client-restore requires client checkpoint/result, server result, two ports, and cut")
         client_restore(
-            Path(arguments[1]), Path(arguments[2]), int(arguments[3]), int(arguments[4]), arguments[5]
+            Path(arguments[1]), Path(arguments[2]), Path(arguments[3]),
+            int(arguments[4]), int(arguments[5]), arguments[6]
         )
     else:
         raise ValueError(f"unknown worker mode: {mode}")
