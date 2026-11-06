@@ -495,25 +495,29 @@ def restore_and_finish(checkpoint_path: Path, result_path: Path) -> None:
         assert {node.node_id for node in graph.ready_nodes()} == {"branch-c"}
 
         # Only C remains genuinely unexecuted. A stays committed, B is a replay.
+        branch_c_node = next(
+            node for node in graph.ready_nodes() if node.node_id == "branch-c"
+        )
+        branch_c_event = HypervisorArbitrationEvent(
+            "client",
+            _CHANNEL,
+            4,
+            9504,
+            HypervisorRequest(
+                _CPU_OPERATION,
+                _CPU_RESOURCE,
+                branch_c_node.payload,
+                frozenset({"execute"}),
+                frozenset(),
+            ),
+        )
         branch_c, _ = _serve(
             restored.session,
             restored.request_client,
             restored.response_client,
             restored.session.request,
             restored.session.response,
-            state_event := HypervisorArbitrationEvent(
-                "client",
-                _CHANNEL,
-                4,
-                9504,
-                HypervisorRequest(
-                    _CPU_OPERATION,
-                    _CPU_RESOURCE,
-                    next(node for node in graph.ready_nodes() if node.node_id == "branch-c").payload,
-                    frozenset({"execute"}),
-                    frozenset(),
-                ),
-            ),
+            branch_c_event,
             4,
         )
         assert branch_c.effect["registers"]["answer"] == 447
