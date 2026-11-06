@@ -330,13 +330,19 @@ class MailCPUVirtualMachine:
         """Mathematics: invert `snapshot` into a continuation-equivalent VM state with shared bus and journal identity."""
 
         environment = VirtualEnvironment.from_snapshot(dict(payload["environment"]))
-        if page_backing is None and payload.get("page_backing_state") is not None:
-            backing_state = payload.get("page_backing_state")
+        backing_state = payload.get("page_backing_state")
+        if backing_state is not None:
             if not isinstance(backing_state, dict):
                 raise ValueError("VM page backing state must be a mapping")
             if backing_state.get("provider_type") != StructuralMemoryPageBacking.SNAPSHOT_KIND:
                 raise ValueError("unsupported VM page backing snapshot descriptor")
-            page_backing = StructuralMemoryPageBacking.from_snapshot(backing_state)
+            if page_backing is None:
+                page_backing = StructuralMemoryPageBacking.from_snapshot(backing_state)
+            elif (
+                not isinstance(page_backing, StructuralMemoryPageBacking)
+                or page_backing.snapshot() != backing_state
+            ):
+                raise ValueError("provided page backing does not match the VM snapshot descriptor")
         machine = cls(
             environment,
             trajectory=trajectory,
