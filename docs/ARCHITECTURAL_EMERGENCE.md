@@ -197,6 +197,31 @@ witness-grounded laws into universal proofs or attest against a malicious
 receiver.
 
 
+
+## 2.8 Evidence-indexed representation routing
+
+The next navigation layer now has a concrete implementation. The existing
+contextual navigator explores the state space of one process description;
+the evidence-path resolver instead connects exact representation identities
+through successful translation contracts. It retains the evidence and
+cost vector for each edge, checks exact context and prerequisite digests,
+reads live receiver capabilities, and searches a bounded graph for a feasible
+route.
+
+The route objective is an explicit lexicographic order over named metrics.
+Latency, energy, work, and data movement remain separate dimensions with
+separate units; ceilings filter paths before selection. Nondominated partial
+routes are retained so a locally attractive path cannot erase another path
+that is feasible under a global budget. The output is a digest-bound,
+non-authoritative proposal, not a permission to execute the steps.
+
+The current catalogue stores finite-case evidence and locally declared cost
+vectors. It does not yet replicate catalogues between hosts, calibrate cost
+metrics automatically, or dispatch a whole route. Those are separate
+experiments: the next step is to connect an admitted route edge to a concrete
+receiver backend and have each edge pass through its own hypervisor admission.
+
+
 ## 3. Novel-to-this-architecture possibilities
 
 This section records research opportunities created by the combination of integrated and planned primitives. These are not claims of global historical priority. Related ideas may exist in symbolic execution, program synthesis, proof-carrying computation, procedural generation, distributed systems, databases, and other fields. The question is what a working combination inside E-CPU enables that its current components do not provide separately.
