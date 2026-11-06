@@ -26,9 +26,9 @@ Let (x) be one input case, (I_s) and (I_t) be source and target
 realizations, and (Pi_C) be the observation projection named by contract
 (C). The contract's intended obligation is:
 
-[
-Pi_C(I_s(x)) = Pi_C(I_t(x))
-]
+```text
+Observe_C(Source(x)) == Observe_C(Target(x))
+```
 
 The equality is defined by canonical JSON bytes in v1. The projection itself
 must be supplied by the caller and identified by a stable projection ID,
@@ -114,15 +114,15 @@ not invent a second identity for that object.
 
 ## Composition
 
-Suppose translations (T_1:A\rightarrow B) and (T_2:B\rightarrow C)
-preserve the same observation contract and compatible context. Then equality
-is transitive over the observations that were actually checked:
+Suppose translations T1:A->B and T2:B->C preserve the same observation
+contract and compatible context. For one case x, the composed comparison is:
 
-[
-Pi(I_A(x)) = Pi(I_B(T_1(x)))
-quad\land\quad
-Pi(I_B(y)) = Pi(I_C(T_2(y)))
-]
+```text
+Observe_A(x) == Observe_B(T1(x))
+Observe_B(T1(x)) == Observe_C(T2(T1(x)))
+```
+
+The intermediate B value must be exactly the same in both comparisons.
 
 But composition also requires the output identity of the first edge to match
 the input identity of the second, plus compatible preconditions, invariants,
