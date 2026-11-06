@@ -540,6 +540,243 @@ def structural_memory_spec_representation_ref(spec: StructuralMemorySpec) -> Rep
     return RepresentationRef.from_payload("mailcpu.structural-memory.spec", 1, spec.to_dict())
 
 
+
+_CPU_ORACLE_DEFINITION = {
+    "identity": "mailcpu.transit.cpu-reference-oracle",
+    "version": 1,
+    "execution": "independent transport-free evaluator",
+    "initial_register_default": 0,
+    "instructions": {
+        "SET": "R[d] := immediate",
+        "COPY": "R[d] := R[s]",
+        "ADD": "R[d] := R[l] + R[r]",
+        "COMPARE": "R[d] := sign(R[l] - R[r])",
+        "BRANCH": "pc := target when R[c] != 0, else pc + 1",
+        "HALT": "terminate with pc unchanged",
+    },
+    "step_accounting": "one unit per fetched instruction, including HALT",
+    "terminal": {"status": "exited", "exit_code": 0},
+}
+_STRUCTURAL_MEMORY_ORACLE_DEFINITION = {
+    "identity": "mailcpu.transit.structural-memory-reference-oracle",
+    "version": 1,
+    "families": {
+        "int": "independent arithmetic progression evaluation",
+        "lcg": "binary composition of affine maps",
+        "gf2": "bit-packed companion-matrix exponentiation",
+        "fgraph": "preperiod/cycle modular indexing",
+    },
+    "guard": "PREFIX-GROUND requires coordinate < first_bad",
+    "source": "pinned immutable StructuralMemorySpec and certificate",
+}
+_CPU_ORACLE_PROJECTION = {
+    "fields": ["status", "exit_code", "pc", "steps", "registers"],
+    "registers": "sorted integer map",
+}
+_STRUCTURAL_MEMORY_ORACLE_PROJECTION = {
+    "fields": [
+        "memory_id", "revision", "spec_digest", "certificate_digest",
+        "coordinate", "context_digest", "value", "value_digest",
+        "verification_class", "witness_digest",
+    ],
+    "comparison": "exact canonical JSON",
+}
+_CPU_ORACLE_REF = RepresentationRef.from_payload(
+    "mailcpu.transit.semantic-oracle.cpu-arithmetic",
+    1,
+    _CPU_ORACLE_DEFINITION,
+)
+_STRUCTURAL_MEMORY_ORACLE_REF = RepresentationRef.from_payload(
+    "mailcpu.transit.semantic-oracle.structural-memory-coordinate",
+    1,
+    _STRUCTURAL_MEMORY_ORACLE_DEFINITION,
+)
+_CPU_ORACLE_PROJECTION_DIGEST = canonical_value_digest(_CPU_ORACLE_PROJECTION)
+_STRUCTURAL_MEMORY_ORACLE_PROJECTION_DIGEST = canonical_value_digest(
+    _STRUCTURAL_MEMORY_ORACLE_PROJECTION
+)
+_ORACLE_EVIDENCE_SCHEMA = "mailcpu.transit-oracle-evidence.v1"
+
+
+def _transit_oracle_effect_projection(
+    oracle_type_id: str,
+    effect: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Project only the operation's semantic result, excluding transport and provenance noise."""
+    if not isinstance(effect, Mapping):
+        raise SemanticTranslationError("oracle effect must be an object")
+    if oracle_type_id == _CPU_ORACLE_REF.type_id:
+        fields = ("status", "exit_code", "pc", "steps", "registers")
+        if any(field not in effect for field in fields):
+            raise SemanticTranslationError("CPU effect is missing an oracle-projected field")
+        registers = effect["registers"]
+        if not isinstance(registers, Mapping):
+            raise SemanticTranslationError("CPU effect registers must be an object")
+        normalized_registers: dict[str, int] = {}
+        for name, value in registers.items():
+            if not isinstance(name, str) or type(value) is not int:
+                raise SemanticTranslationError("CPU effect registers must map names to strict integers")
+            normalized_registers[name] = value
+        if (
+            effect["status"] != "exited"
+            or type(effect["exit_code"]) is not int
+            or type(effect["pc"]) is not int
+            or type(effect["steps"]) is not int
+        ):
+            raise SemanticTranslationError("CPU effect terminal projection is invalid")
+        return {
+            "status": effect["status"],
+            "exit_code": effect["exit_code"],
+            "pc": effect["pc"],
+            "steps": effect["steps"],
+            "registers": dict(sorted(normalized_registers.items())),
+        }
+    if oracle_type_id == _STRUCTURAL_MEMORY_ORACLE_REF.type_id:
+        fields = (
+            "memory_id", "revision", "spec_digest", "certificate_digest",
+            "coordinate", "context_digest", "value", "value_digest",
+            "verification_class", "witness_digest",
+        )
+        if any(field not in effect for field in fields):
+            raise SemanticTranslationError("Structural Memory effect is missing an oracle-projected field")
+        projected = {field: effect[field] for field in fields}
+        if (
+            not isinstance(projected["memory_id"], str)
+            or type(projected["revision"]) is not int
+            or type(projected["coordinate"]) is not int
+            or type(projected["value"]) is not int
+            or not isinstance(projected["verification_class"], str)
+        ):
+            raise SemanticTranslationError("Structural Memory effect projection has invalid scalar types")
+        for field in ("spec_digest", "certificate_digest", "context_digest", "value_digest", "witness_digest"):
+            _digest(projected[field], f"Structural Memory {field}")
+        return projected
+    raise SemanticTranslationError(f"unknown Transit semantic oracle {oracle_type_id!r}")
+
+
+@dataclass(frozen=True)
+class TransitOracleEvidence:
+    """Bounded independent operation check, with deterministic work recorded as part of its cost."""
+
+    oracle: RepresentationRef
+    request_fingerprint: str
+    case_digest: str
+    projection_digest: str
+    expected_observation: Mapping[str, Any]
+    observed_observation: Mapping[str, Any]
+    work_units: int
+    work_limit: int
+    equivalent: bool
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.oracle, RepresentationRef):
+            raise SemanticTranslationError("oracle must be a RepresentationRef")
+        if self.oracle == _CPU_ORACLE_REF:
+            expected_projection = _CPU_ORACLE_PROJECTION_DIGEST
+        elif self.oracle == _STRUCTURAL_MEMORY_ORACLE_REF:
+            expected_projection = _STRUCTURAL_MEMORY_ORACLE_PROJECTION_DIGEST
+        else:
+            raise SemanticTranslationError("Transit semantic oracle identity is not admitted")
+        _digest(self.request_fingerprint, "oracle request_fingerprint")
+        _digest(self.case_digest, "oracle case_digest")
+        _digest(self.projection_digest, "oracle projection_digest")
+        if self.projection_digest != expected_projection:
+            raise SemanticTranslationError("oracle projection does not match its registered definition")
+        expected = _json_value(self.expected_observation, "oracle.expected_observation")
+        observed = _json_value(self.observed_observation, "oracle.observed_observation")
+        if not isinstance(expected, Mapping) or not isinstance(observed, Mapping):
+            raise SemanticTranslationError("oracle observations must be JSON objects")
+        object.__setattr__(self, "expected_observation", dict(expected))
+        object.__setattr__(self, "observed_observation", dict(observed))
+        _positive_int(self.work_units, "oracle work_units")
+        _positive_int(self.work_limit, "oracle work_limit")
+        if self.work_units > self.work_limit:
+            raise SemanticTranslationError("oracle work_units exceed the declared work_limit")
+        if type(self.equivalent) is not bool:
+            raise SemanticTranslationError("oracle equivalent must be a Boolean")
+        equal = canonical_value_digest(expected) == canonical_value_digest(observed)
+        if self.equivalent != equal:
+            raise SemanticTranslationError("oracle equivalent flag does not match its observations")
+
+    @property
+    def expected_digest(self) -> str:
+        return canonical_value_digest(self.expected_observation)
+
+    @property
+    def observed_digest(self) -> str:
+        return canonical_value_digest(self.observed_observation)
+
+    @property
+    def digest(self) -> str:
+        return canonical_value_digest(self.to_dict())
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema": _ORACLE_EVIDENCE_SCHEMA,
+            "oracle": self.oracle.to_dict(),
+            "request_fingerprint": self.request_fingerprint,
+            "case_digest": self.case_digest,
+            "projection_digest": self.projection_digest,
+            "expected_observation": _json_value(self.expected_observation),
+            "observed_observation": _json_value(self.observed_observation),
+            "expected_digest": self.expected_digest,
+            "observed_digest": self.observed_digest,
+            "work_units": self.work_units,
+            "work_limit": self.work_limit,
+            "equivalent": self.equivalent,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "TransitOracleEvidence":
+        expected_fields = {
+            "schema", "oracle", "request_fingerprint", "case_digest",
+            "projection_digest", "expected_observation", "observed_observation",
+            "expected_digest", "observed_digest", "work_units", "work_limit",
+            "equivalent",
+        }
+        if (
+            not isinstance(payload, Mapping)
+            or set(payload) != expected_fields
+            or payload["schema"] != _ORACLE_EVIDENCE_SCHEMA
+        ):
+            raise SemanticTranslationError("Transit oracle evidence schema or fields are invalid")
+        if not isinstance(payload["oracle"], Mapping):
+            raise SemanticTranslationError("Transit oracle reference must be an object")
+        record = cls(
+            oracle=RepresentationRef.from_dict(payload["oracle"]),
+            request_fingerprint=payload["request_fingerprint"],
+            case_digest=payload["case_digest"],
+            projection_digest=payload["projection_digest"],
+            expected_observation=payload["expected_observation"],
+            observed_observation=payload["observed_observation"],
+            work_units=payload["work_units"],
+            work_limit=payload["work_limit"],
+            equivalent=payload["equivalent"],
+        )
+        if (
+            payload["expected_digest"] != record.expected_digest
+            or payload["observed_digest"] != record.observed_digest
+        ):
+            raise SemanticTranslationError("Transit oracle observation digest does not match its value")
+        return record
+
+    def validate_against_effect(
+        self,
+        effect: Mapping[str, Any],
+        *,
+        request_fingerprint: str,
+    ) -> None:
+        """Recheck the observed projection against the committed raw handler effect."""
+        if request_fingerprint != self.request_fingerprint:
+            raise SemanticTranslationError("oracle request fingerprint does not match Transit evidence")
+        if not self.equivalent:
+            raise SemanticTranslationError("Transit oracle comparison is not equivalent")
+        observed = _transit_oracle_effect_projection(self.oracle.type_id, effect)
+        if canonical_value_digest(observed) != self.observed_digest:
+            raise SemanticTranslationError("Transit oracle observation does not match the committed effect")
+
+
+
 _TRANSIT_EVIDENCE_SCHEMA = "mailcpu.transit-translation-evidence.v1"
 
 
@@ -754,10 +991,29 @@ class TransitTranslationEvidence:
             raise SemanticTranslationError("embedded Transit translation evidence differs from the supplied record")
         raw_effect = {
             key: value for key, value in result.effect.items()
-            if key != "_semantic_translation"
+            if key not in {"_semantic_translation", "_semantic_oracle"}
         }
         if canonical_value_digest(raw_effect) != self.effect_digest:
             raise SemanticTranslationError("Transit evidence effect digest does not match the execution result")
+        raw_oracle = result.effect.get("_semantic_oracle")
+        if raw_oracle is not None:
+            if not isinstance(raw_oracle, Mapping):
+                raise SemanticTranslationError("embedded Transit oracle evidence must be an object")
+            oracle = TransitOracleEvidence.from_dict(raw_oracle)
+            oracle.validate_against_effect(
+                raw_effect,
+                request_fingerprint=self.request_fingerprint,
+            )
+            if self.operation == "execute deterministic CPU arithmetic program":
+                expected_oracle_type = _CPU_ORACLE_REF.type_id
+                if self.resource != "/cpu/compute":
+                    raise SemanticTranslationError("CPU oracle is bound to an unexpected resource")
+            elif self.resource == "/structural-memory/read":
+                expected_oracle_type = _STRUCTURAL_MEMORY_ORACLE_REF.type_id
+            else:
+                expected_oracle_type = None
+            if expected_oracle_type is not None and oracle.oracle.type_id != expected_oracle_type:
+                raise SemanticTranslationError("Transit oracle type does not match the selected operation")
 
 
 
