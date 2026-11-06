@@ -259,6 +259,33 @@ class NavigableComputationDAG:
             and all(dep in self._committed for dep in self._nodes[node_id].dependencies)
         )
 
+    def revise_node(self, node: ComputationNode) -> str:
+        """Mathematics: replace uncommitted v by revision v' iff id(v')=id(v), rev(v')>rev(v), and G remains acyclic."""
+
+        if not isinstance(node, ComputationNode):
+            raise ComputationDAGError("node revision requires a ComputationNode")
+        current = self._nodes.get(node.node_id)
+        if current is None:
+            raise ComputationDAGError("cannot revise an unknown computation node")
+        if node.node_id in self._committed:
+            raise ComputationDAGError("a committed computation node cannot be revised")
+        if node.revision <= current.revision:
+            raise ComputationDAGError("node revision must increase monotonically")
+        if node.node_id in node.dependencies:
+            raise ComputationDAGError("revised node cannot depend on itself")
+        missing = set(node.dependencies) - set(self._nodes)
+        if missing:
+            raise ComputationDAGError("revised node names unknown dependencies")
+        previous = self._nodes[node.node_id]
+        self._nodes[node.node_id] = node
+        try:
+            self._topological = self._topological_order()
+        except Exception:
+            self._nodes[node.node_id] = previous
+            self._topological = self._topological_order()
+            raise
+        return node.digest
+
     def commit(self, node_id: str, result: Mapping[str, Any]) -> bool:
         """Mathematics: commit R_v once when pred(v)⊆dom(C); return replay=true only for exact H(R_v) repetition."""
 
