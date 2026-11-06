@@ -215,7 +215,11 @@ class NavigableComputationCheckpoint:
         )
         for label, transport in supplied_transports:
             pending = getattr(transport, "pending", None)
-            if callable(pending) and pending() != 0:
+            if not callable(pending):
+                raise NavigableComputationCheckpointError(
+                    f"replacement {label} transport must expose pending()"
+                )
+            if pending() != 0:
                 raise NavigableComputationCheckpointError(
                     f"cannot restore over a non-empty {label} transport"
                 )
