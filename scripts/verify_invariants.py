@@ -205,6 +205,7 @@ def _expected_symbol(establishes: str) -> str | None:
         "navigable_computation_checkpoint": "NavigableComputationCheckpoint",
         "computation_dag": "NavigableComputationDAG",
         "recovery_lineage": "RecoveryLineageCoordinator",
+        "recovery_bundle": "RecoveryCheckpointBundleStore",
         "seed_commit_quorum": "DurableSeedCommitLedger",
     }
     return mapping.get(stem)

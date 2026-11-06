@@ -11,6 +11,9 @@ from typing import Any
 
 import pytest
 
+sys.path.insert(0, str(Path(__file__).resolve().parent / "helpers"))
+from recovery_lineage_process_support import open_recovery_bundle_store
+
 CUTS = (
     "before_execution",
     "after_execution_commit",
@@ -174,6 +177,18 @@ def test_requester_and_receiver_processes_recover_at_each_transit_crash_cut(
         assert server_cut["response_pending"] == expected_pending
         assert server_checkpoint.is_file() and client_checkpoint.is_file()
 
+        # Copy the independently persisted endpoint files into one immutable
+        # generation and obtain the external quorum anchor before either
+        # original process is destroyed.
+        lineage_root = tmp_path / f"{cut}-lineage"
+        sealed_bundle = open_recovery_bundle_store(lineage_root).seal(
+            client_checkpoint,
+            server_checkpoint,
+            cut,
+        )
+        assert sealed_bundle.generation == 1
+        assert sealed_bundle.manifest.capture_cut == cut
+
         # The original requester and receiver are both destroyed. Their only
         # surviving protocol state is held in independent durable files.
         _hard_kill((original_client, original_server))
@@ -183,7 +198,7 @@ def test_requester_and_receiver_processes_recover_at_each_transit_crash_cut(
             worker,
             "server-restore",
             cut,
-            server_checkpoint,
+            lineage_root,
             server_result_path,
         )
         processes.append(restored_server)
@@ -193,7 +208,7 @@ def test_requester_and_receiver_processes_recover_at_each_transit_crash_cut(
             repository_root,
             worker,
             "client-restore",
-            client_checkpoint,
+            lineage_root,
             client_result_path,
             restored_ports,
             cut,
@@ -241,6 +256,10 @@ def test_requester_and_receiver_processes_recover_at_each_transit_crash_cut(
 
         assert server_result["server_pid"] == restored_server.pid
         assert server_result["cut"] == cut
+        assert server_result["lineage_generation"] == 1
+        assert server_result["lineage_manifest_digest"] == sealed_bundle.manifest.digest
+        assert client_result["lineage_generation"] == 1
+        assert client_result["lineage_manifest_digest"] == sealed_bundle.manifest.digest
         assert server_result["sequence_1_execution_replayed"] is expected_execution_replay
         assert server_result["sequence_1_answer"] == 12
         assert server_result["sequence_2_execution_replayed"] is False

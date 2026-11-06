@@ -156,6 +156,11 @@ from .recovery_lineage import (
     RecoveryLineageError,
     RecoveryLineageProof,
 )
+from .recovery_bundle import (
+    RecoveryCheckpointBundleError,
+    RecoveryCheckpointBundleStore,
+    VerifiedRecoveryCheckpointBundle,
+)
 from .seed_commit_coordinator import (
     SEED_QUORUM_COMMIT_KIND,
     SEED_QUORUM_DECISION_KIND,
@@ -781,6 +786,9 @@ __all__ = [
     "SeedCommitTransitionArtifact",
     "SeedPrepareVote",
     "RecoveryCheckpointManifest",
+    "RecoveryCheckpointBundleError",
+    "RecoveryCheckpointBundleStore",
+    "VerifiedRecoveryCheckpointBundle",
     "RecoveryLineageAuthority",
     "RecoveryLineageCoordinator",
     "RecoveryLineageError",
