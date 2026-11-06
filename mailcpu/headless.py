@@ -39,6 +39,7 @@ from .kernel import (
 )
 from .structural_memory import StructuralMemoryProposal, StructuralMemoryRegistry
 from .providers import StructuralMemoryFileRef, StructuralMemoryFileProvider
+from .structural_memory_pages import StructuralMemoryPageBacking
 from .memory import VirtualMemoryError
 from .model import DEFAULT_MAX_TICKS, Program
 from .owned_network import NetworkAddress, NetworkFrame
@@ -160,6 +161,26 @@ class HeadlessOS:
             owner=owner,
         )
         return canonical
+
+    def register_structural_memory_page(
+        self,
+        page_digest: str,
+        reference: StructuralMemoryFileRef,
+    ) -> str:
+        """Mathematics: bind page digest `h` to one pinned interval `r`, making `h` available to VM demand reservations.
+
+        The returned digest can be supplied to VirtualMemory.reserve(...,
+        backing_blob_ids=(digest,)) to create a demand-paged reservation.
+        """
+        backing = self.vm.page_backing
+        if backing is None:
+            backing = StructuralMemoryPageBacking(self.structural_memory)
+            self.vm.bind_page_backing(backing)
+        elif not isinstance(backing, StructuralMemoryPageBacking):
+            raise VirtualMemoryError("VM is already attached to a different page backing")
+        else:
+            backing.bind_registry(self.structural_memory)
+        return backing.register_page_reference(page_digest, reference)
 
     def install_binary(self, path: str, program: Program, mode: int = 0o755) -> str:
         """Mathematics: write native executable bytes `B=encode_MCPB(program)` into inode `normalize(path)` with execute mode."""
@@ -2363,6 +2384,8 @@ class HeadlessOS:
         operating_system.environment.kernel.fs.providers.bind_structural_memory_registry(
             operating_system.structural_memory
         )
+        if isinstance(operating_system.vm.page_backing, StructuralMemoryPageBacking):
+            operating_system.vm.page_backing.bind_registry(operating_system.structural_memory)
         operating_system.services = ServiceSupervisor.from_snapshot(
             operating_system,
             dict(payload.get("services", {})),

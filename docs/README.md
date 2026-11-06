@@ -34,7 +34,7 @@ Index of specification documents. Documents use defined terms from `GLOSSARY.md`
 | 26 | [`NAVIGATION_ADMISSION.md`](NAVIGATION_ADMISSION.md) | Hypervisor-owned live-context revalidation, kernel capability checks, policy arbitration, bounded path grants, and expiry |
 | 27 | [`NAVIGATION_EXECUTION.md`](NAVIGATION_EXECUTION.md) | Journal provenance, live grant revalidation, deterministic path replay, atomic host compare-and-swap, durable receipt recovery, and execution receipts 
 | 28 | [`NATIVE_VCPU_CONTEXT.md`](NATIVE_VCPU_CONTEXT.md) | Safepoint-only navigation of the native scheduler PC/register file with atomic checkpoint and receipt recovery |
-| 29 | [`STRUCTURAL_MEMORY.md`](STRUCTURAL_MEMORY.md) | Verified generator specifications, evidence certificates, context-bound reads, VFS structural-memory file providers, revision admission, and checkpoint/journal persistence |
+| 29 | [`STRUCTURAL_MEMORY.md`](STRUCTURAL_MEMORY.md) | Verified generator specifications, evidence certificates, context-bound reads, VFS file providers, demand-paged structural-memory pages, COW, revision admission, and checkpoint/journal persistence |
 | 30 | [`ARCHITECTURAL_EMERGENCE.md`](ARCHITECTURAL_EMERGENCE.md) | Present capabilities, current build boundaries, and testable possibilities created by architectural composition |
 
 ## Document classes

@@ -15,6 +15,7 @@ from .observation import (
 )
 from .scheduler import DeterministicScheduler, ScheduleEvent
 from .trajectory import TrajectoryWriter
+from .structural_memory_pages import StructuralMemoryPageBacking
 
 
 def _scheduler_transaction(method):
@@ -297,7 +298,7 @@ class MailCPUVirtualMachine:
     def snapshot(self) -> dict[str, Any]:
         """Mathematics: serialize the composed product state `VM = (E, S, {M_pid})` for replay inspection."""
 
-        return {
+        payload = {
             "environment": self.environment.snapshot(),
             "scheduler": self.scheduler.snapshot(),
             "max_resident_pages": self.max_resident_pages,
@@ -310,11 +311,14 @@ class MailCPUVirtualMachine:
                     "pid": pid,
                     "source": source,
                     "sequence": sequence,
-                    "payload": list(payload),
+                    "payload": list(observation_payload),
                 }
-                for (pid, source, sequence), payload in sorted(self._resolver_observation_receipts.items())
+                for (pid, source, sequence), observation_payload in sorted(self._resolver_observation_receipts.items())
             ],
         }
+        if isinstance(self.page_backing, StructuralMemoryPageBacking):
+            payload["page_backing_state"] = self.page_backing.snapshot()
+        return payload
 
     @classmethod
     def from_snapshot(
@@ -326,6 +330,19 @@ class MailCPUVirtualMachine:
         """Mathematics: invert `snapshot` into a continuation-equivalent VM state with shared bus and journal identity."""
 
         environment = VirtualEnvironment.from_snapshot(dict(payload["environment"]))
+        backing_state = payload.get("page_backing_state")
+        if backing_state is not None:
+            if not isinstance(backing_state, dict):
+                raise ValueError("VM page backing state must be a mapping")
+            if backing_state.get("provider_type") != StructuralMemoryPageBacking.SNAPSHOT_KIND:
+                raise ValueError("unsupported VM page backing snapshot descriptor")
+            if page_backing is None:
+                page_backing = StructuralMemoryPageBacking.from_snapshot(backing_state)
+            elif (
+                not isinstance(page_backing, StructuralMemoryPageBacking)
+                or page_backing.snapshot() != backing_state
+            ):
+                raise ValueError("provided page backing does not match the VM snapshot descriptor")
         machine = cls(
             environment,
             trajectory=trajectory,
@@ -386,6 +403,18 @@ class MailCPUVirtualMachine:
             raise ValueError("VM scheduler task has no kernel process")
         machine._validate_resident_budget()
         return machine
+
+    def bind_page_backing(self, page_backing: PageBacking) -> None:
+        """Mathematics: bind one content-addressed store `C` across VM memories while preserving every `(M,R)` relation."""
+        if not callable(getattr(page_backing, "get_page", None)) or not callable(
+            getattr(page_backing, "put_page", None)
+        ):
+            raise ValueError("page backing must implement get_page and put_page")
+        if self.page_backing is not None and self.page_backing is not page_backing:
+            raise ValueError("virtual machine is already bound to a different page backing")
+        for memory in self.memories.values():
+            memory.bind_page_backing(page_backing)
+        self.page_backing = page_backing
 
     def resident_pages(self) -> int:
         """Mathematics: calculate resident mapping cardinality `R = Σ_pid |M_pid|`."""
