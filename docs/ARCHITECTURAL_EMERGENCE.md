@@ -329,11 +329,21 @@ The test also checks a semantic replay under a new transport frame, a stable
 catalogue snapshot digest, negative controls for context mismatch, translation
 mismatch and missing authority, and the kernel journal chain. The route remains
 a non-authoritative proposal and the two operations remain independently
-authorized. The current test does not yet include one combined process-restart
-recovery across both operations and the route catalogue.
+authorized.
+
+A subsequent recovery experiment adds an integrity-bound envelope spanning
+the receiver worker checkpoint, requester-side reliable cursors, evidence
+catalogue, exact route query/result, and retry event. Restore uses fresh TCP
+transports, rebinds the trusted backend manifest, reauthorizes the retry event,
+and reruns route resolution against restored live capabilities. Only after
+the saved route is reproduced can the requester retransmit the CPU event;
+the hypervisor ledger must replay the original effect without invoking the
+replacement CPU backend.
 
 See [NAVIGABLE_COMPUTATION_EXPERIMENT.md](NAVIGABLE_COMPUTATION_EXPERIMENT.md)
-for the exact workload, assumptions, commands, and proof boundaries.
+for the initial composition and
+[NAVIGABLE_COMPUTATION_RECOVERY.md](NAVIGABLE_COMPUTATION_RECOVERY.md)
+for the combined recovery contract and proof boundaries.
 
 ## 4. Questions to ask at every milestone
 
