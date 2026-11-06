@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from mailcpu import QueueInterpreter, ReferenceInterpreter, canonical_result
+from mailcpu import (\n    HeadlessOS,\n    QueueInterpreter,\n    ReferenceInterpreter,\n    StructuralMemoryFileRef,\n    StructuralMemoryFileProvider,\n    StructuralMemoryPageBacking,\n    VirtualMemory,\n    canonical_result,\n)
 from mailcpu.law_certifier import Law
 from mailcpu.model import Instruction, Op, Program
 from mailcpu.semantic_translation import (
@@ -22,7 +22,7 @@ from mailcpu.semantic_translation import (
     program_representation_ref,
     structural_memory_spec_representation_ref,
 )
-from mailcpu.structural_memory import StructuralMemorySpec
+from mailcpu.structural_memory import StructuralMemorySpec\n
 from mailcpu.programs import addition_program
 
 
@@ -257,6 +257,146 @@ def test_external_effects_cannot_claim_unledgered_deterministic_replay():
             effect_class=EffectClass.EXTERNAL,
             replay_class=ReplayClass.DETERMINISTIC,
         )
+
+
+
+
+def test_structural_memory_to_vm_page_preserves_bytes_and_coordinate_receipts():
+    """Mathematics: π(source Structural Memory range) = π(demand-paged VM realization) for one pinned page."""
+    import hashlib
+
+    from mailcpu.law_certifier import Law
+
+    page_size = 8
+    operating_system = HeadlessOS(
+        structural_memory_admission_policy=lambda proposal: proposal.spec.domain == "byte-stream"
+    )
+    proposal = operating_system.structural_memory.propose(
+        "translation-page",
+        Law(
+            family="int",
+            params={"x0": 65, "step": 1, "mod": 256},
+            order=1,
+            verdict="GROUND",
+        ),
+        {coordinate: 65 + coordinate for coordinate in range(page_size)},
+        domain="byte-stream",
+        context={"dataset": "translation-fixture", "encoding": "raw-byte"},
+    )
+    version = operating_system.structural_memory.admit(
+        proposal.proposal_id,
+        expected_revision=0,
+    )
+    reference = StructuralMemoryFileRef.from_version(
+        version,
+        coordinate_start=0,
+        size=page_size,
+    )
+
+    source_receipts = [
+        operating_system.structural_memory.read_revision(
+            version.spec.memory_id,
+            version.spec.revision,
+            coordinate,
+            context=version.spec.context,
+        )
+        for coordinate in range(page_size)
+    ]
+    source_bytes = bytes(receipt.value for receipt in source_receipts)
+    page_digest = hashlib.sha256(source_bytes).hexdigest()
+
+    backing = StructuralMemoryPageBacking(operating_system.structural_memory)
+    backing.register_page_reference(page_digest, reference)
+    memory = VirtualMemory(page_size=page_size, page_backing=backing)
+    memory.reserve(
+        0,
+        page_size,
+        writable=False,
+        backing_blob_ids=(page_digest,),
+    )
+    target_bytes = memory.read(0, page_size)
+    page_receipt = backing.read_receipt(page_digest)
+
+    assert page_receipt is not None
+    assert page_receipt.content_digest == page_digest
+    assert page_receipt.spec_digest == version.spec.digest
+    assert page_receipt.certificate_digest == version.certificate.digest
+    assert page_receipt.context_digest == version.spec.context_digest
+    assert page_receipt.value_receipt_ids == tuple(
+        receipt.receipt_id for receipt in source_receipts
+    )
+    assert memory.mapped_pages()[0].blob_id == page_digest
+
+    source_ref = structural_memory_spec_representation_ref(version.spec)
+    target_ref = RepresentationRef.from_payload(
+        "mailcpu.virtual-memory.page",
+        1,
+        {"page_digest": page_digest, "page_size": page_size},
+    )
+    mapping_ref = RepresentationRef.from_payload(
+        "mailcpu.structural-memory-page-materializer",
+        1,
+        {
+            "coordinate_rule": "coordinate_start + byte_offset",
+            "guards": ["pinned_revision", "exact_context", "unsigned_byte", "range_receipts", "sha256"],
+            "vm_transition": "reserved -> resident",
+            "copy_on_write": "structural_base_is_immutable",
+        },
+    )
+    observation = ObservationContract.from_definition(
+        "mailcpu.byte-page-observation",
+        1,
+        {
+            "fields": ["bytes_hex", "content_digest", "ordered_coordinate_receipt_ids"],
+            "comparison": "canonical-json-exact",
+        },
+    )
+    contract = TranslationContract(
+        contract_id="structural-memory-to-vm-page",
+        revision=1,
+        source=source_ref,
+        target=target_ref,
+        mapping=mapping_ref,
+        observation=observation,
+        context_digest=version.spec.context_digest,
+        precondition_digests=(
+            canonical_value_digest({"page_size": page_size, "power_of_two": True}),
+        ),
+        invariant_digests=(
+            canonical_value_digest({"page_digest": "sha256(bytes)", "one_receipt_per_coordinate": True}),
+        ),
+        resource_bounds=(ResourceBound("page_bytes", page_size, "bytes"),),
+        effect_class=EffectClass.JOURNALED,
+        replay_class=ReplayClass.DETERMINISTIC,
+    )
+    case_payload = {
+        "memory_id": version.spec.memory_id,
+        "revision": version.spec.revision,
+        "coordinate_start": reference.coordinate_start,
+        "page_size": page_size,
+        "page_digest": page_digest,
+    }
+    source_observation = {
+        "bytes_hex": source_bytes.hex(),
+        "content_digest": hashlib.sha256(source_bytes).hexdigest(),
+        "ordered_coordinate_receipt_ids": [receipt.receipt_id for receipt in source_receipts],
+    }
+    target_observation = {
+        "bytes_hex": target_bytes.hex(),
+        "content_digest": page_receipt.content_digest,
+        "ordered_coordinate_receipt_ids": list(page_receipt.value_receipt_ids),
+    }
+
+    check = compare_projected_observations(
+        contract,
+        case_payload=case_payload,
+        source_observation=source_observation,
+        target_observation=target_observation,
+    )
+
+    assert check.equivalent is True
+    assert check.source_observation_digest == check.target_observation_digest
+    assert page_receipt.length == page_size
 
 
 def test_canonical_digest_rejects_non_finite_or_opaque_values():
