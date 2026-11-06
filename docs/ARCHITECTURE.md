@@ -98,6 +98,17 @@ semantic replay and worker checkpoint restoration retain the same evidence.
 This proves the recorded effect's representation integrity and provenance
 binding, not the backend's independent correctness for every input.
 
+`EvidencePathResolver` composes exact `RepresentationRef` translation edges
+into a bounded route. Each edge binds a `TranslationContract` to a successful
+paired-case comparison and may carry receiver-committed independent oracle
+evidence. The resolver filters edges by exact context, declared prerequisites,
+live receiver kernel capabilities, evidence tier, metric compatibility, and
+aggregate resource ceilings. It ranks feasible routes under an explicit
+lexicographic cost order; unlike resource magnitudes with different units are
+never combined. The result binds the selected edge sequence and the live
+authority snapshot but is always non-authoritative. It neither executes the
+translation nor issues a grant.
+
 For supported CPU arithmetic and Structural Memory coordinate operations,
 the worker now runs a bounded independent oracle before commit. It compares
 the projected terminal state or pinned coordinate value/provenance and
