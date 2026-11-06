@@ -23,7 +23,6 @@ from .structural_memory import StructuralMemorySpec
 _SCHEMA = "mailcpu.semantic-translation-contract.v1"
 _CHECK_SCHEMA = "mailcpu.semantic-translation-check.v1"
 _IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}\Z")
-_RESOURCE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 _RIGHT = re.compile(r"[A-Za-z][A-Za-z0-9._-]{0,63}\Z")
 _RESOURCE = re.compile(r"/?[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}\Z")
 
@@ -255,6 +254,8 @@ class CapabilityRequirement:
         """Mathematics: require a non-empty resource and finite, unique right names; no authority is created by this declaration."""
         if not isinstance(self.resource, str) or _RESOURCE.fullmatch(self.resource) is None:
             raise SemanticTranslationError("capability resource must be a safe resource identifier")
+        if not isinstance(self.rights, (tuple, list)):
+            raise SemanticTranslationError("capability rights must be an array")
         rights = tuple(self.rights)
         if not rights or any(not isinstance(right, str) or _RIGHT.fullmatch(right) is None for right in rights):
             raise SemanticTranslationError("capability rights must be non-empty safe identifiers")
@@ -435,6 +436,8 @@ class ObservationComparison:
             _digest(value, name)
         if type(self.equivalent) is not bool:
             raise SemanticTranslationError("equivalent must be a Boolean")
+        if self.equivalent != (self.source_observation_digest == self.target_observation_digest):
+            raise SemanticTranslationError("equivalent must match the paired observation digests")
 
     def to_dict(self) -> dict[str, Any]:
         """Mathematics: serialize a paired observation result without promoting it to a universal proof claim."""
