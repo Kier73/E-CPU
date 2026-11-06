@@ -426,7 +426,7 @@ def client_restore(
         state["response"], transports[1]
     )
     assert request.channel.pending_sequences() == (1,)
-    assert request.channel.next_sequence == 2
+    assert request.channel.snapshot()["next_sequence"] == 2
     assert response.channel.next_receive_sequence == 1
     assert response.snapshot()["seen"] == []
 
