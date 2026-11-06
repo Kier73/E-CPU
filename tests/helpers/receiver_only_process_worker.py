@@ -265,6 +265,7 @@ def restore_and_continue(checkpoint_path: Path, result_path: Path) -> None:
     assert session.worker.operating_system.environment.kernel.journal.verify()
     write_json_durable(result_path, {
         "pid": os.getpid(),
+        "restored_phase": restored_phase,
         "replayed_operation": replay.replayed,
         "replay_backend_calls": 0,
         "new_operation_replayed": new_operation.replayed,
