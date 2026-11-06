@@ -51,12 +51,13 @@ def _wait_json_file(
 def _start_server(
     root: Path,
     worker: Path,
+    mode: str,
     cut: str,
     checkpoint: Path,
     marker_or_result: Path,
 ) -> tuple[subprocess.Popen[str], dict[str, Any]]:
     process = subprocess.Popen(
-        [sys.executable, str(worker), "server-cut", cut, str(checkpoint), str(marker_or_result)],
+        [sys.executable, str(worker), mode, cut, str(checkpoint), str(marker_or_result)],
         cwd=root,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -125,7 +126,7 @@ def test_requester_and_receiver_processes_recover_at_each_transit_crash_cut(
     processes: list[subprocess.Popen[str]] = []
     try:
         original_server, ports = _start_server(
-            repository_root, worker, cut, server_checkpoint, server_marker
+            repository_root, worker, "server-cut", cut, server_checkpoint, server_marker
         )
         processes.append(original_server)
         original_client = _start_client(
@@ -166,6 +167,7 @@ def test_requester_and_receiver_processes_recover_at_each_transit_crash_cut(
         restored_server, restored_ports = _start_server(
             repository_root,
             worker,
+            "server-restore",
             cut,
             server_checkpoint,
             server_result_path,
