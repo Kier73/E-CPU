@@ -475,7 +475,11 @@ def restore_and_finish(checkpoint_path: Path, result_path: Path) -> None:
         assert graph is not None
         assert graph.committed_nodes == ("branch-a", "memory")
         assert {node.node_id for node in graph.ready_nodes()} == {"branch-b", "branch-c"}
-        assert restored.session.phase == "request-ready"
+        # The checkpoint restores the sender's durable outbound cursor, not
+        # a fabricated inbound frame on the replacement receiver transport.
+        # The receiver is idle until the surviving request cursor retransmits.
+        assert restored.session.phase == "idle"
+        assert restored.request_client.channel.pending_sequences() == (3,)
         assert restored_hosts and restored_hosts[0].calls == 0
 
         # The request frame persisted in the checkpoint is retransmitted over
