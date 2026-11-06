@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import pytest
 
 from mailcpu import (
@@ -9,14 +10,21 @@ from mailcpu import (
     CapabilityRequirement,
     EffectClass,
     HeadlessOS,
+    HypervisorArbitrationEvent,
+    HypervisorDomain,
+    HypervisorPolicy,
+    HypervisorRequest,
     ObservationContract,
     ReplayClass,
     RepresentationRef,
     ResourceBound,
+    TransitComputeHost,
     TranslationContract,
     canonical_value_digest,
     compare_projected_observations,
+    build_transit_translation_evidence,
 )
+from mailcpu.transit_oracles import build_transit_oracle_evidence
 from mailcpu.evidence_path_resolver import (
     EvidencePathBlockerCode,
     EvidencePathCatalogue,
@@ -496,3 +504,146 @@ def test_execution_result_ingestion_rejects_non_receiver_results() -> None:
                 RouteMetric("energy_nj", "nJ", 1),
             ),
         )
+
+
+def test_committed_oracle_checked_transit_result_becomes_a_routable_edge() -> None:
+    """Mathematics: one ALLOW CPU effect yields an oracle-backed edge and a FOUND route only after live receiver authorization."""
+    operation = "execute deterministic CPU arithmetic program"
+    resource = "/cpu/compute"
+    event = HypervisorArbitrationEvent(
+        "route-client",
+        "compute",
+        1,
+        501,
+        HypervisorRequest(
+            operation,
+            resource,
+            {
+                "source": "\n".join((
+                    "set left 19",
+                    "set right 23",
+                    "add total left right",
+                    "set offset 6",
+                    "add result total offset",
+                    "halt",
+                )),
+                "initial_registers": {"seed": 7},
+                "max_ticks": 64,
+            },
+            frozenset({"execute"}),
+            frozenset(),
+        ),
+    )
+    operating_system = HeadlessOS()
+    pid = operating_system.environment.kernel.spawn(
+        "evidence-route-cpu",
+        capabilities=(Capability(resource, frozenset({"execute"})),),
+        parent_pid=operating_system.environment.init_pid,
+    )
+    operating_system.hypervisor.policy = HypervisorPolicy(
+        review_confidence=0.0,
+        automatic_confidence=0.0,
+        destructive_confidence=0.0,
+        danger_review_probability=1.0,
+        embedding_review_confidence=1.0,
+    )
+    authorized = operating_system.hypervisor_authorize_event(pid, event)
+    host = TransitComputeHost()
+    handler_calls = {"count": 0}
+
+    def execute() -> dict[str, object]:
+        """Mathematics: count and evaluate exactly one first-seen receiver-local CPU operation."""
+        handler_calls["count"] += 1
+        return host.handle(authorized)
+
+    manifest = ((operation, resource),)
+
+    def encode_effect(raw_effect: object) -> dict[str, object]:
+        """Mathematics: bind the raw effect to the committed policy decision, canonical form, and independent reference observation."""
+        assert isinstance(raw_effect, dict)
+        decision = operating_system.hypervisor_arbitration.decision_projection_for(authorized.identity)
+        assert decision is not None
+        _action, domain, decision_receipt, _revision = decision
+        canonical_effect = json.loads(json.dumps(
+            raw_effect,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ))
+        translation = build_transit_translation_evidence(
+            authorized,
+            raw_effect,
+            canonical_effect,
+            backend_manifest=manifest,
+            decision_receipt=decision_receipt,
+            domain=domain.value,
+        )
+        oracle = build_transit_oracle_evidence(
+            authorized,
+            canonical_effect,
+            operating_system,
+        )
+        assert oracle is not None
+        return {
+            **canonical_effect,
+            "_semantic_translation": translation.to_dict(),
+            "_semantic_oracle": oracle.to_dict(),
+        }
+
+    result = operating_system.hypervisor_arbitration.execute(
+        authorized,
+        {HypervisorDomain.CPU: execute},
+        encode_effect,
+    )
+    assert result.executed is True
+    assert result.action.value == "allow"
+    assert result.domain is HypervisorDomain.CPU
+    assert handler_calls["count"] == 1
+
+    costs = (
+        RouteMetric("latency_us", "us", 18),
+        RouteMetric("energy_nj", "nJ", 240),
+    )
+    edge = EvidencePathEdge.from_execution_result(result, costs)
+    assert edge.evidence_strength is EvidenceStrength.INDEPENDENT_ORACLE
+    assert edge.transit_evidence is not None
+    assert edge.oracle_evidence is not None
+
+    catalogue = EvidencePathCatalogue()
+    edge_id = catalogue.register(edge)
+    source = edge.source
+    target = edge.target
+    request = EvidencePathRequest(
+        source=source,
+        target=target,
+        context_digest=edge.contract.context_digest,
+        metric_order=(
+            RouteMetricKey("latency_us", "us"),
+            RouteMetricKey("energy_nj", "nJ"),
+        ),
+        satisfied_preconditions=edge.contract.precondition_digests,
+        satisfied_invariants=edge.contract.invariant_digests,
+        minimum_evidence=EvidenceStrength.INDEPENDENT_ORACLE,
+    )
+    route = EvidencePathResolver().resolve(
+        catalogue,
+        request,
+        operating_system,
+        pid,
+    )
+    assert route.status is EvidencePathStatus.FOUND
+    assert route.edge_ids == (edge_id,)
+    assert route.evidence_strength is EvidenceStrength.INDEPENDENT_ORACLE
+
+    replay = operating_system.hypervisor_arbitration.execute(
+        authorized,
+        {HypervisorDomain.CPU: execute},
+        encode_effect,
+    )
+    assert replay.replayed is True
+    assert replay.effect == result.effect
+    assert handler_calls["count"] == 1
+    replay_edge = EvidencePathEdge.from_execution_result(replay, costs)
+    assert replay_edge.edge_id == edge.edge_id
+
