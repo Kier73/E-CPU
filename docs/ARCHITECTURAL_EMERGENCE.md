@@ -117,9 +117,10 @@ A range-oriented registry API is a candidate next step. It should only be introd
 
 `mailcpu/semantic_translation.py` introduces a shared declarative edge
 between representations. It pins source and target type/schema/content
-identities, an observation projection and its definition digest, exact
-context, precondition and invariant digests, resource ceilings, declared
-receiver-side capability requirements, and effect/replay classes.
+identities, a content-addressed mapping definition, an observation projection
+and its definition digest, exact context, precondition and invariant digests,
+resource ceilings, declared receiver-side capability requirements, and
+effect/replay classes.
 
 The first executable pairing is deliberately conservative: the existing
 reference and queue interpreters run the same validated MailCPU program, and
