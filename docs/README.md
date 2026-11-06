@@ -10,37 +10,37 @@ Index of specification documents. Documents use defined terms from `GLOSSARY.md`
 | 2 | [`GLOSSARY.md`](GLOSSARY.md) | The defined terms relied on across the documentation |
 | 3 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | State model, lifting table, capability model, evidence tiers |
 | 4 | [`SEMANTIC_TRANSLATION.md`](SEMANTIC_TRANSLATION.md) | Representation identities, observable equivalence, context, resource, authority, and replay obligations |
-| 4 | [`REPLACEMENT_SPEC.md`](REPLACEMENT_SPEC.md) | The replacement target and its acceptance criteria |
-| 5 | [`INTEGRATION_SPEC.md`](INTEGRATION_SPEC.md) | Adopted mechanisms and their integration boundaries |
-| 6 | [`HYPERVISOR_PROFILE.md`](HYPERVISOR_PROFILE.md) | Deep operational profile of the classifier, policy, time, replay, and revision control plane |
-| 7 | [`BOUNDARY_PROCEDURAL_MODEL.md`](BOUNDARY_PROCEDURAL_MODEL.md) | Procedural decision model and generation interface |
-| 8 | [`INVARIANTS.md`](INVARIANTS.md) | Machine-checkable invariant registry |
-| 9 | [`PLAN.md`](PLAN.md) | Research hypotheses and evaluation procedure |
-| 10 | [`BUILDOUT_REQUIREMENTS.md`](BUILDOUT_REQUIREMENTS.md) | Future architectural requirements and engineering milestones |
-| 11 | [`COMMUNICATION_SUBSTRATES_AND_INFORMATION_THEORY.md`](COMMUNICATION_SUBSTRATES_AND_INFORMATION_THEORY.md) | Information-theoretic analysis of communication paths as virtual computational substrates |
-| 12 | [`CROSS_SYSTEM_SYNTHESIS_TIME_COMPUTATION_MODELS.md`](CROSS_SYSTEM_SYNTHESIS_TIME_COMPUTATION_MODELS.md) | Cross-system synthesis of Virtual Quanta, VL_Logic Compiler, and MailCPU paradigms |
-| 13 | [`ITERATION_2_BUILD_PLAN.md`](ITERATION_2_BUILD_PLAN.md) | Comprehensive engineering plan and external resource ingestion map for Iteration 2 |
-| 14 | [`DOGFOODING_AND_EMPIRICAL_LIMITS.md`](DOGFOODING_AND_EMPIRICAL_LIMITS.md) | Empirical evaluation, discovered boundaries, ergonomic repairs, and Iteration 3 roadmap |
-| 15 | [`VIRTUAL_LAYER_WORKLOAD.md`](VIRTUAL_LAYER_WORKLOAD.md) | Typed portable workload, node-local operator registry, digest-pinned structural-memory inputs, and hypervisor/reliable-channel integration |
-| 16 | [`TRANSIT_COMPUTE.md`](TRANSIT_COMPUTE.md) | Receiver-side bounded compute capsules and authenticated transit execution |
-| 17 | [`TRANSIT_PATH_STATE.md`](TRANSIT_PATH_STATE.md) | Persistent path state, SIMT, private-memory and structural-memory backends, evidence-bearing coordinate reads, recovery, and deterministic orbit scheduling |
-| 18 | [`STATE_SPACE_NAVIGATION.md`](STATE_SPACE_NAVIGATION.md) | Symbolic capacity, finite trajectories, and time-budgeted state-space navigation |
-| 19 | [`TRANSIT_PATH_MODES.md`](TRANSIT_PATH_MODES.md) | One path switching between RRNS memory, RTT sensing, and bounded processing |
-| 20 | [`TRANSIT_PATH_BINDING.md`](TRANSIT_PATH_BINDING.md) | Live session binding for requester RTT, receiver service time, queue state, ACKs, and retries |
-| 21 | [`TEMPORAL_CLOCK_FABRIC.md`](TEMPORAL_CLOCK_FABRIC.md) | Process-selected wall, monotonic, causal, scheduler, event, chronon, and chemical temporal domains |
-| 22 | [`CONTEXTUAL_PROCESS_NAVIGATION.md`](CONTEXTUAL_PROCESS_NAVIGATION.md) | Context-resolved process addresses, declarative transition logic, bounded navigation, replay witnesses, and readiness contracts |
-| 23 | [`FORMAL_NAVIGATION.md`](FORMAL_NAVIGATION.md) | Integer-affine interval analysis, conservative reachability, strong bisimulation, and vector-clock causal dependency graphs |
-| 24 | [`NAVIGATION_BRIDGE.md`](NAVIGATION_BRIDGE.md) | Conservative compilation from concrete process descriptions to integer-affine abstract navigation |
-| 25 | [`NAVIGATION_COORDINATOR.md`](NAVIGATION_COORDINATOR.md) | Unified formal and concrete navigation, causal and representation gates, and non-authoritative admission proposals |
-| 26 | [`NAVIGATION_ADMISSION.md`](NAVIGATION_ADMISSION.md) | Hypervisor-owned live-context revalidation, kernel capability checks, policy arbitration, bounded path grants, and expiry |
-| 27 | [`NAVIGATION_EXECUTION.md`](NAVIGATION_EXECUTION.md) | Journal provenance, live grant revalidation, deterministic path replay, atomic host compare-and-swap, durable receipt recovery, and execution receipts 
-| 28 | [`NATIVE_VCPU_CONTEXT.md`](NATIVE_VCPU_CONTEXT.md) | Safepoint-only navigation of the native scheduler PC/register file with atomic checkpoint and receipt recovery |
-| 29 | [`STRUCTURAL_MEMORY.md`](STRUCTURAL_MEMORY.md) | Verified generator specifications, evidence certificates, context-bound reads, VFS file providers, demand-paged structural-memory pages, COW, revision admission, and checkpoint/journal persistence |
-| 30 | [`ARCHITECTURAL_EMERGENCE.md`](ARCHITECTURAL_EMERGENCE.md) | Present capabilities, current build boundaries, and testable possibilities created by architectural composition |
+| 5 | [`REPLACEMENT_SPEC.md`](REPLACEMENT_SPEC.md) | The replacement target and its acceptance criteria |
+| 6 | [`INTEGRATION_SPEC.md`](INTEGRATION_SPEC.md) | Adopted mechanisms and their integration boundaries |
+| 7 | [`HYPERVISOR_PROFILE.md`](HYPERVISOR_PROFILE.md) | Deep operational profile of the classifier, policy, time, replay, and revision control plane |
+| 8 | [`BOUNDARY_PROCEDURAL_MODEL.md`](BOUNDARY_PROCEDURAL_MODEL.md) | Procedural decision model and generation interface |
+| 9 | [`INVARIANTS.md`](INVARIANTS.md) | Machine-checkable invariant registry |
+| 10 | [`PLAN.md`](PLAN.md) | Research hypotheses and evaluation procedure |
+| 11 | [`BUILDOUT_REQUIREMENTS.md`](BUILDOUT_REQUIREMENTS.md) | Future architectural requirements and engineering milestones |
+| 12 | [`COMMUNICATION_SUBSTRATES_AND_INFORMATION_THEORY.md`](COMMUNICATION_SUBSTRATES_AND_INFORMATION_THEORY.md) | Information-theoretic analysis of communication paths as virtual computational substrates |
+| 13 | [`CROSS_SYSTEM_SYNTHESIS_TIME_COMPUTATION_MODELS.md`](CROSS_SYSTEM_SYNTHESIS_TIME_COMPUTATION_MODELS.md) | Cross-system synthesis of Virtual Quanta, VL_Logic Compiler, and MailCPU paradigms |
+| 14 | [`ITERATION_2_BUILD_PLAN.md`](ITERATION_2_BUILD_PLAN.md) | Comprehensive engineering plan and external resource ingestion map for Iteration 2 |
+| 15 | [`DOGFOODING_AND_EMPIRICAL_LIMITS.md`](DOGFOODING_AND_EMPIRICAL_LIMITS.md) | Empirical evaluation, discovered boundaries, ergonomic repairs, and Iteration 3 roadmap |
+| 16 | [`VIRTUAL_LAYER_WORKLOAD.md`](VIRTUAL_LAYER_WORKLOAD.md) | Typed portable workload, node-local operator registry, digest-pinned structural-memory inputs, and hypervisor/reliable-channel integration |
+| 17 | [`TRANSIT_COMPUTE.md`](TRANSIT_COMPUTE.md) | Receiver-side bounded compute capsules and authenticated transit execution |
+| 18 | [`TRANSIT_PATH_STATE.md`](TRANSIT_PATH_STATE.md) | Persistent path state, SIMT, private-memory and structural-memory backends, evidence-bearing coordinate reads, recovery, and deterministic orbit scheduling |
+| 19 | [`STATE_SPACE_NAVIGATION.md`](STATE_SPACE_NAVIGATION.md) | Symbolic capacity, finite trajectories, and time-budgeted state-space navigation |
+| 20 | [`TRANSIT_PATH_MODES.md`](TRANSIT_PATH_MODES.md) | One path switching between RRNS memory, RTT sensing, and bounded processing |
+| 21 | [`TRANSIT_PATH_BINDING.md`](TRANSIT_PATH_BINDING.md) | Live session binding for requester RTT, receiver service time, queue state, ACKs, and retries |
+| 22 | [`TEMPORAL_CLOCK_FABRIC.md`](TEMPORAL_CLOCK_FABRIC.md) | Process-selected wall, monotonic, causal, scheduler, event, chronon, and chemical temporal domains |
+| 23 | [`CONTEXTUAL_PROCESS_NAVIGATION.md`](CONTEXTUAL_PROCESS_NAVIGATION.md) | Context-resolved process addresses, declarative transition logic, bounded navigation, replay witnesses, and readiness contracts |
+| 24 | [`FORMAL_NAVIGATION.md`](FORMAL_NAVIGATION.md) | Integer-affine interval analysis, conservative reachability, strong bisimulation, and vector-clock causal dependency graphs |
+| 25 | [`NAVIGATION_BRIDGE.md`](NAVIGATION_BRIDGE.md) | Conservative compilation from concrete process descriptions to integer-affine abstract navigation |
+| 26 | [`NAVIGATION_COORDINATOR.md`](NAVIGATION_COORDINATOR.md) | Unified formal and concrete navigation, causal and representation gates, and non-authoritative admission proposals |
+| 27 | [`NAVIGATION_ADMISSION.md`](NAVIGATION_ADMISSION.md) | Hypervisor-owned live-context revalidation, kernel capability checks, policy arbitration, bounded path grants, and expiry |
+| 28 | [`NAVIGATION_EXECUTION.md`](NAVIGATION_EXECUTION.md) | Journal provenance, live grant revalidation, deterministic path replay, atomic host compare-and-swap, durable receipt recovery, and execution receipts 
+| 29 | [`NATIVE_VCPU_CONTEXT.md`](NATIVE_VCPU_CONTEXT.md) | Safepoint-only navigation of the native scheduler PC/register file with atomic checkpoint and receipt recovery |
+| 30 | [`STRUCTURAL_MEMORY.md`](STRUCTURAL_MEMORY.md) | Verified generator specifications, evidence certificates, context-bound reads, VFS file providers, demand-paged structural-memory pages, COW, revision admission, and checkpoint/journal persistence |
+| 31 | [`ARCHITECTURAL_EMERGENCE.md`](ARCHITECTURAL_EMERGENCE.md) | Present capabilities, current build boundaries, and testable possibilities created by architectural composition |
 
 ## Document classes
 
-**Specification.** `ARCHITECTURE.md`, `REPLACEMENT_SPEC.md`, `INTEGRATION_SPEC.md`. Core system design and interfaces.
+**Specification.** `ARCHITECTURE.md`, `SEMANTIC_TRANSLATION.md`, `REPLACEMENT_SPEC.md`, `INTEGRATION_SPEC.md`. Core system design and interfaces.
 
 **System profile.** `HYPERVISOR_PROFILE.md`. Operational state, equations, receipts, replay, revisions, and integration surfaces of the hypervisor.
 
@@ -50,7 +50,7 @@ Index of specification documents. Documents use defined terms from `GLOSSARY.md`
 
 **Procedure & Roadmap.** `PLAN.md`, `BUILDOUT_REQUIREMENTS.md`, `ITERATION_2_BUILD_PLAN.md`, `DOGFOODING_AND_EMPIRICAL_LIMITS.md`. Research plan, evaluation procedure, Iteration 2 build plan, and dogfooding report.
 
-**Runtime & Navigation.** `TRANSIT_COMPUTE.md`, `TRANSIT_PATH_STATE.md`, `STATE_SPACE_NAVIGATION.md`, `CONTEXTUAL_PROCESS_NAVIGATION.md`, `FORMAL_NAVIGATION.md`, `NAVIGATION_BRIDGE.md`, `NAVIGATION_COORDINATOR.md`, `NAVIGATION_ADMISSION.md`, `NAVIGATION_EXECUTION.md`, `NATIVE_VCPU_CONTEXT.md`, `STRUCTURAL_MEMORY.md`. Native vCPU context commits, bounded transit execution, persistent path state, orbit scheduling, symbolic capacity, contextual resolution, replayable derivation, abstract reachability, process equivalence, causal dependencies, conservative compilation, coordinated navigation plans, hypervisor-owned execution admission, crash-recoverable state execution, and verified generative memory.
+**Runtime & Navigation.** `SEMANTIC_TRANSLATION.md`, `TRANSIT_COMPUTE.md`, `TRANSIT_PATH_STATE.md`, `STATE_SPACE_NAVIGATION.md`, `CONTEXTUAL_PROCESS_NAVIGATION.md`, `FORMAL_NAVIGATION.md`, `NAVIGATION_BRIDGE.md`, `NAVIGATION_COORDINATOR.md`, `NAVIGATION_ADMISSION.md`, `NAVIGATION_EXECUTION.md`, `NATIVE_VCPU_CONTEXT.md`, `STRUCTURAL_MEMORY.md`. Native vCPU context commits, bounded transit execution, persistent path state, orbit scheduling, symbolic capacity, contextual resolution, replayable derivation, abstract reachability, process equivalence, causal dependencies, conservative compilation, coordinated navigation plans, hypervisor-owned execution admission, crash-recoverable state execution, and verified generative memory.
 
 **Research & Theory.** `COMMUNICATION_SUBSTRATES_AND_INFORMATION_THEORY.md`, `CROSS_SYSTEM_SYNTHESIS_TIME_COMPUTATION_MODELS.md`, `ARCHITECTURAL_EMERGENCE.md`. Substrate information theory, temporal models, cross-paradigm synthesis, and the distinction between demonstrated capability and architectural possibility.
 
