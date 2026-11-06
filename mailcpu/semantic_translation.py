@@ -286,6 +286,7 @@ class TranslationContract:
     revision: int
     source: RepresentationRef
     target: RepresentationRef
+    mapping: RepresentationRef
     observation: ObservationContract
     context_digest: str
     precondition_digests: tuple[str, ...] = ()
@@ -301,6 +302,8 @@ class TranslationContract:
         _positive_int(self.revision, "contract revision")
         if not isinstance(self.source, RepresentationRef) or not isinstance(self.target, RepresentationRef):
             raise SemanticTranslationError("source and target must be RepresentationRef values")
+        if not isinstance(self.mapping, RepresentationRef):
+            raise SemanticTranslationError("mapping must be a RepresentationRef")
         if not isinstance(self.observation, ObservationContract):
             raise SemanticTranslationError("observation must be an ObservationContract")
         _digest(self.context_digest, "context_digest")
@@ -349,6 +352,7 @@ class TranslationContract:
             "revision": self.revision,
             "source": self.source.to_dict(),
             "target": self.target.to_dict(),
+            "mapping": self.mapping.to_dict(),
             "observation": self.observation.to_dict(),
             "context_digest": self.context_digest,
             "precondition_digests": list(self.precondition_digests),
@@ -373,6 +377,7 @@ class TranslationContract:
             "revision",
             "source",
             "target",
+            "mapping",
             "observation",
             "context_digest",
             "precondition_digests",
@@ -386,6 +391,8 @@ class TranslationContract:
             raise SemanticTranslationError("translation contract schema or fields are invalid")
         if not isinstance(payload["source"], Mapping) or not isinstance(payload["target"], Mapping):
             raise SemanticTranslationError("translation source and target must be objects")
+        if not isinstance(payload["mapping"], Mapping):
+            raise SemanticTranslationError("translation mapping must be an object")
         if not isinstance(payload["observation"], Mapping):
             raise SemanticTranslationError("translation observation must be an object")
         for name in ("precondition_digests", "invariant_digests", "resource_bounds", "authority_requirements"):
@@ -401,6 +408,7 @@ class TranslationContract:
             revision=payload["revision"],
             source=RepresentationRef.from_dict(payload["source"]),
             target=RepresentationRef.from_dict(payload["target"]),
+            mapping=RepresentationRef.from_dict(payload["mapping"]),
             observation=ObservationContract.from_dict(payload["observation"]),
             context_digest=payload["context_digest"],
             precondition_digests=tuple(payload["precondition_digests"]),
