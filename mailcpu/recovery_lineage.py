@@ -25,11 +25,11 @@ from .seed_commit_quorum import (
 
 
 class RecoveryLineageError(ValueError):
-    """A checkpoint manifest, quorum anchor, or lineage transition is invalid."""
+    """Mathematics: A checkpoint manifest, quorum anchor, or lineage transition is invalid."""
 
 
 def _canonical_bytes(value: Mapping[str, Any]) -> bytes:
-    """Encode a finite record into deterministic UTF-8 JSON bytes."""
+    """Mathematics: Encode a finite record into deterministic UTF-8 JSON bytes."""
 
     try:
         return json.dumps(
@@ -44,7 +44,7 @@ def _canonical_bytes(value: Mapping[str, Any]) -> bytes:
 
 
 def _label(value: Any, name: str) -> str:
-    """Validate one stable non-empty identity label."""
+    """Mathematics: Validate one stable non-empty identity label."""
 
     if not isinstance(value, str) or not value or value.strip() != value:
         raise RecoveryLineageError(f"{name} must be non-empty, trimmed text")
@@ -52,7 +52,7 @@ def _label(value: Any, name: str) -> str:
 
 
 def _positive(value: Any, name: str) -> int:
-    """Validate one positive integer coordinate without accepting booleans."""
+    """Mathematics: Validate one positive integer coordinate without accepting booleans."""
 
     if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
         raise RecoveryLineageError(f"{name} must be a positive integer")
@@ -60,7 +60,7 @@ def _positive(value: Any, name: str) -> int:
 
 
 def _digest(value: Any, name: str) -> str:
-    """Validate and normalize a 256-bit hexadecimal content identity."""
+    """Mathematics: Validate and normalize a 256-bit hexadecimal content identity."""
 
     if not isinstance(value, str) or len(value) != 64:
         raise RecoveryLineageError(f"{name} must be a 64-character SHA-256 digest")
@@ -75,7 +75,7 @@ def _digest(value: Any, name: str) -> str:
 
 @dataclass(frozen=True)
 class RecoveryCheckpointManifest:
-    """Exact content binding for one requester/receiver checkpoint generation."""
+    """Mathematics: Exact content binding for one requester/receiver checkpoint generation."""
 
     machine_id: str
     incarnation: int
@@ -90,7 +90,7 @@ class RecoveryCheckpointManifest:
     capture_cut: str
 
     def __post_init__(self) -> None:
-        """Validate machine, membership, monotonic slot, predecessor, and checkpoint content digests."""
+        """Mathematics: Validate machine, membership, monotonic slot, predecessor, and checkpoint content digests."""
 
         _label(self.machine_id, "machine id")
         _positive(self.incarnation, "machine incarnation")
@@ -108,7 +108,7 @@ class RecoveryCheckpointManifest:
             object.__setattr__(self, field_name, _digest(getattr(self, field_name), field_name))
 
     def snapshot(self) -> dict[str, object]:
-        """Project every coordinate that determines this checkpoint generation's root digest."""
+        """Mathematics: Project every coordinate that determines this checkpoint generation's root digest."""
 
         return {
             "version": 1,
@@ -127,13 +127,13 @@ class RecoveryCheckpointManifest:
 
     @property
     def digest(self) -> str:
-        """Compute the manifest root binding both endpoint checkpoints and backend identity."""
+        """Mathematics: Compute the manifest root binding both endpoint checkpoints and backend identity."""
 
         return hashlib.sha256(_canonical_bytes(self.snapshot())).hexdigest()
 
     @property
     def request_fingerprint(self) -> str:
-        """Domain-separate this recovery proposal from other fixed-membership log uses."""
+        """Mathematics: Domain-separate this recovery proposal from other fixed-membership log uses."""
 
         payload = {
             "kind": "mailcpu.recovery-lineage.manifest",
@@ -149,7 +149,7 @@ class RecoveryCheckpointManifest:
         receiver_checkpoint: bytes,
         backend_manifest: bytes,
     ) -> None:
-        """Require supplied checkpoint bytes to match the exact digests sealed by this manifest."""
+        """Mathematics: Require supplied checkpoint bytes to match the exact digests sealed by this manifest."""
 
         materials = (
             ("requester checkpoint", requester_checkpoint, self.requester_checkpoint_digest),
@@ -165,7 +165,7 @@ class RecoveryCheckpointManifest:
 
     @classmethod
     def from_snapshot(cls, payload: Mapping[str, Any]) -> "RecoveryCheckpointManifest":
-        """Reconstruct a manifest only from its exact versioned field set."""
+        """Mathematics: Reconstruct a manifest only from its exact versioned field set."""
 
         fields = {
             "version",
@@ -211,14 +211,14 @@ class RecoveryCheckpointManifest:
 
 @dataclass(frozen=True)
 class RecoveryLineageProof:
-    """Quorum certificate and durable commit decisions for one checkpoint manifest."""
+    """Mathematics: Quorum certificate and durable commit decisions for one checkpoint manifest."""
 
     proposal: SeedCommitProposal
     certificate: SeedCommitCertificate
     decisions: tuple[SeedCommitDecision, ...]
 
     def __post_init__(self) -> None:
-        """Require every durable decision and prepare certificate to refer to one exact proposal."""
+        """Mathematics: Require every durable decision and prepare certificate to refer to one exact proposal."""
 
         if not isinstance(self.proposal, SeedCommitProposal):
             raise RecoveryLineageError("lineage proof requires a typed seed-commit proposal")
@@ -251,7 +251,7 @@ class RecoveryLineageProof:
         object.__setattr__(self, "decisions", decisions)
 
     def snapshot(self) -> dict[str, object]:
-        """Serialize the exact proposal, prepare certificate, and durable commit quorum."""
+        """Mathematics: Serialize the exact proposal, prepare certificate, and durable commit quorum."""
 
         return {
             "version": 1,
@@ -262,7 +262,7 @@ class RecoveryLineageProof:
 
     @classmethod
     def from_snapshot(cls, payload: Mapping[str, Any]) -> "RecoveryLineageProof":
-        """Reconstruct a proof from validated proposal, certificate, and decision records."""
+        """Mathematics: Reconstruct a proof from validated proposal, certificate, and decision records."""
 
         if (
             not isinstance(payload, Mapping)
@@ -286,7 +286,7 @@ class RecoveryLineageProof:
 
 
 class RecoveryLineageAuthority:
-    """One durable fixed-membership participant in the independent recovery anchor."""
+    """Mathematics: One durable fixed-membership participant in the independent recovery anchor."""
 
     def __init__(
         self,
@@ -294,7 +294,7 @@ class RecoveryLineageAuthority:
         member_id: str,
         journal_path: str | Path,
     ) -> None:
-        """Open the member's fsynced one-vote/commit journal under immutable quorum membership."""
+        """Mathematics: Open the member's fsynced one-vote/commit journal under immutable quorum membership."""
 
         if not isinstance(membership, SeedCommitMembership):
             raise RecoveryLineageError("recovery authority requires a fixed seed-commit membership")
@@ -305,18 +305,18 @@ class RecoveryLineageAuthority:
 
     @property
     def member_id(self) -> str:
-        """Return the configured identity of this durable authority member."""
+        """Mathematics: Return the configured identity of this durable authority member."""
 
         return self.ledger.member_id
 
     @property
     def membership(self) -> SeedCommitMembership:
-        """Return the immutable membership that scopes this authority's votes."""
+        """Mathematics: Return the immutable membership that scopes this authority's votes."""
 
         return self.ledger.membership
 
     def prepare(self, proposal: SeedCommitProposal) -> SeedPrepareVote:
-        """Fsync this member's single-valued vote for the exact checkpoint-generation proposal."""
+        """Mathematics: Fsync this member's single-valued vote for the exact checkpoint-generation proposal."""
 
         try:
             return self.ledger.prepare(proposal)
@@ -328,7 +328,7 @@ class RecoveryLineageAuthority:
         proposal: SeedCommitProposal,
         certificate: SeedCommitCertificate,
     ) -> SeedCommitDecision:
-        """Fsync the proposal decision only after validating the fixed-membership majority certificate."""
+        """Mathematics: Fsync the proposal decision only after validating the fixed-membership majority certificate."""
 
         try:
             return self.ledger.commit(proposal, certificate)
@@ -336,7 +336,7 @@ class RecoveryLineageAuthority:
             raise RecoveryLineageError(f"authority {self.member_id} refused commit: {exc}") from exc
 
     def committed_state(self) -> tuple[int, str] | None:
-        """Return the highest locally committed lineage slot and checkpoint root."""
+        """Mathematics: Return the highest locally committed lineage slot and checkpoint root."""
 
         try:
             return self.ledger.committed_state()
@@ -344,7 +344,7 @@ class RecoveryLineageAuthority:
             raise RecoveryLineageError(f"authority {self.member_id} cannot read its committed state: {exc}") from exc
 
     def proposal_at(self, generation: int) -> SeedCommitProposal | None:
-        """Read the one prepared proposal for a generation, if this authority has one."""
+        """Mathematics: Read the one prepared proposal for a generation, if this authority has one."""
 
         try:
             return self.ledger.proposal_at(generation)
@@ -352,7 +352,7 @@ class RecoveryLineageAuthority:
             raise RecoveryLineageError(f"authority {self.member_id} cannot read generation {generation}: {exc}") from exc
 
     def decision(self, proposal: SeedCommitProposal) -> SeedCommitDecision | None:
-        """Read the durable local decision for an exact proposal."""
+        """Mathematics: Read the durable local decision for an exact proposal."""
 
         try:
             return self.ledger.decision(proposal)
@@ -360,7 +360,7 @@ class RecoveryLineageAuthority:
             raise RecoveryLineageError(f"authority {self.member_id} cannot read the proposal decision: {exc}") from exc
 
     def certificate(self, proposal: SeedCommitProposal) -> SeedCommitCertificate | None:
-        """Read the durable majority certificate bound to an exact proposal."""
+        """Mathematics: Read the durable majority certificate bound to an exact proposal."""
 
         try:
             return self.ledger.certificate(proposal)
@@ -368,7 +368,7 @@ class RecoveryLineageAuthority:
             raise RecoveryLineageError(f"authority {self.member_id} cannot read the proposal certificate: {exc}") from exc
 
     def verify(self) -> bool:
-        """Replay this participant journal and compare its recovered state with the live projection."""
+        """Mathematics: Replay this participant journal and compare its recovered state with the live projection."""
 
         try:
             return self.ledger.verify()
@@ -377,14 +377,14 @@ class RecoveryLineageAuthority:
 
 
 class RecoveryLineageCoordinator:
-    """Fixed-membership quorum coordinator for monotonic checkpoint-generation anchors."""
+    """Mathematics: Fixed-membership quorum coordinator for monotonic checkpoint-generation anchors."""
 
     def __init__(
         self,
         membership: SeedCommitMembership,
         authorities: Mapping[str, RecoveryLineageAuthority],
     ) -> None:
-        """Bind independent durable authority journals to one immutable strict-majority membership."""
+        """Mathematics: Bind independent durable authority journals to one immutable strict-majority membership."""
 
         if not isinstance(membership, SeedCommitMembership):
             raise RecoveryLineageError("lineage coordinator requires a typed fixed membership")
@@ -403,7 +403,7 @@ class RecoveryLineageCoordinator:
         self.authorities = dict(sorted(selected.items()))
 
     def proposal_for(self, manifest: RecoveryCheckpointManifest) -> SeedCommitProposal:
-        """Translate one checkpoint manifest into the existing fixed-membership slot algebra."""
+        """Mathematics: Translate one checkpoint manifest into the existing fixed-membership slot algebra."""
 
         if not isinstance(manifest, RecoveryCheckpointManifest):
             raise RecoveryLineageError("lineage proposal requires a typed checkpoint manifest")
@@ -428,7 +428,7 @@ class RecoveryLineageCoordinator:
         )
 
     def seal(self, manifest: RecoveryCheckpointManifest) -> RecoveryLineageProof:
-        """Prepare, certify, and fsync one checkpoint root on a strict majority before issuing proof."""
+        """Mathematics: Prepare, certify, and fsync one checkpoint root on a strict majority before issuing proof."""
 
         proposal = self.proposal_for(manifest)
         votes: dict[str, SeedPrepareVote] = {}
@@ -514,7 +514,7 @@ class RecoveryLineageCoordinator:
         return proof
 
     def latest_proof(self) -> RecoveryLineageProof | None:
-        """Read a quorum-supported high-water record; a minority-ahead journal never advances the admitted head."""
+        """Mathematics: Read a quorum-supported high-water record; a minority-ahead journal never advances the admitted head."""
 
         states: dict[tuple[int, str], list[str]] = {}
         genesis = (0, self.membership.genesis_state_digest)
@@ -572,7 +572,7 @@ class RecoveryLineageCoordinator:
         return proof
 
     def high_water(self) -> tuple[int, str]:
-        """Return the quorum-supported generation/root or the configured genesis coordinate."""
+        """Mathematics: Return the quorum-supported generation/root or the configured genesis coordinate."""
 
         proof = self.latest_proof()
         if proof is None:
@@ -580,7 +580,7 @@ class RecoveryLineageCoordinator:
         return proof.proposal.slot, proof.proposal.result_state_digest
 
     def verify_checkpoint(self, manifest: RecoveryCheckpointManifest) -> RecoveryLineageProof:
-        """Admit only the exact latest manifest; a valid but older checkpoint is rejected as rollback."""
+        """Mathematics: Admit only the exact latest manifest; a valid but older checkpoint is rejected as rollback."""
 
         proposal = self.proposal_for(manifest)
         latest = self.latest_proof()
@@ -605,7 +605,7 @@ class RecoveryLineageCoordinator:
         receiver_checkpoint: bytes,
         backend_manifest: bytes,
     ) -> RecoveryLineageProof:
-        """Verify component bytes and the independently anchored high-water manifest as one admission operation."""
+        """Mathematics: Verify component bytes and the independently anchored high-water manifest as one admission operation."""
 
         if not isinstance(manifest, RecoveryCheckpointManifest):
             raise RecoveryLineageError("checkpoint bundle verification requires a typed manifest")
@@ -613,7 +613,7 @@ class RecoveryLineageCoordinator:
         return self.verify_checkpoint(manifest)
 
     def _validate_proof_membership(self, proof: RecoveryLineageProof) -> None:
-        """Require prepare and commit sets to satisfy the configured fixed-membership quorum."""
+        """Mathematics: Require prepare and commit sets to satisfy the configured fixed-membership quorum."""
 
         if (
             proof.proposal.membership_digest != self.membership.digest
