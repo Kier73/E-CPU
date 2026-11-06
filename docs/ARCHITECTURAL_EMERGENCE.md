@@ -113,6 +113,33 @@ The implementation makes one measurable cost visible before any optimization: th
 
 A range-oriented registry API is a candidate next step. It should only be introduced if it can reduce lock/journal overhead while retaining a receipt for every value, a range receipt binding order and content, the exact revision/context boundary, checkpoint/replay integrity, and the same refusal semantics. It is not part of the current implementation.
 
+### 2.5 First semantic translation contract
+
+`mailcpu/semantic_translation.py` introduces a shared declarative edge
+between representations. It pins source and target type/schema/content
+identities, an observation projection and its definition digest, exact
+context, precondition and invariant digests, resource ceilings, declared
+receiver-side capability requirements, and effect/replay classes.
+
+The first executable pairing is deliberately conservative: the existing
+reference and queue interpreters run the same validated MailCPU program, and
+the existing `canonical_result` projection compares status, state, trace, and
+outputs. The paired-check record binds one contract, one case digest, one
+projection digest, and both observation digests. It compares exact canonical
+JSON values.
+
+This is an integration of the current conformance boundary, not yet a general
+translation runtime. It does not execute a translator, verify that a caller
+applied the declared projection correctly, prove equivalence for untested
+inputs, infer preconditions, or authorize effects. Capability declarations
+remain non-authoritative labels until a receiving host checks live policy.
+
+The next milestone is to attach this contract to one actual representation
+change—such as a MailCPU workload mapped to a Transit operator or a Structural
+Memory interval materialized as a VM page—and retain the resulting evidence
+and recovery boundary. The contract should only grow in response to fields
+that a real integration needs.
+
 ## 3. Novel-to-this-architecture possibilities
 
 This section records research opportunities created by the combination of integrated and planned primitives. These are not claims of global historical priority. Related ideas may exist in symbolic execution, program synthesis, proof-carrying computation, procedural generation, distributed systems, databases, and other fields. The question is what a working combination inside E-CPU enables that its current components do not provide separately.
