@@ -309,40 +309,31 @@ def test_structural_memory_value_navigates_into_oracle_checked_transit_computati
                 frozenset(),
             ),
         )
-        cpu_result = _serve_and_ack(
-            session,
-            request_client,
-            response_client,
-            request_worker,
-            response_worker,
+        # The receiver can derive the exact authorized request representation
+        # before executing it. This lets the resolver propose the next
+        # representation path before the CPU operation is sent.
+        authorized_cpu_event = operating_system.hypervisor_authorize_event(
+            authority_pid,
             cpu_event,
-            2,
         )
-        assert cpu_result.action.value == "allow"
-        assert cpu_result.domain is HypervisorDomain.CPU
-        assert cpu_result.executed is True
-        assert cpu_result.replayed is False
-        assert cpu_result.effect["registers"]["memory_value"] == expected_memory_value
-        assert cpu_result.effect["registers"]["answer"] == expected_memory_value + 8
-        assert compute_host.calls == 1
-
-        cpu_translation = TransitTranslationEvidence.from_dict(
-            cpu_result.effect["_semantic_translation"]
+        cpu_request_ref = RepresentationRef.from_payload(
+            "mailcpu.transit.authorized-event",
+            1,
+            authorized_cpu_event.to_dict(),
         )
-        cpu_oracle = TransitOracleEvidence.from_dict(cpu_result.effect["_semantic_oracle"])
-        cpu_translation.validate_execution_result(cpu_result, require_oracle=True)
-        assert cpu_oracle.equivalent is True
-        assert cpu_oracle.work_units <= cpu_oracle.work_limit
+        cpu_context_digest = canonical_value_digest(
+            {
+                "operation": cpu_event.request.operation,
+                "resource": cpu_event.request.resource,
+                "payload": cpu_event.request.payload,
+            }
+        )
 
-        # Stage 3: make the handoff itself an exact, content-addressed
-        # translation edge: structural receipt -> authorized CPU request.
-        # The following edge is ingested only from the receiver-committed
-        # execution result and carries the independent CPU oracle evidence.
+        # Stage 3: construct the one-case, receipt-to-request handoff edge.
+        # The mapping is a candidate transformation; the observation check
+        # validates that its literal CPU operand equals the returned receipt.
         memory_ref = memory_edge.target
         assert memory_ref == memory_translation.contract.target
-        cpu_request_ref = cpu_translation.contract.source
-        cpu_result_ref = cpu_translation.contract.target
-
         bridge_precondition = canonical_value_digest(
             {"experiment_precondition": "structural receipt has independent oracle"}
         )
@@ -369,7 +360,7 @@ def test_structural_memory_value_navigates_into_oracle_checked_transit_computati
                 1,
                 {"visible_fields": ["value"], "comparison": "canonical-json-exact"},
             ),
-            context_digest=cpu_translation.contract.context_digest,
+            context_digest=cpu_context_digest,
             precondition_digests=(bridge_precondition,),
             invariant_digests=(bridge_invariant,),
             resource_bounds=(
@@ -384,7 +375,6 @@ def test_structural_memory_value_navigates_into_oracle_checked_transit_computati
             replay_class=ReplayClass.DETERMINISTIC,
         )
         source_observation = {"value": raw_memory_receipt["value"]}
-        # The generated assembly contains one deterministic SET immediate.
         immediate_line = next(
             line for line in cpu_source.splitlines() if line.startswith("set memory_value ")
         )
@@ -407,6 +397,103 @@ def test_structural_memory_value_navigates_into_oracle_checked_transit_computati
                 RouteMetric("energy_nj", "nJ", 12),
             ),
         )
+
+        # Stage 4: resolve the path to the proposed CPU request BEFORE
+        # executing that request. The route is not a grant; normal receiver
+        # admission and Transit execution are still required afterward.
+        catalogue = EvidencePathCatalogue()
+        memory_edge_id = catalogue.register(memory_edge)
+        bridge_id = catalogue.register(bridge_edge)
+        resolver = EvidencePathResolver()
+        preflight_request = EvidencePathRequest(
+            source=memory_edge.source,
+            target=cpu_request_ref,
+            context_digest=cpu_context_digest,
+            accepted_context_digests=tuple(sorted({
+                memory_edge.contract.context_digest,
+                bridge_contract.context_digest,
+            })),
+            metric_order=(
+                RouteMetricKey("latency_us", "us"),
+                RouteMetricKey("energy_nj", "nJ"),
+            ),
+            resource_ceilings=(
+                RouteMetric("latency_us", "us", 40),
+                RouteMetric("energy_nj", "nJ", 400),
+            ),
+            satisfied_preconditions=tuple(sorted({
+                bridge_precondition,
+                *memory_edge.contract.precondition_digests,
+            })),
+            satisfied_invariants=tuple(sorted({
+                bridge_invariant,
+                *memory_edge.contract.invariant_digests,
+            })),
+            minimum_evidence=EvidenceStrength.PAIRED_CASE,
+            max_hops=3,
+            max_expansions=12,
+        )
+        # Omitting the exact Structural Memory operation context blocks the
+        # candidate before the CPU operation is submitted.
+        narrow_preflight = resolver.resolve(
+            catalogue,
+            replace(preflight_request, accepted_context_digests=()),
+            operating_system,
+            authority_pid,
+        )
+        assert narrow_preflight.status is EvidencePathStatus.BLOCKED
+        assert any(
+            blocker.code is EvidencePathBlockerCode.CONTEXT_MISMATCH
+            for blocker in narrow_preflight.blockers
+        )
+        preflight_route = resolver.resolve(
+            catalogue,
+            preflight_request,
+            operating_system,
+            authority_pid,
+        )
+        assert preflight_route.status is EvidencePathStatus.FOUND
+        assert preflight_route.edge_ids == (memory_edge_id, bridge_id)
+        assert preflight_route.authoritative is False
+        assert preflight_route.evidence_strength is EvidenceStrength.PAIRED_CASE
+        assert {item.name: item.amount for item in preflight_route.total_costs} == {
+            "latency_us": 10,
+            "energy_nj": 42,
+        }
+
+        # Only after the path proposal is FOUND do we send the CPU request.
+        # The Transit worker reconstructs authority again at the receiver.
+        cpu_result = _serve_and_ack(
+            session,
+            request_client,
+            response_client,
+            request_worker,
+            response_worker,
+            cpu_event,
+            2,
+        )
+        assert cpu_result.action.value == "allow"
+        assert cpu_result.domain is HypervisorDomain.CPU
+        assert cpu_result.executed is True
+        assert cpu_result.replayed is False
+        assert cpu_result.effect["registers"]["memory_value"] == expected_memory_value
+        assert cpu_result.effect["registers"]["answer"] == expected_memory_value + 8
+        assert compute_host.calls == 1
+
+        cpu_translation = TransitTranslationEvidence.from_dict(
+            cpu_result.effect["_semantic_translation"]
+        )
+        cpu_oracle = TransitOracleEvidence.from_dict(cpu_result.effect["_semantic_oracle"])
+        cpu_translation.validate_execution_result(cpu_result, require_oracle=True)
+        assert cpu_oracle.equivalent is True
+        assert cpu_oracle.work_units <= cpu_oracle.work_limit
+        assert cpu_translation.contract.source == cpu_request_ref
+        assert cpu_translation.contract.context_digest == cpu_context_digest
+        cpu_result_ref = cpu_translation.contract.target
+
+        # Stage 5: append the committed CPU effect as the third route edge.
+        # It is admitted only from the receiver-committed result and carries
+        # its independent CPU oracle evidence.
         cpu_edge = EvidencePathEdge.from_execution_result(
             cpu_result,
             (
@@ -417,10 +504,6 @@ def test_structural_memory_value_navigates_into_oracle_checked_transit_computati
         assert cpu_edge.source == cpu_request_ref
         assert cpu_edge.target == cpu_result_ref
         assert cpu_edge.evidence_strength is EvidenceStrength.INDEPENDENT_ORACLE
-
-        catalogue = EvidencePathCatalogue()
-        memory_edge_id = catalogue.register(memory_edge)
-        bridge_id = catalogue.register(bridge_edge)
         cpu_edge_id = catalogue.register(cpu_edge)
         restored_catalogue = EvidencePathCatalogue.from_dict(catalogue.to_dict())
         assert restored_catalogue.digest == catalogue.digest
@@ -428,12 +511,8 @@ def test_structural_memory_value_navigates_into_oracle_checked_transit_computati
         route_request = EvidencePathRequest(
             source=memory_edge.source,
             target=cpu_result_ref,
-            context_digest=cpu_translation.contract.context_digest,
-            accepted_context_digests=tuple(sorted({
-                memory_edge.contract.context_digest,
-                bridge_contract.context_digest,
-                cpu_translation.contract.context_digest,
-            })),
+            context_digest=cpu_context_digest,
+            accepted_context_digests=preflight_request.accepted_context_digests,
             metric_order=(
                 RouteMetricKey("latency_us", "us"),
                 RouteMetricKey("energy_nj", "nJ"),
@@ -456,21 +535,6 @@ def test_structural_memory_value_navigates_into_oracle_checked_transit_computati
             max_hops=4,
             max_expansions=16,
         )
-        resolver = EvidencePathResolver()
-        # Without an explicit operation-context set, the memory edge is
-        # blocked rather than silently treated as having the CPU context.
-        narrow_route = resolver.resolve(
-            restored_catalogue,
-            replace(route_request, accepted_context_digests=()),
-            operating_system,
-            authority_pid,
-        )
-        assert narrow_route.status is EvidencePathStatus.BLOCKED
-        assert any(
-            blocker.code is EvidencePathBlockerCode.CONTEXT_MISMATCH
-            for blocker in narrow_route.blockers
-        )
-
         route = resolver.resolve(
             restored_catalogue,
             route_request,
