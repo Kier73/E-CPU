@@ -65,7 +65,7 @@ class NavigableComputationCheckpoint:
 
     @staticmethod
     def _canonical(value: Any) -> bytes:
-        """Encode a value as deterministic UTF-8 JSON for checkpoint hashing."""
+        """Mathematics: define injective canonical projection J(x)=UTF8(JSON_sort_keys(x)) for digest identity."""
         try:
             return json.dumps(
                 value,
@@ -92,7 +92,7 @@ class NavigableComputationCheckpoint:
         *,
         allow_inflight: bool = False,
     ) -> dict[str, Any]:
-        """Capture all durable route and Transit ledgers at a quiescent, fully resolved cut."""
+        """Mathematics: capture checkpoint C=(session,client cursors,route,retry) at Q=0, or preserve every in-flight ledger when allow_inflight=True."""
         if not isinstance(session, TransitComputeSession):
             raise NavigableComputationCheckpointError("checkpoint requires a TransitComputeSession")
         if not isinstance(request_client, HypervisorOperationChannel):
@@ -175,7 +175,7 @@ class NavigableComputationCheckpoint:
 
     @classmethod
     def save(cls, payload: Mapping[str, Any], path: str | os.PathLike[str]) -> str:
-        """Atomically publish a verified combined checkpoint and fsync its containing directory."""
+        """Mathematics: publish C via fsync(temp)→replace→fsync(directory), after requiring SHA256(J(state))=digest."""
 
         if (
             not isinstance(payload, Mapping)
@@ -232,7 +232,7 @@ class NavigableComputationCheckpoint:
 
     @classmethod
     def load(cls, path: str | os.PathLike[str]) -> dict[str, Any]:
-        """Read a published checkpoint and verify its envelope digest before returning it."""
+        """Mathematics: accept loaded C only when SHA256(J(state))=digest; malformed or modified envelopes are rejected."""
 
         source = Path(path)
         try:
@@ -265,7 +265,7 @@ class NavigableComputationCheckpoint:
         worker_response_transport: Any,
         compute_host_factory: Callable[[HeadlessOS, int], TransitComputeHost] | None = None,
     ) -> RestoredNavigableComputation:
-        """Verify and restore the complete cut, then recompute the saved route before exposing it."""
+        """Mathematics: restore C only when integrity, transport emptiness, typed identity, live authorization, and resolver projection all agree."""
         if (
             not isinstance(payload, Mapping)
             or set(payload) != {"format", "digest", "state"}
