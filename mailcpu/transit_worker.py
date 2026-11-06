@@ -57,8 +57,9 @@ class TransitComputeWorker:
         self,
         request: HypervisorOperationChannel,
         response: HypervisorOperationResultChannel,
+        fault_hook: Callable[[str], None] | None = None,
     ) -> HypervisorExecutionResult | None:
-        """Mathematics: consume at most one authorized request, commit its effect to response R, then acknowledge its request frame."""
+        """Serve one authorized request and expose optional deterministic transaction cut hooks."""
 
         if not isinstance(request, HypervisorOperationChannel):
             raise TypeError("transit worker request must be a HypervisorOperationChannel")
@@ -133,6 +134,7 @@ class TransitComputeWorker:
             handlers,
             response,
             encode_effect,
+            fault_hook=fault_hook,
         )
 
     @staticmethod
@@ -171,17 +173,22 @@ class TransitComputeWorker:
         self,
         request: HypervisorOperationChannel,
         response: HypervisorOperationResultChannel,
+        *,
+        allow_inflight: bool = False,
     ) -> dict[str, object]:
-        """Mathematics: checkpoint OS state, backend manifest, and channel ledgers only at a quiescent boundary Q=0."""
+        """Checkpoint OS/backend/channel ledgers; in-flight mode relies on sender replay over fresh transports."""
 
         if not isinstance(request, HypervisorOperationChannel):
             raise TypeError("worker checkpoint requires a HypervisorOperationChannel")
         if not isinstance(response, HypervisorOperationResultChannel):
             raise TypeError("worker checkpoint requires a HypervisorOperationResultChannel")
-        if request.channel.pending_sequences() or request.channel.peek() is not None or request.channel.transport.pending() != 0:
-            raise ValueError("cannot checkpoint transit worker with pending request transport data")
-        if response.channel.pending_sequences() or response.channel.transport.pending() != 0:
-            raise ValueError("cannot checkpoint transit worker with unacknowledged response data")
+        if not isinstance(allow_inflight, bool):
+            raise TypeError("allow_inflight must be a boolean")
+        if not allow_inflight:
+            if request.channel.pending_sequences() or request.channel.peek() is not None or request.channel.transport.pending() != 0:
+                raise ValueError("cannot checkpoint transit worker with pending request transport data")
+            if response.channel.pending_sequences() or response.channel.transport.pending() != 0:
+                raise ValueError("cannot checkpoint transit worker with unacknowledged response data")
         state = {
             "version": 2,
             "authority_pid": self.authority_pid,
