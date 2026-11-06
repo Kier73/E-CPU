@@ -137,7 +137,7 @@ class VirtualMemory:
         self._shared_regions: dict[str, SharedRegion] = {}
 
     def bind_page_backing(self, page_backing: PageBacking) -> None:
-        """Bind one host page store, without changing any current mapping or reservation."""
+        """Mathematics: set backing `C:=C′` while preserving `(M,R,B)` and requiring the page-store protocol."""
         if not callable(getattr(page_backing, "get_page", None)) or not callable(
             getattr(page_backing, "put_page", None)
         ):
@@ -156,7 +156,7 @@ class VirtualMemory:
         return digest
 
     def _load_page_blob(self, blob_id: str) -> bytes:
-        """Resolve and validate page bytes without mutating the resident blob cache."""
+        """Mathematics: resolve `C[h]=b` with `|b|=P` and `SHA256(b)=h`, leaving resident cache `B` unchanged."""
         local = self._blobs.get(blob_id)
         if local is not None:
             return local
@@ -171,7 +171,7 @@ class VirtualMemory:
         return data
 
     def _get_page(self, blob_id: str) -> bytes:
-        """Resolve `B[h]`, then `C[h]`, and cache only bytes verified against the requested page identity."""
+        """Mathematics: resolve `B[h]` or `C[h]` and extend `B` only after proving `|b|=P ∧ SHA256(b)=h`."""
         local = self._blobs.get(blob_id)
         if local is not None:
             return local
@@ -213,7 +213,7 @@ class VirtualMemory:
         writable: bool = True,
         backing_blob_ids: tuple[str | None, ...] | list[str | None] | None = None,
     ) -> None:
-        """Reserve virtual pages lazily, optionally pinning one content hash per reserved page."""
+        """Mathematics: extend `R[p↦(w,h)]` for each page in the aligned interval, with one optional valid `h` per page."""
 
         if start < 0 or length <= 0 or start % self.page_size:
             raise VirtualMemoryError("reservation start must be aligned and length must be positive")
@@ -606,7 +606,7 @@ class VirtualMemory:
         return self._materialize(page_number, reservation)
 
     def _prepare_access(self, address: int, size: int, access: str) -> None:
-        """Preflight all touched pages and resolve every pinned page before committing any materialization."""
+        """Mathematics: compute pending set `D`, resolve every `h_p` in `D`, then atomically transition those reservations into mappings."""
 
         pending = self._preflight_access(address, size, access)
         # Resolve every external page first. A missing, corrupt, or unavailable later
@@ -672,7 +672,7 @@ class VirtualMemory:
         *,
         resolved_page: bytes | None = None,
     ) -> PageMapping:
-        """Consume a reservation only after any external bytes have passed page identity validation."""
+        """Mathematics: replace `R[p]=(w,h)` by `M[p]=h` only after quota admission and `SHA256(b)=h`; `h=⊥` yields zero bytes."""
 
         self._check_quota(1)
         if reservation.backing_blob_id is None:
