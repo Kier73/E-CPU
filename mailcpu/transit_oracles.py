@@ -52,7 +52,7 @@ class TransitOracleError(ValueError):
 
 
 def _strict_integer(value: Any, name: str, *, minimum: int | None = None) -> int:
-    """Validate a non-Boolean integer field and its optional lower bound."""
+    """Validate a non-Boolean integer field and its optional lower bound. Mathematics: require x∈ℤ and x≥minimum when a lower bound is supplied."""
     if type(value) is not int:
         raise TransitOracleError(f"{name} must be a strict integer")
     if minimum is not None and value < minimum:
@@ -61,12 +61,12 @@ def _strict_integer(value: Any, name: str, *, minimum: int | None = None) -> int
 
 
 def _fingerprint(event: HypervisorArbitrationEvent) -> str:
-    """Return the canonical request identity digest used by the hypervisor ledger."""
+    """Return the canonical request identity digest used by the hypervisor ledger. Mathematics: F(e)=SHA256(canonical_json(e.to_dict()))."""
     return canonical_value_digest(event.to_dict())
 
 
 def _cpu_expected_observation(event: HypervisorArbitrationEvent) -> tuple[dict[str, Any], int, dict[str, Any]]:
-    """Evaluate the bounded arithmetic ISA without using apply_instruction or a VM."""
+    """Evaluate the bounded arithmetic ISA without using apply_instruction or a VM. Mathematics: iterate an independent transition δ_ref until HALT or the finite tick budget is reached."""
     request = event.request
     if request.operation != _CPU_OPERATION or request.resource != _CPU_RESOURCE:
         raise TransitOracleError("CPU oracle received an unexpected operation identity")
@@ -179,14 +179,14 @@ def _compose_affine(
     right: tuple[int, int],
     modulus: int,
 ) -> tuple[int, int]:
-    """Return left ∘ right for maps x ↦ ax+b over Z/modulus Z."""
+    """Return left ∘ right for maps x ↦ ax+b over Z/modulus Z. Mathematics: (a,b)∘(c,d)=(ac,ad+b) mod m."""
     la, lb = left
     ra, rb = right
     return (la * ra) % modulus, (la * rb + lb) % modulus
 
 
 def _reference_lcg_value(params: Mapping[str, Any], coordinate: int) -> tuple[int, int]:
-    """Binary affine-map exponentiation independent of the production LCG helper."""
+    """Binary affine-map exponentiation independent of the production LCG helper. Mathematics: compute f^coordinate(x0) by repeated squaring in O(log coordinate) affine compositions."""
     modulus = params["mod"]
     if modulus <= 1:
         return 0, 1
@@ -207,7 +207,7 @@ def _reference_lcg_value(params: Mapping[str, Any], coordinate: int) -> tuple[in
 
 
 def _reference_gf2_value(params: Mapping[str, Any], order: int, coordinate: int) -> tuple[int, int]:
-    """Bit-packed companion-matrix powering over GF(2), independent of lfsr_jump."""
+    """Bit-packed companion-matrix powering over GF(2), independent of lfsr_jump. Mathematics: compute (M^coordinate·state0)[0] with matrix rows encoded as bit masks."""
     if order <= 0 or order > MAX_GF2_ORACLE_ORDER:
         raise TransitOracleError(
             f"GF(2) oracle order must be between 1 and {MAX_GF2_ORACLE_ORDER}"
@@ -260,13 +260,13 @@ def _reference_structural_value(
     spec: Any,
     coordinate: int,
 ) -> tuple[int, int]:
-    """Derive one value from the admitted parameter schema without the generator adapter."""
+    """Derive one value from the admitted parameter schema without the generator adapter. Mathematics: evaluate G_family(coordinate; parameters) using a family-specific reference recurrence or closed form."""
     if coordinate.bit_length() > MAX_STRUCTURAL_ORACLE_INTEGER_BITS:
         raise TransitOracleError("Structural Memory coordinate exceeds the oracle integer-width limit")
     params = spec.parameters
 
     def check_integer_width(value: Any, path: str = "parameters") -> None:
-        """Reject recursively nested integer values that exceed the oracle's bit-width budget."""
+        """Reject recursively nested integer values that exceed the oracle's bit-width budget. Mathematics: require max_bit_length(parameters, coordinate)≤4096."""
         if type(value) is int and value.bit_length() > MAX_STRUCTURAL_ORACLE_INTEGER_BITS:
             raise TransitOracleError(f"Structural Memory {path} exceeds the oracle integer-width limit")
         if isinstance(value, Mapping):
@@ -299,7 +299,7 @@ def _read_version(
     memory_id: str,
     revision: int,
 ) -> StructuralMemoryVersion:
-    """Resolve one immutable admitted revision without changing registry state."""
+    """Resolve one immutable admitted revision without changing registry state. Mathematics: return the unique v satisfying (v.memory_id,v.revision)=(m,r)."""
     registry = getattr(operating_system, "structural_memory", None)
     if registry is None or not callable(getattr(registry, "version_for_revision", None)):
         raise TransitOracleError("receiver does not expose exact admitted Structural Memory revisions")
@@ -316,7 +316,7 @@ def _structural_expected_observation(
     event: HypervisorArbitrationEvent,
     operating_system: Any,
 ) -> tuple[dict[str, Any], int, dict[str, Any]]:
-    """Validate the pinned request and independently derive its coordinate observation."""
+    """Validate the pinned request and independently derive its coordinate observation. Mathematics: compare π(backend_effect) with the value obtained from the exact admitted (spec,certificate,context,coordinate)."""
     request = event.request
     if (
         request.operation != TRANSIT_STRUCTURAL_MEMORY_OPERATION
@@ -397,6 +397,10 @@ def build_transit_oracle_evidence(
     Unsupported operation/resource pairs return None. Supported pairs fail
     closed: a mismatch, malformed case, or exhausted oracle budget prevents
     the caller from committing the handler effect.
+
+    Mathematics: for a supported event e and backend effect y, construct
+    evidence E=(oracle, H(e), H(case), π, expected, observed, work, limit)
+    and return it only when π(reference(e))=π(y) and work≤limit.
     """
     if not isinstance(event, HypervisorArbitrationEvent):
         raise TransitOracleError("Transit oracle requires a typed arbitration event")
