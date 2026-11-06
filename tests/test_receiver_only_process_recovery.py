@@ -85,10 +85,12 @@ def _wait_ready(process: subprocess.Popen[str]) -> dict[str, Any]:
 
     assert process.stdout is not None
     line = process.stdout.readline()
-    assert line, (
-        "receiver exited before publishing its TCP listeners: "
-        f"returncode={process.poll()}"
-    )
+    if not line:
+        stdout, stderr = process.communicate(timeout=5)
+        raise AssertionError(
+            "receiver exited before publishing its TCP listeners: "
+            f"returncode={process.returncode}, stdout={stdout!r}, stderr={stderr!r}"
+        )
     return json.loads(line)
 
 
@@ -105,16 +107,29 @@ def _wait_marker(path: Path, process: subprocess.Popen[str], timeout: float = 30
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _wait_response(channel: HypervisorOperationResultChannel, timeout: float = 15.0):
-    """Receive exactly one typed requester result before the deadline."""
+def _wait_response(
+    channel: HypervisorOperationResultChannel,
+    process: subprocess.Popen[str],
+    timeout: float = 15.0,
+):
+    """Receive one typed result and surface the receiver traceback if it exits."""
 
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         result = channel.receive()
         if result is not None:
             return result
+        if process.poll() is not None:
+            stdout, stderr = process.communicate(timeout=5)
+            raise AssertionError(
+                "receiver exited before publishing its Transit response: "
+                f"returncode={process.returncode}, stdout={stdout!r}, stderr={stderr!r}"
+            )
         time.sleep(0.002)
-    raise AssertionError("requester did not receive the Transit response")
+    raise AssertionError(
+        "requester did not receive the Transit response before the deadline; "
+        f"receiver_returncode={process.poll()}"
+    )
 
 
 def _wait_request_ack(channel: ReliableChannel, expected: tuple[int, ...]) -> None:
@@ -240,7 +255,7 @@ def test_requester_survives_receiver_only_process_termination_and_rebinds(tmp_pa
         # Retransmit the exact original frame. The receiver's execution ledger
         # must replay the committed effect rather than entering its new backend.
         assert request_client.channel.retransmit(1) is True
-        replayed_response = _wait_response(response_client)
+        replayed_response = _wait_response(response_client, restarted)
         assert replayed_response.effect["registers"]["answer"] == 12
         assert replayed_response.replayed is False
         translation = TransitTranslationEvidence.from_dict(
