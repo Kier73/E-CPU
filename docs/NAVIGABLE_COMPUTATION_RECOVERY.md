@@ -152,6 +152,15 @@ cursor restoration; it does not yet persist requester state to disk or test
 requester process death. The workload is CPU-only and is not a proof of
 exactly-once external side effects.
   
+## Process-level recovery experiments
+
+The requester-only test persists the client's exact pending reliable frame and
+result cursor, kills the requester interpreter, and restores it in a fresh
+process while the receiver process survives. The joint-process test then
+persists both sides, kills both original processes, and independently restores
+both from their own checkpoints. See REQUESTER_PROCESS_RECOVERY.md and
+JOINT_PROCESS_RECOVERY.md for exact accounting and limitations.
+
 ## Proof boundary
 
 This demonstrates deterministic same-process test harnesses simulating a
