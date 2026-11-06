@@ -1250,9 +1250,8 @@ def test_structural_memory_fans_out_to_independent_cpu_branches_and_joins_after_
             },
             "max_ticks": 20,
         }
-        # The join operation is materialized from committed branch state, so
-        # its exact payload is a new revision of the declared join node.
-        old_join = next(node for node in graph.nodes if node.node_id == "join")
+        # Revise the still-pending join node from its placeholder description
+        # to the exact CPU operation formed from all three committed branch results.
         new_join = ComputationNode(
             node_id="join",
             revision=2,
@@ -1266,20 +1265,7 @@ def test_structural_memory_fans_out_to_independent_cpu_branches_and_joins_after_
             dependencies=("plus-19", "triple", "double-plus-7"),
             payload=join_payload,
         )
-        # Graph identity is immutable; reconstruct a graph with the refined
-        # join descriptor while preserving verified branch commits.
-        branch_commit_values = {
-            node_id: graph.result(node_id)
-            for node_id in ("memory", "plus-19", "triple", "double-plus-7")
-        }
-        nodes = [
-            node if node.node_id != "join" else new_join
-            for node in graph.nodes
-        ]
-        completed_branches = NavigableComputationDAG(nodes)
-        for node_id in ("memory", "plus-19", "triple", "double-plus-7"):
-            assert completed_branches.commit(node_id, branch_commit_values[node_id]) is False
-        graph = completed_branches
+        assert graph.revise_node(new_join) == new_join.digest
         join_event = HypervisorArbitrationEvent(
             "client",
             _CHANNEL,
@@ -1306,12 +1292,7 @@ def test_structural_memory_fans_out_to_independent_cpu_branches_and_joins_after_
         assert join_result.effect["registers"]["total"] == 1346
         assert graph.commit("join", join_result.effect) is False
         assert graph.is_complete
-        assert graph.lineage("join") == (
-            "memory",
-            "double-plus-7",
-            "plus-19",
-            "triple",
-        ) or set(graph.lineage("join")) == {
+        assert set(graph.lineage("join")) == {
             "memory", "plus-19", "triple", "double-plus-7"
         }
         assert graph.commit("join", join_result.effect) is True
