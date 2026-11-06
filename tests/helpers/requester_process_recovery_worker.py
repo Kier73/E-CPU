@@ -454,6 +454,26 @@ def server_restore(server_checkpoint: Path, result_path: Path) -> None:
         "response_pending": list(session.response.channel.pending_sequences()),
     })
 
+    # The client must observe that both the restored published response and
+    # the execution-ledger replay have been ACKed before it submits new work.
+    # Publish an explicit rendezvous state instead of leaving the supervisor
+    # polling the stale "semantic-replay" marker while the server blocks for
+    # sequence 2.
+    ack_deadline = time.monotonic() + 20.0
+    while session.response.channel.pending_sequences() and time.monotonic() < ack_deadline:
+        session.response.channel.process_ack()
+        time.sleep(0.002)
+    assert session.response.channel.pending_sequences() == ()
+    _write_json_durable(result_path, {
+        "stage": "waiting-for-new-request",
+        "server_pid": os.getpid(),
+        "replayed_operation": replay.replayed,
+        "backend_calls_after_restore": hosts[0].calls,
+        "request_receive_cursor": session.request.channel.next_receive_sequence,
+        "response_pending": [],
+        "journal_valid": session.worker.operating_system.environment.kernel.journal.verify(),
+    })
+
     new_operation = _serve_until(session)
     assert new_operation.executed is True and new_operation.replayed is False
     assert new_operation.effect["registers"]["answer"] == 42
