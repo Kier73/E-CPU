@@ -99,7 +99,23 @@ if mode != "recover":
         print("CUT " + mode, flush=True)
         if sys.stdin.readline().strip() != "capture":
             os._exit(92)
-        checkpoint = SeedCommitServiceRecoveryCheckpoint.capture(ingress)
+        # Quorum peers have been stopped by the supervisor, but their final
+        # TCP frames may still be in flight. SocketTransport.snapshot() drains
+        # complete frames; retry only the explicit moving-boundary rejection
+        # until those already-sent frames have arrived and the cut is stable.
+        deadline = time.monotonic() + 2.0
+        while True:
+            try:
+                checkpoint = SeedCommitServiceRecoveryCheckpoint.capture(ingress)
+                break
+            except Exception as error:
+                moving_cut = (
+                    "crossed a moving state or channel boundary" in str(error)
+                    or "crossed a moving ingress boundary" in str(error)
+                )
+                if not moving_cut or time.monotonic() >= deadline:
+                    raise
+                time.sleep(0.005)
         persist(checkpoint_path, checkpoint.snapshot())
         print("CHECKPOINT", flush=True)
         os._exit(87)
