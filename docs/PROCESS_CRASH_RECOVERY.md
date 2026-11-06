@@ -142,10 +142,19 @@ replays the unacknowledged request with zero replacement-backend calls, then
 submits a new operation successfully. See
 RECEIVER_ONLY_PROCESS_RECOVERY.md.
 
-The requester-side state in that experiment is still in-memory, not a durable
-client checkpoint. The next boundaries are requester-process death with
-client-side durable channel state, repeated kill/restart cycles at every
-transaction cut, and checkpoint generation/anti-rollback policy.
+The requester-side state in the requester-only experiment is persisted to
+its own digest-checked channel capsule, then restored in a new client
+interpreter while the receiver process survives and rebinds its session. See
+REQUESTER_PROCESS_RECOVERY.md.
+
+The joint-process experiment now kills both original processes after both
+checkpoints are durable. New requester and receiver interpreters independently
+restore their own channel/session state, replay the committed operation without
+a second backend entry, and complete a new operation. See
+JOINT_PROCESS_RECOVERY.md.
+
+The next boundaries are repeated kill/restart cycles at each transaction cut,
+checkpoint generation and anti-rollback policy, and storage fault injection.
 
 The CPU jobs are deterministic and side-effect-free. The result does not prove
 exactly-once behavior for arbitrary external side effects: those require a
