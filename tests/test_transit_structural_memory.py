@@ -234,12 +234,12 @@ def test_structural_memory_coordinate_read_runs_inside_receiver_transit_path() -
         assert canonical_value_digest(raw_effect) == evidence.effect_digest
         assert evidence.contract.target.content_digest == evidence.effect_digest
         assert evidence.digest == TransitTranslationEvidence.from_dict(evidence.to_dict()).digest
-        evidence.validate_execution_result(served)
+        evidence.validate_execution_result(served, require_oracle=True)
         forged_payload = evidence.to_dict()
         forged_payload["decision_receipt"] = "0" * 64
         forged_evidence = TransitTranslationEvidence.from_dict(forged_payload)
         with pytest.raises(ValueError, match="decision receipt"):
-            forged_evidence.validate_execution_result(served)
+            forged_evidence.validate_execution_result(served, require_oracle=True)
         with pytest.raises(ValueError):
             TransitTranslationEvidence.from_dict({**evidence.to_dict(), "unknown": True})
         assert calls["count"] == 1
@@ -273,7 +273,7 @@ def test_structural_memory_coordinate_read_runs_inside_receiver_transit_path() -
         assert replay_oracle.digest == oracle.digest
         assert replay_evidence == evidence
         assert replay_evidence.digest == evidence.digest
-        replay_evidence.validate_execution_result(replay)
+        replay_evidence.validate_execution_result(replay, require_oracle=True)
         assert calls["count"] == 1
         replayed_response = _wait_for_response(response_client)
         assert replayed_response.replayed is True
