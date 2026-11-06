@@ -59,9 +59,10 @@ in the result of `δ` for an identical `K` and `request`.
 
 A representation translation is admitted as a semantic correspondence only
 relative to an explicit observation contract. The contract identifies the
-source and target representation schemas and content, the exact context,
-preconditions, invariants, resource ceilings, receiver-side authority
-requirements, and effect/replay model.
+source and target representation schemas and content, the content-addressed
+mapping rule or adapter definition, the exact context, preconditions,
+invariants, resource ceilings, receiver-side authority requirements, and
+effect/replay model.
 
 For one input case `x`, the claimed relation is:
 
