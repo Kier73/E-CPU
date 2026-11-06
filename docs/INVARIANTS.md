@@ -433,9 +433,9 @@ resolvable test is rejected by `scripts/verify_invariants.py`.
 
 ## Navigable computation recovery
 
-| ID | Statement | Enforced by | Required by |
-|---|---|---|---|
-| NCR-1 | A combined navigable-computation checkpoint is capturable only at a quiescent cut; its integrity-bound envelope binds receiver/worker state, requester-side reliable cursors, the exact evidence catalogue, route query/result, and retry event; restore rebinds the same backend manifest, reauthorizes the retry event against live receiver capabilities, and reproduces the saved route before exposing the recovered session. The digest detects modification but is not an authentication signature. | mailcpu/navigable_computation_checkpoint.py | tests/test_navigable_computation_recovery.py::test_navigable_computation_restores_route_and_replays_without_reexecution | NAVIGABLE_COMPUTATION_RECOVERY.md Combined checkpoint envelope; Restore protocol; Proof boundary |
+| ID | Statement | Establishes | Enforced by | Required by |
+|---|---|---|---|---|
+| X-11 | A combined navigable-computation checkpoint is capturable only at a quiescent cut; its integrity-bound envelope binds receiver/worker state, requester-side reliable cursors, the exact evidence catalogue, route query/result, and retry event; restore rebinds the same backend manifest, reauthorizes the retry event against live receiver capabilities, and reproduces the saved route before exposing the recovered session. The digest detects modification but is not an authentication signature. | `mailcpu/navigable_computation_checkpoint.py` | `tests/test_navigable_computation_recovery.py::test_navigable_computation_restores_route_and_replays_without_reexecution` | `NAVIGABLE_COMPUTATION_RECOVERY.md` Combined checkpoint envelope; Restore protocol; Proof boundary |
 
 ## Semantic translation contracts
 
