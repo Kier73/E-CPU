@@ -17,7 +17,7 @@ An architectural possibility can be important before it is implemented. It must 
 
 ## 1. Present system: what it can do
 
-The following describes the main-line system after Structural Memory E0, E0.2, and E0.3 were merged in PR #16 (merge commit 77bcd7e), PR #17 (merge commit 731cf5a), and PR #18 (merge commit af2058f).
+The following describes mainline after PRs #16–22. In addition to the original Structural Memory registry, the merged work now binds pinned structural references to Virtual Layer operators, exposes them through a read-only VFS provider, and uses them as content-addressed demand-page backing for virtual memory. This review records integrated boundaries, not claims of universal execution or production deployment.
 
 ### 1.1 Execute a deterministic machine over a communication model
 
@@ -75,44 +75,47 @@ A witness-grounded certificate means agreement with the finite witness set. It d
 
 Evidence: docs/STRUCTURAL_MEMORY.md; tests/test_structural_memory.py; tests/test_checkpoint.py; docs/INVARIANTS.md (S-1 through S-13).
 
-## 2. Building now: what is becoming possible
+## 2. Integrated capabilities added after the original Structural Memory registry
 
-E0.2 and E0.3 are merged into main through PR #17 (merge commit 731cf5a) and PR #18 (merge commit af2058f). The registry persists inside the HeadlessOS checkpoint graph and shares the kernel's hash-chained journal. Context-only revisions retain the generator while changing only the exact context and revision lineage. Restore reconciles staged proposals, admissions, active and revision-pinned read receipts, immutable lineage, cache values, and the exact journal anchor. Host admission code is deliberately rebound by trusted host code after restore; it is not checkpoint data.
-
-E0.4 is under active development in branch `feat/transit-structural-memory-e04`. It connects that registry to the receiver-side TransitCompute operation path:
-
-- a request carries memory identity, explicit revision, context, and coordinate;
-- the exact operation/resource pair selects a structural-memory read backend;
-- the worker derives `read` authority from its receiver-local capability process, and the backend independently rechecks the capability;
-- the backend delegates to `StructuralMemoryRegistry.read_revision` and returns the complete evidence-bearing receipt;
-- the existing hypervisor execution ledger replays the committed receipt when the same semantic operation arrives under a new transport frame;
-- the existing worker checkpoint restores both the structural-memory registry and semantic execution ledger, then rebinds the backend by its operation/resource manifest.
-
-The intended emergence is a path that can address a compressed, locally admitted state family rather than require every value to be transmitted or materialized. The path carries the *address of a verified generator state* and resolves it at the receiving boundary. This branch remains Building until its focused tests and repository CI complete. It does not transfer or replicate generator definitions across hosts, learn context-to-parameter transformations, or provide distributed consensus.
-
-The registry remains local to one HeadlessOS checkpoint. Further obligations include cross-host memory distribution and admission, authenticated witness provenance, heterogeneous generator composition, memory-provider integration, and CPU macro-transition correspondence.
-
-
+The following integrations are on mainline, not merely planned branches. Their portable descriptions remain separate from executable authority: a sender can name a pinned structural object, but the receiver must resolve it against its own admitted registry and local policy.
 
 ### 2.1 Virtual Layer / Structural Memory operator binding
 
-The next integration connects portable Virtual Layer intent to the receiver's admitted structural-memory registry. Workload schema v2 adds operator-scoped references that pin memory identity, revision, context, coordinate, specification digest, and certificate digest. The address crosses the existing workload channel; the generator remains receiver-local.
+Workload schema v2 adds operator-scoped references that pin memory identity, revision, context, coordinate, specification digest, and certificate digest. The address crosses the workload channel; generator code and registry state remain receiver-local.
 
-The receiver first validates the workload's admitted Virtual Ground and obtains hypervisor authorization for the operator. Only the authorized handler resolves the structural reference, under a separate receiver-local `read` capability on `/structural-memory/read`. It passes the operator a typed input envelope containing the caller's original input plus each resolved integer and full read receipt. The returned operator effect includes the resolved-input digest and those receipts, so the semantic execution ledger can replay the complete result without re-reading memory.
+The receiver validates the workload's admitted Virtual Ground, obtains hypervisor authorization for the operator, and only then lets the local handler resolve the reference under a separate receiver-local `read` capability on `/structural-memory/read`. The operator receives the original input plus resolved integer values and full read receipts. Its effect binds the resolved-input digest and receipts, allowing semantic replay without re-reading the generator.
 
-This integration composes three previously separate facilities: portable intent and operator contracts, verified addressable state families, and receiver-side authority/replay. It does not distribute the memory registry, carry generator code, infer generator parameters from context, or make operator handlers portable.
+This composes portable intent, admitted generative state, receiver-side authorization, and semantic replay. It does not distribute registry contents, make operator handlers portable, or grant the sender the receiver's local authority.
 
-### 2.2 Structural Memory as a native VFS provider
+### 2.2 Structural Memory as a VFS provider
 
-The VFS can now register a bounded, read-only file whose byte offsets address an admitted structural-memory revision. The file descriptor pins memory identity, revision, exact context, coordinate start, size, specification digest, and certificate digest. The provider reconstructs only the requested coordinate interval, validates each coordinate receipt, and returns bytes only when every generated integer fits the unsigned-byte domain.
+A bounded read-only file can expose an exact interval of an admitted revision. Its descriptor pins memory identity, revision, context, coordinate start, byte size, specification digest, and certificate digest. A byte offset maps to one generator coordinate; the provider rejects non-byte values and returns an aggregate range receipt linked to the ordered coordinate receipts.
 
-The provider descriptor is checkpointed without its registry pointer. HeadlessOS restoration reconstructs the structural-memory registry and then rebinds the inert provider to that local registry. This composes generative state with the existing VFS provider interface while preserving the host-local admission boundary.
+The provider descriptor is checkpointed without its registry pointer. Restore reconstructs the registry and rebinds the provider to that local registry. The VFS permission and open checks remain the normal authorization boundary.
 
-This milestone is a VFS file provider, not yet a demand-paged VM page-backing adapter. Page reservations, content-address identity, and copy-on-write recovery remain separate obligations for the next stage.
+### 2.3 Structural Memory as VM demand-page backing
+
+PR #22 connects the same byte-range reference to the existing `PageBacking` interface:
+
+- A page digest is registered against exactly one immutable, pinned file reference. Page geometry is constrained to a power of two no larger than 65,536 bytes.
+- A reserved virtual page remains non-resident until first access. The backing reconstructs the referenced bytes and validates both the exact length and SHA-256 page identity before the VM publishes the resident mapping.
+- Multi-page accesses resolve all external pages before consuming any reservation, so failure on a later page does not leave an earlier reservation partially materialized.
+- Writes diverge through the VM's existing copy-on-write mechanism; the structural source remains immutable.
+- Snapshots store symbolic structural references and local non-structural page bytes, not live registry pointers or callbacks. Restore requires trusted host code to rebind the structural backing.
+
+This is an integrated demand-page path, not a claim that every VM page or every foreign memory source is generative. It also does not make the generator itself resident in the virtual address space: the first fault still reconstructs and validates a full page.
+
+### 2.4 First empirical comparison harness
+
+`scripts/benchmark_structural_memory.py` compares three equivalent representations of a byte-valued modular progression: a materialized byte array, a direct `StructuralMemoryFileProvider` range, and a demand-paged VM page. It reports cold and hot sequential reads, deterministic random single-byte reads, journal-event counts and serialized journal size, plus generator/reference and `VirtualMemory.snapshot()` sizes. The VM snapshot measurement is only that memory-state projection; it excludes the enclosing `HeadlessOS` checkpoint, Structural Memory registry, journal, and host backing rebind state. The smoke tests assert byte equivalence and verify the cold-versus-hot journal boundary without asserting unstable wall-clock thresholds.
+
+The implementation makes one measurable cost visible before any optimization: the current provider asks the registry for each coordinate independently, and each registry read is journaled—even on registry cache hits. Therefore a cold page of (N) bytes currently creates (N) structural-read events. The harness records this cost; it does not yet establish an end-to-end performance advantage or justify weakening provenance.
+
+A range-oriented registry API is a candidate next step. It should only be introduced if it can reduce lock/journal overhead while retaining a receipt for every value, a range receipt binding order and content, the exact revision/context boundary, checkpoint/replay integrity, and the same refusal semantics. It is not part of the current implementation.
 
 ## 3. Novel-to-this-architecture possibilities
 
-This section records research opportunities created by the combination of existing and planned primitives. These are not claims of global historical priority. Related ideas may exist in symbolic execution, program synthesis, proof-carrying computation, procedural generation, distributed systems, databases, and other fields. The question is what a working combination inside E-CPU enables that its current components do not provide separately.
+This section records research opportunities created by the combination of integrated and planned primitives. These are not claims of global historical priority. Related ideas may exist in symbolic execution, program synthesis, proof-carrying computation, procedural generation, distributed systems, databases, and other fields. The question is what a working combination inside E-CPU enables that its current components do not provide separately.
 
 ### 3.1 Generative memory as an addressable state resource
 
@@ -120,7 +123,7 @@ Conventional memory interfaces usually return stored bytes or values. A structur
 
 Potential consequence: a large state family can be represented by a compact law, boundary, and verification record rather than materializing every member. This is especially useful for periodic or algebraically navigable state spaces.
 
-Experiment: compare stored-trace materialization with structural reads across increasing horizon and state-family size. Measure storage, navigation work, cache cost, verification overhead, and refusal behaviour outside the certified horizon.
+Experiment: run `python scripts/benchmark_structural_memory.py --sizes 256,4096,16384 --repeats 5 --pretty` on the same host and Python build. The harness compares materialized storage with cold/hot file-provider reads and VM demand-page faults, and records random-access cost, journal growth, and serialized descriptors/snapshots. Extend the workload with more generator families and larger horizons before generalizing the result. The current event model predicts one registry journal event per coordinate on a cold page; the benchmark tests that prediction.
 
 Failure condition: the generator description is not materially smaller or cheaper than the stored representation for the intended workload, or its evidence is too weak to meet the use case.
 
@@ -148,7 +151,7 @@ Failure condition: a proposed jump changes observable state, trace, resource, or
 
 **Demonstrated:** E0.3 provides immutable context-only revisions. It copies the active generator specification and changes only canonical context, revision number, and parent digest. A new supplied witness set must replay against the unchanged generator before host admission. Explicit revision-pinned reads preserve access to older contexts after a newer one becomes active, including after HeadlessOS checkpoint restore.
 
-**New integration under E0.4:** a transit request can carry memory identity, revision, context, and coordinate to the receiving path. The backend resolves the exact pinned revision and returns its structural receipt under receiver-local read authority. This makes the context-bound generator usable as a path-addressable state resource, not merely as an in-process registry entry.
+**Integrated:** Virtual Layer workload schema v2 carries an operator-scoped structural reference. The receiving runtime resolves it against its local admitted registry under receiver-local read authority, and the operator effect retains resolved-input provenance for semantic replay. The address, rather than generator code or a materialized state table, crosses the workload boundary.
 
 Potential consequence: one compact deterministic law can be rebound to multiple exact boundary instances and queried through different communication paths without transmitting a materialized state table. Each boundary remains independently addressable and evidence-bearing.
 
@@ -156,7 +159,7 @@ Experiment: use the same modular progression through two tenant contexts, send r
 
 Failure condition: a context change mutates generator-defining fields; a mismatching witness or stale context is admitted; one path reads a revision outside its local authority; a retry repeats the generator operation; or the restored path cannot reproduce the exact receipt.
 
-Boundary: E0.3/ E0.4 do not infer generator parameters from context fields, authenticate the external provenance of supplied witnesses, distribute registry state between hosts, or provide distributed consensus.
+Boundary: these integrations do not infer generator parameters from context fields, authenticate the external provenance of supplied witnesses, distribute registry state between hosts, or provide distributed consensus.
 
 ### 3.5 Heterogeneous structural composition
 
@@ -195,7 +198,7 @@ Failure condition: attention only changes scheduling labels without improving us
 3. What remains a proposal, simulation, reference model, or hypothesis rather than a physical or production capability?
 4. Which new state, authority, provenance, clock, resource, and recovery obligations appear because of this connection?
 5. What smallest experiment could falsify the proposed emergent capability?
-6. Does the new representation outperform a transparent baseline in storage, execution work, adaptability, energy, latency, or reliability after including verification and transport costs?
+6. Does the new representation outperform a transparent baseline in storage, execution work, adaptability, energy, latency, or reliability after including description, verification, navigation, execution, transport, and recovery costs?
 
 ## 5. Development rule
 
