@@ -5,10 +5,43 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
-from tests.test_requester_process_recovery import _read_json, _read_ready_line, _wait_json_file
+def _read_json(path: Path) -> dict[str, Any] | None:
+    """Read one durable progress record, tolerating transient file locks."""
+
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else None
+    except (FileNotFoundError, PermissionError, json.JSONDecodeError):
+        return None
+
+
+def _read_ready_line(process: subprocess.Popen[str]) -> dict[str, Any]:
+    """Read the worker's flushed listener coordinates."""
+
+    assert process.stdout is not None
+    line = process.stdout.readline()
+    assert line, f"worker exited before publishing listener coordinates: {process.poll()}"
+    return json.loads(line)
+
+
+def _wait_json_file(
+    path: Path,
+    process: subprocess.Popen[str],
+    timeout: float = 30.0,
+) -> dict[str, Any]:
+    """Wait for a durable marker and fail if its worker exits first."""
+
+    deadline = time.monotonic() + timeout
+    value = _read_json(path)
+    while value is None and process.poll() is None and time.monotonic() < deadline:
+        time.sleep(0.01)
+        value = _read_json(path)
+    assert value is not None, f"worker did not publish {path.name}: returncode={process.poll()}"
+    return value
 
 
 def test_requester_and_receiver_processes_restart_from_their_own_checkpoints(tmp_path: Path) -> None:
