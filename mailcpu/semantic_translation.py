@@ -90,7 +90,7 @@ def _json_value(value: Any, path: str = "value") -> Any:
             result[key] = _json_value(item, f"{path}.{key}")
         return result
     if isinstance(value, (tuple, list)):
-        return [_json_value(item, f"{path}[{len(item) if isinstance(item, list) else 0}]") for item in value]
+        return [_json_value(item, f"{path}[{index}]") for index, item in enumerate(value)]
     raise SemanticTranslationError(f"{path} contains unsupported type {type(value).__name__}")
 
 
@@ -252,7 +252,7 @@ class CapabilityRequirement:
 
     def __post_init__(self) -> None:
         """Mathematics: require a non-empty resource and finite, unique right names; no authority is created by this declaration."""
-        _identifier(self.resource, "capability resource")
+        if not isinstance(self.resource, str) or _RESOURCE.fullmatch(self.resource) is None:\n            raise SemanticTranslationError("capability resource must be a safe resource identifier")
         rights = tuple(self.rights)
         if not rights or any(not isinstance(right, str) or _RIGHT.fullmatch(right) is None for right in rights):
             raise SemanticTranslationError("capability rights must be non-empty safe identifiers")
