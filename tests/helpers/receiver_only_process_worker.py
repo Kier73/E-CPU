@@ -150,8 +150,12 @@ def serve_next(session: TransitComputeSession, timeout: float = 30.0):
     raise TimeoutError("receiver did not receive the next requester operation")
 
 
-def prepare(checkpoint_path: Path, marker_path: Path) -> None:
-    """Commit a CPU effect, save receiver-only state, and hold before response/ACK."""
+def prepare(
+    checkpoint_path: Path,
+    marker_path: Path,
+    fault_stage: str = "after_execution_commit",
+) -> None:
+    """Commit a CPU effect, save receiver-only state, and hold at the selected reply/ACK cut."""
 
     request_listener, response_listener, request_port, response_port = open_server_sockets()
     print(json.dumps({
@@ -166,7 +170,7 @@ def prepare(checkpoint_path: Path, marker_path: Path) -> None:
     session, host = make_session(request_transport, response_transport)
 
     def pause_after_commit(stage: str) -> None:
-        if stage != "after_execution_commit":
+        if stage != fault_stage:
             return
         digest = session.save_checkpoint(checkpoint_path, allow_inflight=True)
         request_head = session.request.channel.peek()
@@ -179,6 +183,7 @@ def prepare(checkpoint_path: Path, marker_path: Path) -> None:
             "request_receive_cursor": session.request.channel.next_receive_sequence,
             "response_pending": list(session.response.channel.pending_sequences()),
             "journal_valid": session.worker.operating_system.environment.kernel.journal.verify(),
+            "fault_stage": fault_stage,
         })
         while True:
             time.sleep(60)
@@ -187,13 +192,18 @@ def prepare(checkpoint_path: Path, marker_path: Path) -> None:
     while time.monotonic() < deadline:
         result = session.serve_once(fault_hook=pause_after_commit)
         if result is not None:
-            raise AssertionError("worker returned past the selected commit-before-publish cut")
+            raise AssertionError("worker returned past the selected reply/ack fault cut")
         time.sleep(0.002)
     raise TimeoutError("prepare worker did not receive the operation before the deadline")
 
 
-def restore_and_continue(checkpoint_path: Path, result_path: Path) -> None:
-    """Restore only the receiver, replay the surviving client's request, then accept new work."""
+def restore_and_continue(
+    checkpoint_path: Path,
+    result_path: Path,
+    *,
+    resend_published_response: bool = False,
+) -> None:
+    """Restore only the receiver, replay the request, reconcile old reply, then accept new work."""
 
     request_listener, response_listener, request_port, response_port = open_server_sockets()
     print(json.dumps({
@@ -234,11 +244,19 @@ def restore_and_continue(checkpoint_path: Path, result_path: Path) -> None:
     replay = serve_next(session)
     assert replay.executed is True and replay.replayed is True
     assert hosts[0].calls == 0
+    if resend_published_response:
+        # Sequence 1 was published before the previous receiver died. The
+        # replay publishes sequence 2 for the same semantic operation; resend
+        # sequence 1 as well so the live client can ACK both reliable frames.
+        assert session.response.channel.pending_sequences() == (1, 2)
+        assert session.response.channel.retransmit(1) is True
     write_json_durable(result_path, {
         "stage": "replayed",
         "pid": os.getpid(),
         "replayed": replay.replayed,
         "backend_calls": hosts[0].calls,
+        "resend_published_response": resend_published_response,
+        "response_pending": list(session.response.channel.pending_sequences()),
     })
 
     deadline = time.monotonic() + 10.0
@@ -273,6 +291,7 @@ def restore_and_continue(checkpoint_path: Path, result_path: Path) -> None:
         "backend_calls_after_restart": hosts[0].calls,
         "request_receive_cursor": session.request.channel.next_receive_sequence,
         "response_receive_cursor": session.response.channel.next_receive_sequence,
+        "response_pending": list(session.response.channel.pending_sequences()),
         "journal_valid": session.worker.operating_system.environment.kernel.journal.verify(),
     })
     request_transport.close()
@@ -283,15 +302,27 @@ def main(arguments: list[str]) -> int:
     """Dispatch the supervised prepare or fresh-interpreter restore phase."""
 
     if len(arguments) != 3:
-        raise SystemExit("usage: receiver_only_worker.py prepare|restore CHECKPOINT OUTPUT")
+        raise SystemExit(
+            "usage: receiver_only_worker.py prepare|prepare-published|restore|restore-published CHECKPOINT OUTPUT"
+        )
     mode, checkpoint_text, output_text = arguments
     checkpoint_path = Path(checkpoint_text)
     output_path = Path(output_text)
     if mode == "prepare":
         prepare(checkpoint_path, output_path)
         return 0
+    if mode == "prepare-published":
+        prepare(checkpoint_path, output_path, fault_stage="after_response_publish")
+        return 0
     if mode == "restore":
         restore_and_continue(checkpoint_path, output_path)
+        return 0
+    if mode == "restore-published":
+        restore_and_continue(
+            checkpoint_path,
+            output_path,
+            resend_published_response=True,
+        )
         return 0
     raise SystemExit(f"unknown worker mode: {mode}")
 
