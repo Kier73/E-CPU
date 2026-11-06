@@ -63,6 +63,22 @@ edge binds that receipt digest to the exact CPU request and compares the read
 value with the literal operand embedded in the CPU program. The third edge is
 also ingested only from the typed receiver-committed execution result.
 
+## Prospective resolution
+
+The resolver is used before the CPU request is sent. The receiver first derives
+the exact receiver-authorized event representation from the CPU request and
+current process capabilities. It does not execute the request or issue a
+hypervisor execution grant. The receipt-to-request bridge is then registered
+beside the committed memory-read edge, and a bounded preflight query resolves
+a two-edge route to the exact CPU-request representation.
+
+The CPU request is submitted through Transit only after that preflight returns
+`FOUND`. The Transit worker independently reconstructs receiver authority and
+performs normal hypervisor arbitration and execution. After the CPU result is
+committed and oracle-checked, its third edge is added and the resolver produces
+the complete three-edge route. Route resolution remains non-authoritative;
+the operation's actual execution boundary is unchanged.
+
 The Structural Memory read and CPU execution have different exact Transit
 request contexts. The request therefore declares both edge-local context
 digests in `accepted_context_digests`, while retaining the CPU request context
@@ -112,7 +128,9 @@ The test fails unless all of the following hold:
 - Structural Memory and CPU oracle evidence both agree and remain within
   their declared work limits;
 - the embedded CPU immediate equals the verified receipt value;
-- the two route edges join by complete representation identity;
+- the preflight route reaches the exact CPU-request representation
+  before the CPU operation is submitted;
+- the final three route edges join by complete representation identity;
 - the route satisfies both live capability requirements and aggregate cost
   ceilings;
 - the resolver returns a non-authoritative two-edge proposal;
