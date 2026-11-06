@@ -16,7 +16,9 @@ from mailcpu import (
 )
 from mailcpu.law_certifier import Law
 from mailcpu.transit_oracles import (
+    MAX_STRUCTURAL_ORACLE_PARAMETER_BYTES,
     TransitOracleError,
+    _reference_structural_value,
     build_transit_oracle_evidence,
 )
 from mailcpu.transit_structural_memory import (
@@ -244,6 +246,23 @@ def test_structural_oracle_refuses_prefix_coordinates_at_the_exclusive_horizon()
 
     with pytest.raises(TransitOracleError, match="horizon"):
         build_transit_oracle_evidence(event, {}, operating_system)
+
+
+def test_structural_oracle_bounds_parameter_description_before_parsing():
+    class OversizedSpec:
+        """Provide an oversized immutable parameter encoding without allowing it to be parsed."""
+
+        family = "int"
+        order = 1
+        parameters_json = " " * (MAX_STRUCTURAL_ORACLE_PARAMETER_BYTES + 1)
+
+        @property
+        def parameters(self):
+            """Fail if oracle parses a parameter description before checking its byte bound."""
+            raise AssertionError("oversized parameter description was parsed")
+
+    with pytest.raises(TransitOracleError, match="parameter description"):
+        _reference_structural_value(OversizedSpec(), 0)
 
 
 def test_structural_oracle_refuses_unbounded_integer_width_before_evaluation():
