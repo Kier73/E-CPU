@@ -70,7 +70,16 @@ The join is itself submitted through Transit. It is not an implicit in-memory sh
 
 The DAG can be carried inside the combined Transit checkpoint (schema v3). Its snapshot is included under the same canonical outer digest as receiver/session state, both requester channel cursors, route catalogue/query/result, and retry event. Restore validates and reconstructs the graph before creating runtime endpoints. The crash-cut recovery test proves that a committed Structural Memory receipt and a pending CPU frontier survive together. Capture and restore both require exactly one ready DAG node to match the retry event's operation, resource, context digest, and payload. After the original request is retried or replayed, the exact result can be committed to that restored node. This composes the persistent frontier with protocol recovery without claiming that every node in a multi-branch DAG executes as one atomic transaction.
 
-The fan-out/fan-in test serializes the graph after two branch commits and reconstructs it in the same test process. Separately, each of the four transaction-cut cases serializes the combined receiver/channel/route/DAG envelope with a committed memory node and a pending CPU node, reconstructs the graph and runtime over fresh streams, and commits the recovered CPU result into the restored DAG. Both remain deterministic test-harness reconstructions rather than OS process-kill tests.
+The fan-out/fan-in test serializes the graph after two branch commits and reconstructs it in the same test process. The four single-operation transaction-cut cases separately serialize the combined receiver/channel/route/DAG envelope with a committed memory node and a pending CPU node.
+
+The multi-branch recovery experiment goes further. It commits branch A, then sends branch B and injects a cut after the receiver's hypervisor execution ledger commits B but before the result is published or the request is acknowledged. At this point:
+
+- branch A is committed in the DAG;
+- branch B is uncommitted in the DAG but its exact effect is committed in the receiver execution ledger;
+- branch C remains ready and unexecuted; and
+- the join remains blocked because B and C have not both entered the graph's commit map.
+
+The single schema-v3 checkpoint binds this graph state to the receiver ledger, requester/worker cursors, exact route, and branch-B retry event. Restore rebuilds the graph with A committed and B/C ready. Retrying B returns the receiver's stored result without entering the replacement CPU backend; the test then commits B, executes only C as new work, materializes the join from all three committed results, and runs that join through Transit. This is deterministic same-process reconstruction over fresh TCP streams, not an OS process-kill test.
 
 ## Proof boundary
 
