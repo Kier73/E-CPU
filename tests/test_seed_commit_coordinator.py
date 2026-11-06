@@ -557,9 +557,21 @@ def test_seed_commit_service_checkpoint_recovers_each_commit_response_ack_cut(tm
         context["stopping"].set()
         for node in context["peer_nodes"].values():
             node["worker"].join(timeout=1)
-        checkpoint = SeedCommitServiceRecoveryCheckpoint.from_snapshot(
-            SeedCommitServiceRecoveryCheckpoint.capture(ingress).snapshot()
-        )
+        # Stopping participant threads does not retract bytes already sent
+        # on their TCP streams. Let those complete frames drain while preserving
+        # the checkpoint's strict two-projection stability requirement.
+        capture_deadline = time.monotonic() + 2.0
+        while True:
+            try:
+                checkpoint = SeedCommitServiceRecoveryCheckpoint.from_snapshot(
+                    SeedCommitServiceRecoveryCheckpoint.capture(ingress).snapshot()
+                )
+                break
+            except SeedCommitQuorumError as error:
+                moving_cut = "crossed a moving state or channel boundary" in str(error)
+                if not moving_cut or time.monotonic() >= capture_deadline:
+                    raise
+                time.sleep(0.005)
         peer_sockets = {
             member: node["owner_transport"].socket
             for member, node in context["peer_nodes"].items()

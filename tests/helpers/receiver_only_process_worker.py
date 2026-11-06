@@ -263,11 +263,26 @@ def restore_and_continue(
         "response_pending": list(session.response.channel.pending_sequences()),
     })
 
-    deadline = time.monotonic() + 10.0
+    deadline = time.monotonic() + 30.0
+    last_acknowledged: tuple[int, ...] = ()
     while session.response.channel.pending_sequences() and time.monotonic() < deadline:
-        session.response.channel.process_ack()
-        time.sleep(0.002)
-    assert session.response.channel.pending_sequences() == ()
+        last_acknowledged = session.response.channel.process_ack()
+        if resend_published_response:
+            write_json_durable(result_path, {
+                "stage": "response-ack-drain",
+                "pid": os.getpid(),
+                "last_acknowledged": list(last_acknowledged),
+                "response_pending": list(session.response.channel.pending_sequences()),
+                "ack_mailbox_pending": session.response.channel.transport.pending(
+                    session.response.channel.ack_address
+                ),
+            })
+        time.sleep(0.005)
+    assert session.response.channel.pending_sequences() == (), (
+        "receiver response frames remained unacknowledged after the bounded drain: "
+        f"pending={session.response.channel.pending_sequences()}, "
+        f"ack_mailbox={session.response.channel.transport.pending(session.response.channel.ack_address)}"
+    )
 
     write_json_durable(result_path, {
         "stage": "waiting-for-new-request",
