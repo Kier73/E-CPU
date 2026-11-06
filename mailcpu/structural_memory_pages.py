@@ -1,0 +1,210 @@
+"""Content-addressed virtual-memory pages reconstructed from structural memory."""
+
+from __future__ import annotations
+
+import hashlib
+from collections.abc import Mapping
+from typing import Any
+
+from .providers import (
+    StructuralMemoryFileReadReceipt,
+    StructuralMemoryFileProvider,
+    StructuralMemoryFileRef,
+)
+
+
+class StructuralMemoryPageBacking:
+    """A PageBacking implementation whose immutable pages are pinned structural-memory byte ranges.
+
+    The backing is host-bound. Snapshots contain page references and locally persisted
+    non-structural pages only; the structural registry and executable host state are
+    deliberately rebound after restore.
+    """
+
+    SNAPSHOT_KIND = "structural_memory_page_backing"
+    SNAPSHOT_VERSION = 1
+    MAX_PAGE_SIZE = 65_536
+
+    def __init__(self, registry: Any | None = None) -> None:
+        """Initialize an inert content-addressed backing with an optional local registry."""
+        self._registry: Any | None = None
+        self._references: dict[str, StructuralMemoryFileRef] = {}
+        self._providers: dict[str, StructuralMemoryFileProvider] = {}
+        self._local_pages: dict[str, bytes] = {}
+        self._page_cache: dict[str, bytes] = {}
+        self._receipts: dict[str, StructuralMemoryFileReadReceipt] = {}
+        if registry is not None:
+            self.bind_registry(registry)
+
+    @staticmethod
+    def _validate_digest(digest: str) -> None:
+        if (
+            type(digest) is not str
+            or len(digest) != 64
+            or any(character not in "0123456789abcdef" for character in digest)
+        ):
+            raise ValueError("page identity must be a lowercase SHA-256 digest")
+
+    @classmethod
+    def _validate_reference(cls, digest: str, reference: StructuralMemoryFileRef) -> None:
+        cls._validate_digest(digest)
+        if not isinstance(reference, StructuralMemoryFileRef):
+            raise ValueError("page backing requires a StructuralMemoryFileRef")
+        if (
+            reference.size <= 0
+            or reference.size > cls.MAX_PAGE_SIZE
+            or reference.size & (reference.size - 1)
+        ):
+            raise ValueError("structural-memory page size must be a power of two in [1, 65536]")
+
+    def bind_registry(self, registry: Any) -> None:
+        """Bind symbolic page references to a trusted, host-local structural-memory registry."""
+        if not callable(getattr(registry, "read_revision", None)):
+            raise ValueError("page backing binding requires a structural-memory read_revision interface")
+        self._registry = registry
+        self._providers = {
+            digest: StructuralMemoryFileProvider(
+                reference,
+                registry,
+                max_read_bytes=reference.size,
+            )
+            for digest, reference in sorted(self._references.items())
+        }
+        self._page_cache.clear()
+        self._receipts.clear()
+
+    def register_page_reference(
+        self,
+        digest: str,
+        reference: StructuralMemoryFileRef,
+    ) -> str:
+        """Bind one page hash to one exact, immutable structural-memory byte interval."""
+        self._validate_reference(digest, reference)
+        existing = self._references.get(digest)
+        if existing is not None and existing.to_dict() != reference.to_dict():
+            raise ValueError("page digest is already bound to a different structural-memory reference")
+        local = self._local_pages.get(digest)
+        if local is not None and len(local) != reference.size:
+            raise ValueError("local page size does not match structural-memory page reference")
+        self._references[digest] = reference
+        if self._registry is not None:
+            self._providers[digest] = StructuralMemoryFileProvider(
+                reference,
+                self._registry,
+                max_read_bytes=reference.size,
+            )
+        self._page_cache.pop(digest, None)
+        self._receipts.pop(digest, None)
+        return digest
+
+    def page_size_for(self, digest: str) -> int:
+        """Return a registered page's exact byte length without materializing its content."""
+        self._validate_digest(digest)
+        reference = self._references.get(digest)
+        if reference is not None:
+            return reference.size
+        local = self._local_pages.get(digest)
+        if local is not None:
+            return len(local)
+        raise KeyError(f"page backing has no registered page: {digest}")
+
+    def get_page(self, digest: str) -> bytes:
+        """Resolve a page lazily and require its bytes to reproduce the requested SHA-256 identity."""
+        self._validate_digest(digest)
+        local = self._local_pages.get(digest)
+        if local is not None:
+            return local
+        cached = self._page_cache.get(digest)
+        if cached is not None:
+            return cached
+        provider = self._providers.get(digest)
+        reference = self._references.get(digest)
+        if provider is None or reference is None:
+            if self._registry is None and reference is not None:
+                raise RuntimeError("structural-memory page backing has not been rebound to a local registry")
+            raise KeyError(f"page backing has no registered page: {digest}")
+        content, receipt = provider.read_with_receipt(0, reference.size)
+        if (
+            not isinstance(content, bytes)
+            or len(content) != reference.size
+            or hashlib.sha256(content).hexdigest() != digest
+            or receipt.length != reference.size
+            or receipt.content_digest != digest
+        ):
+            raise ValueError("structural-memory page bytes do not match the pinned page identity")
+        self._page_cache[digest] = content
+        self._receipts[digest] = receipt
+        return content
+
+    def put_page(self, data: bytes) -> str:
+        """Persist a private page produced by COW or reclaim and return its immutable content hash."""
+        if not isinstance(data, bytes) or not data:
+            raise ValueError("page backing accepts non-empty immutable byte strings")
+        digest = hashlib.sha256(data).hexdigest()
+        if digest in self._references:
+            # A structural reference is authoritative. Confirm that the registered
+            # generator really reconstructs the same bytes instead of shadowing it.
+            if self.get_page(digest) != data:
+                raise ValueError("published page conflicts with its structural-memory reference")
+        else:
+            self._local_pages[digest] = bytes(data)
+        self._page_cache[digest] = bytes(data)
+        return digest
+
+    def read_receipt(self, digest: str) -> StructuralMemoryFileReadReceipt | None:
+        """Return the evidence receipt from the most recent structural reconstruction of a page."""
+        self._validate_digest(digest)
+        return self._receipts.get(digest)
+
+    def snapshot(self) -> dict[str, Any]:
+        """Serialize only symbolic structural references and non-structural page bytes."""
+        return {
+            "provider_type": self.SNAPSHOT_KIND,
+            "schema_version": self.SNAPSHOT_VERSION,
+            "pages": {
+                digest: reference.to_dict()
+                for digest, reference in sorted(self._references.items())
+            },
+            "local_pages": {
+                digest: data.hex()
+                for digest, data in sorted(self._local_pages.items())
+            },
+        }
+
+    @classmethod
+    def from_snapshot(cls, payload: Mapping[str, Any]) -> "StructuralMemoryPageBacking":
+        """Restore an inert page backing; a trusted host must bind the local registry before reads."""
+        if (
+            not isinstance(payload, Mapping)
+            or payload.get("provider_type") != cls.SNAPSHOT_KIND
+            or payload.get("schema_version") != cls.SNAPSHOT_VERSION
+        ):
+            raise ValueError("unsupported structural-memory page backing snapshot")
+        raw_pages = payload.get("pages", {})
+        raw_local_pages = payload.get("local_pages", {})
+        if not isinstance(raw_pages, Mapping) or not isinstance(raw_local_pages, Mapping):
+            raise ValueError("page backing snapshot maps must be mappings")
+        backing = cls()
+        for raw_digest, raw_reference in raw_pages.items():
+            digest = str(raw_digest)
+            reference = StructuralMemoryFileRef.from_dict(raw_reference)
+            cls._validate_reference(digest, reference)
+            backing._references[digest] = reference
+        for raw_digest, encoded in raw_local_pages.items():
+            digest = str(raw_digest)
+            cls._validate_digest(digest)
+            if type(encoded) is not str:
+                raise ValueError("local page snapshot content must be hexadecimal text")
+            try:
+                data = bytes.fromhex(encoded)
+            except ValueError as exc:
+                raise ValueError("local page snapshot contains invalid hexadecimal content") from exc
+            if not data or hashlib.sha256(data).hexdigest() != digest:
+                raise ValueError(f"invalid local page content identity: {digest}")
+            reference = backing._references.get(digest)
+            if reference is not None:
+                if len(data) != reference.size:
+                    raise ValueError("local page size does not match structural-memory page reference")
+                raise ValueError("page snapshot cannot contain both local bytes and a structural reference")
+            backing._local_pages[digest] = data
+        return backing
