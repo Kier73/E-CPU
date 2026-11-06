@@ -445,11 +445,40 @@ class RecoveryLineageCoordinator:
                 + (f" ({detail})" if detail else "")
             )
 
-        certificate = SeedCommitCertificate(
+        # A previous attempt may have fsynced COMMIT on fewer than a quorum
+        # before the coordinator died. Reuse that exact certificate; creating a
+        # larger new certificate would make the already-committed decision's
+        # certificate-members projection differ from the retry.
+        existing_certificate: SeedCommitCertificate | None = None
+        for authority in self.authorities.values():
+            if authority.decision(proposal) is None:
+                continue
+            stored = authority.certificate(proposal)
+            if stored is None:
+                raise RecoveryLineageError("committed recovery proposal has no durable certificate")
+            if existing_certificate is not None and stored.snapshot() != existing_certificate.snapshot():
+                raise RecoveryLineageError("authorities disagree on the certificate for an already-committed proposal")
+            existing_certificate = stored
+
+        certificate = existing_certificate or SeedCommitCertificate(
             self.membership.digest,
             proposal.digest,
             tuple(votes[member] for member in sorted(votes)),
         )
+        certificate_members = tuple(vote.member_id for vote in certificate.votes)
+        if (
+            len(certificate_members) < self.membership.quorum
+            or len(certificate_members) != len(set(certificate_members))
+            or self.membership.owner_id not in certificate_members
+            or any(member not in self.membership.member_ids for member in certificate_members)
+            or any(
+                vote.membership_digest != self.membership.digest
+                or vote.proposal_digest != proposal.digest
+                for vote in certificate.votes
+            )
+        ):
+            raise RecoveryLineageError("recovery lineage prepare certificate is not a valid configured quorum")
+
         decisions: dict[str, SeedCommitDecision] = {}
         for member_id, authority in self.authorities.items():
             if member_id not in votes:
