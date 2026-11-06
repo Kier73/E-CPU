@@ -203,6 +203,7 @@ def _expected_symbol(establishes: str) -> str | None:
         "structural_memory": "StructuralMemoryRegistry",
         "semantic_translation": "TranslationContract",
         "navigable_computation_checkpoint": "NavigableComputationCheckpoint",
+        "computation_dag": "NavigableComputationDAG",
     }
     return mapping.get(stem)
 
