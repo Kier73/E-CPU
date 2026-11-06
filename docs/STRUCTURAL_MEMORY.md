@@ -235,4 +235,36 @@ The VFS inode is registered as a read-only provider-backed file. Normal VFS path
 
 Filesystem checkpoints serialize the symbolic file reference and read limit, never a registry pointer or executable callback. On `HeadlessOS.from_snapshot`, the host first restores the structural-memory registry from its checked snapshot and then rebinds the inert provider descriptors to that local registry. The host admission policy remains non-serialized, as before.
 
-This is a VFS-backed file provider, not yet a demand-paged `VirtualMemory.PageBacking` implementation. The next step can reuse this reference and receipt contract to bind a page reservation to a structural file slice without changing page identity or copy-on-write semantics.
+## Structural-memory demand paging
+
+`StructuralMemoryPageBacking` implements the existing `PageBacking` protocol. It does not introduce a second memory manager: `VirtualMemory` continues to own virtual page numbers, resident quotas, page reservations, permissions, content hashes, and copy-on-write transitions.
+
+A host registers one page by pairing its expected SHA-256 content hash with a `StructuralMemoryFileRef` whose size is a power of two from 1 through 65,536 bytes:
+
+```python
+import hashlib
+
+page = b"ABCDEFGH"
+digest = hashlib.sha256(page).hexdigest()
+reference = StructuralMemoryFileRef.from_version(
+    admitted_version,
+    coordinate_start=0,
+    size=len(page),
+)
+os.register_structural_memory_page(digest, reference)
+memory.reserve(
+    start=0,
+    length=len(page),
+    backing_blob_ids=(digest,),
+)
+```
+
+Each page reference is a complete pinned byte interval. On first access, the backing reads that interval through the existing structural-memory file provider, checks its revision/context/specification/certificate receipt, then verifies `SHA256(page_bytes) == page_digest`. A successful materialization moves the same digest from `PageReservation.backing_blob_id` to `PageMapping.blob_id`. The structural reference is not replaced by a newly generated page identity.
+
+The memory manager resolves every externally backed page touched by one access before consuming any reservation. If a later page cannot be read or fails its hash check, no reservation in that access is materialized. Resident admission and the existing per-process page quota are checked before resolution; ordinary page read/write protections remain in force.
+
+Writes preserve the existing copy-on-write rule. A write to a reconstructed page creates a new content hash in the writing memory image; the original structural page hash and reference remain immutable. If the changed page is later reclaimed, the backing persists its bytes as local page content so it can be restored independently of the structural generator. Structurally backed original pages remain symbolic rather than being copied into that local content store.
+
+The backing exposes the last structural range receipt for a page through `read_receipt(digest)`. Page references and locally persisted non-structural pages are included in the backing snapshot; registry pointers, provider callbacks, and admission policy are not. `HeadlessOS.from_snapshot` restores the page backing as an inert descriptor and binds it to the restored local structural-memory registry before normal operation resumes.
+
+This first contract is deliberately bounded: a structural page reference must describe exactly one power-of-two page no larger than 64 KiB. It supports demand reads and private COW writes; it does not yet add writable shared file mappings, page-table sharing across hosts, distributed page-store replication, or automatic page eviction policy.
