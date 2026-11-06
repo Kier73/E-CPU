@@ -897,6 +897,42 @@ def test_navigable_computation_recovers_at_each_transit_crash_cut(cut: str, tmp_
         assert computation_dag.commit("memory", raw_receipt) is False
         assert tuple(node.node_id for node in computation_dag.ready_nodes()) == ("cpu-retry",)
 
+        # A valid graph digest is not enough: the ready node must describe
+        # this exact retry event, not merely another operation on the same CPU.
+        unrelated_dag = NavigableComputationDAG((
+            ComputationNode(
+                node_id="memory",
+                revision=1,
+                operation=memory_event.request.operation,
+                resource=memory_event.request.resource,
+                context_digest=memory_context_digest,
+                dependencies=(),
+                payload=memory_event.request.payload,
+            ),
+            ComputationNode(
+                node_id="different-cpu",
+                revision=1,
+                operation=cpu_event.request.operation,
+                resource=cpu_event.request.resource,
+                context_digest="0" * 64,
+                dependencies=("memory",),
+                payload={"source": "halt", "initial_registers": {}, "max_ticks": 1},
+            ),
+        ))
+        unrelated_dag.commit("memory", raw_receipt)
+        with pytest.raises(NavigableComputationCheckpointError, match="exact retry event"):
+            NavigableComputationCheckpoint.capture(
+                session,
+                request_client,
+                response_client,
+                catalogue,
+                route_request,
+                route,
+                cpu_event,
+                allow_inflight=True,
+                computation_dag=unrelated_dag,
+            )
+
         checkpoint_path = tmp_path / f"{cut}.checkpoint.json"
 
         def stop_at_cut(stage: str) -> None:
