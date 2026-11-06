@@ -1733,6 +1733,8 @@ def test_navigable_computation_dag_resumes_only_unfinished_branches_after_crash(
             session.serve_once(fault_hook=stop_after_commit)
         assert original_host.calls == 2
         assert session.phase == "request-ready"
+        assert not session.response.channel.pending_sequences()
+        assert response_client.channel.peek() is None
 
         checkpoint = NavigableComputationCheckpoint.load(checkpoint_path)
         assert checkpoint["state"]["version"] == 3
@@ -1787,6 +1789,7 @@ def test_navigable_computation_dag_resumes_only_unfinished_branches_after_crash(
         assert replay_b.replayed is True
         returned_b = _wait_for_response(restored.response_client)
         assert returned_b.effect == replay_b.effect
+        assert returned_b.replayed is True
         _wait_for_ack(restored.request_client.channel, (3,))
         _wait_for_ack(restored.session.response.channel, (3,))
         assert restored.session.phase == "idle"
