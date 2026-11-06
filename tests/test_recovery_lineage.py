@@ -101,6 +101,10 @@ def test_checkpoint_manifest_round_trips_and_binds_all_three_payloads() -> None:
     assert restored.digest == manifest.digest
     assert len(restored.digest) == 64
     restored.verify_payloads(requester, receiver, backend)
+    malformed_version = manifest.snapshot()
+    malformed_version["version"] = True
+    with pytest.raises(RecoveryLineageError, match="fields or version"):
+        RecoveryCheckpointManifest.from_snapshot(malformed_version)
 
     with pytest.raises(RecoveryLineageError, match="requester checkpoint digest"):
         restored.verify_payloads(b"modified client state", receiver, backend)
@@ -129,6 +133,31 @@ def test_quorum_lineage_advances_and_rejects_a_valid_older_checkpoint(tmp_path: 
     assert second_proof.proposal.slot == 2
     assert coordinator.high_water() == (2, second.digest)
     assert coordinator.verify_checkpoint(second) == second_proof
+    requester_bytes = b"requester-2"
+    receiver_bytes = b"receiver-2"
+    backend_bytes = b"backend-manifest-v1"
+    second_with_material = _manifest(
+        membership,
+        2,
+        first.digest,
+        requester=requester_bytes,
+        receiver=receiver_bytes,
+        backend=backend_bytes,
+    )
+    coordinator.seal(second_with_material)
+    assert coordinator.verify_checkpoint_bundle(
+        second_with_material,
+        requester_bytes,
+        receiver_bytes,
+        backend_bytes,
+    ).proposal.digest == coordinator.proposal_for(second_with_material).digest
+    with pytest.raises(RecoveryLineageError, match="receiver checkpoint digest"):
+        coordinator.verify_checkpoint_bundle(
+            second_with_material,
+            requester_bytes,
+            b"wrong receiver bytes",
+            backend_bytes,
+        )
 
     with pytest.raises(RecoveryLineageError, match="stale"):
         coordinator.verify_checkpoint(first)
