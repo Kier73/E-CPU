@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from .classifier import HypervisorArbitrationEvent
+from .computation_dag import NavigableComputationDAG
 from .evidence_path_resolver import (
     EvidencePathCatalogue,
     EvidencePathRequest,
@@ -45,6 +46,7 @@ class RestoredNavigableComputation:
     route_request: EvidencePathRequest
     route_result: Mapping[str, Any]
     retry_event: HypervisorArbitrationEvent
+    computation_dag: NavigableComputationDAG | None = None
 
 
 class NavigableComputationCheckpoint:
@@ -62,6 +64,7 @@ class NavigableComputationCheckpoint:
         "retry_event",
     })
     _STATE_FIELDS_V2 = _STATE_FIELDS_V1 | {"capture_mode"}
+    _STATE_FIELDS_V3 = _STATE_FIELDS_V2 | {"computation_dag"}
 
     @staticmethod
     def _canonical(value: Any) -> bytes:
@@ -91,8 +94,9 @@ class NavigableComputationCheckpoint:
         retry_event: HypervisorArbitrationEvent,
         *,
         allow_inflight: bool = False,
+        computation_dag: NavigableComputationDAG | None = None,
     ) -> dict[str, Any]:
-        """Mathematics: capture checkpoint C=(session,client cursors,route,retry) at Q=0, or preserve every in-flight ledger when allow_inflight=True."""
+        """Mathematics: capture C=(session,client cursors,route,retry,DAG) under one digest, preserving in-flight ledgers when requested."""
         if not isinstance(session, TransitComputeSession):
             raise NavigableComputationCheckpointError("checkpoint requires a TransitComputeSession")
         if not isinstance(request_client, HypervisorOperationChannel):
@@ -105,6 +109,8 @@ class NavigableComputationCheckpoint:
             raise NavigableComputationCheckpointError("checkpoint requires an EvidencePathRequest")
         if not isinstance(retry_event, HypervisorArbitrationEvent):
             raise NavigableComputationCheckpointError("checkpoint requires a typed retry event")
+        if computation_dag is not None and not isinstance(computation_dag, NavigableComputationDAG):
+            raise NavigableComputationCheckpointError("checkpoint DAG must be a NavigableComputationDAG")
         if not isinstance(route_result, EvidencePathResult):
             raise NavigableComputationCheckpointError("checkpoint route result must be an EvidencePathResult")
 
@@ -154,8 +160,9 @@ class NavigableComputationCheckpoint:
                 "retry event identity does not match the checkpointed client channels"
             )
 
+        state_version = 3 if computation_dag is not None else (2 if allow_inflight else 1)
         state = {
-            "version": 2 if allow_inflight else 1,
+            "version": state_version,
             "session": session.snapshot(allow_inflight=allow_inflight),
             "client_request_channel": client_request.snapshot(),
             "client_response_channel": response_client.snapshot(),
@@ -164,8 +171,10 @@ class NavigableComputationCheckpoint:
             "route_result": route_projection,
             "retry_event": retry_event.to_dict(),
         }
-        if allow_inflight:
-            state["capture_mode"] = "inflight"
+        if allow_inflight or computation_dag is not None:
+            state["capture_mode"] = "inflight" if allow_inflight else "quiescent"
+        if computation_dag is not None:
+            state["computation_dag"] = computation_dag.snapshot()
         digest = hashlib.sha256(cls._canonical(state)).hexdigest()
         return {
             "format": cls.FORMAT,
@@ -287,6 +296,11 @@ class NavigableComputationCheckpoint:
                 set(state) == cls._STATE_FIELDS_V2
                 and state.get("capture_mode") == "inflight"
             )
+        elif state_version == 3:
+            schema_valid = (
+                set(state) == cls._STATE_FIELDS_V3
+                and state.get("capture_mode") in {"inflight", "quiescent"}
+            )
         else:
             schema_valid = False
         if not schema_valid:
@@ -308,6 +322,15 @@ class NavigableComputationCheckpoint:
             raise NavigableComputationCheckpointError(
                 "navigable computation checkpoint digest mismatch"
             )
+
+        computation_dag = None
+        if state_version == 3:
+            try:
+                computation_dag = NavigableComputationDAG.from_snapshot(state["computation_dag"])
+            except Exception as exc:
+                raise NavigableComputationCheckpointError(
+                    f"saved computation DAG restore failed: {type(exc).__name__}: {exc}"
+                ) from exc
 
         supplied_transports = (
             ("client request", client_request_transport),
@@ -437,4 +460,5 @@ class NavigableComputationCheckpoint:
             route_request=route_request,
             route_result=route.to_dict(),
             retry_event=retry_event,
+            computation_dag=computation_dag,
         )
