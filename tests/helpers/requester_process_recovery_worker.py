@@ -291,12 +291,19 @@ def serve(
             time.sleep(0.01)
         raise RebindRequested()
 
-    try:
-        session.serve_once(fault_hook=pause_after_response)
-    except RebindRequested:
-        pass
+    deadline = time.monotonic() + 30.0
+    while time.monotonic() < deadline:
+        try:
+            served = session.serve_once(fault_hook=pause_after_response)
+        except RebindRequested:
+            break
+        if served is not None:
+            raise AssertionError(
+                "receiver returned past the response-published/request-unacknowledged cut"
+            )
+        time.sleep(0.002)
     else:
-        raise AssertionError("receiver did not reach the response-published/request-unacknowledged cut")
+        raise TimeoutError("receiver did not reach the response-published/request-unacknowledged cut")
 
     request_transport.close()
     response_transport.close()
@@ -473,20 +480,35 @@ def client_restore(
 
 
 def main(arguments: list[str]) -> int:
-    """Dispatch the surviving receiver or one of the requester process phases."""
+    """Dispatch the surviving receiver and the two separate requester processes."""
 
-    if len(arguments) != 6:
-        raise SystemExit(
-            "usage: requester_process_recovery_worker.py "
-            "server SERVER_CHECKPOINT CUT_MARKER RELEASE REBIND_READY RESULT"
+    if not arguments:
+        raise SystemExit("missing requester recovery worker mode")
+    mode = arguments[0]
+    if mode == "server" and len(arguments) == 6:
+        serve(*(Path(item) for item in arguments[1:]))
+        return 0
+    if mode == "client-prepare" and len(arguments) == 5:
+        _request_port, _response_port, checkpoint, marker = arguments[1:]
+        client_prepare(
+            {"request_port": int(_request_port), "response_port": int(_response_port)},
+            Path(checkpoint),
+            Path(marker),
         )
-    mode, first, second, third, fourth, fifth = arguments
-    paths = tuple(Path(item) for item in (first, second, third, fourth, fifth))
-    if mode == "server":
-        serve(*paths)
+        return 0
+    if mode == "client-restore" and len(arguments) == 5:
+        _request_port, _response_port, checkpoint, result = arguments[1:]
+        client_restore(
+            {"request_port": int(_request_port), "response_port": int(_response_port)},
+            Path(checkpoint),
+            Path(result),
+        )
         return 0
     raise SystemExit(
-        "client modes are launched through the dedicated prepare/restore entrypoint"
+        "usage: requester_process_recovery_worker.py "
+        "server SERVER_CHECKPOINT CUT_MARKER RELEASE REBIND_READY RESULT | "
+        "client-prepare REQUEST_PORT RESPONSE_PORT CLIENT_CHECKPOINT CLIENT_MARKER | "
+        "client-restore REQUEST_PORT RESPONSE_PORT CLIENT_CHECKPOINT RESULT"
     )
 
 
