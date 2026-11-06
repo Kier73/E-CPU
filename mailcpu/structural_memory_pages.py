@@ -38,6 +38,7 @@ class StructuralMemoryPageBacking:
 
     @staticmethod
     def _validate_digest(digest: str) -> None:
+        """Require a canonical lowercase hexadecimal SHA-256 page identity."""
         if (
             type(digest) is not str
             or len(digest) != 64
@@ -47,6 +48,7 @@ class StructuralMemoryPageBacking:
 
     @classmethod
     def _validate_reference(cls, digest: str, reference: StructuralMemoryFileRef) -> None:
+        """Require a valid digest and a single supported power-of-two page reference."""
         cls._validate_digest(digest)
         if not isinstance(reference, StructuralMemoryFileRef):
             raise ValueError("page backing requires a StructuralMemoryFileRef")
