@@ -290,12 +290,17 @@ class NavigableComputationCheckpoint:
         # Re-run the resolver against the restored receiver's live capability
         # table. A saved FOUND projection is not trusted as a substitute for
         # reconstruction or re-evaluation.
-        route = EvidencePathResolver().resolve(
-            catalogue,
-            route_request,
-            session.worker.operating_system,
-            session.worker.authority_pid,
-        )
+        try:
+            route = EvidencePathResolver().resolve(
+                catalogue,
+                route_request,
+                session.worker.operating_system,
+                session.worker.authority_pid,
+            )
+        except Exception as exc:
+            raise NavigableComputationCheckpointError(
+                f"restored route resolution failed: {type(exc).__name__}: {exc}"
+            ) from exc
         if route.status is not EvidencePathStatus.FOUND or route.to_dict() != dict(route_projection):
             raise NavigableComputationCheckpointError(
                 "restored route does not reproduce the saved route projection"
