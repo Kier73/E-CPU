@@ -43,6 +43,7 @@ MAX_CPU_ORACLE_REGISTERS = 32
 MAX_CPU_ORACLE_TICKS = 10_000
 
 MAX_STRUCTURAL_ORACLE_WORK_UNITS = 1_000_000
+MAX_STRUCTURAL_ORACLE_INTEGER_BITS = 4_096
 MAX_GF2_ORACLE_ORDER = 64
 
 
@@ -258,7 +259,21 @@ def _reference_structural_value(
     coordinate: int,
 ) -> tuple[int, int]:
     """Derive one value from the admitted parameter schema without the generator adapter."""
+    if coordinate.bit_length() > MAX_STRUCTURAL_ORACLE_INTEGER_BITS:
+        raise TransitOracleError("Structural Memory coordinate exceeds the oracle integer-width limit")
     params = spec.parameters
+
+    def check_integer_width(value: Any, path: str = "parameters") -> None:
+        if type(value) is int and value.bit_length() > MAX_STRUCTURAL_ORACLE_INTEGER_BITS:
+            raise TransitOracleError(f"Structural Memory {path} exceeds the oracle integer-width limit")
+        if isinstance(value, Mapping):
+            for key, item in value.items():
+                check_integer_width(item, f"{path}.{key}")
+        elif isinstance(value, (list, tuple)):
+            for index, item in enumerate(value):
+                check_integer_width(item, f"{path}[{index}]")
+
+    check_integer_width(params)
     family = spec.family
 
     if family == "int":
