@@ -316,9 +316,14 @@ digests rather than rewriting either operation's identity. The bridge edge
 checks the one-case value handoff; accepted context membership itself is not a
 claim of general context equivalence.
 
-The resolver must join all three complete representation identities while
-satisfying both live capabilities, declared context scopes, and aggregate
-resource ceilings. A route with only the primary CPU context is blocked.
+Before the CPU request is submitted, a two-edge preflight route is
+resolved to the exact receiver-authorized CPU-request representation. The
+request is sent only after the proposal is found; the Transit worker still
+performs independent live authorization and hypervisor execution. Once the
+CPU result is committed, a third edge is appended and the complete route is
+resolved. Both resolutions satisfy live capabilities, explicit context
+scopes, and aggregate resource ceilings. A route with only the primary CPU
+context is blocked.
 
 The test also checks a semantic replay under a new transport frame, a stable
 catalogue snapshot digest, negative controls for context mismatch, translation
