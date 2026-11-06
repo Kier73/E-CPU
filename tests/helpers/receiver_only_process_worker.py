@@ -221,10 +221,22 @@ def restore_and_continue(checkpoint_path: Path, result_path: Path) -> None:
     )
     assert session.phase == "idle"
     assert hosts and hosts[0].calls == 0
+    write_json_durable(result_path, {
+        "stage": "restored",
+        "pid": os.getpid(),
+        "session_phase": session.phase,
+        "request_receive_cursor": session.request.channel.next_receive_sequence,
+    })
 
     replay = serve_next(session)
     assert replay.executed is True and replay.replayed is True
     assert hosts[0].calls == 0
+    write_json_durable(result_path, {
+        "stage": "replayed",
+        "pid": os.getpid(),
+        "replayed": replay.replayed,
+        "backend_calls": hosts[0].calls,
+    })
 
     deadline = time.monotonic() + 10.0
     while session.response.channel.pending_sequences() and time.monotonic() < deadline:
@@ -232,6 +244,12 @@ def restore_and_continue(checkpoint_path: Path, result_path: Path) -> None:
         time.sleep(0.002)
     assert session.response.channel.pending_sequences() == ()
 
+    write_json_durable(result_path, {
+        "stage": "waiting-for-new-request",
+        "pid": os.getpid(),
+        "request_receive_cursor": session.request.channel.next_receive_sequence,
+        "response_pending": list(session.response.channel.pending_sequences()),
+    })
     new_operation = serve_next(session)
     assert new_operation.executed is True and new_operation.replayed is False
     assert new_operation.effect["registers"]["answer"] == 42
