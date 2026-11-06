@@ -77,19 +77,30 @@ def _start_client(
     cut: str | None = None,
     server_result_path: Path | None = None,
 ) -> subprocess.Popen[str]:
-    args = [
-        sys.executable,
-        str(worker),
-        mode,
-        str(checkpoint),
-        str(marker_or_result),
-        str(ports["request_port"]),
-        str(ports["response_port"]),
-    ]
-    if cut is not None:
+    if cut is None:
+        args = [
+            sys.executable,
+            str(worker),
+            mode,
+            str(checkpoint),
+            str(marker_or_result),
+            str(ports["request_port"]),
+            str(ports["response_port"]),
+        ]
+    else:
         if server_result_path is None:
             raise ValueError("client restore requires the receiver completion path")
-        args.extend([str(server_result_path), cut])
+        args = [
+            sys.executable,
+            str(worker),
+            mode,
+            str(checkpoint),
+            str(marker_or_result),
+            str(server_result_path),
+            str(ports["request_port"]),
+            str(ports["response_port"]),
+            cut,
+        ]
     return subprocess.Popen(
         args,
         cwd=root,
