@@ -137,6 +137,21 @@ local checkpoint. The original requester endpoints are also hosted in the
 supervised child in this first process harness, so this is not yet a
 receiver-only restart with a separate client that survives independently.
 
+## Independent requester / receiver process boundary
+
+A companion test now keeps the requester in the supervising pytest process
+while hard-terminating only the Transit receiver child. The requester preserves
+its pending sequence and result receive cursor in memory, reconnects over fresh
+TCP sockets, retransmits the exact request, and receives the receiver's
+execution-ledger replay without a replacement backend call. It then submits a
+new sequence through the restored receiver and verifies a fresh result.
+
+This complements the combined DAG checkpoint process test. The receiver-only
+test exercises the receiver's TransitComputeSession checkpoint and reliable
+cursor restoration; it does not yet persist requester state to disk or test
+requester process death. The workload is CPU-only and is not a proof of
+exactly-once external side effects.
+  
 ## Proof boundary
 
 This demonstrates deterministic same-process test harnesses simulating a
