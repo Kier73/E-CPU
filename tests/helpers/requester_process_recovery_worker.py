@@ -376,6 +376,111 @@ def serve(
     response_transport.close()
 
 
+def server_cut(server_checkpoint: Path, cut_marker: Path) -> None:
+    """Persist the receiver at response-published/request-unacknowledged, then block for process death."""
+
+    request_listener, response_listener, ports = _open_listeners()
+    print(json.dumps({"pid": os.getpid(), **ports, "phase": "initial"}), flush=True)
+    request_transport, response_transport = _accept_transports(
+        request_listener, response_listener
+    )
+    session, host = _make_session(request_transport, response_transport)
+
+    def pause_after_response(stage: str) -> None:
+        if stage != "after_response_publish":
+            return
+        digest = session.save_checkpoint(server_checkpoint, allow_inflight=True)
+        request_head = session.request.channel.peek()
+        _write_json_durable(cut_marker, {
+            "server_pid": os.getpid(),
+            "checkpoint_digest": digest,
+            "backend_calls_before_joint_death": host.calls,
+            "fault_stage": stage,
+            "request_head": None if request_head is None else request_head[0],
+            "request_receive_cursor": session.request.channel.next_receive_sequence,
+            "response_pending": list(session.response.channel.pending_sequences()),
+            "journal_valid": session.worker.operating_system.environment.kernel.journal.verify(),
+        })
+        while True:
+            time.sleep(60)
+
+    deadline = time.monotonic() + 30.0
+    while time.monotonic() < deadline:
+        result = session.serve_once(fault_hook=pause_after_response)
+        if result is not None:
+            raise AssertionError("receiver returned past joint process-death cut")
+        time.sleep(0.002)
+    raise TimeoutError("receiver did not reach joint process-death cut")
+
+
+def server_restore(server_checkpoint: Path, result_path: Path) -> None:
+    """Restore the receiver in a new PID, replay the saved request, and serve fresh work."""
+
+    request_listener, response_listener, ports = _open_listeners()
+    print(json.dumps({"pid": os.getpid(), **ports, "phase": "restore"}), flush=True)
+    request_transport, response_transport = _accept_transports(
+        request_listener, response_listener
+    )
+    hosts: list[CountingHost] = []
+
+    def host_factory(_operating_system: HeadlessOS, _authority_pid: int) -> TransitComputeHost:
+        host = CountingHost()
+        hosts.append(host)
+        return host
+
+    session = TransitComputeSession.from_checkpoint(
+        server_checkpoint,
+        request_transport,
+        response_transport,
+        compute_host_factory=host_factory,
+    )
+    assert hosts and hosts[0].calls == 0
+    assert session.request.channel.next_receive_sequence == 1
+    assert session.response.channel.pending_sequences() == (1,)
+    assert session.worker.operating_system.environment.kernel.journal.verify()
+
+    # The response published before both processes died is still pending.
+    # Deliver it, then accept the exact pending request and replay from the
+    # receiver execution ledger without another backend entry.
+    assert session.response.channel.retransmit(1) is True
+    replay = _serve_until(session)
+    assert replay.executed is True and replay.replayed is True
+    assert hosts[0].calls == 0
+    _write_json_durable(result_path, {
+        "stage": "semantic-replay",
+        "server_pid": os.getpid(),
+        "replayed": replay.replayed,
+        "backend_calls_after_restore": hosts[0].calls,
+        "response_pending": list(session.response.channel.pending_sequences()),
+    })
+
+    new_operation = _serve_until(session)
+    assert new_operation.executed is True and new_operation.replayed is False
+    assert new_operation.effect["registers"]["answer"] == 42
+    assert hosts[0].calls == 1
+
+    deadline = time.monotonic() + 30.0
+    while session.response.channel.pending_sequences() and time.monotonic() < deadline:
+        session.response.channel.process_ack()
+        time.sleep(0.005)
+    assert session.response.channel.pending_sequences() == ()
+    assert session.request.channel.next_receive_sequence == 3
+    assert session.worker.operating_system.environment.kernel.journal.verify()
+    _write_json_durable(result_path, {
+        "stage": "complete",
+        "server_pid": os.getpid(),
+        "replayed_operation": replay.replayed,
+        "backend_calls_after_restore": hosts[0].calls,
+        "new_operation_answer": new_operation.effect["registers"]["answer"],
+        "total_backend_calls": 1 + hosts[0].calls,
+        "request_receive_cursor": session.request.channel.next_receive_sequence,
+        "response_pending": list(session.response.channel.pending_sequences()),
+        "journal_valid": session.worker.operating_system.environment.kernel.journal.verify(),
+    })
+    request_transport.close()
+    response_transport.close()
+
+
 def client_prepare(
     ports: dict[str, Any],
     client_checkpoint: Path,
