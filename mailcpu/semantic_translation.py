@@ -723,7 +723,41 @@ class TransitTranslationEvidence:
             backend_manifest=tuple(tuple(item) for item in payload["backend_manifest"]),
             contract=TranslationContract.from_dict(payload["contract"]),
             comparison=ObservationComparison.from_dict(payload["comparison"]),
-        )
+        )    
+    def validate_execution_result(self, result: Any) -> None:
+        """Cross-check this evidence against the outer committed or replayed HypervisorExecutionResult.
+
+        Mathematics: require result.identity=I, result.fingerprint=F,
+        result.decision_receipt=D, result.domain=domain, result.executed=1,
+        and H(result.effect without the evidence field)=H(E).
+        """
+        from .classifier import HypervisorAction, HypervisorExecutionResult
+
+        if not isinstance(result, HypervisorExecutionResult):
+            raise SemanticTranslationError("Transit evidence requires a HypervisorExecutionResult")
+        if (result.source, result.channel, result.sequence) != self.identity:
+            raise SemanticTranslationError("Transit evidence identity does not match the execution result")
+        if result.fingerprint != self.request_fingerprint:
+            raise SemanticTranslationError("Transit evidence fingerprint does not match the execution result")
+        if result.decision_receipt != self.decision_receipt:
+            raise SemanticTranslationError("Transit evidence decision receipt does not match the execution result")
+        if result.action is not HypervisorAction.ALLOW or result.domain.value != self.domain:
+            raise SemanticTranslationError("Transit evidence policy action or domain does not match the execution result")
+        if not result.executed or not isinstance(result.effect, Mapping):
+            raise SemanticTranslationError("Transit evidence execution result has no committed object effect")
+        raw_evidence = result.effect.get("_semantic_translation")
+        if not isinstance(raw_evidence, Mapping):
+            raise SemanticTranslationError("execution result is missing embedded Transit translation evidence")
+        embedded = TransitTranslationEvidence.from_dict(raw_evidence)
+        if embedded != self:
+            raise SemanticTranslationError("embedded Transit translation evidence differs from the supplied record")
+        raw_effect = {
+            key: value for key, value in result.effect.items()
+            if key != "_semantic_translation"
+        }
+        if canonical_value_digest(raw_effect) != self.effect_digest:
+            raise SemanticTranslationError("Transit evidence effect digest does not match the execution result")
+
 
 
 def build_transit_translation_evidence(
