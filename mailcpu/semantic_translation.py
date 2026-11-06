@@ -566,6 +566,8 @@ class TransitTranslationEvidence:
         _digest(self.request_fingerprint, "request_fingerprint")
         _digest(self.decision_receipt, "decision_receipt")
         _digest(self.effect_digest, "effect_digest")
+        if any(not isinstance(item, (tuple, list)) for item in self.backend_manifest):
+            raise SemanticTranslationError("backend_manifest entries must be operation/resource pairs")
         manifest = tuple(tuple(item) for item in self.backend_manifest)
         if not manifest or any(
             len(item) != 2
@@ -696,7 +698,11 @@ def build_transit_translation_evidence(
         raise SemanticTranslationError("Transit execution domain must be non-empty text")
     if not isinstance(backend_manifest, (tuple, list)):
         raise SemanticTranslationError("Transit backend manifest must be an array")
+    if any(not isinstance(item, (tuple, list)) for item in backend_manifest):
+        raise SemanticTranslationError("Transit backend manifest entries must be operation/resource pairs")
     manifest = tuple(tuple(item) for item in backend_manifest)
+    if not manifest or tuple(sorted(set(manifest))) != manifest:
+        raise SemanticTranslationError("Transit backend manifest must be sorted, unique, and non-empty")
     fingerprint = canonical_value_digest(event.to_dict())
     effect_digest = canonical_value_digest(raw_effect)
     source = RepresentationRef.from_payload(
@@ -741,7 +747,7 @@ def build_transit_translation_evidence(
         else ()
     )
     contract = TranslationContract(
-        contract_id=f"transit:{event.request.operation}",
+        contract_id="mailcpu.transit.operation",
         revision=1,
         source=source,
         target=target,
