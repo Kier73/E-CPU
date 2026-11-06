@@ -120,12 +120,13 @@ def _wait_response(channel: HypervisorOperationResultChannel, timeout: float = 1
 def _wait_request_ack(channel: ReliableChannel, expected: tuple[int, ...]) -> None:
     """Drain ACKs until the exact client request sequence is no longer pending."""
 
+    acknowledged: list[int] = []
     deadline = time.monotonic() + 10.0
     while channel.pending_sequences() and time.monotonic() < deadline:
-        channel.process_ack()
+        acknowledged.extend(channel.process_ack())
         time.sleep(0.002)
     assert channel.pending_sequences() == ()
-    assert expected
+    assert tuple(acknowledged) == expected
 
 
 def test_requester_survives_receiver_only_process_termination_and_rebinds(tmp_path: Path) -> None:
