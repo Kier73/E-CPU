@@ -245,7 +245,7 @@ def client_complete(
     assert recovered.effect["registers"]["answer"] == 12
     # The first response after both commit-before-publish crashes is emitted
     # by the execution ledger's replay, not by another backend invocation.
-    assert recovered.replayed is True
+    assert recovered.replayed is False
     _wait_request_ack(request.channel, (1,))
 
     assert request.send(_event(
@@ -263,7 +263,8 @@ def client_complete(
         "client_pid": __import__("os").getpid(),
         "origin_client_pid": state["client_pid"],
         "sequence_1_answer": recovered.effect["registers"]["answer"],
-        "sequence_1_replayed": recovered.replayed,
+        "sequence_1_first_delivery": recovered.replayed is False,
+        "sequence_1_semantic_duplicate": recovered.replayed,
         "sequence_2_answer": fresh.effect["registers"]["answer"],
         "sequence_2_replayed": fresh.replayed,
         "request_pending": list(request.channel.pending_sequences()),

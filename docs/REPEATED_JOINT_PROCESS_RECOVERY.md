@@ -44,8 +44,11 @@ The requester retransmits sequence 1 again. The receiver replays the original
 effect with zero backend entries, now publishes the response, consumes and
 acknowledges the request, and returns the result 12.
 
-The requester then submits sequence 2. It returns 42 through a fresh backend
-entry. Both reliable windows drain and the receiver journal verifies.
+From the receiver's execution-ledger perspective, sequence 1 is a replay.
+From the requester's perspective it is the first delivered response, so the
+client must mark it fresh rather than as a semantic duplicate. The requester
+then submits sequence 2. It returns 42 through a fresh backend entry. Both
+reliable windows drain and the receiver journal verifies.
 
 ## Expected accounting
 
@@ -53,7 +56,7 @@ entry. Both reliable windows drain and the receiver journal verifies.
 |---|---:|---:|
 | Sequence 1, original receiver | 12 | 1 |
 | Sequence 1 replay, first replacement receiver | response withheld at crash cut | 0 |
-| Sequence 1 replay, second replacement receiver | 12 | 0 |
+| Sequence 1 replay, second replacement receiver (first client delivery) | 12 | 0 |
 | New sequence 2 after the second restart | 42 | 1 |
 | **Total across all receiver generations** | — | **2** |
 

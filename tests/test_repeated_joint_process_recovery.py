@@ -184,7 +184,8 @@ def test_joint_process_recovery_survives_two_consecutive_commit_before_publish_c
         assert client_result["origin_client_pid"] == original_client.pid
         assert client_result["client_pid"] == final_client.pid
         assert client_result["sequence_1_answer"] == 12
-        assert client_result["sequence_1_replayed"] is True
+        assert client_result["sequence_1_first_delivery"] is True
+        assert client_result["sequence_1_semantic_duplicate"] is False
         assert client_result["sequence_2_answer"] == 42
         assert client_result["sequence_2_replayed"] is False
         assert client_result["request_pending"] == []
