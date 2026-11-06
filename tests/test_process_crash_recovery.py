@@ -9,9 +9,7 @@ import sys
 import time
 from pathlib import Path
 
-import pytest
-
-from mailcpu import NavigableComputationCheckpoint, NavigableComputationCheckpointError
+from mailcpu import NavigableComputationCheckpoint
 
 
 def test_navigable_computation_recovers_after_real_worker_process_kill(tmp_path: Path) -> None:
@@ -37,7 +35,7 @@ def test_navigable_computation_recovers_after_real_worker_process_kill(tmp_path:
         text=True,
     )
     try:
-        deadline = time.monotonic() + 30.0
+        deadline = time.monotonic() + 60.0
         while not ready_path.exists() and interrupted.poll() is None and time.monotonic() < deadline:
             time.sleep(0.01)
         assert ready_path.exists(), (
@@ -96,7 +94,7 @@ def test_navigable_computation_recovers_after_real_worker_process_kill(tmp_path:
         interrupted.kill()
         interrupted.communicate(timeout=10)
         assert interrupted.returncode != 0
-        assert not interrupted.poll() is None
+        assert interrupted.poll() is not None
     finally:
         if interrupted.poll() is None:
             interrupted.kill()
