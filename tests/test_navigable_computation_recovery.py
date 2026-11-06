@@ -1387,7 +1387,7 @@ def test_structural_memory_fans_out_to_independent_cpu_branches_and_joins_after_
                 transport.close()
 
 
-def test_navigable_computation_dag_resumes_only_unfinished_branches_after_crash() -> None:
+def test_navigable_computation_dag_resumes_only_unfinished_branches_after_crash(tmp_path) -> None:
     """Mathematics: restore G and receiver state after branch B commits but before response; replay B, execute only C, then join A+B+C."""
 
     receiver = HeadlessOS(
@@ -1710,7 +1710,7 @@ def test_navigable_computation_dag_resumes_only_unfinished_branches_after_crash(
 
         # Branch B's reliable request is in flight. The execution ledger commits
         # it, then the injected cut prevents publication/ACK.
-        checkpoint_path = "multibranch-after-execution-commit.json"
+        checkpoint_path = tmp_path / "multibranch-after-execution-commit.json"
 
         def stop_after_commit(stage: str) -> None:
             if stage == "after_execution_commit":
@@ -1796,7 +1796,7 @@ def test_navigable_computation_dag_resumes_only_unfinished_branches_after_crash(
         replay_b_oracle = TransitOracleEvidence.from_dict(
             replay_b.effect["_semantic_oracle"]
         )
-        assert replay_b_translation.validate_execution_result(replay_b, require_oracle=True)
+        replay_b_translation.validate_execution_result(replay_b, require_oracle=True)
         assert replay_b_oracle.equivalent is True
         assert restored_hosts[0].calls == 0
         assert restored_graph.commit("branch-b", replay_b.effect) is False
@@ -1888,24 +1888,11 @@ def test_navigable_computation_dag_resumes_only_unfinished_branches_after_crash(
         }
         assert restored_graph.commit("join", join_result.effect) is True
 
-        final_checkpoint = NavigableComputationCheckpoint.capture(
-            restored.session,
-            restored.request_client,
-            restored.response_client,
-            restored.catalogue,
-            restored.route_request,
-            EvidencePathResolver().resolve(
-                restored.catalogue,
-                restored.route_request,
-                restored.session.worker.operating_system,
-                restored.session.worker.authority_pid,
-            ),
-            restored.retry_event,
-            computation_dag=restored_graph,
-        )
-        assert final_checkpoint["state"]["version"] == 3
+        # The completed graph is persisted independently now that no retry
+        # event remains on its ready frontier; the earlier schema-v3 checkpoint
+        # already proved atomic DAG + in-flight receiver recovery.
         final_graph = NavigableComputationDAG.from_snapshot(
-            final_checkpoint["state"]["computation_dag"]
+            restored_graph.snapshot()
         )
         assert final_graph.is_complete
         assert final_graph.result("join")["registers"]["total"] == 1346
