@@ -79,6 +79,7 @@ reconstructed receiver backend is entered exactly once for that new operation.
 - The receiver PID is identical before and after client-process termination.
 - The client checkpoint survives the first requester interpreter's hard kill.
 - The client checkpoint preserves pending sequence 1 and result receive cursor 1.
+- A modified client checkpoint is rejected before the new requester opens replacement TCP connections.
 - The receiver checkpoint preserves execution commit, response sequence 1,
   request receive cursor 1, and journal state.
 - The restored requester receives one fresh response and one semantic duplicate
