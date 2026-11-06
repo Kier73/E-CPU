@@ -4,7 +4,15 @@ from __future__ import annotations
 
 import pytest
 
-from mailcpu import (\n    HeadlessOS,\n    QueueInterpreter,\n    ReferenceInterpreter,\n    StructuralMemoryFileRef,\n    StructuralMemoryPageBacking,\n    VirtualMemory,\n    canonical_result,\n)
+from mailcpu import (
+    HeadlessOS,
+    QueueInterpreter,
+    ReferenceInterpreter,
+    StructuralMemoryFileRef,
+    StructuralMemoryPageBacking,
+    VirtualMemory,
+    canonical_result,
+)
 from mailcpu.law_certifier import Law
 from mailcpu.model import Instruction, Op, Program
 from mailcpu.semantic_translation import (
@@ -22,7 +30,7 @@ from mailcpu.semantic_translation import (
     program_representation_ref,
     structural_memory_spec_representation_ref,
 )
-from mailcpu.structural_memory import StructuralMemorySpec\n
+from mailcpu.structural_memory import StructuralMemorySpec
 from mailcpu.programs import addition_program
 
 
@@ -264,8 +272,6 @@ def test_external_effects_cannot_claim_unledgered_deterministic_replay():
 def test_structural_memory_to_vm_page_preserves_bytes_and_coordinate_receipts():
     """Mathematics: π(source Structural Memory range) = π(demand-paged VM realization) for one pinned page."""
     import hashlib
-
-    from mailcpu.law_certifier import Law
 
     page_size = 8
     operating_system = HeadlessOS(
