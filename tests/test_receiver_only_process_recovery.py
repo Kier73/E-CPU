@@ -299,6 +299,7 @@ def test_requester_survives_receiver_only_process_termination_and_rebinds(tmp_pa
         assert result["pid"] == restarted.pid
         assert result["pid"] != cut["pid"]
         assert result["pid"] != requester_pid
+        assert result["restored_phase"] in {"idle", "request-ready"}
         assert result["replayed_operation"] is True
         assert result["replay_backend_calls"] == 0
         assert result["new_operation_replayed"] is False
