@@ -60,6 +60,7 @@ from .providers import (
     StructuralMemoryFileReadReceipt,
     StructuralMemoryFileProvider,
 )
+from .structural_memory_pages import StructuralMemoryPageBacking
 from .reliability import (
     ReliabilityPolicy,
     ReliableChannel,
@@ -782,6 +783,7 @@ __all__ = [
     "ProcessReport",
     "PageFault",
     "PageBacking",
+    "StructuralMemoryPageBacking",
     "ResidentQuotaExceeded",
     "ProceduralDecisionModel",
     "ProceduralModelSpec",
