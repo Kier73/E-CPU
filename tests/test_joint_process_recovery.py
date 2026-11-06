@@ -153,6 +153,7 @@ def test_requester_and_receiver_processes_restart_from_their_own_checkpoints(tmp
                 str(restored_ready["response_port"]),
                 str(client_checkpoint),
                 str(client_result_path),
+                str(server_result_path),
             ],
             cwd=repository_root,
             stdout=subprocess.PIPE,
