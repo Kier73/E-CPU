@@ -201,6 +201,7 @@ def _expected_symbol(establishes: str) -> str | None:
         "navigation_execution": "HypervisorNavigationExecutionAdapter",
         "native_cpu": "NativeCPUContextBackend",
         "structural_memory": "StructuralMemoryRegistry",
+        "semantic_translation": "TranslationContract",
     }
     return mapping.get(stem)
 

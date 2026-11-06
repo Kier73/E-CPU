@@ -25,6 +25,21 @@ from .model import (
     TraceEvent,
     canonical_result,
 )
+from .semantic_translation import (
+    CapabilityRequirement,
+    EffectClass,
+    ObservationComparison,
+    ObservationContract,
+    ReplayClass,
+    RepresentationRef,
+    ResourceBound,
+    SemanticTranslationError,
+    TranslationContract,
+    canonical_value_digest,
+    compare_projected_observations,
+    program_representation_ref,
+    structural_memory_spec_representation_ref,
+)
 from .environment import CommandResult, VirtualEnvironment
 from .faults import FaultInjectingTransport, FaultObservation, FaultProfile
 from .kernel import (
@@ -1142,5 +1157,17 @@ __all__ = [
     "PROT_EXEC",
     "PROT_READ",
     "PROT_WRITE",
-    "WNOHANG",
+    "CapabilityRequirement",
+    "EffectClass",
+    "ObservationComparison",
+    "ObservationContract",
+    "ReplayClass",
+    "RepresentationRef",
+    "ResourceBound",
+    "SemanticTranslationError",
+    "TranslationContract",
+    "canonical_value_digest",
+    "compare_projected_observations",
+    "program_representation_ref",
+    "structural_memory_spec_representation_ref",
 ]

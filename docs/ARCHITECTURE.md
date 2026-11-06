@@ -55,6 +55,40 @@ observable as distinctness in `Q`, in `O`, and in the journal.
 **REQUIRED** A change in transport behaviour MUST NOT be observable as a change
 in the result of `δ` for an identical `K` and `request`.
 
+### 3.2 Semantic translation contracts
+
+A representation translation is admitted as a semantic correspondence only
+relative to an explicit observation contract. The contract identifies the
+source and target representation schemas and content, the content-addressed
+mapping rule or adapter definition, the exact context, preconditions,
+invariants, resource ceilings, receiver-side authority requirements, and
+effect/replay model.
+
+For one input case `x`, the claimed relation is:
+
+```text
+Observe_C(Source(x)) = Observe_C(Target(x))
+```
+
+Version 1 compares caller-projected observations by exact canonical JSON
+equality. A paired comparison is evidence for that exact case only; it is not
+a proof over all inputs and it does not validate that the caller applied the
+declared projection correctly.
+
+**REQUIRED** A translation descriptor MUST NOT confer capabilities. The
+receiver MUST check declared authority requirements against its own live
+capability and policy state.
+
+**REQUIRED** A pure translation MUST declare deterministic replay. An
+external-effect translation MUST NOT claim deterministic replay unless it is
+bound to a semantic effect ledger.
+
+The declarative contract and its paired-check boundary are specified in
+[`SEMANTIC_TRANSLATION.md`](SEMANTIC_TRANSLATION.md). Concrete examples compare
+the existing reference and queue interpreters under the canonical MailCPU
+run-result projection and verify a Structural Memory-to-demand-paged-VM-page
+realization with exact bytes and ordered coordinate receipt identities.
+
 ## 4. Lifting of conventional surfaces
 
 | Conventional surface | MailCPU lifting | Durable state / transition |

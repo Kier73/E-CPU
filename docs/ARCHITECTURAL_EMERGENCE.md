@@ -113,6 +113,38 @@ The implementation makes one measurable cost visible before any optimization: th
 
 A range-oriented registry API is a candidate next step. It should only be introduced if it can reduce lock/journal overhead while retaining a receipt for every value, a range receipt binding order and content, the exact revision/context boundary, checkpoint/replay integrity, and the same refusal semantics. It is not part of the current implementation.
 
+### 2.5 First semantic translation contract
+
+`mailcpu/semantic_translation.py` introduces a shared declarative edge
+between representations. It pins source and target type/schema/content
+identities, a content-addressed mapping definition, an observation projection
+and its definition digest, exact context, precondition and invariant digests,
+resource ceilings, declared receiver-side capability requirements, and
+effect/replay classes.
+
+The first conformance pairing runs the same validated MailCPU program
+through `ReferenceInterpreter` and `QueueInterpreter`; the existing
+`canonical_result` projection compares status, state, trace, and outputs.
+The contract also pins a content-addressed mapping definition, so changing the
+claimed adapter/rule changes contract identity even when both endpoint
+representations remain the same.
+
+A second pairing now exercises a real representation change: an admitted
+Structural Memory specification is resolved into coordinate values and then
+materialized as a demand-paged VM page through `StructuralMemoryPageBacking`.
+The paired observation compares exact bytes, the page digest, and ordered
+coordinate receipt IDs from the two paths. This verifies one pinned page and
+context while preserving structural provenance; it does not extend the finite
+witness-grounded certificate into an infinite proof.
+
+This remains a declarative contract plus paired checker, not a general
+translation runtime. It does not execute arbitrary translators, verify that
+the caller applied the declared projection correctly, prove equivalence for
+untested inputs, infer preconditions, or authorize effects. Capability
+declarations remain non-authoritative labels until a receiving host checks
+live policy. New contract fields should be added only when an integration
+requires them.
+
 ## 3. Novel-to-this-architecture possibilities
 
 This section records research opportunities created by the combination of integrated and planned primitives. These are not claims of global historical priority. Related ideas may exist in symbolic execution, program synthesis, proof-carrying computation, procedural generation, distributed systems, databases, and other fields. The question is what a working combination inside E-CPU enables that its current components do not provide separately.
