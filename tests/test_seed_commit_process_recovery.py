@@ -365,7 +365,14 @@ def test_quorum_owner_process_restart_rebinds_new_tcp_and_replays_one_operation(
         assert first.stdin is not None
         first.stdin.write("capture\n")
         first.stdin.flush()
-        assert first.stdout.readline().strip() == "CHECKPOINT"
+        checkpoint_marker = first.stdout.readline().strip()
+        if checkpoint_marker != "CHECKPOINT":
+            diagnostic_output, diagnostic_error = first.communicate(timeout=5)
+            pytest.fail(
+                "owner subprocess exited before publishing its checkpoint marker: "
+                f"returncode={first.returncode}, stdout={diagnostic_output!r}, "
+                f"stderr={diagnostic_error!r}"
+            )
         first_output, first_error = first.communicate(timeout=20)
         assert first.returncode == 87, (first_output, first_error)
         owner_checkpoint_payload = _read_canonical(checkpoint_path)
