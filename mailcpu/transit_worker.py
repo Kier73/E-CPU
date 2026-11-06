@@ -59,7 +59,7 @@ class TransitComputeWorker:
         response: HypervisorOperationResultChannel,
         fault_hook: Callable[[str], None] | None = None,
     ) -> HypervisorExecutionResult | None:
-        """Serve one authorized request and expose optional deterministic transaction cut hooks."""
+        """Mathematics: implement T(q)=authorize→execute_once→publish_result→ACK, optionally halting at a named cut."""
 
         if not isinstance(request, HypervisorOperationChannel):
             raise TypeError("transit worker request must be a HypervisorOperationChannel")
@@ -176,7 +176,7 @@ class TransitComputeWorker:
         *,
         allow_inflight: bool = False,
     ) -> dict[str, object]:
-        """Checkpoint OS/backend/channel ledgers; in-flight mode relies on sender replay over fresh transports."""
+        """Mathematics: serialize receiver state S and reliable cursors R; Q=0 by default, or preserve pending frame identities for replay."""
 
         if not isinstance(request, HypervisorOperationChannel):
             raise TypeError("worker checkpoint requires a HypervisorOperationChannel")
