@@ -233,7 +233,8 @@ def restore_and_continue(
     restored_phase = session.phase
     assert restored_phase in {"idle", "request-ready"}
     assert session.request.channel.next_receive_sequence == 1
-    assert session.response.channel.pending_sequences() == ()
+    expected_response_pending = (1,) if resend_published_response else ()
+    assert session.response.channel.pending_sequences() == expected_response_pending
     write_json_durable(result_path, {
         "stage": "restored",
         "pid": os.getpid(),
