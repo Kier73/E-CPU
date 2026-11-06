@@ -405,7 +405,7 @@ class MailCPUVirtualMachine:
         return machine
 
     def bind_page_backing(self, page_backing: PageBacking) -> None:
-        """Bind one page store to the VM and all process memories without changing their mappings."""
+        """Mathematics: bind one content-addressed store `C` across VM memories while preserving every `(M,R)` relation."""
         if not callable(getattr(page_backing, "get_page", None)) or not callable(
             getattr(page_backing, "put_page", None)
         ):
