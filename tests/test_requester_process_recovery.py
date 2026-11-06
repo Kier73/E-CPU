@@ -141,7 +141,7 @@ def test_requester_process_death_restores_durable_channel_capsule(tmp_path: Path
         tampered_envelope = json.loads(client_checkpoint.read_text(encoding="utf-8"))
         tampered_envelope["state"]["untrusted_extra"] = "mutation"
         tampered_checkpoint.write_text(
-            json.dumps(tampered_envelope, sort_keys=True, separators=(",", ":")) + "\\n",
+            json.dumps(tampered_envelope, sort_keys=True, separators=(",", ":")) + "\n",
             encoding="utf-8",
         )
         rejected_result = tmp_path / "tampered-requester-result.json"
