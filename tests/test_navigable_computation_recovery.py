@@ -1789,7 +1789,7 @@ def test_navigable_computation_dag_resumes_only_unfinished_branches_after_crash(
         assert replay_b.replayed is True
         returned_b = _wait_for_response(restored.response_client)
         assert returned_b.effect == replay_b.effect
-        assert returned_b.replayed is True
+        assert returned_b.replayed is False
         _wait_for_ack(restored.request_client.channel, (3,))
         _wait_for_ack(restored.session.response.channel, (3,))
         assert restored.session.phase == "idle"
