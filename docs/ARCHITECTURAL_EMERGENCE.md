@@ -145,6 +145,30 @@ declarations remain non-authoritative labels until a receiving host checks
 live policy. New contract fields should be added only when an integration
 requires them.
 
+
+### 2.6 Semantic evidence travels with the Transit effect
+
+The translation contract now reaches the receiver-side operation path. For each
+newly executed allowed Transit handler result, `TransitComputeWorker` binds
+the receiver-authorized event, exact operation identity, selected backend
+manifest, hypervisor decision receipt, and raw handler effect into a
+`TransitTranslationEvidence` record. The paired comparison checks that the
+handler effect survives canonical JSON normalization unchanged.
+
+The record is embedded in the effect before the hypervisor commits it. The
+execution ledger therefore stores the contract and comparison alongside the
+effect; semantic duplicates replay that same record without re-entering the
+backend. The existing quiescent worker checkpoint carries the execution
+ledger, so restored workers can return and validate the same evidence under a
+new transport frame.
+
+This closes an important provenance gap between a portable request and a
+receiver-produced result. It is not a proof that the handler computed the
+correct answer, a signed remote attestation, or a transaction across arbitrary
+external side effects. Those require independent operation-specific
+oracles/invariants, a trusted evidence-signing model, and stronger external
+effect recovery respectively.
+
 ## 3. Novel-to-this-architecture possibilities
 
 This section records research opportunities created by the combination of integrated and planned primitives. These are not claims of global historical priority. Related ideas may exist in symbolic execution, program synthesis, proof-carrying computation, procedural generation, distributed systems, databases, and other fields. The question is what a working combination inside E-CPU enables that its current components do not provide separately.
