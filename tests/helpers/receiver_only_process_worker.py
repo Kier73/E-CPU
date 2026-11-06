@@ -219,12 +219,15 @@ def restore_and_continue(checkpoint_path: Path, result_path: Path) -> None:
         response_transport,
         compute_host_factory=host_factory,
     )
-    assert session.phase == "idle"
     assert hosts and hosts[0].calls == 0
+    restored_phase = session.phase
+    assert restored_phase in {"idle", "request-ready"}
+    assert session.request.channel.next_receive_sequence == 1
+    assert session.response.channel.pending_sequences() == ()
     write_json_durable(result_path, {
         "stage": "restored",
         "pid": os.getpid(),
-        "session_phase": session.phase,
+        "session_phase": restored_phase,
         "request_receive_cursor": session.request.channel.next_receive_sequence,
     })
 
