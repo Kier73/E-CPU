@@ -43,6 +43,7 @@ MAX_CPU_ORACLE_REGISTERS = 32
 MAX_CPU_ORACLE_TICKS = 10_000
 
 MAX_STRUCTURAL_ORACLE_WORK_UNITS = 1_000_000
+MAX_STRUCTURAL_ORACLE_PARAMETER_BYTES = 900_000
 MAX_STRUCTURAL_ORACLE_INTEGER_BITS = 4_096
 MAX_GF2_ORACLE_ORDER = 64
 
@@ -263,6 +264,12 @@ def _reference_structural_value(
     """Derive one value from the admitted parameter schema without the generator adapter. Mathematics: evaluate G_family(coordinate; parameters) using a family-specific reference recurrence or closed form."""
     if coordinate.bit_length() > MAX_STRUCTURAL_ORACLE_INTEGER_BITS:
         raise TransitOracleError("Structural Memory coordinate exceeds the oracle integer-width limit")
+    parameter_json = spec.parameters_json
+    if not isinstance(parameter_json, str):
+        raise TransitOracleError("Structural Memory parameter encoding must be text")
+    parameter_bytes = len(parameter_json)
+    if parameter_bytes > MAX_STRUCTURAL_ORACLE_PARAMETER_BYTES:
+        raise TransitOracleError("Structural Memory parameter description exceeds the oracle byte limit")
     params = spec.parameters
 
     def check_integer_width(value: Any, path: str = "parameters") -> None:
@@ -281,16 +288,18 @@ def _reference_structural_value(
 
     if family == "int":
         value = (params["x0"] + params["step"] * coordinate) % params["mod"]
-        return value, 1
+        return value, parameter_bytes + 1
     if family == "lcg":
-        return _reference_lcg_value(params, coordinate)
+        value, algebra_work = _reference_lcg_value(params, coordinate)
+        return value, parameter_bytes + algebra_work
     if family == "gf2":
-        return _reference_gf2_value(params, spec.order, coordinate)
+        value, matrix_work = _reference_gf2_value(params, spec.order, coordinate)
+        return value, parameter_bytes + matrix_work
     if family == "fgraph":
         mu = params["mu"]
         lam = params["lam"]
         index = coordinate if coordinate < mu else mu + ((coordinate - mu) % lam)
-        return params["orbit"][index], 1
+        return params["orbit"][index], parameter_bytes + 1
     raise TransitOracleError(f"Structural Memory oracle does not admit family {family!r}")
 
 
