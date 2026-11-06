@@ -423,7 +423,7 @@ def build_transit_oracle_evidence(
         observed_observation=observed,
         work_units=work_units,
         work_limit=(
-            MAX_CPU_ORACLE_TICKS
+            case["max_ticks"]
             if oracle_ref == _CPU_ORACLE_REF
             else MAX_STRUCTURAL_ORACLE_WORK_UNITS
         ),
