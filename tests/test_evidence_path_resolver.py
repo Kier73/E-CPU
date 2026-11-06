@@ -461,7 +461,10 @@ def test_route_result_digest_binds_request_and_receiver_authority_snapshot() -> 
     cpu_os, cpu_pid = _os("/cpu/execute")
     gpu_pid = cpu_os.environment.kernel.spawn(
         "other-authority",
-        capabilities=(Capability("/gpu/execute", frozenset({"execute"})),),
+        capabilities=(
+            Capability("/cpu/execute", frozenset({"execute"})),
+            Capability("/gpu/execute", frozenset({"execute"})),
+        ),
         parent_pid=cpu_os.environment.init_pid,
     )
     cpu_result = EvidencePathResolver().resolve(
