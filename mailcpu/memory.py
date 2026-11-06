@@ -136,6 +136,16 @@ class VirtualMemory:
         self._blobs: dict[str, bytes] = {}
         self._shared_regions: dict[str, SharedRegion] = {}
 
+    def bind_page_backing(self, page_backing: PageBacking) -> None:
+        """Bind one host page store, without changing any current mapping or reservation."""
+        if not callable(getattr(page_backing, "get_page", None)) or not callable(
+            getattr(page_backing, "put_page", None)
+        ):
+            raise VirtualMemoryError("page backing must implement get_page and put_page")
+        if self._page_backing is not None and self._page_backing is not page_backing:
+            raise VirtualMemoryError("virtual memory is already bound to a different page backing")
+        self._page_backing = page_backing
+
     def _put_page(self, data: bytes) -> str:
         """Mathematics: address a page by `h = SHA256(data)` and store it immutably in `B[h]`."""
 
@@ -145,9 +155,8 @@ class VirtualMemory:
         self._blobs[digest] = bytes(data)
         return digest
 
-    def _get_page(self, blob_id: str) -> bytes:
-        """Mathematics: resolve `B[h]`, then `C[h]` on a cache miss, requiring `SHA256(bytes)=h` at both paths."""
-
+    def _load_page_blob(self, blob_id: str) -> bytes:
+        """Resolve and validate page bytes without mutating the resident blob cache."""
         local = self._blobs.get(blob_id)
         if local is not None:
             return local
@@ -159,6 +168,14 @@ class VirtualMemory:
             raise VirtualMemoryError(f"page backing could not resolve: {blob_id}") from error
         if not isinstance(data, bytes) or len(data) != self.page_size or hashlib.sha256(data).hexdigest() != blob_id:
             raise VirtualMemoryError(f"page backing returned invalid content: {blob_id}")
+        return data
+
+    def _get_page(self, blob_id: str) -> bytes:
+        """Resolve `B[h]`, then `C[h]`, and cache only bytes verified against the requested page identity."""
+        local = self._blobs.get(blob_id)
+        if local is not None:
+            return local
+        data = self._load_page_blob(blob_id)
         self._blobs[blob_id] = data
         return data
 
@@ -189,8 +206,14 @@ class VirtualMemory:
         for page_number in target_pages:
             self._mappings[page_number] = PageMapping(page_number, zero_blob, writable)
 
-    def reserve(self, start: int, length: int, writable: bool = True) -> None:
-        """Mathematics: reserve virtual pages `p ∈ [start/P, ceil((start+length)/P))` without allocating resident blobs."""
+    def reserve(
+        self,
+        start: int,
+        length: int,
+        writable: bool = True,
+        backing_blob_ids: tuple[str | None, ...] | list[str | None] | None = None,
+    ) -> None:
+        """Reserve virtual pages lazily, optionally pinning one content hash per reserved page."""
 
         if start < 0 or length <= 0 or start % self.page_size:
             raise VirtualMemoryError("reservation start must be aligned and length must be positive")
@@ -204,8 +227,36 @@ class VirtualMemory:
                 if page_number in self._mappings or page_number in self._reservations
             )
             raise VirtualMemoryError(f"page already mapped or reserved: {duplicate}")
-        for page_number in target_pages:
-            self._reservations[page_number] = PageReservation(page_number, writable)
+        if backing_blob_ids is None:
+            normalized_backing_ids: tuple[str | None, ...] = (None,) * count
+        else:
+            if not isinstance(backing_blob_ids, (tuple, list)) or len(backing_blob_ids) != count:
+                raise VirtualMemoryError("backing_blob_ids must contain exactly one entry per reserved page")
+            normalized: list[str | None] = []
+            for digest in backing_blob_ids:
+                if digest is None:
+                    normalized.append(None)
+                    continue
+                if (
+                    type(digest) is not str
+                    or len(digest) != 64
+                    or any(character not in "0123456789abcdef" for character in digest)
+                ):
+                    raise VirtualMemoryError("page backing identity must be a lowercase SHA-256 digest")
+                if self._page_backing is None:
+                    raise VirtualMemoryError("backed reservations require an attached page backing")
+                size_lookup = getattr(self._page_backing, "page_size_for", None)
+                if callable(size_lookup):
+                    try:
+                        actual_size = size_lookup(digest)
+                    except Exception as error:
+                        raise VirtualMemoryError(f"page backing has no registered page: {digest}") from error
+                    if actual_size != self.page_size:
+                        raise VirtualMemoryError("backing page size does not match virtual page size")
+                normalized.append(digest)
+            normalized_backing_ids = tuple(normalized)
+        for page_number, backing_blob_id in zip(target_pages, normalized_backing_ids):
+            self._reservations[page_number] = PageReservation(page_number, writable, backing_blob_id)
 
     def allocate(self, length: int, writable: bool = True, hint: int | None = None) -> int:
         """Mathematics: choose the least free aligned interval of `k=ceil(length/P)` pages, preferring an available hint."""
@@ -555,11 +606,21 @@ class VirtualMemory:
         return self._materialize(page_number, reservation)
 
     def _prepare_access(self, address: int, size: int, access: str) -> None:
-        """Mathematics: preflight every touched page `P(a,n)={⌊x/P⌋:x∈[a,a+n)}` before any state mutation."""
+        """Preflight all touched pages and resolve every pinned page before committing any materialization."""
 
         pending = self._preflight_access(address, size, access)
+        # Resolve every external page first. A missing, corrupt, or unavailable later
+        # page must not leave earlier reservations consumed by a partial access.
+        resolved: dict[int, bytes] = {}
         for page_number, reservation in pending:
-            self._materialize(page_number, reservation)
+            if reservation.backing_blob_id is not None:
+                resolved[page_number] = self._load_page_blob(reservation.backing_blob_id)
+        for page_number, reservation in pending:
+            self._materialize(
+                page_number,
+                reservation,
+                resolved_page=resolved.get(page_number),
+            )
 
     def validate_access(self, address: int, size: int, access: str) -> None:
         """Mathematics: prove `P(a,n)⊆M∪R` and quota admission without changing `(M,R)`, yielding a transaction precondition for compound syscalls."""
@@ -604,11 +665,28 @@ class VirtualMemory:
             self._resident_admitter(len(pending))
         return pending
 
-    def _materialize(self, page_number: int, reservation: PageReservation) -> PageMapping:
-        """Mathematics: resolve `R[p]=(w,h)` into `M[p]=h` or a zero page when `h=⊥`, consuming one resident quota unit."""
+    def _materialize(
+        self,
+        page_number: int,
+        reservation: PageReservation,
+        *,
+        resolved_page: bytes | None = None,
+    ) -> PageMapping:
+        """Consume a reservation only after any external bytes have passed page identity validation."""
 
         self._check_quota(1)
-        blob_id = reservation.backing_blob_id or self._put_page(b"\x00" * self.page_size)
+        if reservation.backing_blob_id is None:
+            blob_id = self._put_page(b"\x00" * self.page_size)
+        else:
+            blob_id = reservation.backing_blob_id
+            data = resolved_page if resolved_page is not None else self._get_page(blob_id)
+            if (
+                not isinstance(data, bytes)
+                or len(data) != self.page_size
+                or hashlib.sha256(data).hexdigest() != blob_id
+            ):
+                raise VirtualMemoryError(f"page backing returned invalid content: {blob_id}")
+            self._blobs[blob_id] = data
         mapping = PageMapping(page_number, blob_id, reservation.writable)
         self._mappings[page_number] = mapping
         del self._reservations[page_number]
