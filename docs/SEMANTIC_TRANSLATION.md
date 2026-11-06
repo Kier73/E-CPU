@@ -210,7 +210,10 @@ cycles, elapsed time, joules, or directly comparable units between oracle
 families.
 
 The current Structural Memory oracle is capped at 1,000,000 work units,
-4,096-bit coordinates/parameters, and GF(2) order 64. The CPU oracle is
+900,000 bytes of canonical parameter description, 4,096-bit
+coordinates/parameters, and GF(2) order 64. Its work count includes the
+parameter-description bytes scanned plus the family-specific algebraic
+operations. The CPU oracle is
 capped at 16 KiB source, 512 instructions, 32 initial registers, and 10,000
 ticks. If a supported operation exceeds its oracle bound or the independent
 observation disagrees with the backend effect, the effect encoder fails and
