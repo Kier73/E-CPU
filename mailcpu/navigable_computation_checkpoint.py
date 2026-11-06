@@ -174,6 +174,87 @@ class NavigableComputationCheckpoint:
         }
 
     @classmethod
+    def save(cls, payload: Mapping[str, Any], path: str | os.PathLike[str]) -> str:
+        """Atomically publish a verified combined checkpoint and fsync its containing directory."""
+
+        if (
+            not isinstance(payload, Mapping)
+            or set(payload) != {"format", "digest", "state"}
+            or payload.get("format") != cls.FORMAT
+            or not isinstance(payload.get("state"), Mapping)
+        ):
+            raise NavigableComputationCheckpointError("cannot save an invalid checkpoint envelope")
+        expected = hashlib.sha256(cls._canonical(payload["state"])).hexdigest()
+        supplied = payload.get("digest")
+        if not isinstance(supplied, str) or not hmac.compare_digest(supplied, expected):
+            raise NavigableComputationCheckpointError("cannot save a checkpoint with an invalid digest")
+
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        encoded = cls._canonical(payload) + b"\\n"
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{target.name}.",
+            suffix=".tmp",
+            dir=str(target.parent),
+        )
+        temporary = Path(temporary_name)
+        try:
+            if hasattr(os, "fchmod"):
+                os.fchmod(descriptor, 0o600)
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(encoded)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, target)
+            try:
+                directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+                directory_fd = os.open(str(target.parent), directory_flags)
+            except OSError:
+                directory_fd = None
+            if directory_fd is not None:
+                try:
+                    os.fsync(directory_fd)
+                except OSError:
+                    pass
+                finally:
+                    os.close(directory_fd)
+        except Exception:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
+            raise
+        return supplied
+
+    @classmethod
+    def load(cls, path: str | os.PathLike[str]) -> dict[str, Any]:
+        """Read a published checkpoint and verify its envelope digest before returning it."""
+
+        source = Path(path)
+        try:
+            payload = json.loads(source.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise NavigableComputationCheckpointError(
+                f"cannot read navigable computation checkpoint: {exc}"
+            ) from exc
+        if (
+            not isinstance(payload, Mapping)
+            or set(payload) != {"format", "digest", "state"}
+            or payload.get("format") != cls.FORMAT
+            or not isinstance(payload.get("state"), Mapping)
+        ):
+            raise NavigableComputationCheckpointError("navigable computation checkpoint envelope is invalid")
+        expected = hashlib.sha256(cls._canonical(payload["state"])).hexdigest()
+        supplied = payload.get("digest")
+        if not isinstance(supplied, str) or not hmac.compare_digest(supplied, expected):
+            raise NavigableComputationCheckpointError("navigable computation checkpoint digest mismatch")
+        return dict(payload)
+
+    @classmethod
     def restore(
         cls,
         payload: Mapping[str, Any],
