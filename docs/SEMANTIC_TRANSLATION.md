@@ -198,9 +198,19 @@ equivalence, trace refinement, bisimulation, partial observational equivalence,
 and proof-carrying translations need distinct comparison relations and explicit
 evidence semantics; they must not be smuggled into this one.
 
-The next useful integration is to attach contracts to one actual translation
-path—first a bounded MailCPU-to-Transit operator path or a Structural
-Memory-to-byte-page realization—and verify the resulting observations and
-receipts. Only after a real path demonstrates the necessary fields should the
-contract schema grow. In particular, the descriptor must not become a second
-authority engine or an untyped generic AST.
+The first receiver-side Transit integration now attaches
+`TransitTranslationEvidence` to committed allowed handler effects. It binds
+the authorized event identity/fingerprint, backend operation/resource/domain
+and manifest, policy decision receipt, raw effect digest, and canonical JSON
+round-trip check. The evidence is committed with the existing hypervisor
+execution result, so semantic replay and worker checkpoint restoration return
+the same record.
+
+The next step is to add operation-specific independent semantic oracles to
+selected Transit adapters. The current paired check proves that the handler's
+effect survives canonicalization unchanged; it does not prove that the
+handler's answer is correct. For arithmetic, compare against a separate
+reference interpreter; for structural-memory reads, compare the returned
+receipt/value projection against an independently derived expected coordinate
+under the same pinned admitted version. Continue to keep authority local and
+leave arbitrary, unverified translators outside the executable path.
