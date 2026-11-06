@@ -5,22 +5,46 @@ from __future__ import annotations
 import hashlib
 import heapq
 import json
+import math
 import re
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping
 
 
-_HEX_DIGEST = re.compile(r"[0-9a-f]{64}\\Z")
-_NODE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\\Z")
+_HEX_DIGEST = re.compile(r"[0-9a-f]{64}\Z")
+_NODE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z")
 
 
 class ComputationDAGError(ValueError):
     """A computation graph is malformed, cyclic, over budget, or inconsistently committed."""
 
 
+def _validate_json_value(value: Any) -> None:
+    """Mathematics: admit only JSON algebra J={null,bool,int,finite-float,string,list,object[string→J]}."""
+
+    if value is None or isinstance(value, (str, bool, int)):
+        return
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ComputationDAGError("non-finite numbers are outside the computation DAG value algebra")
+        return
+    if isinstance(value, list):
+        for item in value:
+            _validate_json_value(item)
+        return
+    if isinstance(value, Mapping):
+        if any(not isinstance(key, str) for key in value):
+            raise ComputationDAGError("JSON object keys must be strings")
+        for item in value.values():
+            _validate_json_value(item)
+        return
+    raise ComputationDAGError(f"unsupported computation DAG value type: {type(value).__name__}")
+
+
 def _canonical(value: Any) -> bytes:
     """Mathematics: define canonical encoding J(x)=UTF8(JSON_sort_keys(x)) for stable digest identity."""
 
+    _validate_json_value(value)
     try:
         return json.dumps(
             value,
@@ -276,6 +300,13 @@ class NavigableComputationDAG:
         missing = set(node.dependencies) - set(self._nodes)
         if missing:
             raise ComputationDAGError("revised node names unknown dependencies")
+        edge_count = (
+            sum(len(item.dependencies) for item in self._nodes.values())
+            - len(current.dependencies)
+            + len(node.dependencies)
+        )
+        if edge_count > self.MAX_EDGES:
+            raise ComputationDAGError("revised computation DAG exceeds its edge bound")
         previous = self._nodes[node.node_id]
         self._nodes[node.node_id] = node
         try:
