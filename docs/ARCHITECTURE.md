@@ -1,13 +1,5 @@
 # MailCPU Architecture
 
-For the supported pure CPU arithmetic and Structural Memory coordinate
-operations, `TransitComputeWorker` additionally computes a bounded
-independent oracle observation before commit. It compares exact projected
-terminal state or pinned coordinate provenance/value and records deterministic
-work units. A mismatch or exhausted oracle budget prevents commit. The
-operation-specific scope and finite-case proof boundary are documented in
-[`SEMANTIC_TRANSLATION.md`](SEMANTIC_TRANSLATION.md).
-
 Normative specification of the MailCPU state model, its lifting of conventional
 hardware surfaces, the capability model, and the evidence-tier vocabulary.
 
@@ -105,6 +97,14 @@ evidence is included before `HypervisorArbitrationLoop` stores the effect,
 semantic replay and worker checkpoint restoration retain the same evidence.
 This proves the recorded effect's representation integrity and provenance
 binding, not the backend's independent correctness for every input.
+
+For supported CPU arithmetic and Structural Memory coordinate operations,
+the worker now runs a bounded independent oracle before commit. It compares
+the projected terminal state or pinned coordinate value/provenance and
+records deterministic work units. A mismatch or exhausted work ceiling
+prevents the effect from entering the hypervisor ledger. This is a finite
+per-case check, not a universal proof; the exact oracle definitions and
+limits are specified in `SEMANTIC_TRANSLATION.md`.
 
 ## 4. Lifting of conventional surfaces
 
