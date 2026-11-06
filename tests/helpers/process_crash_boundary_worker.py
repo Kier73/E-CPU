@@ -253,8 +253,7 @@ def client_restore(
     assert fresh.replayed is False
     _wait_request_ack(request.channel, (2,))
 
-    expected_receive_cursor = 2 + response_count
-    assert response.channel.next_receive_sequence == expected_receive_cursor + 1
+    assert response.channel.next_receive_sequence == 2 + response_count
     assert request.channel.pending_sequences() == ()
     assert len(response.snapshot()["seen"]) == 2
 
