@@ -49,7 +49,8 @@ make two representations interchangeable.
 An `EvidencePathRequest` binds:
 
 - exact source and target representation references;
-- one exact context digest;
+- one primary context digest plus a bounded set of explicitly accepted
+  per-edge context digests (the primary context is always included);
 - the digests of preconditions and invariants that the trusted caller says
   have already been established;
 - a minimum evidence tier;
@@ -59,7 +60,8 @@ An `EvidencePathRequest` binds:
 
 For every candidate edge, the resolver checks:
 
-1. the translation contract's context digest equals the request context;
+1. the translation contract's context digest is a member of the
+   request's digest-bound `accepted_context_digests` set;
 2. all declared precondition and invariant digests are present in the request;
 3. the edge meets the request's minimum evidence tier;
 4. every declared capability requirement is satisfied by the receiving
@@ -70,6 +72,21 @@ The resolver reads capabilities from the receiver's process table. It does not
 trust the sender's `ProcessContext.capabilities` or any capability claim
 embedded in a translation contract. A missing capability blocks a candidate
 route; it does not trigger an authorization grant.
+
+The primary `context_digest` remains the result's primary context identity.
+A multi-operation route may explicitly list different edge-local contexts in
+`accepted_context_digests`; the set is sorted, bounded to 64 total digests,
+and included in the request digest. This avoids rewriting an operation's exact
+Transit request context merely to make two operations look identical.
+
+Acceptance is not context equivalence. The caller is responsible for declaring
+which exact operation contexts belong to the route. Where representations pass
+between different contexts, the route should contain an explicit translation
+edge whose mapping and observation evidence establish the required
+case-specific handoff. The resolver checks context membership and exact
+representation continuity; it does not infer that two contexts are equivalent
+or prove their wider compatibility. Omitting an edge's context from the
+accepted set blocks that edge.
 
 Precondition and invariant digests are caller-supplied facts. The resolver
 checks their exact identities but does not manufacture or authenticate their
