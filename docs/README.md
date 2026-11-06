@@ -40,6 +40,7 @@ Index of specification documents. Documents use defined terms from `GLOSSARY.md`
 | 32 | [`EVIDENCE_PATH_RESOLVER.md`](EVIDENCE_PATH_RESOLVER.md) | Evidence-indexed representation routes, multidimensional resource costs, receiver-local capability filtering, and non-authoritative path proposals |
 | 33 | [`NAVIGABLE_COMPUTATION_EXPERIMENT.md`](NAVIGABLE_COMPUTATION_EXPERIMENT.md) | End-to-end Structural Memory to Transit CPU composition, evidence-backed representation routing, replay, and measured boundaries |
 | 34 | [NAVIGABLE_COMPUTATION_RECOVERY.md](NAVIGABLE_COMPUTATION_RECOVERY.md) | Integrity-bound recovery of receiver state, both channel endpoints, evidence route catalogue, and semantic retry identity |
+| 35 | [NAVIGABLE_COMPUTATION_DAG.md](NAVIGABLE_COMPUTATION_DAG.md) | Persistent computation DAGs, predecessor-gated dispatch, independent Transit branches, monotonic operation revision, and dependency-guarded joins |
 
 ## Document classes
 
@@ -53,7 +54,7 @@ Index of specification documents. Documents use defined terms from `GLOSSARY.md`
 
 **Procedure & Roadmap.** `PLAN.md`, `BUILDOUT_REQUIREMENTS.md`, `ITERATION_2_BUILD_PLAN.md`, `DOGFOODING_AND_EMPIRICAL_LIMITS.md`. Research plan, evaluation procedure, Iteration 2 build plan, and dogfooding report.
 
-**Runtime & Navigation.** `SEMANTIC_TRANSLATION.md`, `TRANSIT_COMPUTE.md`, `TRANSIT_PATH_STATE.md`, `STATE_SPACE_NAVIGATION.md`, `CONTEXTUAL_PROCESS_NAVIGATION.md`, `FORMAL_NAVIGATION.md`, `NAVIGATION_BRIDGE.md`, `NAVIGATION_COORDINATOR.md`, `NAVIGATION_ADMISSION.md`, `NAVIGATION_EXECUTION.md`, `NATIVE_VCPU_CONTEXT.md`, `STRUCTURAL_MEMORY.md`. Native vCPU context commits, bounded transit execution, persistent path state, orbit scheduling, symbolic capacity, contextual resolution, replayable derivation, abstract reachability, process equivalence, causal dependencies, conservative compilation, coordinated navigation plans, hypervisor-owned execution admission, crash-recoverable state execution, and verified generative memory.
+**Runtime & Navigation.** `NAVIGABLE_COMPUTATION_DAG.md`, `NAVIGABLE_COMPUTATION_RECOVERY.md`,  `SEMANTIC_TRANSLATION.md`, `TRANSIT_COMPUTE.md`, `TRANSIT_PATH_STATE.md`, `STATE_SPACE_NAVIGATION.md`, `CONTEXTUAL_PROCESS_NAVIGATION.md`, `FORMAL_NAVIGATION.md`, `NAVIGATION_BRIDGE.md`, `NAVIGATION_COORDINATOR.md`, `NAVIGATION_ADMISSION.md`, `NAVIGATION_EXECUTION.md`, `NATIVE_VCPU_CONTEXT.md`, `STRUCTURAL_MEMORY.md`. Native vCPU context commits, bounded transit execution, persistent path state, orbit scheduling, symbolic capacity, contextual resolution, replayable derivation, abstract reachability, process equivalence, causal dependencies, conservative compilation, coordinated navigation plans, hypervisor-owned execution admission, crash-recoverable state execution, and verified generative memory.
 
 **Research & Theory.** `COMMUNICATION_SUBSTRATES_AND_INFORMATION_THEORY.md`, `CROSS_SYSTEM_SYNTHESIS_TIME_COMPUTATION_MODELS.md`, `ARCHITECTURAL_EMERGENCE.md`. Substrate information theory, temporal models, cross-paradigm synthesis, and the distinction between demonstrated capability and architectural possibility.
 
