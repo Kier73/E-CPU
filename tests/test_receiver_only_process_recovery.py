@@ -277,7 +277,7 @@ def test_requester_survives_receiver_only_process_termination_and_rebinds(tmp_pa
             "set left 14\nset right 28\nadd answer left right\nhalt",
         )
         assert request_client.send(second_event) == 2
-        new_response = _wait_response(response_client)
+        new_response = _wait_response(response_client, restarted, result_path)
         assert new_response.effect["registers"]["answer"] == 42
         assert new_response.replayed is False
         second_translation = TransitTranslationEvidence.from_dict(
