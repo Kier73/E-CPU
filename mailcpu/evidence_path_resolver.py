@@ -560,7 +560,7 @@ class EvidencePathRequest:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "EvidencePathRequest":
-        """Restore the exact versioned route query after strict schema and typed-field validation."""
+        """Mathematics: invert the v2 query encoding iff schema, endpoints, contexts, metrics, and limits reconstruct exact request Q."""
         expected = {
             "schema", "source", "target", "context_digest",
             "accepted_context_digests", "metric_order", "resource_ceilings",
