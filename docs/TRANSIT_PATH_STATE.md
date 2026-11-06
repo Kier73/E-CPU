@@ -88,6 +88,35 @@ A read is always revision-pinned. It does not silently follow a later active rev
 
 The integration demonstrates receiver-side access to a local generative state family through a communication path. It does not yet transfer structural memories between hosts, replicate registry state, prove the external origin of witness observations, learn context-to-generator transformations, provide a distributed consensus layer, or demonstrate a performance advantage over local reads.
 
+### Semantic translation evidence in the receiver path
+
+Every newly executed, allowed Transit backend result now passes through the
+worker's effect encoder before the hypervisor commits it. The worker binds the
+receiver-authorized event, exact operation identity, selected backend
+manifest, policy decision receipt, and raw handler effect into a
+`TransitTranslationEvidence` record.
+
+The contract pins the authorized event as its source representation, the raw
+handler result as its target representation, and the operation/resource/domain
+plus sorted backend manifest as the mapping identity. It declares the local
+resource/right requirement and classifies the effect as journaled with
+semantic-ledger replay.
+
+The paired check compares the raw handler result with its canonical JSON
+round-trip. The resulting evidence is embedded in the effect before
+`HypervisorArbitrationLoop` stores it. A same-identity retry therefore
+replays the same effect and evidence without calling the handler again. The
+existing worker checkpoint persists that execution ledger; after restore,
+the returned evidence can be validated against the replayed result's request
+identity, fingerprint, decision receipt, domain, and effect digest.
+
+This is a representation-integrity and provenance binding, not an independent
+oracle for backend correctness. The operation-specific tests remain
+responsible for proving that a particular handler returns the correct
+semantic value. The evidence also remains unsigned: it records what the
+receiver committed, not a cryptographic attestation from a trusted external
+party.
+
 ## CPU, SIMT, and memory movement
 
 The portable request algebra should eventually describe *what must be computed*, not prescribe one chip's instruction schedule. A later backend could map a request to scalar CPU operations, vector operations, SIMT groups, or data-movement operations. The path would select among those backends using declared capabilities, resource budgets, data shape, and locality.
