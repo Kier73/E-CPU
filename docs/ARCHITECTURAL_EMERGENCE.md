@@ -169,6 +169,34 @@ external side effects. Those require independent operation-specific
 oracles/invariants, a trusted evidence-signing model, and stronger external
 effect recovery respectively.
 
+
+## 2.7 Independent oracle checks become part of operation cost
+
+The receiver-side effect path now performs an independent semantic check for
+pure CPU arithmetic and Structural Memory coordinate reads before commit.
+The CPU oracle interprets the admitted arithmetic subset through a separate
+transport-free transition loop. The Structural Memory oracle derives the
+requested value from an exact admitted specification and certificate without
+calling the production generator adapter. Each comparison is bound to the
+authorized request and records the expected/observed projection plus
+deterministic oracle work units and a hard ceiling.
+
+This turns verification into explicit operation structure rather than
+decorative metadata: the path can see which oracle ran, which case was checked,
+what observation was compared, and what bounded work was consumed. A failure
+to agree or stay within the bound prevents the backend effect from entering
+the hypervisor execution ledger. A semantic duplicate then reuses the stored
+effect and evidence rather than paying the oracle cost again.
+
+The accounting is deliberately not called physical latency or energy. A CPU
+instruction count, an affine-map composition, and a GF(2) matrix row operation
+are different logical cost units. Converting them into comparable time,
+bandwidth, or energy estimates will require measurement on concrete execution
+substrates. The current oracle still checks one finite case; it does not turn
+witness-grounded laws into universal proofs or attest against a malicious
+receiver.
+
+
 ## 3. Novel-to-this-architecture possibilities
 
 This section records research opportunities created by the combination of integrated and planned primitives. These are not claims of global historical priority. Related ideas may exist in symbolic execution, program synthesis, proof-carrying computation, procedural generation, distributed systems, databases, and other fields. The question is what a working combination inside E-CPU enables that its current components do not provide separately.
