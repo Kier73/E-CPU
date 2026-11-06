@@ -22,8 +22,7 @@ The supervisor launches
 `tests/helpers/navigable_process_worker.py prepare CHECKPOINT MARKER`
 using `subprocess.Popen`. That child constructs a fresh HeadlessOS receiver,
 admitted Structural Memory recurrence, Transit worker/session, reliable TCP
-channels, evidence route, and four-node computation frontier (memory, branches
-A/B/C, and join).
+channels, evidence route, and five-node computation DAG (memory, branches A/B/C, and join).
 
 The child reads `x_23=220`, executes branch A (239), then submits branch B
 (660). At the Transit `after_execution_commit` fault hook, the child:
@@ -35,7 +34,7 @@ The child reads `x_23=220`, executes branch A (239), then submits branch B
    temporary file, atomically replaces the checkpoint path, and attempts to
    fsync the parent directory;
 3. writes and fsyncs a supervisor marker containing its PID, checkpoint digest,
-   backend call count, graph frontier, and proof that no response is pending;
+   backend call count, graph frontier, and proof that request sequence 3 remains pending/unacknowledged while no response is pending;
 4. blocks inside the fault hook, before the worker can publish a response or
    acknowledge the request.
 
