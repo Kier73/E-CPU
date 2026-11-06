@@ -701,7 +701,7 @@ def test_route_request_binds_explicit_operation_context_scopes() -> None:
 
     too_many = tuple(
         canonical_value_digest({"context_index": index})
-        for index in range(64)
+        for index in range(65)
     )
     with pytest.raises(ValueError, match="64-context request limit"):
         EvidencePathRequest(
