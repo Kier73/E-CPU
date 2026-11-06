@@ -61,6 +61,7 @@ class NavigableComputationCheckpoint:
 
     @staticmethod
     def _canonical(value: Any) -> bytes:
+        """Encode a value as deterministic UTF-8 JSON for checkpoint hashing."""
         try:
             return json.dumps(
                 value,
