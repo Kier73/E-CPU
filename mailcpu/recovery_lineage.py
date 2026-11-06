@@ -181,7 +181,13 @@ class RecoveryCheckpointManifest:
             "backend_manifest_digest",
             "capture_cut",
         }
-        if not isinstance(payload, Mapping) or set(payload) != fields or payload.get("version") != 1:
+        if (
+            not isinstance(payload, Mapping)
+            or set(payload) != fields
+            or not isinstance(payload.get("version"), int)
+            or isinstance(payload.get("version"), bool)
+            or payload.get("version") != 1
+        ):
             raise RecoveryLineageError("recovery checkpoint manifest fields or version are invalid")
         try:
             return cls(
