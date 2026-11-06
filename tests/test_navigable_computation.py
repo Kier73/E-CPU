@@ -442,14 +442,16 @@ def test_structural_memory_value_navigates_into_oracle_checked_transit_computati
                 RouteMetric("latency_us", "us", 40),
                 RouteMetric("energy_nj", "nJ", 400),
             ),
-            satisfied_preconditions=(
+            satisfied_preconditions=tuple(sorted({
                 bridge_precondition,
+                *memory_edge.contract.precondition_digests,
                 *cpu_translation.contract.precondition_digests,
-            ),
-            satisfied_invariants=(
+            })),
+            satisfied_invariants=tuple(sorted({
                 bridge_invariant,
+                *memory_edge.contract.invariant_digests,
                 *cpu_translation.contract.invariant_digests,
-            ),
+            })),
             minimum_evidence=EvidenceStrength.PAIRED_CASE,
             max_hops=4,
             max_expansions=16,
