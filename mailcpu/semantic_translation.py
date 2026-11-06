@@ -23,6 +23,7 @@ from .structural_memory import StructuralMemorySpec
 _SCHEMA = "mailcpu.semantic-translation-contract.v1"
 _CHECK_SCHEMA = "mailcpu.semantic-translation-check.v1"
 _IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}\Z")
+_RESOURCE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 _RIGHT = re.compile(r"[A-Za-z][A-Za-z0-9._-]{0,63}\Z")
 _RESOURCE = re.compile(r"/?[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}\Z")
 
