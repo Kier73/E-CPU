@@ -37,6 +37,7 @@ Index of specification documents. Documents use defined terms from `GLOSSARY.md`
 | 29 | [`NATIVE_VCPU_CONTEXT.md`](NATIVE_VCPU_CONTEXT.md) | Safepoint-only navigation of the native scheduler PC/register file with atomic checkpoint and receipt recovery |
 | 30 | [`STRUCTURAL_MEMORY.md`](STRUCTURAL_MEMORY.md) | Verified generator specifications, evidence certificates, context-bound reads, VFS file providers, demand-paged structural-memory pages, COW, revision admission, and checkpoint/journal persistence |
 | 31 | [`ARCHITECTURAL_EMERGENCE.md`](ARCHITECTURAL_EMERGENCE.md) | Present capabilities, current build boundaries, and testable possibilities created by architectural composition |
+| 32 | [`EVIDENCE_PATH_RESOLVER.md`](EVIDENCE_PATH_RESOLVER.md) | Evidence-indexed representation routes, multidimensional resource costs, receiver-local capability filtering, and non-authoritative path proposals |
 
 ## Document classes
 
