@@ -245,6 +245,8 @@ class EvidencePathEdge:
                 raise EvidencePathError("route oracle evidence must have an equivalent observation")
             if self.contract.source.content_digest != self.oracle_evidence.request_fingerprint:
                 raise EvidencePathError("oracle request fingerprint does not match the edge source representation")
+            if self.transit_evidence is None:
+                raise EvidencePathError("independent Transit oracle evidence must remain bound to its translation evidence")
 
         if self.transit_evidence is not None:
             if not isinstance(self.transit_evidence, TransitTranslationEvidence):
@@ -546,7 +548,7 @@ class EvidencePathRequest:
         }
 
 
-@dataclass(frozen=True, order=True)
+@dataclass(frozen=True)
 class EvidencePathBlocker:
     """One deterministic reason an edge or continuation was excluded."""
 
@@ -617,7 +619,15 @@ class EvidencePathResult:
         blockers = tuple(self.blockers)
         if any(not isinstance(item, EvidencePathBlocker) for item in blockers):
             raise EvidencePathError("route blockers must be EvidencePathBlocker values")
-        object.__setattr__(self, "blockers", tuple(sorted(set(blockers))))
+        unique_blockers = set(blockers)
+        object.__setattr__(
+            self,
+            "blockers",
+            tuple(sorted(
+                unique_blockers,
+                key=lambda item: (item.edge_id, item.code.value, item.metric_name or ""),
+            )),
+        )
         if status is EvidencePathStatus.FOUND and (not edge_ids or self.evidence_strength is None):
             raise EvidencePathError("FOUND route must contain at least one edge and an evidence tier")
         if status is EvidencePathStatus.ALREADY_AT_TARGET and edge_ids:
