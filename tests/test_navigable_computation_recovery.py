@@ -1158,14 +1158,14 @@ def test_structural_memory_fans_out_to_independent_cpu_branches_and_joins_after_
             "triple": "\\n".join((
                 f"set structural_value {expected_value}",
                 f"set answer {expected_value}",
-                "add answer structural_value",
-                "add answer structural_value",
+                "add answer answer structural_value",
+                "add answer answer structural_value",
                 "halt",
             )),
             "double-plus-7": "\\n".join((
                 f"set structural_value {expected_value}",
                 f"set answer {expected_value}",
-                "add answer structural_value",
+                "add answer answer structural_value",
                 "set offset 7",
                 "add answer answer offset",
                 "halt",
