@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import time
 
+import pytest
+
 from mailcpu import (
     Capability,
     CapabilityRequirement,
@@ -34,7 +36,9 @@ from mailcpu import (
     compare_projected_observations,
 )
 from mailcpu.evidence_path_resolver import (
+    EvidencePathBlockerCode,
     EvidencePathCatalogue,
+    EvidencePathError,
     EvidencePathEdge,
     EvidencePathRequest,
     EvidencePathResolver,
@@ -452,6 +456,47 @@ def test_structural_memory_value_navigates_into_oracle_checked_transit_computati
             "latency_us": 22,
             "energy_nj": 252,
         }
+
+        # Negative control 1: a changed immediate no longer satisfies the
+        # receipt-to-request observation and cannot become a route edge.
+        mismatch = compare_projected_observations(
+            bridge_contract,
+            case_payload={
+                "memory_receipt_digest": canonical_value_digest(raw_memory_receipt),
+                "cpu_request_digest": canonical_value_digest(cpu_event.to_dict()),
+            },
+            source_observation={"value": expected_memory_value},
+            target_observation={"value": expected_memory_value + 1},
+        )
+        assert mismatch.equivalent is False
+        with pytest.raises(EvidencePathError, match="successful check"):
+            EvidencePathEdge(
+                contract=bridge_contract,
+                comparison=mismatch,
+                costs=(
+                    RouteMetric("latency_us", "us", 4),
+                    RouteMetric("energy_nj", "nJ", 12),
+                ),
+            )
+
+        # Negative control 2: having CPU execution authority is insufficient
+        # when the first edge also requires Structural Memory read authority.
+        cpu_only_pid = operating_system.environment.kernel.spawn(
+            "navigable-computation-cpu-only",
+            capabilities=(Capability(_CPU_RESOURCE, frozenset({"execute"})),),
+            parent_pid=operating_system.environment.init_pid,
+        )
+        denied_route = EvidencePathResolver().resolve(
+            restored_catalogue,
+            route_request,
+            operating_system,
+            cpu_only_pid,
+        )
+        assert denied_route.status is EvidencePathStatus.BLOCKED
+        assert any(
+            blocker.code is EvidencePathBlockerCode.AUTHORITY_MISSING
+            for blocker in denied_route.blockers
+        )
 
         # Stage 4: a new transport frame carrying the same semantic CPU
         # request must replay the committed effect and its exact evidence.
