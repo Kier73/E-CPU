@@ -975,7 +975,7 @@ def test_navigable_computation_recovers_at_each_transit_crash_cut(cut: str, tmp_
                 transport.close()
 
 
-def test_structural_memory_fans_out_to_independent_cpu_branches_and_joins_after_restart() -> None:
+def test_structural_memory_fans_out_to_independent_cpu_branches_and_joins_after_graph_restore() -> None:
     """Mathematics: execute a dependency DAG where shared receipt r unlocks three branches and join j only after all branch commits."""
 
     receiver = HeadlessOS(
@@ -1080,14 +1080,14 @@ def test_structural_memory_fans_out_to_independent_cpu_branches_and_joins_after_
             )),
             "triple": "\\n".join((
                 f"set structural_value {expected_value}",
-                "copy answer structural_value",
+                f"set answer {expected_value}",
                 "add answer structural_value",
                 "add answer structural_value",
                 "halt",
             )),
             "double-plus-7": "\\n".join((
                 f"set structural_value {expected_value}",
-                "copy answer structural_value",
+                f"set answer {expected_value}",
                 "add answer structural_value",
                 "set offset 7",
                 "add answer answer offset",
@@ -1243,11 +1243,7 @@ def test_structural_memory_fans_out_to_independent_cpu_branches_and_joins_after_
         ))
         join_payload = {
             "source": join_source,
-            "initial_registers": {
-                "branch_a_digest": graph.result("plus-19")["state_digest"],
-                "branch_b_digest": graph.result("triple")["state_digest"],
-                "branch_c_digest": graph.result("double-plus-7")["state_digest"],
-            },
+            "initial_registers": {"branch_count": 3},
             "max_ticks": 20,
         }
         # Revise the still-pending join node from its placeholder description
