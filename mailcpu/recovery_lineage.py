@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Mapping
 
 from .seed_commit_quorum import (
@@ -260,6 +261,8 @@ class RecoveryLineageProof:
         if (
             not isinstance(payload, Mapping)
             or set(payload) != {"version", "proposal", "certificate", "decisions"}
+            or not isinstance(payload.get("version"), int)
+            or isinstance(payload.get("version"), bool)
             or payload.get("version") != 1
             or not isinstance(payload.get("decisions"), (list, tuple))
         ):
@@ -283,7 +286,7 @@ class RecoveryLineageAuthority:
         self,
         membership: SeedCommitMembership,
         member_id: str,
-        journal_path: str,
+        journal_path: str | Path,
     ) -> None:
         """Open the member's fsynced one-vote/commit journal under immutable quorum membership."""
 
@@ -519,7 +522,11 @@ class RecoveryLineageCoordinator:
         ]
         if not supported:
             raise RecoveryLineageError("available recovery authorities do not agree on a read quorum")
-        generation, state_digest = max(supported, key=lambda item: item[0])
+        highest_generation = max(state[0] for state in supported)
+        highest_states = [state for state in supported if state[0] == highest_generation]
+        if len(highest_states) != 1:
+            raise RecoveryLineageError("read quorum contains conflicting high-water roots at one generation")
+        generation, state_digest = highest_states[0]
         if generation == 0:
             return None
 
@@ -584,6 +591,20 @@ class RecoveryLineageCoordinator:
         if proposal.digest != latest.proposal.digest:
             raise RecoveryLineageError("checkpoint manifest conflicts with committed high-water generation")
         return latest
+
+    def verify_checkpoint_bundle(
+        self,
+        manifest: RecoveryCheckpointManifest,
+        requester_checkpoint: bytes,
+        receiver_checkpoint: bytes,
+        backend_manifest: bytes,
+    ) -> RecoveryLineageProof:
+        """Verify component bytes and the independently anchored high-water manifest as one admission operation."""
+
+        if not isinstance(manifest, RecoveryCheckpointManifest):
+            raise RecoveryLineageError("checkpoint bundle verification requires a typed manifest")
+        manifest.verify_payloads(requester_checkpoint, receiver_checkpoint, backend_manifest)
+        return self.verify_checkpoint(manifest)
 
     def _validate_proof_membership(self, proof: RecoveryLineageProof) -> None:
         """Require prepare and commit sets to satisfy the configured fixed-membership quorum."""
