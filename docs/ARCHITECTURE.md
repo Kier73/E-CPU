@@ -89,6 +89,15 @@ the existing reference and queue interpreters under the canonical MailCPU
 run-result projection and verify a Structural Memory-to-demand-paged-VM-page
 realization with exact bytes and ordered coordinate receipt identities.
 
+The receiver-side Transit worker also emits `TransitTranslationEvidence`
+inside each newly committed allowed object-valued handler effect. It binds
+the receiver-authorized event, selected backend manifest, decision receipt,
+raw effect digest, and canonical JSON round-trip comparison. Because the
+evidence is included before `HypervisorArbitrationLoop` stores the effect,
+semantic replay and worker checkpoint restoration retain the same evidence.
+This proves the recorded effect's representation integrity and provenance
+binding, not the backend's independent correctness for every input.
+
 ## 4. Lifting of conventional surfaces
 
 | Conventional surface | MailCPU lifting | Durable state / transition |
