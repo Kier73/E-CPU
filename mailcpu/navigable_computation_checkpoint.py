@@ -191,7 +191,7 @@ class NavigableComputationCheckpoint:
 
         target = Path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
-        encoded = cls._canonical(payload) + b"\\n"
+        encoded = cls._canonical(payload) + b"\n"
         descriptor, temporary_name = tempfile.mkstemp(
             prefix=f".{target.name}.",
             suffix=".tmp",
