@@ -741,7 +741,7 @@ def test_navigable_computation_recovers_at_each_transit_crash_cut(cut: str, tmp_
                 RouteMetric("energy_nj", "nJ", 35),
             ),
         )
-        cpu_source = "\\n".join((
+        cpu_source = "\n".join((
             f"set structural_value {expected_value}",
             "set bias 19",
             "add answer structural_value bias",
@@ -1149,20 +1149,20 @@ def test_structural_memory_fans_out_to_independent_cpu_branches_and_joins_after_
             "payload": memory_payload,
         })
         branch_programs = {
-            "plus-19": "\\n".join((
+            "plus-19": "\n".join((
                 f"set structural_value {expected_value}",
                 "set offset 19",
                 "add answer structural_value offset",
                 "halt",
             )),
-            "triple": "\\n".join((
+            "triple": "\n".join((
                 f"set structural_value {expected_value}",
                 f"set answer {expected_value}",
                 "add answer answer structural_value",
                 "add answer answer structural_value",
                 "halt",
             )),
-            "double-plus-7": "\\n".join((
+            "double-plus-7": "\n".join((
                 f"set structural_value {expected_value}",
                 f"set answer {expected_value}",
                 "add answer answer structural_value",
@@ -1310,7 +1310,7 @@ def test_structural_memory_fans_out_to_independent_cpu_branches_and_joins_after_
             "double-plus-7": 447,
         }
         assert joined_total == 1346
-        join_source = "\\n".join((
+        join_source = "\n".join((
             f"set branch_a {branch_values['plus-19']}",
             f"set branch_b {branch_values['triple']}",
             f"set branch_c {branch_values['double-plus-7']}",
@@ -1489,20 +1489,20 @@ def test_navigable_computation_dag_resumes_only_unfinished_branches_after_crash(
         )
 
         branch_programs = {
-            "branch-a": "\\n".join((
+            "branch-a": "\n".join((
                 f"set structural_value {expected_value}",
                 "set offset 19",
                 "add answer structural_value offset",
                 "halt",
             )),
-            "branch-b": "\\n".join((
+            "branch-b": "\n".join((
                 f"set structural_value {expected_value}",
                 f"set answer {expected_value}",
                 "add answer answer structural_value",
                 "add answer answer structural_value",
                 "halt",
             )),
-            "branch-c": "\\n".join((
+            "branch-c": "\n".join((
                 f"set structural_value {expected_value}",
                 f"set answer {expected_value}",
                 "add answer answer structural_value",
@@ -1834,7 +1834,7 @@ def test_navigable_computation_dag_resumes_only_unfinished_branches_after_crash(
             for node_id in ("branch-a", "branch-b", "branch-c")
         }
         assert branch_values == {"branch-a": 239, "branch-b": 660, "branch-c": 447}
-        join_source = "\\n".join((
+        join_source = "\n".join((
             f"set branch_a {branch_values['branch-a']}",
             f"set branch_b {branch_values['branch-b']}",
             f"set branch_c {branch_values['branch-c']}",
