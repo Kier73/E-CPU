@@ -307,16 +307,23 @@ read, pure CPU Transit execution, semantic translation contracts, independent
 operation oracles, and evidence-indexed route resolution.
 
 One admitted integer recurrence supplies a coordinate value to a second CPU
-request. The exact read receipt is connected to the receiver-authorized CPU
-request by a paired translation edge; the CPU request is connected to its
-committed handler effect by the receiver-generated translation and independent
-oracle evidence. The resolver must join the two complete representation
-identities while satisfying both live capabilities and aggregate declared
-resource ceilings.
+request. The route has three exact representation edges: the committed
+Structural Memory read and its independent oracle; a paired, case-specific
+receipt-to-CPU-request handoff; and the committed CPU result with its
+independent oracle. Because the read and CPU request have distinct exact
+Transit contexts, the route request explicitly binds both edge-local context
+digests rather than rewriting either operation's identity. The bridge edge
+checks the one-case value handoff; accepted context membership itself is not a
+claim of general context equivalence.
+
+The resolver must join all three complete representation identities while
+satisfying both live capabilities, declared context scopes, and aggregate
+resource ceilings. A route with only the primary CPU context is blocked.
 
 The test also checks a semantic replay under a new transport frame, a stable
-catalogue snapshot digest, and the kernel journal chain. The route remains a
-non-authoritative proposal and the two operations remain independently
+catalogue snapshot digest, negative controls for context mismatch, translation
+mismatch and missing authority, and the kernel journal chain. The route remains
+a non-authoritative proposal and the two operations remain independently
 authorized. The current test does not yet include one combined process-restart
 recovery across both operations and the route catalogue.
 
