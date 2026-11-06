@@ -133,13 +133,19 @@ The SHA-256 envelope detects modification; it is not an authenticated
 signature, MAC, anti-rollback mechanism, or proof against a malicious storage
 provider.
 
-The requester endpoints and receiver worker are all hosted inside the
-supervised child in this first subprocess harness. Their semantic channel
-cursors are checkpointed and rebound to fresh transports, but the requester is
-not yet an independently surviving process. The next useful boundary is a
-separate client process that stays alive while only the receiver is killed,
-followed by testing restart races, repeated kill/restart cycles, and checkpoint
-generation/anti-rollback policy.
+The first subprocess harness places the requester and receiver in one
+supervised child, then reconstructs both in a fresh interpreter. The companion
+receiver-only harness is stricter about process topology: the pytest process
+owns the requester channels and stays alive while only the receiver child is
+hard-killed. It reconnects those client channels from in-memory snapshots,
+replays the unacknowledged request with zero replacement-backend calls, then
+submits a new operation successfully. See
+RECEIVER_ONLY_PROCESS_RECOVERY.md.
+
+The requester-side state in that experiment is still in-memory, not a durable
+client checkpoint. The next boundaries are requester-process death with
+client-side durable channel state, repeated kill/restart cycles at every
+transaction cut, and checkpoint generation/anti-rollback policy.
 
 The CPU jobs are deterministic and side-effect-free. The result does not prove
 exactly-once behavior for arbitrary external side effects: those require a
