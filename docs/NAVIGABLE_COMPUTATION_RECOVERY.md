@@ -49,9 +49,14 @@ separate checkpoint surfaces. Its canonical, digest-bound envelope contains:
 | Evidence path catalogue | Exact memory, bridge, and CPU translation edges, receipts, comparisons, oracle evidence, and declared costs |
 | Route request and result | Exact endpoint identities, primary and accepted context digests, evidence/prerequisite/invariant gates, cost ceilings, and the selected non-authoritative route projection |
 | Retry event | Exact CPU operation identity and payload that the requester may retransmit |
+| Computation DAG (schema v3) | Bounded operation graph, immutable node revisions, already committed predecessor results, and the exact ready frontier reconstructed before runtime exposure |
 
-Capture is allowed only at an idle, quiescent boundary. Pending request frames,
-unacknowledged responses, or active session phases prevent the snapshot.
+Quiescent capture (schema v1) is allowed only at an idle boundary. In-flight
+capture (schema v2) explicitly preserves reliable-channel cursors and may be
+taken at a named transaction cut. Schema v3 adds the computation DAG to either
+capture mode, binding its complete node/commit state under the same outer digest.
+This does not make a multi-node DAG one atomic execution transaction; it makes
+the selected graph state and protocol state one published recovery envelope.
 
 The envelope is canonical JSON with a SHA-256 integrity digest. That digest
 detects accidental or uncoordinated modification; it is not a digital
@@ -80,13 +85,14 @@ connections. New authenticated transports are supplied by the caller.
 
 ## Falsifiable checks
 
-The experiment fails unless:
+The recovery experiments fail unless:
 
 - the Structural Memory revision and receipt are restored exactly;
 - the receiver's execution ledger and kernel journal survive restoration;
 - client and worker reliable cursors continue on new streams;
 - the catalogue digest and route request digest remain unchanged;
 - the restored resolver finds the exact previously selected route;
+- schema-v3 restore reconstructs the same DAG digest, committed receipt, and ready CPU frontier before retry;
 - the saved retry event maps to the exact authorized CPU request representation;
 - retransmission produces a semantic replay with the same effect, translation,
   and oracle evidence;
@@ -98,11 +104,13 @@ or runtime restoration is attempted.
 
 ## Proof boundary
 
-This demonstrates a same-process test harness simulating a complete receiver
-and requester restart using JSON serialization, fresh TCP transports, restored
-HeadlessOS state, and a trusted local backend factory. It is not a power-loss
-test, authenticated remote checkpoint protocol, replicated durable catalogue,
-or adversarial storage proof.
+This demonstrates deterministic same-process test harnesses simulating a
+receiver/requester restart using JSON serialization, fresh TCP transports,
+restored HeadlessOS state, a trusted local backend factory, and a combined
+schema-v3 envelope containing the DAG. The graph frontier and reliable retry
+state are reconstructed together. It is not a power-loss test, authenticated
+remote checkpoint protocol, replicated durable catalogue, or adversarial
+storage proof.
 
 The envelope digest is not a signature or MAC. Production deployment would
 need authenticated storage and transport, explicit key ownership, anti-rollback
