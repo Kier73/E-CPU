@@ -23,6 +23,7 @@ from mailcpu import (
     TransitComputeSession,
     TransitComputeWorker,
     TransitTranslationEvidence,
+    TransitOracleEvidence,
 )
 from mailcpu.transit_compute import TransitComputeError, TransitComputeHost
 
@@ -279,6 +280,10 @@ def test_persistent_worker_serves_multiple_independent_requests() -> None:
             assert served.action.value == "allow"
             evidence = TransitTranslationEvidence.from_dict(served.effect["_semantic_translation"])
             evidence.validate_execution_result(served)
+            oracle = TransitOracleEvidence.from_dict(served.effect["_semantic_oracle"])
+            assert oracle.oracle.type_id == "mailcpu.transit.semantic-oracle.cpu-arithmetic"
+            assert oracle.equivalent is True
+            assert oracle.work_units <= event.request.payload["max_ticks"]
             assert evidence.operation == "execute deterministic CPU arithmetic program"
             assert evidence.resource == "/cpu/compute"
             returned = response_origin.receive()
