@@ -204,7 +204,7 @@ def test_requester_and_receiver_processes_recover_at_each_transit_crash_cut(
             "after_request_ack",
         } else 1
         expected_execution_replay = cut != "before_execution"
-        expected_backend_after_restore = 1 if cut == "before_execution" else 1
+        expected_backend_after_restore = 2 if cut == "before_execution" else 1
 
         assert restored_client.pid != original_client.pid
         assert restored_server.pid != original_server.pid
