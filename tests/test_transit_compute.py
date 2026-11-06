@@ -279,11 +279,28 @@ def test_persistent_worker_serves_multiple_independent_requests() -> None:
             assert served is not None and served.executed is True
             assert served.action.value == "allow"
             evidence = TransitTranslationEvidence.from_dict(served.effect["_semantic_translation"])
-            evidence.validate_execution_result(served)
+            evidence.validate_execution_result(served, require_oracle=True)
             oracle = TransitOracleEvidence.from_dict(served.effect["_semantic_oracle"])
             assert oracle.oracle.type_id == "mailcpu.transit.semantic-oracle.cpu-arithmetic"
             assert oracle.equivalent is True
             assert oracle.work_units <= event.request.payload["max_ticks"]
+            # Older checkpoint ledgers may contain PR25 effects without an
+            # oracle record. They remain provenance-valid, but cannot satisfy
+            # an explicit oracle requirement.
+            from dataclasses import replace
+
+            legacy_effect = {
+                key: value for key, value in served.effect.items()
+                if key != "_semantic_oracle"
+            }
+            legacy_result = replace(served, effect=legacy_effect)
+            evidence.validate_execution_result(legacy_result)
+            try:
+                evidence.validate_execution_result(legacy_result, require_oracle=True)
+            except ValueError as exc:
+                assert "required independent oracle" in str(exc)
+            else:
+                raise AssertionError("legacy translation evidence was mistaken for oracle evidence")
             assert evidence.operation == "execute deterministic CPU arithmetic program"
             assert evidence.resource == "/cpu/compute"
             returned = response_origin.receive()
