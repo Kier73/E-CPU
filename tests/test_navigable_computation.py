@@ -215,8 +215,8 @@ def test_structural_memory_value_navigates_into_oracle_checked_transit_computati
         # admitted immutable revision. The requester supplies no grant.
         coordinate = 17
         memory_event = HypervisorArbitrationEvent(
-            "experiment-client",
-            "navigable-job",
+            "client",
+            "navigable.job",
             1,
             1001,
             HypervisorRequest(
@@ -281,8 +281,8 @@ def test_structural_memory_value_navigates_into_oracle_checked_transit_computati
             )
         )
         cpu_event = HypervisorArbitrationEvent(
-            "experiment-client",
-            "navigable-job",
+            "client",
+            "navigable.job",
             2,
             1002,
             HypervisorRequest(
