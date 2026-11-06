@@ -996,6 +996,20 @@ class TransitTranslationEvidence:
         if canonical_value_digest(raw_effect) != self.effect_digest:
             raise SemanticTranslationError("Transit evidence effect digest does not match the execution result")
         raw_oracle = result.effect.get("_semantic_oracle")
+        if (
+            self.operation == "execute deterministic CPU arithmetic program"
+            and self.resource == "/cpu/compute"
+        ):
+            expected_oracle_type = _CPU_ORACLE_REF.type_id
+        elif (
+            self.operation == "read admitted structural-memory revision coordinate"
+            and self.resource == "/structural-memory/read"
+        ):
+            expected_oracle_type = _STRUCTURAL_MEMORY_ORACLE_REF.type_id
+        else:
+            expected_oracle_type = None
+        if expected_oracle_type is not None and raw_oracle is None:
+            raise SemanticTranslationError("supported Transit operation is missing independent oracle evidence")
         if raw_oracle is not None:
             if not isinstance(raw_oracle, Mapping):
                 raise SemanticTranslationError("embedded Transit oracle evidence must be an object")
@@ -1004,14 +1018,6 @@ class TransitTranslationEvidence:
                 raw_effect,
                 request_fingerprint=self.request_fingerprint,
             )
-            if self.operation == "execute deterministic CPU arithmetic program":
-                expected_oracle_type = _CPU_ORACLE_REF.type_id
-                if self.resource != "/cpu/compute":
-                    raise SemanticTranslationError("CPU oracle is bound to an unexpected resource")
-            elif self.resource == "/structural-memory/read":
-                expected_oracle_type = _STRUCTURAL_MEMORY_ORACLE_REF.type_id
-            else:
-                expected_oracle_type = None
             if expected_oracle_type is not None and oracle.oracle.type_id != expected_oracle_type:
                 raise SemanticTranslationError("Transit oracle type does not match the selected operation")
 
