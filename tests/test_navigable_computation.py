@@ -167,9 +167,8 @@ def test_structural_memory_value_navigates_into_oracle_checked_transit_computati
     )
 
     compute_host = _CountingComputeHost()
-    router = TransitBackendRouter()
+    router = TransitBackendRouter(compute_host)
     router.register_backend(TransitStructuralMemoryHost(operating_system, authority_pid))
-    router.register_backend(compute_host)
     worker = TransitComputeWorker(operating_system, authority_pid, router)
 
     request_client_transport, request_worker_transport = _tcp_pair("client", "worker")
