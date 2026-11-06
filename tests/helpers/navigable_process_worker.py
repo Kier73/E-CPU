@@ -424,6 +424,12 @@ def prepare(checkpoint_path: Path, ready_path: Path) -> None:
             "checkpoint_digest": digest,
             "initial_backend_calls": state["host"].calls,
             "session_phase": session.phase,
+            "client_request_pending": list(request_client.channel.pending_sequences()),
+            "worker_request_sequence": (
+                session.request.channel.peek()[0]
+                if session.request.channel.peek() is not None
+                else None
+            ),
             "worker_response_pending": list(session.response.channel.pending_sequences()),
             "client_response_has_message": response_client.channel.peek() is not None,
             "committed_nodes": list(state["graph"].committed_nodes),
