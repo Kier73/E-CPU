@@ -83,10 +83,11 @@ capability and policy state.
 external-effect translation MUST NOT claim deterministic replay unless it is
 bound to a semantic effect ledger.
 
-The declarative contract and its current paired-check boundary are specified
-in [`SEMANTIC_TRANSLATION.md`](SEMANTIC_TRANSLATION.md). The initial concrete
-pairing compares the existing reference and queue interpreters under the
-canonical MailCPU run-result projection.
+The declarative contract and its paired-check boundary are specified in
+[`SEMANTIC_TRANSLATION.md`](SEMANTIC_TRANSLATION.md). Concrete examples compare
+the existing reference and queue interpreters under the canonical MailCPU
+run-result projection and verify a Structural Memory-to-demand-paged-VM-page
+realization with exact bytes and ordered coordinate receipt identities.
 
 ## 4. Lifting of conventional surfaces
 
