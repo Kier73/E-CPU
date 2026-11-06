@@ -7,6 +7,7 @@ import pytest
 from mailcpu import (
     HeadlessOS,
     Instruction,
+    MailCPUVirtualMachine,
     Op,
     Program,
     StructuralMemoryFileRef,
@@ -185,3 +186,30 @@ def test_headless_checkpoint_restores_inert_page_references_then_rebinds_registr
     receipt = restored.vm.page_backing.read_receipt(digest)
     assert receipt is not None and receipt.content_digest == digest
     assert restored.environment.kernel.journal.verify()
+
+
+
+def test_local_page_identity_cannot_be_rebound_to_structural_reference() -> None:
+    operating_system = _operating_system()
+    version = _admit_byte_memory(operating_system)
+    backing = StructuralMemoryPageBacking(operating_system.structural_memory)
+    local_data = b"XXXXXXXX"
+    local_digest = backing.put_page(local_data)
+
+    with pytest.raises(ValueError, match="already backed by local page content"):
+        backing.register_page_reference(local_digest, _page_reference(version))
+
+
+def test_non_structural_page_backing_snapshot_contract_remains_unchanged() -> None:
+    class ExternalPageBacking:
+        def put_page(self, data: bytes) -> str:
+            return hashlib.sha256(data).hexdigest()
+
+        def get_page(self, digest: str) -> bytes:
+            raise KeyError(digest)
+
+        def snapshot(self) -> dict[str, str]:
+            return {"provider_type": "external_page_store", "version": "opaque"}
+
+    machine = MailCPUVirtualMachine(page_backing=ExternalPageBacking())
+    assert "page_backing_state" not in machine.snapshot()
