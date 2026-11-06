@@ -110,6 +110,7 @@ def _wait_marker(path: Path, process: subprocess.Popen[str], timeout: float = 30
 def _wait_response(
     channel: HypervisorOperationResultChannel,
     process: subprocess.Popen[str],
+    progress_path: Path,
     timeout: float = 15.0,
 ):
     """Receive one typed result and surface the receiver traceback if it exits."""
@@ -128,7 +129,8 @@ def _wait_response(
         time.sleep(0.002)
     raise AssertionError(
         "requester did not receive the Transit response before the deadline; "
-        f"receiver_returncode={process.poll()}"
+        f"receiver_returncode={process.poll()}, "
+        f"progress={progress_path.read_text(encoding='utf-8') if progress_path.exists() else None!r}"
     )
 
 
@@ -255,7 +257,7 @@ def test_requester_survives_receiver_only_process_termination_and_rebinds(tmp_pa
         # Retransmit the exact original frame. The receiver's execution ledger
         # must replay the committed effect rather than entering its new backend.
         assert request_client.channel.retransmit(1) is True
-        replayed_response = _wait_response(response_client, restarted)
+        replayed_response = _wait_response(response_client, restarted, result_path)
         assert replayed_response.effect["registers"]["answer"] == 12
         assert replayed_response.replayed is False
         translation = TransitTranslationEvidence.from_dict(
