@@ -117,6 +117,33 @@ semantic value. The evidence also remains unsigned: it records what the
 receiver committed, not a cryptographic attestation from a trusted external
 party.
 
+### Independent operation oracles
+
+The receiver now checks the semantic result before committing supported
+CPU arithmetic and Structural Memory coordinate operations. The CPU oracle
+uses a separate transport-free interpreter for the pure arithmetic opcode
+subset; the Structural Memory oracle evaluates the pinned admitted generator
+from its specification rather than calling the production generator adapter.
+Both compare exact operation-specific projections and bind the check to the
+authorized request fingerprint and concrete case.
+
+The effect carries this record under `_semantic_oracle` next to the
+`_semantic_translation` provenance record. The oracle also records its
+deterministic work units and ceiling. A mismatch or exhausted ceiling prevents
+the effect from being committed; the hypervisor's semantic ledger then replays
+the original result and evidence as one stored effect.
+
+This is a finite per-request check, not a universal proof. The CPU oracle
+currently shares the assembler parser with the backend, while independently
+implementing the admitted transition semantics. Structural Memory validation
+continues to trust the registry's admitted certificate and exact version
+identity, and independently derives only the requested coordinate. Work
+units are deterministic accounting measures, not real-world latency or
+energy readings, and are not comparable across oracle families. The exact
+limits and projection fields are specified in
+[`SEMANTIC_TRANSLATION.md`](SEMANTIC_TRANSLATION.md).
+
+
 ## CPU, SIMT, and memory movement
 
 The portable request algebra should eventually describe *what must be computed*, not prescribe one chip's instruction schedule. A later backend could map a request to scalar CPU operations, vector operations, SIMT groups, or data-movement operations. The path would select among those backends using declared capabilities, resource budgets, data shape, and locality.
