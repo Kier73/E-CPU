@@ -38,6 +38,7 @@ Index of specification documents. Documents use defined terms from `GLOSSARY.md`
 | 30 | [`STRUCTURAL_MEMORY.md`](STRUCTURAL_MEMORY.md) | Verified generator specifications, evidence certificates, context-bound reads, VFS file providers, demand-paged structural-memory pages, COW, revision admission, and checkpoint/journal persistence |
 | 31 | [`ARCHITECTURAL_EMERGENCE.md`](ARCHITECTURAL_EMERGENCE.md) | Present capabilities, current build boundaries, and testable possibilities created by architectural composition |
 | 32 | [`EVIDENCE_PATH_RESOLVER.md`](EVIDENCE_PATH_RESOLVER.md) | Evidence-indexed representation routes, multidimensional resource costs, receiver-local capability filtering, and non-authoritative path proposals |
+| 33 | [`NAVIGABLE_COMPUTATION_EXPERIMENT.md`](NAVIGABLE_COMPUTATION_EXPERIMENT.md) | End-to-end Structural Memory to Transit CPU composition, evidence-backed representation routing, replay, and measured boundaries |
 
 ## Document classes
 
