@@ -435,4 +435,4 @@ resolvable test is rejected by `scripts/verify_invariants.py`.
 
 | ID | Statement | Establishes | Enforced by | Required by |
 |---|---|---|---|---|
-| `TR-1` | A paired translation check binds one exact contract, input case, projection definition, and source/target observations; equivalence is true iff the canonical observation digests match. | `mailcpu/semantic_translation.py` | `tests/test_semantic_translation.py::test_reference_and_queue_interpreters_match_under_translation_contract`, `tests/test_semantic_translation.py::test_mismatching_observations_are_reported_not_raised_as_success` | `SEMANTIC_TRANSLATION.md` Paired observation check |
+| `X-1` | A paired translation check binds one exact contract, input case, projection definition, and source/target observations; equivalence is true iff the canonical observation digests match. | `mailcpu/semantic_translation.py` | `tests/test_semantic_translation.py::test_reference_and_queue_interpreters_match_under_translation_contract`, `tests/test_semantic_translation.py::test_mismatching_observations_are_reported_not_raised_as_success` | `SEMANTIC_TRANSLATION.md` Paired observation check |
