@@ -98,6 +98,14 @@ semantic replay and worker checkpoint restoration retain the same evidence.
 This proves the recorded effect's representation integrity and provenance
 binding, not the backend's independent correctness for every input.
 
+For supported CPU arithmetic and Structural Memory coordinate operations,
+the worker now runs a bounded independent oracle before commit. It compares
+the projected terminal state or pinned coordinate value/provenance and
+records deterministic work units. A mismatch or exhausted work ceiling
+prevents the effect from entering the hypervisor ledger. This is a finite
+per-case check, not a universal proof; the exact oracle definitions and
+limits are specified in `SEMANTIC_TRANSLATION.md`.
+
 ## 4. Lifting of conventional surfaces
 
 | Conventional surface | MailCPU lifting | Durable state / transition |

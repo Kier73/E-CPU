@@ -173,6 +173,75 @@ or differential test. It also does not sign evidence against a malicious
 receiver, grant capabilities, or extend worker checkpointing into an atomic
 transaction across arbitrary external side effects.
 
+## Independent operation oracle evidence
+
+For two receiver-side operation families, the worker now runs an independent
+semantic oracle after the backend handler returns and before the hypervisor
+commits the effect. Its typed record is embedded beside
+`_semantic_translation` under `_semantic_oracle`.
+
+The CPU oracle independently interprets the admitted pure arithmetic subset
+(`SET`, `COPY`, `ADD`, `COMPARE`, `BRANCH`, `HALT`) without calling the
+production instruction transition function or scheduler. It shares the
+assembler as the input parser, so this is an independent execution semantics
+check, not an independently implemented parser. The comparison observes
+terminal status, exit code, program counter, executed instruction count, and
+register map; scheduler PID, scheduler-event count, and whole-OS state digest
+are intentionally excluded.
+
+The Structural Memory oracle resolves the exact admitted revision and
+certificate, validates the request context and prefix horizon, then derives
+the requested coordinate without calling the production generator adapter.
+It currently covers the admitted `int`, `lcg`, `gf2`, and `fgraph`
+families. Its comparison binds the revision/spec/certificate digests,
+coordinate, context digest, value and value digest, verification class, and
+witness digest.
+
+Each `TransitOracleEvidence` binds the oracle definition reference, exact
+request fingerprint and case digest, projection digest, expected and observed
+canonical observations, and a deterministic work count with its limit.
+The CPU work count is one unit per fetched instruction, including `HALT`,
+and its limit is the request's tick budget. Structural Memory work units
+count the reference algorithm's defined primitive work: one evaluation for
+the direct `int` and `fgraph` paths, affine compositions plus the final
+projection for `lcg`, and bit-matrix row applications/compositions for
+`gf2`. These are operation-specific accounting units, not measured CPU
+cycles, elapsed time, joules, or directly comparable units between oracle
+families.
+
+The current Structural Memory oracle is capped at 1,000,000 work units,
+900,000 bytes of canonical parameter description, 4,096-bit
+coordinates/parameters, and GF(2) order 64. Its work count includes the
+parameter-description bytes scanned plus the family-specific algebraic
+operations. The CPU oracle is
+capped at 16 KiB source, 512 instructions, 32 initial registers, and 10,000
+ticks. If a supported operation exceeds its oracle bound or the independent
+observation disagrees with the backend effect, the effect encoder fails and
+the hypervisor does not commit that result. Exact semantic retries replay the
+stored effect and the same oracle evidence without rerunning the oracle.
+
+### Proof boundary
+
+An oracle comparison establishes agreement for this concrete authorized
+request, exact program/input or pinned revision/context/coordinate, and
+registered oracle definition. It does not prove all executions of the
+program, every coordinate of a Structural Memory law, the correctness of
+the assembler, or the absence of shared defects in both implementations.
+Structural Memory's existing certificate remains witness-grounded or
+prefix-grounded; the new oracle does not promote finite witnesses into an
+infinite proof. The record is produced by the trusted receiver and is not a
+signature or remote attestation against a malicious receiver.
+
+For checkpoint compatibility, `TransitTranslationEvidence.validate_execution_result`
+accepts a pre-oracle ledger effect that contains no `_semantic_oracle` when
+called with its default `require_oracle=False`. This validates the original
+translation provenance and effect digest only; it does **not** imply that an
+independent oracle ran. Callers validating a result produced under the current
+worker contract can set `require_oracle=True`; newly committed supported
+CPU and Structural Memory effects always take that path and fail before
+commit if their oracle comparison is absent, mismatched, or over budget.
+
+
 ## Composition
 
 Suppose translations T1:A->B and T2:B->C preserve the same observation

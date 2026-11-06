@@ -32,6 +32,19 @@ The receiver admits only SET, COPY, ADD, COMPARE, BRANCH and HALT. SYSCALL, SEND
 
 Each admitted request runs in a fresh HeadlessOS instance. A successful result includes terminal status, exit code, program counter, step count, final registers and a digest of the complete observed HeadlessOS state.
 
+## Independent CPU oracle
+
+The receiver worker compares each newly committed CPU arithmetic result with
+an independent transport-free evaluator for the admitted `SET`, `COPY`,
+`ADD`, `COMPARE`, `BRANCH`, and `HALT` subset. The paired observation
+includes terminal status, exit code, program counter, instruction count, and
+registers. The oracle shares the assembler parser but does not call the
+production instruction transition function or scheduler. Its work units count
+fetched instructions, including the terminal `HALT`, and are bounded by the
+request tick budget. See [`SEMANTIC_TRANSLATION.md`](SEMANTIC_TRANSLATION.md)
+for the complete oracle contract and proof limits.
+
+
 ## What the test establishes
 
 The real TCP integration test sends a program to another MailCPU endpoint, executes it through the receiver's scheduler, and returns its result through the reverse reliable channel. It checks that the result is correct, that the receiver's capability gate is authoritative, and that a second frame with the same semantic identity replays the result without invoking the compute handler again.

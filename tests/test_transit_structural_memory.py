@@ -24,6 +24,7 @@ from mailcpu import (
     TransitStructuralMemoryError,
     TransitStructuralMemoryHost,
     TransitTranslationEvidence,
+    TransitOracleEvidence,
     TRANSIT_STRUCTURAL_MEMORY_OPERATION,
     TRANSIT_STRUCTURAL_MEMORY_RESOURCE,
 )
@@ -212,6 +213,10 @@ def test_structural_memory_coordinate_read_runs_inside_receiver_transit_path() -
         assert served.effect["witness_digest"] == version.certificate.witness_digest
         assert len(served.effect["receipt_id"]) == 64
         evidence = TransitTranslationEvidence.from_dict(served.effect["_semantic_translation"])
+        oracle = TransitOracleEvidence.from_dict(served.effect["_semantic_oracle"])
+        assert oracle.oracle.type_id == "mailcpu.transit.semantic-oracle.structural-memory-coordinate"
+        assert oracle.equivalent is True
+        assert oracle.work_units <= oracle.work_limit
         assert evidence.identity == event.identity
         assert evidence.request_fingerprint == served.fingerprint
         assert evidence.decision_receipt == served.decision_receipt
@@ -224,17 +229,17 @@ def test_structural_memory_coordinate_read_runs_inside_receiver_transit_path() -
         assert evidence.comparison.equivalent is True
         raw_effect = {
             key: value for key, value in served.effect.items()
-            if key != "_semantic_translation"
+            if key not in {"_semantic_translation", "_semantic_oracle"}
         }
         assert canonical_value_digest(raw_effect) == evidence.effect_digest
         assert evidence.contract.target.content_digest == evidence.effect_digest
         assert evidence.digest == TransitTranslationEvidence.from_dict(evidence.to_dict()).digest
-        evidence.validate_execution_result(served)
+        evidence.validate_execution_result(served, require_oracle=True)
         forged_payload = evidence.to_dict()
         forged_payload["decision_receipt"] = "0" * 64
         forged_evidence = TransitTranslationEvidence.from_dict(forged_payload)
         with pytest.raises(ValueError, match="decision receipt"):
-            forged_evidence.validate_execution_result(served)
+            forged_evidence.validate_execution_result(served, require_oracle=True)
         with pytest.raises(ValueError):
             TransitTranslationEvidence.from_dict({**evidence.to_dict(), "unknown": True})
         assert calls["count"] == 1
@@ -263,9 +268,12 @@ def test_structural_memory_coordinate_read_runs_inside_receiver_transit_path() -
         assert replay is not None and replay.replayed is True
         assert replay.effect == served.effect
         replay_evidence = TransitTranslationEvidence.from_dict(replay.effect["_semantic_translation"])
+        replay_oracle = TransitOracleEvidence.from_dict(replay.effect["_semantic_oracle"])
+        assert replay_oracle == oracle
+        assert replay_oracle.digest == oracle.digest
         assert replay_evidence == evidence
         assert replay_evidence.digest == evidence.digest
-        replay_evidence.validate_execution_result(replay)
+        replay_evidence.validate_execution_result(replay, require_oracle=True)
         assert calls["count"] == 1
         replayed_response = _wait_for_response(response_client)
         assert replayed_response.replayed is True

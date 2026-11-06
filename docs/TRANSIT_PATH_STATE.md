@@ -110,12 +110,46 @@ existing worker checkpoint persists that execution ledger; after restore,
 the returned evidence can be validated against the replayed result's request
 identity, fingerprint, decision receipt, domain, and effect digest.
 
-This is a representation-integrity and provenance binding, not an independent
-oracle for backend correctness. The operation-specific tests remain
-responsible for proving that a particular handler returns the correct
-semantic value. The evidence also remains unsigned: it records what the
-receiver committed, not a cryptographic attestation from a trusted external
-party.
+The paired comparison itself is a representation-integrity and
+provenance check, not an independent oracle. The separate oracle layer below
+now checks the semantic result for supported CPU arithmetic and Structural
+Memory coordinate operations. Other backend operations still require their
+own oracle or operation-specific correctness argument. All records remain
+unsigned: they describe what the receiver committed, not a cryptographic
+attestation from an external party.
+
+### Independent operation oracles
+
+The receiver now checks the semantic result before committing supported
+CPU arithmetic and Structural Memory coordinate operations. The CPU oracle
+uses a separate transport-free interpreter for the pure arithmetic opcode
+subset; the Structural Memory oracle evaluates the pinned admitted generator
+from its specification rather than calling the production generator adapter.
+Both compare exact operation-specific projections and bind the check to the
+authorized request fingerprint and concrete case.
+
+The effect carries this record under `_semantic_oracle` next to the
+`_semantic_translation` provenance record. The oracle also records its
+deterministic work units and ceiling. A mismatch or exhausted ceiling prevents
+the effect from being committed; the hypervisor's semantic ledger then replays
+the original result and evidence as one stored effect.
+
+This is a finite per-request check, not a universal proof. The CPU oracle
+currently shares the assembler parser with the backend, while independently
+implementing the admitted transition semantics. Structural Memory validation
+continues to trust the registry's admitted certificate and exact version
+identity, and independently derives only the requested coordinate. Work
+units are deterministic accounting measures, not real-world latency or
+energy readings, and are not comparable across oracle families. The exact
+limits and projection fields are specified in
+[`SEMANTIC_TRANSLATION.md`](SEMANTIC_TRANSLATION.md).
+
+Legacy pre-oracle execution-ledger entries remain replayable. Their
+translation evidence can be validated without an oracle requirement, but that
+does not upgrade them to oracle-checked results. New supported operations
+produce the oracle record before commit and can be validated strictly with
+`require_oracle=True`.
+
 
 ## CPU, SIMT, and memory movement
 
