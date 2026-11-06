@@ -25,6 +25,7 @@ _CHECK_SCHEMA = "mailcpu.semantic-translation-check.v1"
 _IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}\Z")
 _RESOURCE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 _RIGHT = re.compile(r"[A-Za-z][A-Za-z0-9._-]{0,63}\Z")
+_RESOURCE = re.compile(r"/?[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}\Z")
 
 
 class SemanticTranslationError(ValueError):
@@ -252,7 +253,8 @@ class CapabilityRequirement:
 
     def __post_init__(self) -> None:
         """Mathematics: require a non-empty resource and finite, unique right names; no authority is created by this declaration."""
-        if not isinstance(self.resource, str) or _RESOURCE.fullmatch(self.resource) is None:\n            raise SemanticTranslationError("capability resource must be a safe resource identifier")
+        if not isinstance(self.resource, str) or _RESOURCE.fullmatch(self.resource) is None:
+            raise SemanticTranslationError("capability resource must be a safe resource identifier")
         rights = tuple(self.rights)
         if not rights or any(not isinstance(right, str) or _RIGHT.fullmatch(right) is None for right in rights):
             raise SemanticTranslationError("capability rights must be non-empty safe identifiers")
