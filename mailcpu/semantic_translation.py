@@ -723,7 +723,8 @@ class TransitTranslationEvidence:
             backend_manifest=tuple(tuple(item) for item in payload["backend_manifest"]),
             contract=TranslationContract.from_dict(payload["contract"]),
             comparison=ObservationComparison.from_dict(payload["comparison"]),
-        )    
+        )
+
     def validate_execution_result(self, result: Any) -> None:
         """Cross-check this evidence against the outer committed or replayed HypervisorExecutionResult.
 
