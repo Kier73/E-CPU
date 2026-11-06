@@ -550,6 +550,10 @@ class TransitTranslationEvidence:
     request_source: str
     request_channel: str
     request_sequence: int
+    operation: str
+    resource: str
+    domain: str
+    required_rights: tuple[str, ...]
     request_fingerprint: str
     decision_receipt: str
     effect_digest: str
@@ -558,14 +562,26 @@ class TransitTranslationEvidence:
     comparison: ObservationComparison
 
     def __post_init__(self) -> None:
-        """Mathematics: bind event identity I, request fingerprint F, decision receipt D, effect H(E), backend relation M, and a successful paired canonicalization check."""
-        for name, value in (("request_source", self.request_source), ("request_channel", self.request_channel)):
+        """Mathematics: bind event identity I, operation/resource/domain, required rights, request fingerprint F, decision receipt D, effect H(E), backend relation M, and a successful paired canonicalization check."""
+        for name, value in (
+            ("request_source", self.request_source),
+            ("request_channel", self.request_channel),
+            ("operation", self.operation),
+            ("resource", self.resource),
+            ("domain", self.domain),
+        ):
             if not isinstance(value, str) or not value:
                 raise SemanticTranslationError(f"{name} must be non-empty text")
         _positive_int(self.request_sequence, "request_sequence")
         _digest(self.request_fingerprint, "request_fingerprint")
         _digest(self.decision_receipt, "decision_receipt")
         _digest(self.effect_digest, "effect_digest")
+        rights = tuple(self.required_rights)
+        if any(not isinstance(right, str) or _RIGHT.fullmatch(right) is None for right in rights):
+            raise SemanticTranslationError("required_rights contains an invalid right")
+        if tuple(sorted(set(rights))) != rights:
+            raise SemanticTranslationError("required_rights must be sorted and unique")
+        object.__setattr__(self, "required_rights", rights)
         if any(not isinstance(item, (tuple, list)) for item in self.backend_manifest):
             raise SemanticTranslationError("backend_manifest entries must be operation/resource pairs")
         manifest = tuple(tuple(item) for item in self.backend_manifest)
@@ -577,6 +593,8 @@ class TransitTranslationEvidence:
             raise SemanticTranslationError("backend_manifest must contain non-empty operation/resource pairs")
         if tuple(sorted(set(manifest))) != manifest:
             raise SemanticTranslationError("backend_manifest must be sorted and unique")
+        if (self.operation, self.resource) not in manifest:
+            raise SemanticTranslationError("selected operation/resource is absent from the backend manifest")
         object.__setattr__(self, "backend_manifest", manifest)
         if not isinstance(self.contract, TranslationContract):
             raise SemanticTranslationError("contract must be a TranslationContract")
@@ -592,6 +610,29 @@ class TransitTranslationEvidence:
             raise SemanticTranslationError("Transit evidence request fingerprint does not match its contract source")
         if self.contract.target.content_digest != self.effect_digest:
             raise SemanticTranslationError("Transit evidence effect digest does not match its contract target")
+
+        expected_mapping = RepresentationRef.from_payload(
+            "mailcpu.transit.backend-dispatch",
+            1,
+            {
+                "operation": self.operation,
+                "resource": self.resource,
+                "domain": self.domain,
+                "backend_manifest": [list(item) for item in manifest],
+                "adapter": "mailcpu.transit-worker.effect-encoder.v1",
+            },
+        )
+        if self.contract.mapping != expected_mapping:
+            raise SemanticTranslationError("Transit evidence mapping does not match its selected backend")
+
+        expected_authority = (
+            (CapabilityRequirement(self.resource, rights),)
+            if rights
+            else ()
+        )
+        if self.contract.authority_requirements != expected_authority:
+            raise SemanticTranslationError("Transit evidence authority requirements do not match the request")
+
         if self.comparison.contract_digest != self.contract.digest:
             raise SemanticTranslationError("Transit evidence comparison is bound to another contract")
         if self.comparison.case_digest != canonical_value_digest({
@@ -622,6 +663,10 @@ class TransitTranslationEvidence:
             "request_source": self.request_source,
             "request_channel": self.request_channel,
             "request_sequence": self.request_sequence,
+            "operation": self.operation,
+            "resource": self.resource,
+            "domain": self.domain,
+            "required_rights": list(self.required_rights),
             "request_fingerprint": self.request_fingerprint,
             "decision_receipt": self.decision_receipt,
             "effect_digest": self.effect_digest,
@@ -643,6 +688,10 @@ class TransitTranslationEvidence:
             "request_source",
             "request_channel",
             "request_sequence",
+            "operation",
+            "resource",
+            "domain",
+            "required_rights",
             "request_fingerprint",
             "decision_receipt",
             "effect_digest",
@@ -652,14 +701,22 @@ class TransitTranslationEvidence:
         }
         if not isinstance(payload, Mapping) or set(payload) != expected or payload["schema"] != _TRANSIT_EVIDENCE_SCHEMA:
             raise SemanticTranslationError("Transit translation evidence schema or fields are invalid")
+        if not isinstance(payload["required_rights"], (list, tuple)):
+            raise SemanticTranslationError("Transit evidence required_rights must be an array")
         if not isinstance(payload["backend_manifest"], (list, tuple)):
             raise SemanticTranslationError("Transit evidence backend_manifest must be an array")
+        if any(not isinstance(item, (list, tuple)) for item in payload["backend_manifest"]):
+            raise SemanticTranslationError("Transit evidence backend_manifest entries must be pairs")
         if not isinstance(payload["contract"], Mapping) or not isinstance(payload["comparison"], Mapping):
             raise SemanticTranslationError("Transit evidence contract and comparison must be objects")
         return cls(
             request_source=payload["request_source"],
             request_channel=payload["request_channel"],
             request_sequence=payload["request_sequence"],
+            operation=payload["operation"],
+            resource=payload["resource"],
+            domain=payload["domain"],
+            required_rights=tuple(payload["required_rights"]),
             request_fingerprint=payload["request_fingerprint"],
             decision_receipt=payload["decision_receipt"],
             effect_digest=payload["effect_digest"],
@@ -781,6 +838,10 @@ def build_transit_translation_evidence(
         request_source=event.source,
         request_channel=event.channel,
         request_sequence=event.sequence,
+        operation=event.request.operation,
+        resource=event.request.resource,
+        domain=domain,
+        required_rights=rights,
         request_fingerprint=fingerprint,
         decision_receipt=decision_receipt,
         effect_digest=effect_digest,
