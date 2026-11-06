@@ -230,6 +230,11 @@ def test_structural_memory_coordinate_read_runs_inside_receiver_transit_path() -
         assert evidence.contract.target.content_digest == evidence.effect_digest
         assert evidence.digest == TransitTranslationEvidence.from_dict(evidence.to_dict()).digest
         evidence.validate_execution_result(served)
+        forged_payload = evidence.to_dict()
+        forged_payload["decision_receipt"] = "0" * 64
+        forged_evidence = TransitTranslationEvidence.from_dict(forged_payload)
+        with pytest.raises(ValueError, match="decision receipt"):
+            forged_evidence.validate_execution_result(served)
         with pytest.raises(ValueError):
             TransitTranslationEvidence.from_dict({**evidence.to_dict(), "unknown": True})
         assert calls["count"] == 1
