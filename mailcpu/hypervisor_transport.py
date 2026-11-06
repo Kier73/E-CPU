@@ -102,7 +102,7 @@ class HypervisorOperationChannel:
         effect_encoder: Callable[[Any], Any] | None = None,
         fault_hook: Callable[[str], None] | None = None,
     ) -> HypervisorExecutionResult | None:
-        """Dispatch one event with optional deterministic hooks at transaction cut points."""
+        """Mathematics: order authorize(e)→commit(E[e])→publish(R[e])→ACK(q), exposing hooks at each recovery cut."""
 
         if not isinstance(response, HypervisorOperationResultChannel):
             raise HypervisorOperationTransportError("operation reply requires a HypervisorOperationResultChannel")
