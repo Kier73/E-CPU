@@ -23,10 +23,12 @@ from mailcpu import (
     TransitComputeWorker,
     TransitStructuralMemoryError,
     TransitStructuralMemoryHost,
+    TransitTranslationEvidence,
     TRANSIT_STRUCTURAL_MEMORY_OPERATION,
     TRANSIT_STRUCTURAL_MEMORY_RESOURCE,
 )
 from mailcpu.law_certifier import Law
+from mailcpu.semantic_translation import canonical_value_digest
 
 
 def _tcp_pair(local: str, peer: str) -> tuple[SocketTransport, SocketTransport]:
@@ -209,6 +211,24 @@ def test_structural_memory_coordinate_read_runs_inside_receiver_transit_path() -
         assert served.effect["context_digest"] == version.spec.context_digest
         assert served.effect["witness_digest"] == version.certificate.witness_digest
         assert len(served.effect["receipt_id"]) == 64
+        evidence = TransitTranslationEvidence.from_dict(served.effect["_semantic_translation"])
+        assert evidence.identity == event.identity
+        assert evidence.request_fingerprint == served.fingerprint
+        assert evidence.decision_receipt == served.decision_receipt
+        assert evidence.backend_manifest == tuple(sorted(router.registered_backends()))
+        assert evidence.contract.source.type_id == "mailcpu.transit.authorized-event"
+        assert evidence.contract.target.type_id == "mailcpu.transit.handler-effect"
+        assert evidence.contract.mapping.type_id == "mailcpu.transit.backend-dispatch"
+        assert evidence.contract.authority_requirements[0].resource == TRANSIT_STRUCTURAL_MEMORY_RESOURCE
+        assert evidence.contract.authority_requirements[0].rights == ("read",)
+        assert evidence.comparison.equivalent is True
+        raw_effect = {
+            key: value for key, value in served.effect.items()
+            if key != "_semantic_translation"
+        }
+        assert canonical_value_digest(raw_effect) == evidence.effect_digest
+        assert evidence.contract.target.content_digest == evidence.effect_digest
+        assert evidence.digest == TransitTranslationEvidence.from_dict(evidence.to_dict()).digest
         assert calls["count"] == 1
         assert session.phase == "response-unacknowledged"
 
@@ -234,6 +254,9 @@ def test_structural_memory_coordinate_read_runs_inside_receiver_transit_path() -
                 time.sleep(0.005)
         assert replay is not None and replay.replayed is True
         assert replay.effect == served.effect
+        replay_evidence = TransitTranslationEvidence.from_dict(replay.effect["_semantic_translation"])
+        assert replay_evidence == evidence
+        assert replay_evidence.digest == evidence.digest
         assert calls["count"] == 1
         replayed_response = _wait_for_response(response_client)
         assert replayed_response.replayed is True
@@ -327,6 +350,9 @@ def test_transit_worker_checkpoint_restores_structural_memory_and_replays_same_s
             if first is None:
                 time.sleep(0.005)
         assert first is not None and first.executed and not first.replayed
+        checkpoint_evidence = TransitTranslationEvidence.from_dict(first.effect["_semantic_translation"])
+        assert checkpoint_evidence.identity == event.identity
+        assert checkpoint_evidence.request_fingerprint == first.fingerprint
         first_result = _wait_for_response(response_client)
         assert first_result.effect == first.effect
         _wait_for_ack(request_client.channel, (1,))
@@ -397,6 +423,9 @@ def test_transit_worker_checkpoint_restores_structural_memory_and_replays_same_s
         assert replay is not None
         assert replay.replayed is True
         assert replay.effect == first.effect
+        restored_evidence = TransitTranslationEvidence.from_dict(replay.effect["_semantic_translation"])
+        assert restored_evidence == checkpoint_evidence
+        assert restored_evidence.digest == checkpoint_evidence.digest
         assert restored_worker_hosts[0].operating_system.structural_memory.active_version("orbit-alpha") == version
         assert initial_host_calls["count"] == 1
 
