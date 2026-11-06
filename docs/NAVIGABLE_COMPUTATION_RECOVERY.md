@@ -18,7 +18,7 @@ fresh TCP streams after restoring both requester and receiver protocol state.
 The experiment admits the modular integer recurrence
 
 \[
-x_t=(13+9t)\\bmod 251
+x_t=(13+9t) mod 251
 \]
 
 under context {tenant: recovery, partition: 12}. The receiver reads coordinate
