@@ -516,6 +516,7 @@ def client_restore(
     ports: dict[str, Any],
     client_checkpoint: Path,
     result_path: Path,
+    server_completion_path: Path | None = None,
 ) -> None:
     """Restore durable requester state in a fresh process, receive replay, then send new work."""
 
@@ -580,6 +581,23 @@ def client_restore(
         "response_receive_cursor": response.channel.next_receive_sequence,
         "response_seen": len(response.snapshot()["seen"]),
     })
+    if server_completion_path is not None:
+        # Keep the response TCP stream alive until the receiver confirms that
+        # every response ACK has crossed the transport and left its pending set.
+        deadline = time.monotonic() + 30.0
+        server_state: dict[str, Any] | None = None
+        while time.monotonic() < deadline:
+            try:
+                loaded = json.loads(server_completion_path.read_text(encoding="utf-8"))
+                server_state = loaded if isinstance(loaded, dict) else None
+            except (FileNotFoundError, PermissionError, json.JSONDecodeError):
+                server_state = None
+            if server_state is not None and server_state.get("stage") == "complete":
+                break
+            time.sleep(0.005)
+        assert server_state is not None and server_state.get("stage") == "complete", (
+            "receiver did not confirm ACK drain before requester transport close"
+        )
     for transport in transports:
         transport.close()
 
@@ -607,12 +625,14 @@ def main(arguments: list[str]) -> int:
             Path(marker),
         )
         return 0
-    if mode == "client-restore" and len(arguments) == 5:
-        _request_port, _response_port, checkpoint, result = arguments[1:]
+    if mode == "client-restore" and len(arguments) in (5, 6):
+        _request_port, _response_port, checkpoint, result = arguments[1:5]
+        server_completion = Path(arguments[5]) if len(arguments) == 6 else None
         client_restore(
             {"request_port": int(_request_port), "response_port": int(_response_port)},
             Path(checkpoint),
             Path(result),
+            server_completion,
         )
         return 0
     raise SystemExit(
@@ -621,7 +641,7 @@ def main(arguments: list[str]) -> int:
         "server-cut SERVER_CHECKPOINT CUT_MARKER | "
         "server-restore SERVER_CHECKPOINT RESULT | "
         "client-prepare REQUEST_PORT RESPONSE_PORT CLIENT_CHECKPOINT CLIENT_MARKER | "
-        "client-restore REQUEST_PORT RESPONSE_PORT CLIENT_CHECKPOINT RESULT"
+        "client-restore REQUEST_PORT RESPONSE_PORT CLIENT_CHECKPOINT RESULT [SERVER_COMPLETION]"
     )
 
 
