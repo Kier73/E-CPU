@@ -866,6 +866,37 @@ def test_navigable_computation_recovers_at_each_transit_crash_cut(cut: str, tmp_
         assert route.status is EvidencePathStatus.FOUND
         assert route_request.target == cpu_request_ref
 
+        # The DAG is part of the same combined checkpoint as the receiver and
+        # route: the memory receipt is committed, while the exact CPU request
+        # remains the one ready node across every transaction crash cut.
+        memory_context_digest = canonical_value_digest({
+            "operation": memory_event.request.operation,
+            "resource": memory_event.request.resource,
+            "payload": memory_event.request.payload,
+        })
+        computation_dag = NavigableComputationDAG((
+            ComputationNode(
+                node_id="memory",
+                revision=1,
+                operation=memory_event.request.operation,
+                resource=memory_event.request.resource,
+                context_digest=memory_context_digest,
+                dependencies=(),
+                payload=memory_event.request.payload,
+            ),
+            ComputationNode(
+                node_id="cpu-retry",
+                revision=1,
+                operation=cpu_event.request.operation,
+                resource=cpu_event.request.resource,
+                context_digest=cpu_context_digest,
+                dependencies=("memory",),
+                payload=cpu_event.request.payload,
+            ),
+        ))
+        assert computation_dag.commit("memory", raw_receipt) is False
+        assert tuple(node.node_id for node in computation_dag.ready_nodes()) == ("cpu-retry",)
+
         checkpoint_path = tmp_path / f"{cut}.checkpoint.json"
 
         def stop_at_cut(stage: str) -> None:
@@ -879,6 +910,7 @@ def test_navigable_computation_recovers_at_each_transit_crash_cut(cut: str, tmp_
                     route,
                     cpu_event,
                     allow_inflight=True,
+                    computation_dag=computation_dag,
                 )
                 NavigableComputationCheckpoint.save(captured, checkpoint_path)
                 raise SimulatedCrash(stage)
@@ -889,8 +921,9 @@ def test_navigable_computation_recovers_at_each_transit_crash_cut(cut: str, tmp_
 
         # The combined checkpoint is an atomic file, not an in-memory test-only object.
         persisted = NavigableComputationCheckpoint.load(checkpoint_path)
-        assert persisted["state"]["version"] == 2
+        assert persisted["state"]["version"] == 3
         assert persisted["state"]["capture_mode"] == "inflight"
+        assert "computation_dag" in persisted["state"]
         committed_before_restart = initial_host.calls
         assert committed_before_restart == (0 if cut == "before_execution" else 1)
 
@@ -929,6 +962,10 @@ def test_navigable_computation_recovers_at_each_transit_crash_cut(cut: str, tmp_
         assert restored.route_request.digest == route_request.digest
         assert restored.route_result == route.to_dict()
         assert restored.retry_event.identity == cpu_event.identity
+        assert restored.computation_dag is not None
+        assert restored.computation_dag.digest == computation_dag.digest
+        assert restored.computation_dag.result("memory") == raw_receipt
+        assert tuple(node.node_id for node in restored.computation_dag.ready_nodes()) == ("cpu-retry",)
         assert len(restored_hosts) == 1
         assert restored_hosts[0].calls == 0
 
@@ -953,6 +990,10 @@ def test_navigable_computation_recovers_at_each_transit_crash_cut(cut: str, tmp_
         final_response_sequence = max(server_response_channel.pending_sequences())
         returned = _wait_for_response(restored.response_client)
         assert returned.effect == replay_or_execution.effect
+        assert restored.computation_dag is not None
+        assert restored.computation_dag.commit("cpu-retry", replay_or_execution.effect) is False
+        assert restored.computation_dag.is_complete
+        assert restored.computation_dag.result("cpu-retry") == replay_or_execution.effect
         _wait_for_ack(restored.request_client.channel, (2,))
         _wait_for_ack(server_response_channel, (final_response_sequence,))
         assert restored.session.phase == "idle"
