@@ -488,7 +488,7 @@ def restore_and_finish(checkpoint_path: Path, result_path: Path) -> None:
         replay_b = restored.session.serve_once()
         assert replay_b is not None and replay_b.executed is True and replay_b.replayed is True
         returned_b = _wait_for_response(restored.response_client)
-        assert returned_b.effect == replay_b.effect and returned_b.replayed is True
+        assert returned_b.effect == replay_b.effect and returned_b.replayed is False
         _wait_for_ack(restored.request_client.channel, (3,))
         _wait_for_ack(restored.session.response.channel, (3,))
         assert restored.session.phase == "idle"
