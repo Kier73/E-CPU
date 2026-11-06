@@ -110,12 +110,13 @@ existing worker checkpoint persists that execution ledger; after restore,
 the returned evidence can be validated against the replayed result's request
 identity, fingerprint, decision receipt, domain, and effect digest.
 
-This is a representation-integrity and provenance binding, not an independent
-oracle for backend correctness. The operation-specific tests remain
-responsible for proving that a particular handler returns the correct
-semantic value. The evidence also remains unsigned: it records what the
-receiver committed, not a cryptographic attestation from a trusted external
-party.
+The paired comparison itself is a representation-integrity and
+provenance check, not an independent oracle. The separate oracle layer below
+now checks the semantic result for supported CPU arithmetic and Structural
+Memory coordinate operations. Other backend operations still require their
+own oracle or operation-specific correctness argument. All records remain
+unsigned: they describe what the receiver committed, not a cryptographic
+attestation from an external party.
 
 ### Independent operation oracles
 
