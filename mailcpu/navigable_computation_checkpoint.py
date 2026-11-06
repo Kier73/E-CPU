@@ -13,6 +13,7 @@ from .evidence_path_resolver import (
     EvidencePathCatalogue,
     EvidencePathRequest,
     EvidencePathResolver,
+    EvidencePathResult,
     EvidencePathStatus,
 )
 from .headless import HeadlessOS
@@ -97,8 +98,8 @@ class NavigableComputationCheckpoint:
             raise NavigableComputationCheckpointError("checkpoint requires an EvidencePathRequest")
         if not isinstance(retry_event, HypervisorArbitrationEvent):
             raise NavigableComputationCheckpointError("checkpoint requires a typed retry event")
-        if not callable(getattr(route_result, "to_dict", None)):
-            raise NavigableComputationCheckpointError("checkpoint route result must be a typed result")
+        if not isinstance(route_result, EvidencePathResult):
+            raise NavigableComputationCheckpointError("checkpoint route result must be an EvidencePathResult")
 
         route_projection = route_result.to_dict()
         if (
@@ -205,6 +206,19 @@ class NavigableComputationCheckpoint:
             raise NavigableComputationCheckpointError(
                 "navigable computation checkpoint digest mismatch"
             )
+
+        supplied_transports = (
+            ("client request", client_request_transport),
+            ("client result", client_response_transport),
+            ("worker request", worker_request_transport),
+            ("worker result", worker_response_transport),
+        )
+        for label, transport in supplied_transports:
+            pending = getattr(transport, "pending", None)
+            if callable(pending) and pending() != 0:
+                raise NavigableComputationCheckpointError(
+                    f"cannot restore over a non-empty {label} transport"
+                )
 
         try:
             catalogue_payload = state["catalogue"]
