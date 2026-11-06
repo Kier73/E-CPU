@@ -1114,6 +1114,22 @@ class StructuralMemoryRegistry:
         self._read_cache[cache_key] = receipt
         return receipt
 
+    def version_for_revision(self, memory_id: str, revision: int) -> StructuralMemoryVersion:
+        """Return one exact immutable admitted revision without performing a read.
+
+        Mathematics: resolve the unique admitted v with
+        (v.memory_id, v.revision)=(memory_id, revision), under the registry lock.
+        """
+        _require_nonempty_string(memory_id, "memory_id")
+        _require_int(revision, "revision", minimum=1)
+        with self._lock:
+            version = self._version_for_revision(memory_id, revision)
+            if version is None:
+                raise StructuralMemoryRefused(
+                    f"memory {memory_id!r} has no admitted revision {revision}"
+                )
+            return version
+
     def active_version(self, memory_id: str) -> StructuralMemoryVersion | None:
         """Return the currently admitted immutable version, if one exists. Mathematics: projects the active registry mapping at memory identity m, or the empty value when absent."""
         _require_nonempty_string(memory_id, "memory_id")
