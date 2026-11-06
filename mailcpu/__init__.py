@@ -149,6 +149,13 @@ from .seed_commit_quorum import (
     SeedCommitTransitionArtifact,
     SeedPrepareVote,
 )
+from .recovery_lineage import (
+    RecoveryCheckpointManifest,
+    RecoveryLineageAuthority,
+    RecoveryLineageCoordinator,
+    RecoveryLineageError,
+    RecoveryLineageProof,
+)
 from .seed_commit_coordinator import (
     SEED_QUORUM_COMMIT_KIND,
     SEED_QUORUM_DECISION_KIND,
@@ -773,6 +780,11 @@ __all__ = [
     "SeedCommitProposal",
     "SeedCommitTransitionArtifact",
     "SeedPrepareVote",
+    "RecoveryCheckpointManifest",
+    "RecoveryLineageAuthority",
+    "RecoveryLineageCoordinator",
+    "RecoveryLineageError",
+    "RecoveryLineageProof",
     "SEED_QUORUM_COMMIT_KIND",
     "SEED_QUORUM_DECISION_KIND",
     "SEED_QUORUM_PREPARE_KIND",
