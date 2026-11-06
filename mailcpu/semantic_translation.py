@@ -1021,10 +1021,10 @@ class TransitTranslationEvidence:
             expected_oracle_type = _STRUCTURAL_MEMORY_ORACLE_REF.type_id
         else:
             expected_oracle_type = None
-        if expected_oracle_type is not None and raw_oracle is None and require_oracle:
-            raise SemanticTranslationError("supported Transit operation is missing required independent oracle evidence")
         if type(require_oracle) is not bool:
             raise SemanticTranslationError("require_oracle must be a Boolean")
+        if expected_oracle_type is not None and raw_oracle is None and require_oracle:
+            raise SemanticTranslationError("supported Transit operation is missing required independent oracle evidence")
         if raw_oracle is not None:
             if not isinstance(raw_oracle, Mapping):
                 raise SemanticTranslationError("embedded Transit oracle evidence must be an object")
