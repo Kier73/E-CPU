@@ -5,7 +5,10 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
+import tempfile
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from .classifier import HypervisorArbitrationEvent
@@ -48,7 +51,7 @@ class NavigableComputationCheckpoint:
     """Bind receiver/session state, requester cursors, route evidence, and retry identity."""
 
     FORMAT = "mailcpu-navigable-computation-checkpoint-v1"
-    _STATE_FIELDS = frozenset({
+    _STATE_FIELDS_V1 = frozenset({
         "version",
         "session",
         "client_request_channel",
@@ -58,6 +61,7 @@ class NavigableComputationCheckpoint:
         "route_result",
         "retry_event",
     })
+    _STATE_FIELDS_V2 = _STATE_FIELDS_V1 | {"capture_mode"}
 
     @staticmethod
     def _canonical(value: Any) -> bytes:
@@ -85,6 +89,8 @@ class NavigableComputationCheckpoint:
         route_request: EvidencePathRequest,
         route_result: Any,
         retry_event: HypervisorArbitrationEvent,
+        *,
+        allow_inflight: bool = False,
     ) -> dict[str, Any]:
         """Capture all durable route and Transit ledgers at a quiescent, fully resolved cut."""
         if not isinstance(session, TransitComputeSession):
@@ -112,29 +118,32 @@ class NavigableComputationCheckpoint:
             raise NavigableComputationCheckpointError(
                 "checkpoint route result must be FOUND and bound to the exact request and catalogue"
             )
-        if session.phase != "idle":
+        if not isinstance(allow_inflight, bool):
+            raise NavigableComputationCheckpointError("allow_inflight must be a boolean")
+        if not allow_inflight and session.phase != "idle":
             raise NavigableComputationCheckpointError(
                 "cannot checkpoint a navigable computation with an active Transit phase"
             )
 
         client_request = request_client.channel
         client_response = response_client.channel
-        if (
-            client_request.pending_sequences()
-            or client_request.peek() is not None
-            or client_request.transport.pending() != 0
-        ):
-            raise NavigableComputationCheckpointError(
-                "cannot checkpoint with pending client request transport data"
-            )
-        if (
-            client_response.pending_sequences()
-            or client_response.peek() is not None
-            or client_response.transport.pending() != 0
-        ):
-            raise NavigableComputationCheckpointError(
-                "cannot checkpoint with unacknowledged client result transport data"
-            )
+        if not allow_inflight:
+            if (
+                client_request.pending_sequences()
+                or client_request.peek() is not None
+                or client_request.transport.pending() != 0
+            ):
+                raise NavigableComputationCheckpointError(
+                    "cannot checkpoint with pending client request transport data"
+                )
+            if (
+                client_response.pending_sequences()
+                or client_response.peek() is not None
+                or client_response.transport.pending() != 0
+            ):
+                raise NavigableComputationCheckpointError(
+                    "cannot checkpoint with unacknowledged client result transport data"
+                )
         if (
             retry_event.source != client_request.source
             or retry_event.channel != client_request.channel
@@ -146,8 +155,8 @@ class NavigableComputationCheckpoint:
             )
 
         state = {
-            "version": 1,
-            "session": session.snapshot(),
+            "version": 2 if allow_inflight else 1,
+            "session": session.snapshot(allow_inflight=allow_inflight),
             "client_request_channel": client_request.snapshot(),
             "client_response_channel": response_client.snapshot(),
             "catalogue": catalogue.to_dict(),
@@ -155,6 +164,8 @@ class NavigableComputationCheckpoint:
             "route_result": route_projection,
             "retry_event": retry_event.to_dict(),
         }
+        if allow_inflight:
+            state["capture_mode"] = "inflight"
         digest = hashlib.sha256(cls._canonical(state)).hexdigest()
         return {
             "format": cls.FORMAT,
@@ -183,12 +194,21 @@ class NavigableComputationCheckpoint:
                 "navigable computation checkpoint format or fields are invalid"
             )
         state = payload.get("state")
-        if (
-            not isinstance(state, Mapping)
-            or set(state) != cls._STATE_FIELDS
-            or type(state.get("version")) is not int
-            or state.get("version") != 1
-        ):
+        if not isinstance(state, Mapping) or type(state.get("version")) is not int:
+            raise NavigableComputationCheckpointError(
+                "navigable computation checkpoint state schema is invalid"
+            )
+        state_version = state.get("version")
+        if state_version == 1:
+            schema_valid = set(state) == cls._STATE_FIELDS_V1
+        elif state_version == 2:
+            schema_valid = (
+                set(state) == cls._STATE_FIELDS_V2
+                and state.get("capture_mode") == "inflight"
+            )
+        else:
+            schema_valid = False
+        if not schema_valid:
             raise NavigableComputationCheckpointError(
                 "navigable computation checkpoint state schema is invalid"
             )
@@ -301,9 +321,12 @@ class NavigableComputationCheckpoint:
             1,
             authorized_retry.to_dict(),
         )
-        if not any(edge.source == retry_ref for edge in catalogue.edges):
+        if (
+            route_request.target != retry_ref
+            and not any(edge.source == retry_ref for edge in catalogue.edges)
+        ):
             raise NavigableComputationCheckpointError(
-                "retry event does not identify a source representation in the saved route catalogue"
+                "retry event is neither the saved route target nor a source representation in the catalogue"
             )
 
         # Re-run the resolver against the restored receiver's live capability
