@@ -95,6 +95,7 @@ The recovery experiments fail unless:
 - the catalogue digest and route request digest remain unchanged;
 - the restored resolver finds the exact previously selected route;
 - schema-v3 restore reconstructs the same DAG digest, committed receipt, and ready CPU frontier before retry;
+- in the multi-branch test, branch A remains committed, branch B replays from the receiver ledger without replacement-backend execution, branch C runs once, and the join remains blocked until all three branch results are committed;
 - the saved retry event maps to the exact authorized CPU request representation;
 - retransmission produces a semantic replay with the same effect, translation,
   and oracle evidence;
@@ -103,6 +104,14 @@ The recovery experiments fail unless:
 
 A modified checkpoint envelope must fail its integrity check before transport
 or runtime restoration is attempted.
+
+## Multi-branch recovery experiment
+
+A second recovery test combines the graph frontier and the receiver execution ledger in one workload. It first commits Structural Memory result \(x_{23}=220\) and CPU branch A (239). It then sends branch B (660) and injects a crash after the receiver execution ledger has committed the effect but before the response is published or the request is acknowledged. Branch C (447) remains ready; the join remains blocked.
+
+The schema-v3 envelope contains the DAG with A committed and B/C ready, together with the receiver's committed B effect, both requester/worker channel states, route catalogue, exact branch-B route request/result, and exact branch-B retry identity. Restore verifies that branch B is the unique ready node matching the retry event. The retry then returns the exact committed effect from the restored hypervisor ledger without calling the replacement CPU backend. The effect is committed into the restored DAG, only branch C executes as new work, and the join is materialized and sent through Transit after A, B, and C are all committed.
+
+The test accounts for CPU backend calls on both sides of the simulated restart: two before the cut (A and B), two after restore (C and the join), and four total. The B retry is a protocol replay, not a fifth execution. It asserts no response was pending at the selected cut, so the experiment covers the execution-commit-before-publication boundary rather than a later delivery boundary.
 
 ## Proof boundary
 
@@ -120,10 +129,7 @@ policy, atomic durable publication of the combined checkpoint, host-specific
 backend attestation, and a recovery policy for a checkpoint whose external
 resources have changed.
 
-The workload is still one deterministic Structural Memory family and one CPU
-program. It does not establish universal translation, arbitrary program
-recovery, route execution as one atomic transaction, GPU acceleration, model
-hosting, or measured energy/latency.
+The workloads are still one deterministic Structural Memory family and bounded pure CPU arithmetic programs. They do not establish universal translation, arbitrary program recovery, route execution as one atomic transaction, GPU acceleration, model hosting, parallel branch throughput, or measured energy/latency.
 
 ## Run
 
