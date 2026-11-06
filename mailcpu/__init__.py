@@ -579,6 +579,12 @@ from .navigation_coordinator import (
     verify_navigation_coordination,
 )
 
+from .computation_dag import (
+    ComputationDAGError,
+    ComputationNode,
+    CommittedComputationResult,
+    NavigableComputationDAG,
+)
 from .evidence_path_resolver import (
     EvidencePathBlocker,
     EvidencePathBlockerCode,
@@ -1200,6 +1206,10 @@ __all__ = [
     "compare_projected_observations",
     "program_representation_ref",
     "structural_memory_spec_representation_ref",
+    "ComputationDAGError",
+    "ComputationNode",
+    "CommittedComputationResult",
+    "NavigableComputationDAG",
     "EvidencePathBlocker",
     "EvidencePathBlockerCode",
     "EvidencePathCatalogue",
