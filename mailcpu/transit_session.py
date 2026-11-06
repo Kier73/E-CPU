@@ -80,23 +80,31 @@ class TransitComputeSession:
             },
         }
 
-    def serve_once(self) -> HypervisorExecutionResult | None:
-        """Mathematics: apply at most one receiver transition T_q and let the existing response-before-ACK rule preserve retryability."""
+    def serve_once(
+        self,
+        fault_hook: Callable[[str], None] | None = None,
+    ) -> HypervisorExecutionResult | None:
+        """Apply one receiver transition, optionally stopping at a deterministic crash cut."""
 
-        return self.worker.serve_once(self.request, self.response)
+        return self.worker.serve_once(self.request, self.response, fault_hook=fault_hook)
 
-    def snapshot(self) -> dict[str, object]:
-        """Mathematics: checkpoint the complete path product only when request and response channels satisfy the worker's quiescence invariant."""
+    def snapshot(self, *, allow_inflight: bool = False) -> dict[str, object]:
+        """Checkpoint the path product; in-flight snapshots preserve reliable ledgers for fresh-transport replay."""
 
-        return self.worker.snapshot(self.request, self.response)
+        return self.worker.snapshot(self.request, self.response, allow_inflight=allow_inflight)
 
-    def save_checkpoint(self, path: str | os.PathLike[str]) -> str:
+    def save_checkpoint(
+        self,
+        path: str | os.PathLike[str],
+        *,
+        allow_inflight: bool = False,
+    ) -> str:
         """Mathematics: atomically persist canonical checkpoint C only when Q=0, fsync(C), then replace the prior durable checkpoint."""
 
         target = Path(path)
         if not str(target):
             raise ValueError("transit session checkpoint path must be non-empty")
-        payload = self.snapshot()
+        payload = self.snapshot(allow_inflight=allow_inflight)
         encoded = json.dumps(
             payload,
             sort_keys=True,
