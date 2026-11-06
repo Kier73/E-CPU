@@ -178,7 +178,7 @@ class RouteMetric:
 
     @property
     def key(self) -> RouteMetricKey:
-        """Return the dimension identity while discarding its numeric amount."""
+        """Mathematics: project (name,unit,amount) to the dimension key (name,unit)."""
         return RouteMetricKey(self.name, self.unit)
 
     def to_dict(self) -> dict[str, Any]:
@@ -283,7 +283,7 @@ class EvidencePathEdge:
         result: Any,
         costs: Sequence[RouteMetric],
     ) -> "EvidencePathEdge":
-        """Create an edge from a receiver-committed result after strict translation and oracle validation."""
+        """Create an edge from a receiver-committed result after strict translation and oracle validation. Mathematics: admit e only when the outer execution, translation, oracle, and raw effect bindings agree."""
         from .classifier import HypervisorExecutionResult
 
         if not isinstance(result, HypervisorExecutionResult) or not isinstance(result.effect, Mapping):
@@ -313,17 +313,17 @@ class EvidencePathEdge:
 
     @property
     def source(self) -> RepresentationRef:
-        """Return the exact source representation identity for graph adjacency."""
+        """Mathematics: define the directed graph source node as contract.source."""
         return self.contract.source
 
     @property
     def target(self) -> RepresentationRef:
-        """Return the exact target representation identity for graph adjacency."""
+        """Mathematics: define the directed graph target node as contract.target."""
         return self.contract.target
 
     @property
     def evidence_strength(self) -> EvidenceStrength:
-        """Classify the edge by its strongest retained finite-case evidence tier."""
+        """Mathematics: strength(e)=INDEPENDENT_ORACLE iff oracle_evidence(e) exists, else PAIRED_CASE."""
         return (
             EvidenceStrength.INDEPENDENT_ORACLE
             if self.oracle_evidence is not None
@@ -337,11 +337,11 @@ class EvidencePathEdge:
 
     @property
     def digest(self) -> str:
-        """Return the stable content identity of this complete route edge."""
+        """Mathematics: return H(canonical_json(edge.to_dict()))."""
         return self.edge_id
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize the exact contract, paired evidence, cost vector, and optional receiver oracle record."""
+        """Mathematics: serialize the exact contract, paired evidence, additive cost vector, and optional receiver oracle record."""
         return {
             "schema": "mailcpu.evidence-path-edge.v1",
             "contract": self.contract.to_dict(),
@@ -354,7 +354,7 @@ class EvidencePathEdge:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "EvidencePathEdge":
-        """Reconstruct a route edge and revalidate its contract, evidence, cost, and effect bindings."""
+        """Mathematics: reconstruct an edge only when its contract, observation, oracle, effect, and costs satisfy the same edge invariants."""
         expected = {
             "schema", "contract", "comparison", "costs",
             "oracle_evidence", "transit_evidence", "observed_effect",
@@ -401,7 +401,7 @@ class EvidencePathCatalogue:
 
     @property
     def edges(self) -> tuple[EvidencePathEdge, ...]:
-        """Return the catalogue's immutable edge sequence in digest order."""
+        """Mathematics: return the finite projection of the edge map sorted by content-addressed edge identity."""
         with self._lock:
             return tuple(self._edges[key] for key in sorted(self._edges))
 
@@ -411,7 +411,7 @@ class EvidencePathCatalogue:
         return canonical_value_digest(self.to_dict())
 
     def register(self, edge: EvidencePathEdge) -> str:
-        """Insert one validated edge idempotently; reject digest collisions and catalogue overflow."""
+        """Mathematics: insert e under H(e), preserving unique keys and |catalogue|≤max_edges."""
         if not isinstance(edge, EvidencePathEdge):
             raise EvidencePathError("catalogue accepts only EvidencePathEdge values")
         edge_id = edge.edge_id
@@ -431,17 +431,17 @@ class EvidencePathCatalogue:
         result: Any,
         costs: Sequence[RouteMetric],
     ) -> str:
-        """Validate and register one receiver-committed, oracle-checked Transit translation."""
+        """Mathematics: construct e=from_execution_result(r,costs) and insert it under H(e)."""
         return self.register(EvidencePathEdge.from_execution_result(result, costs))
 
     def remove(self, edge_id: str) -> bool:
-        """Remove one exact edge identity without changing any other evidence entry."""
+        """Mathematics: delete only the map entry keyed by edge_id=H(e) and report whether it existed."""
         _digest(edge_id, "edge_id")
         with self._lock:
             return self._edges.pop(edge_id, None) is not None
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize the complete bounded catalogue in deterministic edge-id order."""
+        """Mathematics: serialize each registered edge exactly once in ascending digest order."""
         with self._lock:
             return {
                 "schema": _EVIDENCE_PATH_SCHEMA,
@@ -451,7 +451,7 @@ class EvidencePathCatalogue:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "EvidencePathCatalogue":
-        """Restore a catalogue only after each stored edge has passed strict reconstruction."""
+        """Mathematics: invert the catalogue projection only when every reconstructed edge satisfies its invariants."""
         if (
             not isinstance(payload, Mapping)
             or set(payload) != {"schema", "max_edges", "edges"}
@@ -532,7 +532,7 @@ class EvidencePathRequest:
         return canonical_value_digest(self.to_dict())
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize the complete route request without embedding authority or executable content."""
+        """Mathematics: serialize the complete query tuple while omitting grants and executable content."""
         return {
             "schema": "mailcpu.evidence-path-request.v1",
             "source": self.source.to_dict(),
@@ -568,7 +568,7 @@ class EvidencePathBlocker:
             _identifier(self.metric_name, "blocker metric_name")
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize the blocker code and the edge/metric it identifies."""
+        """Mathematics: serialize one blocker as (edge_id,code,optional_metric_name)."""
         return {"edge_id": self.edge_id, "code": self.code.value, "metric_name": self.metric_name}
 
 
@@ -647,7 +647,7 @@ class EvidencePathResult:
         return canonical_value_digest(self.to_dict())
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize a route proposal while explicitly preserving its non-authoritative status."""
+        """Mathematics: serialize the route proposal and retain authoritative=False."""
         return {
             "schema": _EVIDENCE_PATH_RESULT_SCHEMA,
             "authoritative": False,
@@ -713,7 +713,7 @@ def _local_capability_snapshot(
     operating_system: HeadlessOS,
     pid: int,
 ) -> tuple[tuple[tuple[str, tuple[str, ...]], ...], str]:
-    """Read current receiver-owned capabilities and bind the exact snapshot used for route filtering."""
+    """Mathematics: read C_pid={(resource,rights)} from the live process and compute H(pid,C_pid)."""
     if not isinstance(operating_system, HeadlessOS):
         raise EvidencePathError("route resolution requires a receiver HeadlessOS")
     if type(pid) is not int or pid < 1:
@@ -768,7 +768,7 @@ class EvidencePathResolver:
         operating_system: HeadlessOS,
         pid: int,
     ) -> EvidencePathResult:
-        """Search the evidence graph by lexicographic additive cost while retaining nondominated resource labels."""
+        """Mathematics: find the lexicographically least feasible additive cost vector by bounded label-setting search under live authority and evidence gates."""
         if not isinstance(catalogue, EvidencePathCatalogue):
             raise EvidencePathError("catalogue must be an EvidencePathCatalogue")
         if not isinstance(request, EvidencePathRequest):
