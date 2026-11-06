@@ -121,10 +121,57 @@ path. It pins one admitted structural-memory specification, resolves its
 coordinate values directly with receipts, then registers the exact byte-range
 reference with `StructuralMemoryPageBacking` and faults the page into
 `VirtualMemory`. The paired observation includes bytes, content digest, and
-the ordered coordinate receipt IDs. This tests that the resident VM page
-preserves both content and coordinate provenance for that page-size/context
-case. It does not prove the generator law outside its certificate's evidence
-boundary or establish universal translation correctness.
+the ordered coordinate receipt IDs. This checks the resident page's content
+and coordinate provenance for that pinned case, not an infinite generator law.
+
+## Receiver-side Transit execution evidence
+
+`TransitComputeWorker` now uses the existing hypervisor effect-encoder seam
+for every newly executed, allowed object-valued backend result. The worker
+captures the event after receiver-local capability reconstruction, obtains
+the committed policy decision receipt, and binds the selected operation,
+resource, domain, and complete sorted backend manifest.
+
+The resulting `TransitTranslationEvidence` contains:
+
+- the semantic request identity and canonical event fingerprint;
+- the receiver's policy decision receipt;
+- source and target representation references for the authorized event and
+  raw handler effect;
+- a content-addressed backend-dispatch mapping identity;
+- the declared receiver-side authority requirements and effect/replay model;
+- a paired comparison of the raw handler effect and its canonical JSON
+  round-trip; and
+- the backend manifest used for dispatch.
+
+The record is embedded in the committed effect under
+`_semantic_translation`. It is created inside
+`HypervisorArbitrationLoop.execute` before the effect is stored. Exact
+semantic retransmissions therefore return the same evidence with the stored
+effect; they do not invoke the backend or rebuild the evidence. The worker's
+existing checkpoint restores the hypervisor execution ledger, so the same
+binding survives worker reconstruction and transport rebinding.
+
+`TransitTranslationEvidence.validate_execution_result` cross-checks the
+record against the outer `HypervisorExecutionResult`: request identity,
+fingerprint, decision receipt, policy domain, and the digest of the effect
+with the evidence field removed. The replay flag remains on the outer result;
+it is deliberately excluded from the evidence digest so an original result
+and its exact replay carry identical translation evidence.
+
+### What this proves—and what it does not
+
+The paired comparison checks that the handler's returned effect survives
+canonical JSON normalization without changing. The enclosing contract ties
+that effect to a specific authorized request and selected receiver-side
+dispatch mapping, while the hypervisor ledger binds its semantic identity and
+replay behavior.
+
+This does **not** independently prove that a backend computed the correct
+answer for the request. That requires an operation-specific oracle, invariant,
+or differential test. It also does not sign evidence against a malicious
+receiver, grant capabilities, or extend worker checkpointing into an atomic
+transaction across arbitrary external side effects.
 
 ## Composition
 
