@@ -538,3 +538,247 @@ def structural_memory_spec_representation_ref(spec: StructuralMemorySpec) -> Rep
             "structural_memory_spec_representation_ref requires a StructuralMemorySpec"
         )
     return RepresentationRef.from_payload("mailcpu.structural-memory.spec", 1, spec.to_dict())
+
+
+_TRANSIT_EVIDENCE_SCHEMA = "mailcpu.transit-translation-evidence.v1"
+
+
+@dataclass(frozen=True)
+class TransitTranslationEvidence:
+    """A durable binding from one authorized Transit event to its committed handler effect."""
+
+    request_source: str
+    request_channel: str
+    request_sequence: int
+    request_fingerprint: str
+    decision_receipt: str
+    effect_digest: str
+    backend_manifest: tuple[tuple[str, str], ...]
+    contract: TranslationContract
+    comparison: ObservationComparison
+
+    def __post_init__(self) -> None:
+        """Mathematics: bind event identity I, request fingerprint F, decision receipt D, effect H(E), backend relation M, and a successful paired canonicalization check."""
+        for name, value in (("request_source", self.request_source), ("request_channel", self.request_channel)):
+            if not isinstance(value, str) or not value:
+                raise SemanticTranslationError(f"{name} must be non-empty text")
+        _positive_int(self.request_sequence, "request_sequence")
+        _digest(self.request_fingerprint, "request_fingerprint")
+        _digest(self.decision_receipt, "decision_receipt")
+        _digest(self.effect_digest, "effect_digest")
+        manifest = tuple(tuple(item) for item in self.backend_manifest)
+        if not manifest or any(
+            len(item) != 2
+            or any(not isinstance(part, str) or not part for part in item)
+            for item in manifest
+        ):
+            raise SemanticTranslationError("backend_manifest must contain non-empty operation/resource pairs")
+        if tuple(sorted(set(manifest))) != manifest:
+            raise SemanticTranslationError("backend_manifest must be sorted and unique")
+        object.__setattr__(self, "backend_manifest", manifest)
+        if not isinstance(self.contract, TranslationContract):
+            raise SemanticTranslationError("contract must be a TranslationContract")
+        if not isinstance(self.comparison, ObservationComparison):
+            raise SemanticTranslationError("comparison must be an ObservationComparison")
+        if self.contract.source.type_id != "mailcpu.transit.authorized-event":
+            raise SemanticTranslationError("Transit evidence source type is invalid")
+        if self.contract.target.type_id != "mailcpu.transit.handler-effect":
+            raise SemanticTranslationError("Transit evidence target type is invalid")
+        if self.contract.mapping.type_id != "mailcpu.transit.backend-dispatch":
+            raise SemanticTranslationError("Transit evidence mapping type is invalid")
+        if self.contract.source.content_digest != self.request_fingerprint:
+            raise SemanticTranslationError("Transit evidence request fingerprint does not match its contract source")
+        if self.contract.target.content_digest != self.effect_digest:
+            raise SemanticTranslationError("Transit evidence effect digest does not match its contract target")
+        if self.comparison.contract_digest != self.contract.digest:
+            raise SemanticTranslationError("Transit evidence comparison is bound to another contract")
+        if self.comparison.case_digest != canonical_value_digest({
+            "request_fingerprint": self.request_fingerprint,
+            "backend_manifest": [list(item) for item in manifest],
+        }):
+            raise SemanticTranslationError("Transit evidence comparison is bound to another request or backend manifest")
+        if self.comparison.projection_digest != self.contract.observation.projection_digest:
+            raise SemanticTranslationError("Transit evidence projection does not match its contract")
+        if not self.comparison.equivalent:
+            raise SemanticTranslationError("Transit evidence requires an equivalent canonical effect comparison")
+        if self.comparison.source_observation_digest != self.comparison.target_observation_digest:
+            raise SemanticTranslationError("Transit evidence observation digests do not match")
+        if self.contract.effect_class is not EffectClass.JOURNALED:
+            raise SemanticTranslationError("Transit execution evidence must describe a journaled effect")
+        if self.contract.replay_class is not ReplayClass.SEMANTIC_LEDGER:
+            raise SemanticTranslationError("Transit execution evidence must use semantic-ledger replay")
+
+    @property
+    def identity(self) -> tuple[str, str, int]:
+        """Mathematics: project the semantic operation key I=(source, channel, sequence)."""
+        return self.request_source, self.request_channel, self.request_sequence
+
+    def to_dict(self) -> dict[str, Any]:
+        """Mathematics: serialize one complete Transit binding, retaining the full contract and paired observation check."""
+        return {
+            "schema": _TRANSIT_EVIDENCE_SCHEMA,
+            "request_source": self.request_source,
+            "request_channel": self.request_channel,
+            "request_sequence": self.request_sequence,
+            "request_fingerprint": self.request_fingerprint,
+            "decision_receipt": self.decision_receipt,
+            "effect_digest": self.effect_digest,
+            "backend_manifest": [list(item) for item in self.backend_manifest],
+            "contract": self.contract.to_dict(),
+            "comparison": self.comparison.to_dict(),
+        }
+
+    @property
+    def digest(self) -> str:
+        """Mathematics: define the complete Transit evidence identity as H(to_dict(evidence))."""
+        return canonical_value_digest(self.to_dict())
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "TransitTranslationEvidence":
+        """Mathematics: reconstruct the exact Transit evidence schema and revalidate every cross-field binding."""
+        expected = {
+            "schema",
+            "request_source",
+            "request_channel",
+            "request_sequence",
+            "request_fingerprint",
+            "decision_receipt",
+            "effect_digest",
+            "backend_manifest",
+            "contract",
+            "comparison",
+        }
+        if not isinstance(payload, Mapping) or set(payload) != expected or payload["schema"] != _TRANSIT_EVIDENCE_SCHEMA:
+            raise SemanticTranslationError("Transit translation evidence schema or fields are invalid")
+        if not isinstance(payload["backend_manifest"], (list, tuple)):
+            raise SemanticTranslationError("Transit evidence backend_manifest must be an array")
+        if not isinstance(payload["contract"], Mapping) or not isinstance(payload["comparison"], Mapping):
+            raise SemanticTranslationError("Transit evidence contract and comparison must be objects")
+        return cls(
+            request_source=payload["request_source"],
+            request_channel=payload["request_channel"],
+            request_sequence=payload["request_sequence"],
+            request_fingerprint=payload["request_fingerprint"],
+            decision_receipt=payload["decision_receipt"],
+            effect_digest=payload["effect_digest"],
+            backend_manifest=tuple(tuple(item) for item in payload["backend_manifest"]),
+            contract=TranslationContract.from_dict(payload["contract"]),
+            comparison=ObservationComparison.from_dict(payload["comparison"]),
+        )
+
+
+def build_transit_translation_evidence(
+    event: Any,
+    raw_effect: Any,
+    canonical_effect: Any,
+    *,
+    backend_manifest: tuple[tuple[str, str], ...],
+    decision_receipt: str,
+    domain: str,
+) -> TransitTranslationEvidence:
+    """Bind an authorized Transit event and backend result to a checked canonical effect representation.
+
+    Mathematics: for authorized event e, raw backend effect E, canonical JSON
+    round-trip E', selected backend manifest M, and policy receipt d, construct
+    a contract C=(e,E,map(M),context,authority,effect,replay) and paired check
+    π(E)=π(E'). The evidence record binds the operation identity, event digest,
+    decision receipt, exact effect digest, and M. It is created before the
+    hypervisor stores E in its semantic execution ledger, so exact replays
+    return the same evidence without invoking this builder again.
+    """
+    from .classifier import HypervisorArbitrationEvent
+
+    if not isinstance(event, HypervisorArbitrationEvent):
+        raise SemanticTranslationError("Transit evidence requires an authorized HypervisorArbitrationEvent")
+    if not isinstance(raw_effect, Mapping) or not isinstance(canonical_effect, Mapping):
+        raise SemanticTranslationError("Transit handler effects must be JSON objects")
+    if not isinstance(domain, str) or not domain:
+        raise SemanticTranslationError("Transit execution domain must be non-empty text")
+    if not isinstance(backend_manifest, (tuple, list)):
+        raise SemanticTranslationError("Transit backend manifest must be an array")
+    manifest = tuple(tuple(item) for item in backend_manifest)
+    fingerprint = canonical_value_digest(event.to_dict())
+    effect_digest = canonical_value_digest(raw_effect)
+    source = RepresentationRef.from_payload(
+        "mailcpu.transit.authorized-event",
+        1,
+        event.to_dict(),
+    )
+    target = RepresentationRef.from_payload(
+        "mailcpu.transit.handler-effect",
+        1,
+        raw_effect,
+    )
+    mapping = RepresentationRef.from_payload(
+        "mailcpu.transit.backend-dispatch",
+        1,
+        {
+            "operation": event.request.operation,
+            "resource": event.request.resource,
+            "domain": domain,
+            "backend_manifest": [list(item) for item in manifest],
+            "adapter": "mailcpu.transit-worker.effect-encoder.v1",
+        },
+    )
+    observation = ObservationContract.from_definition(
+        "mailcpu.transit.handler-effect",
+        1,
+        {
+            "projection": "complete handler effect",
+            "normalization": "sorted-key compact canonical JSON round-trip",
+            "comparison": "canonical-json-exact",
+        },
+    )
+    context_digest = canonical_value_digest({
+        "operation": event.request.operation,
+        "resource": event.request.resource,
+        "payload": event.request.payload,
+    })
+    rights = tuple(sorted(event.request.required_rights))
+    authority = (
+        (CapabilityRequirement(event.request.resource, rights),)
+        if rights
+        else ()
+    )
+    contract = TranslationContract(
+        contract_id=f"transit:{event.request.operation}",
+        revision=1,
+        source=source,
+        target=target,
+        mapping=mapping,
+        observation=observation,
+        context_digest=context_digest,
+        precondition_digests=(
+            canonical_value_digest({"receiver_authorized": True}),
+            canonical_value_digest({"operation": event.request.operation, "resource": event.request.resource}),
+        ),
+        invariant_digests=(
+            canonical_value_digest({"effect_commit": "hypervisor.execution"}),
+            canonical_value_digest({"replay": "same semantic identity returns stored effect"}),
+        ),
+        authority_requirements=authority,
+        effect_class=EffectClass.JOURNALED,
+        replay_class=ReplayClass.SEMANTIC_LEDGER,
+    )
+    comparison = compare_projected_observations(
+        contract,
+        case_payload={
+            "request_fingerprint": fingerprint,
+            "backend_manifest": [list(item) for item in manifest],
+        },
+        source_observation=raw_effect,
+        target_observation=canonical_effect,
+    )
+    if not comparison.equivalent:
+        raise SemanticTranslationError("Transit handler effect changed during canonical representation")
+    return TransitTranslationEvidence(
+        request_source=event.source,
+        request_channel=event.channel,
+        request_sequence=event.sequence,
+        request_fingerprint=fingerprint,
+        decision_receipt=decision_receipt,
+        effect_digest=effect_digest,
+        backend_manifest=manifest,
+        contract=contract,
+        comparison=comparison,
+    )
