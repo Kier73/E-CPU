@@ -491,8 +491,8 @@ class EvidencePathRequest:
             raise EvidencePathError("route source and target must be RepresentationRef values")
         _digest(self.context_digest, "route context_digest")
         accepted_contexts = tuple(self.accepted_context_digests)
-        if len(accepted_contexts) > 64:
-            raise EvidencePathError("accepted_context_digests exceeds the 64-context request limit")
+        if len(accepted_contexts) > 63:
+            raise EvidencePathError("accepted_context_digests exceeds the 64-context request limit including the primary context")
         for value in accepted_contexts:
             _digest(value, "accepted_context_digests")
         if len(set(accepted_contexts)) != len(accepted_contexts):
@@ -544,7 +544,7 @@ class EvidencePathRequest:
     def to_dict(self) -> dict[str, Any]:
         """Mathematics: serialize the complete query tuple while omitting grants and executable content."""
         return {
-            "schema": "mailcpu.evidence-path-request.v1",
+            "schema": "mailcpu.evidence-path-request.v2",
             "source": self.source.to_dict(),
             "target": self.target.to_dict(),
             "context_digest": self.context_digest,
