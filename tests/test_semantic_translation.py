@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from mailcpu import (\n    HeadlessOS,\n    QueueInterpreter,\n    ReferenceInterpreter,\n    StructuralMemoryFileRef,\n    StructuralMemoryFileProvider,\n    StructuralMemoryPageBacking,\n    VirtualMemory,\n    canonical_result,\n)
+from mailcpu import (\n    HeadlessOS,\n    QueueInterpreter,\n    ReferenceInterpreter,\n    StructuralMemoryFileRef,\n    StructuralMemoryPageBacking,\n    VirtualMemory,\n    canonical_result,\n)
 from mailcpu.law_certifier import Law
 from mailcpu.model import Instruction, Op, Program
 from mailcpu.semantic_translation import (
