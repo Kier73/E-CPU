@@ -631,3 +631,340 @@ def test_navigable_computation_restores_route_and_replays_without_reexecution() 
         for transport in (*transports, *replacement_transports):
             if not transport.closed:
                 transport.close()
+
+
+@pytest.mark.parametrize(
+    "cut",
+    (
+        "before_execution",
+        "after_execution_commit",
+        "after_response_publish",
+        "after_request_ack",
+    ),
+)
+def test_navigable_computation_recovers_at_each_transit_crash_cut(cut: str, tmp_path) -> None:
+    """Restore the combined route and reliable ledgers from four deterministic in-flight cuts."""
+    receiver = HeadlessOS(
+        structural_memory_admission_policy=lambda proposal: proposal.spec.domain == "integer-orbit"
+    )
+    law = Law(
+        family="int",
+        params={"x0": 13, "step": 9, "mod": 251},
+        order=1,
+        verdict="GROUND",
+    )
+    proposal = receiver.structural_memory.propose(
+        "recovery-orbit",
+        law,
+        {0: 13, 1: 22, 2: 31, 3: 40},
+        domain="integer-orbit",
+        context=_CONTEXT,
+    )
+    admitted = receiver.structural_memory.admit(proposal.proposal_id, expected_revision=0)
+    authority_pid = receiver.environment.kernel.spawn(
+        "crash-cut-receiver",
+        capabilities=(
+            Capability(TRANSIT_STRUCTURAL_MEMORY_RESOURCE, frozenset({"read"})),
+            Capability(_CPU_RESOURCE, frozenset({"execute"})),
+        ),
+        parent_pid=receiver.environment.init_pid,
+    )
+    receiver.hypervisor.policy = HypervisorPolicy(
+        review_confidence=0.0,
+        automatic_confidence=0.0,
+        destructive_confidence=0.0,
+        danger_review_probability=1.0,
+        embedding_review_confidence=1.0,
+    )
+
+    initial_host = _CountingHost()
+    transports, request_client, request_worker, response_worker, response_client = _channels()
+    worker = TransitComputeWorker(
+        receiver,
+        authority_pid,
+        _router(receiver, authority_pid, initial_host),
+    )
+    session = TransitComputeSession(worker, request_worker, response_worker)
+    replacement_transports: tuple[SocketTransport, ...] = ()
+    restored_hosts: list[_CountingHost] = []
+
+    class SimulatedCrash(RuntimeError):
+        """Stop the receiver synchronously at one named protocol boundary."""
+
+    try:
+        # Establish a receiver-committed Structural Memory receipt.
+        coordinate = 23
+        memory_event = HypervisorArbitrationEvent(
+            "client",
+            _CHANNEL,
+            1,
+            9101,
+            HypervisorRequest(
+                TRANSIT_STRUCTURAL_MEMORY_OPERATION,
+                TRANSIT_STRUCTURAL_MEMORY_RESOURCE,
+                {
+                    "memory_id": "recovery-orbit",
+                    "revision": admitted.spec.revision,
+                    "context": _CONTEXT,
+                    "coordinate": coordinate,
+                },
+                frozenset({"read"}),
+                frozenset(),
+            ),
+        )
+        memory_result, _memory_response = _serve(
+            session,
+            request_client,
+            response_client,
+            request_worker,
+            response_worker,
+            memory_event,
+            1,
+        )
+        raw_receipt = {
+            key: value
+            for key, value in memory_result.effect.items()
+            if key not in {"_semantic_translation", "_semantic_oracle"}
+        }
+        expected_value = (13 + 9 * coordinate) % 251
+        assert raw_receipt["value"] == expected_value == 220
+
+        memory_edge = EvidencePathEdge.from_execution_result(
+            memory_result,
+            (
+                RouteMetric("latency_us", "us", 7),
+                RouteMetric("energy_nj", "nJ", 35),
+            ),
+        )
+        cpu_source = "\\n".join((
+            f"set structural_value {expected_value}",
+            "set bias 19",
+            "add answer structural_value bias",
+            "halt",
+        ))
+        cpu_event = HypervisorArbitrationEvent(
+            "client",
+            _CHANNEL,
+            2,
+            9102,
+            HypervisorRequest(
+                _CPU_OPERATION,
+                _CPU_RESOURCE,
+                {
+                    "source": cpu_source,
+                    "initial_registers": {
+                        "memory_coordinate": coordinate,
+                        "memory_revision": admitted.spec.revision,
+                    },
+                    "max_ticks": 16,
+                },
+                frozenset({"execute"}),
+                frozenset(),
+            ),
+        )
+        authorized_event = receiver.hypervisor_authorize_event(authority_pid, cpu_event)
+        cpu_request_ref = RepresentationRef.from_payload(
+            "mailcpu.transit.authorized-event",
+            1,
+            authorized_event.to_dict(),
+        )
+        cpu_context_digest = canonical_value_digest({
+            "operation": cpu_event.request.operation,
+            "resource": cpu_event.request.resource,
+            "payload": cpu_event.request.payload,
+        })
+        precondition = canonical_value_digest({"precondition": "receipt is oracle-verified"})
+        invariant = canonical_value_digest({"invariant": "CPU operand equals receipt value"})
+        bridge_contract = TranslationContract(
+            contract_id="mailcpu.crash-cut.receipt-to-cpu",
+            revision=1,
+            source=memory_edge.target,
+            target=cpu_request_ref,
+            mapping=RepresentationRef.from_payload(
+                "mailcpu.crash-cut.operand-adapter",
+                1,
+                {
+                    "receipt_digest": canonical_value_digest(raw_receipt),
+                    "request_digest": canonical_value_digest(cpu_event.to_dict()),
+                },
+            ),
+            observation=ObservationContract.from_definition(
+                "mailcpu.crash-cut.operand-equality",
+                1,
+                {"fields": ["value"], "comparison": "canonical-json-exact"},
+            ),
+            context_digest=cpu_context_digest,
+            precondition_digests=(precondition,),
+            invariant_digests=(invariant,),
+            resource_bounds=(
+                ResourceBound("latency_us", 9, "us"),
+                ResourceBound("energy_nj", 36, "nJ"),
+            ),
+            authority_requirements=(
+                CapabilityRequirement(TRANSIT_STRUCTURAL_MEMORY_RESOURCE, ("read",)),
+                CapabilityRequirement(_CPU_RESOURCE, ("execute",)),
+            ),
+            effect_class=EffectClass.PURE,
+            replay_class=ReplayClass.DETERMINISTIC,
+        )
+        bridge_comparison = compare_projected_observations(
+            bridge_contract,
+            case_payload={"receipt_digest": canonical_value_digest(raw_receipt)},
+            source_observation={"value": expected_value},
+            target_observation={"value": expected_value},
+        )
+        assert bridge_comparison.equivalent is True
+        catalogue = EvidencePathCatalogue()
+        catalogue.register(memory_edge)
+        catalogue.register(EvidencePathEdge(
+            bridge_contract,
+            bridge_comparison,
+            (
+                RouteMetric("latency_us", "us", 5),
+                RouteMetric("energy_nj", "nJ", 18),
+            ),
+        ))
+        route_request = EvidencePathRequest(
+            source=memory_edge.source,
+            target=cpu_request_ref,
+            context_digest=cpu_context_digest,
+            accepted_context_digests=tuple(sorted({
+                memory_edge.contract.context_digest,
+                cpu_context_digest,
+            })),
+            metric_order=(
+                RouteMetricKey("latency_us", "us"),
+                RouteMetricKey("energy_nj", "nJ"),
+            ),
+            resource_ceilings=(
+                RouteMetric("latency_us", "us", 50),
+                RouteMetric("energy_nj", "nJ", 500),
+            ),
+            satisfied_preconditions=tuple(sorted({
+                precondition,
+                *memory_edge.contract.precondition_digests,
+            })),
+            satisfied_invariants=tuple(sorted({
+                invariant,
+                *memory_edge.contract.invariant_digests,
+            })),
+            minimum_evidence=EvidenceStrength.PAIRED_CASE,
+            max_hops=3,
+            max_expansions=12,
+        )
+        route = EvidencePathResolver().resolve(
+            catalogue,
+            route_request,
+            receiver,
+            authority_pid,
+        )
+        assert route.status is EvidencePathStatus.FOUND
+        assert route_request.target == cpu_request_ref
+
+        checkpoint_path = tmp_path / f"{cut}.checkpoint.json"
+
+        def stop_at_cut(stage: str) -> None:
+            if stage == cut:
+                captured = NavigableComputationCheckpoint.capture(
+                    session,
+                    request_client,
+                    response_client,
+                    catalogue,
+                    route_request,
+                    route,
+                    cpu_event,
+                    allow_inflight=True,
+                )
+                NavigableComputationCheckpoint.save(captured, checkpoint_path)
+                raise SimulatedCrash(stage)
+
+        assert request_client.send(cpu_event) == 2
+        with pytest.raises(SimulatedCrash, match=cut):
+            session.serve_once(fault_hook=stop_at_cut)
+
+        # The combined checkpoint is an atomic file, not an in-memory test-only object.
+        persisted = NavigableComputationCheckpoint.load(checkpoint_path)
+        assert persisted["state"]["version"] == 2
+        assert persisted["state"]["capture_mode"] == "inflight"
+        committed_before_restart = initial_host.calls
+        assert committed_before_restart == (0 if cut == "before_execution" else 1)
+
+        # Drop every old stream and restore every endpoint over fresh TCP pairs.
+        for transport in transports:
+            if not transport.closed:
+                transport.close()
+        (
+            replacement_transports,
+            _new_client_request,
+            _new_worker_request,
+            _new_worker_response,
+            _new_client_response,
+        ) = _channels()
+        (
+            new_client_request_transport,
+            new_worker_request_transport,
+            new_worker_response_transport,
+            new_client_response_transport,
+        ) = replacement_transports
+
+        def restored_factory(restored_os: HeadlessOS, restored_pid: int):
+            host = _CountingHost()
+            restored_hosts.append(host)
+            return _router(restored_os, restored_pid, host)
+
+        restored = NavigableComputationCheckpoint.restore(
+            persisted,
+            client_request_transport=new_client_request_transport,
+            client_response_transport=new_client_response_transport,
+            worker_request_transport=new_worker_request_transport,
+            worker_response_transport=new_worker_response_transport,
+            compute_host_factory=restored_factory,
+        )
+        assert restored.catalogue.digest == catalogue.digest
+        assert restored.route_request.digest == route_request.digest
+        assert restored.route_result == route.to_dict()
+        assert restored.retry_event.identity == cpu_event.identity
+        assert len(restored_hosts) == 1
+        assert restored_hosts[0].calls == 0
+
+        # Re-deliver a published result first, if the cut occurred after publication.
+        server_response_channel = restored.session.response.channel
+        if server_response_channel.pending_sequences():
+            pending_result_sequence = server_response_channel.pending_sequences()[0]
+            assert server_response_channel.retransmit(pending_result_sequence) is True
+            first_response = _wait_for_response(restored.response_client)
+            assert first_response.effect["registers"]["answer"] == expected_value + 19
+            _wait_for_ack(server_response_channel, (pending_result_sequence,))
+
+        # Retry the exact original request frame. The receiver ledger decides whether
+        # to execute once or return the already-committed semantic effect.
+        assert restored.request_client.channel.retransmit(2) is True
+        replay_or_execution = restored.session.serve_once()
+        assert replay_or_execution is not None
+        assert replay_or_execution.effect["registers"]["answer"] == expected_value + 19
+        assert replay_or_execution.executed is True
+        assert replay_or_execution.replayed is (cut != "before_execution")
+
+        final_response_sequence = max(server_response_channel.pending_sequences())
+        returned = _wait_for_response(restored.response_client)
+        assert returned.effect == replay_or_execution.effect
+        _wait_for_ack(restored.request_client.channel, (2,))
+        _wait_for_ack(server_response_channel, (final_response_sequence,))
+        assert restored.session.phase == "idle"
+
+        # Exactly one backend invocation across both sides of the simulated restart.
+        assert initial_host.calls + restored_hosts[0].calls == 1
+        assert restored_hosts[0].calls == (1 if cut == "before_execution" else 0)
+        assert restored.session.worker.operating_system.environment.kernel.journal.verify()
+        translation = TransitTranslationEvidence.from_dict(
+            replay_or_execution.effect["_semantic_translation"]
+        )
+        oracle = TransitOracleEvidence.from_dict(
+            replay_or_execution.effect["_semantic_oracle"]
+        )
+        translation.validate_execution_result(replay_or_execution, require_oracle=True)
+        assert oracle.equivalent is True
+    finally:
+        for transport in (*transports, *replacement_transports):
+            if not transport.closed:
+                transport.close()
