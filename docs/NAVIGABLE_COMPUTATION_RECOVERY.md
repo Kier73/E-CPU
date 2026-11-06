@@ -73,10 +73,12 @@ Restore requires fresh transports and a trusted backend factory.
 4. Re-authorize the saved retry event against the restored receiver's live
    capability table. Its exact authorized-event representation must occur as
    a source node in the persisted route catalogue.
-5. Re-run the evidence-path resolver using restored live capabilities.
+5. When schema v3 includes a DAG, require exactly one ready node to match
+   the retry event's operation, resource, context digest, and payload.
+6. Re-run the evidence-path resolver using restored live capabilities.
    Restore is refused unless the result exactly reproduces the saved route
    projection.
-6. Resubmit the same CPU event under the next reliable transport sequence.
+7. Resubmit the same CPU event under the next reliable transport sequence.
    The hypervisor semantic execution ledger must return the original committed
    effect and evidence without entering the replacement CPU backend.
 
