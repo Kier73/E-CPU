@@ -47,9 +47,11 @@ cursor.
 
 A new receiver interpreter reads the session checkpoint, binds a new pair of
 TCP listeners, and restores the TransitComputeSession over accepted sockets.
-Its initial phase is idle because the old inbound socket queue is not treated
-as durable state; the surviving requester is the durable owner of the
-unacknowledged outbound frame.
+Its request receive cursor must still be 1 and its backend call count must be
+zero. The visible phase may be idle or request-ready: the requester can safely
+retransmit as soon as the listener is available, even while the receiver is
+finishing restoration. The old inbound socket queue is not treated as durable
+state; the surviving requester owns the unacknowledged outbound frame.
 
 The still-live pytest process connects new client sockets and reconstructs
 ReliableChannel objects from its in-memory channel snapshots. It retransmits
