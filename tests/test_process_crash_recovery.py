@@ -47,6 +47,8 @@ def test_navigable_computation_recovers_after_real_worker_process_kill(tmp_path:
         assert marker["pid"] != os.getpid()
         assert marker["initial_backend_calls"] == 2  # branch A and branch B executed before the cut.
         assert marker["session_phase"] == "request-ready"
+        assert marker["client_request_pending"] == [3]
+        assert marker["worker_request_sequence"] == 3
         assert marker["worker_response_pending"] == []
         assert marker["client_response_has_message"] is False
         assert marker["committed_nodes"] == ["branch-a", "memory"]
@@ -95,6 +97,9 @@ def test_navigable_computation_recovers_after_real_worker_process_kill(tmp_path:
         interrupted.communicate(timeout=10)
         assert interrupted.returncode != 0
         assert interrupted.poll() is not None
+        # Checkpoint survives the hard process death, not merely the live-child read.
+        post_kill_checkpoint = NavigableComputationCheckpoint.load(checkpoint_path)
+        assert post_kill_checkpoint["digest"] == marker["checkpoint_digest"]
     finally:
         if interrupted.poll() is None:
             interrupted.kill()
