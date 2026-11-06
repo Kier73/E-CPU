@@ -84,12 +84,12 @@ class TransitComputeSession:
         self,
         fault_hook: Callable[[str], None] | None = None,
     ) -> HypervisorExecutionResult | None:
-        """Apply one receiver transition, optionally stopping at a deterministic crash cut."""
+        """Mathematics: apply at most one transition T(q), with optional observation at transaction boundary b."""
 
         return self.worker.serve_once(self.request, self.response, fault_hook=fault_hook)
 
     def snapshot(self, *, allow_inflight: bool = False) -> dict[str, object]:
-        """Checkpoint the path product; in-flight snapshots preserve reliable ledgers for fresh-transport replay."""
+        """Mathematics: serialize Σ=Σ_request×Σ_worker×Σ_response; permit Q=0 only unless allow_inflight preserves pending ledgers."""
 
         return self.worker.snapshot(self.request, self.response, allow_inflight=allow_inflight)
 
@@ -99,7 +99,7 @@ class TransitComputeSession:
         *,
         allow_inflight: bool = False,
     ) -> str:
-        """Mathematics: atomically persist canonical checkpoint C only when Q=0, fsync(C), then replace the prior durable checkpoint."""
+        """Mathematics: atomically persist canonical C with fsync(temp)→replace→fsync(directory); Q=0 is default, in-flight mode persists retry ledgers."""
 
         target = Path(path)
         if not str(target):
