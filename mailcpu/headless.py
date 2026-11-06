@@ -38,6 +38,7 @@ from .kernel import (
     ProcessStatus,
 )
 from .structural_memory import StructuralMemoryProposal, StructuralMemoryRegistry
+from .providers import StructuralMemoryFileRef, StructuralMemoryFileProvider
 from .memory import VirtualMemoryError
 from .model import DEFAULT_MAX_TICKS, Program
 from .owned_network import NetworkAddress, NetworkFrame
@@ -117,6 +118,7 @@ class HeadlessOS:
             admission_policy=structural_memory_admission_policy,
             journal=self.environment.kernel.journal,
         )
+        self.environment.kernel.fs.providers.bind_structural_memory_registry(self.structural_memory)
         self.posix = PosixCompatibility(self)
         from .service import ServiceSupervisor
 
@@ -132,6 +134,31 @@ class HeadlessOS:
             self.environment.kernel.fs.write_file(canonical, payload, offset=0, truncate=True)
         except FsError:
             self.environment.kernel.fs.create_file(canonical, payload, mode=mode)
+        return canonical
+
+    def register_structural_memory_file(
+        self,
+        path: str,
+        reference: StructuralMemoryFileRef,
+        *,
+        mode: int = 0o444,
+        owner: int = 0,
+        max_read_bytes: int = 4096,
+    ) -> str:
+        """Mathematics: expose one immutable structural-memory interval as a bounded read-only VFS file."""
+        canonical = normalize_path(path)
+        self._ensure_parent_directories(canonical)
+        provider = StructuralMemoryFileProvider(
+            reference,
+            self.structural_memory,
+            max_read_bytes=max_read_bytes,
+        )
+        self.environment.kernel.fs.register_structural_memory_file(
+            canonical,
+            provider,
+            mode=mode,
+            owner=owner,
+        )
         return canonical
 
     def install_binary(self, path: str, program: Program, mode: int = 0o755) -> str:
@@ -2333,6 +2360,9 @@ class HeadlessOS:
                 admission_policy=structural_memory_admission_policy,
                 journal=operating_system.environment.kernel.journal,
             )
+        operating_system.environment.kernel.fs.providers.bind_structural_memory_registry(
+            operating_system.structural_memory
+        )
         operating_system.services = ServiceSupervisor.from_snapshot(
             operating_system,
             dict(payload.get("services", {})),

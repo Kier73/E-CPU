@@ -102,6 +102,14 @@ The receiver first validates the workload's admitted Virtual Ground and obtains 
 
 This integration composes three previously separate facilities: portable intent and operator contracts, verified addressable state families, and receiver-side authority/replay. It does not distribute the memory registry, carry generator code, infer generator parameters from context, or make operator handlers portable.
 
+### 2.2 Structural Memory as a native VFS provider
+
+The VFS can now register a bounded, read-only file whose byte offsets address an admitted structural-memory revision. The file descriptor pins memory identity, revision, exact context, coordinate start, size, specification digest, and certificate digest. The provider reconstructs only the requested coordinate interval, validates each coordinate receipt, and returns bytes only when every generated integer fits the unsigned-byte domain.
+
+The provider descriptor is checkpointed without its registry pointer. HeadlessOS restoration reconstructs the structural-memory registry and then rebinds the inert provider to that local registry. This composes generative state with the existing VFS provider interface while preserving the host-local admission boundary.
+
+This milestone is a VFS file provider, not yet a demand-paged VM page-backing adapter. Page reservations, content-address identity, and copy-on-write recovery remain separate obligations for the next stage.
+
 ## 3. Novel-to-this-architecture possibilities
 
 This section records research opportunities created by the combination of existing and planned primitives. These are not claims of global historical priority. Related ideas may exist in symbolic execution, program synthesis, proof-carrying computation, procedural generation, distributed systems, databases, and other fields. The question is what a working combination inside E-CPU enables that its current components do not provide separately.
