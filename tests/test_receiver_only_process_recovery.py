@@ -134,6 +134,15 @@ def _wait_response(
     )
 
 
+def _read_progress(path: Path) -> dict[str, Any] | None:
+    """Read an atomically replaced child marker, tolerating transient Windows sharing locks."""
+
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, PermissionError, json.JSONDecodeError):
+        return None
+
+
 def _wait_request_ack(channel: ReliableChannel, expected: tuple[int, ...]) -> None:
     """Drain ACKs until the exact client request sequence is no longer pending."""
 
@@ -455,13 +464,15 @@ def test_receiver_restart_after_response_publish_before_request_ack(tmp_path: Pa
         # Both reliable response frames must have been ACKed, including the
         # old response frame whose pre-crash ACK could not reach the dead worker.
         deadline = time.monotonic() + 10.0
-        while not result_path.exists() and restarted.poll() is None and time.monotonic() < deadline:
+        replay_stage = _read_progress(result_path)
+        while (
+            (replay_stage is None or replay_stage.get("stage") != "waiting-for-new-request")
+            and restarted.poll() is None
+            and time.monotonic() < deadline
+        ):
             time.sleep(0.005)
-        assert result_path.exists()
-        replay_stage = json.loads(result_path.read_text(encoding="utf-8"))
-        while replay_stage.get("stage") != "waiting-for-new-request" and restarted.poll() is None and time.monotonic() < deadline:
-            time.sleep(0.005)
-            replay_stage = json.loads(result_path.read_text(encoding="utf-8"))
+            replay_stage = _read_progress(result_path)
+        assert replay_stage is not None
         assert replay_stage["stage"] == "waiting-for-new-request"
 
         second_event = _event(
