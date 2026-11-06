@@ -316,9 +316,8 @@ class MailCPUVirtualMachine:
                 for (pid, source, sequence), observation_payload in sorted(self._resolver_observation_receipts.items())
             ],
         }
-        backing_snapshot = getattr(self.page_backing, "snapshot", None)
-        if callable(backing_snapshot):
-            payload["page_backing_state"] = backing_snapshot()
+        if isinstance(self.page_backing, StructuralMemoryPageBacking):
+            payload["page_backing_state"] = self.page_backing.snapshot()
         return payload
 
     @classmethod
