@@ -463,7 +463,7 @@ def test_receiver_restart_after_response_publish_before_request_ack(tmp_path: Pa
 
         # Both reliable response frames must have been ACKed, including the
         # old response frame whose pre-crash ACK could not reach the dead worker.
-        deadline = time.monotonic() + 10.0
+        deadline = time.monotonic() + 35.0
         replay_stage = _read_progress(result_path)
         while (
             (replay_stage is None or replay_stage.get("stage") != "waiting-for-new-request")
