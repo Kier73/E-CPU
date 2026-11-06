@@ -38,6 +38,16 @@ def _contract(program: Program) -> TranslationContract:
             "comparison": "canonical-json-exact",
         },
     )
+    mapping = RepresentationRef.from_payload(
+        "mailcpu.interpreter-pairing",
+        1,
+        {
+            "source_backend": "reference",
+            "target_backend": "queue",
+            "transition_algebra": "mailcpu.T.v1",
+            "observation": "canonical_result.v1",
+        },
+    )
     return TranslationContract(
         contract_id="mailcpu.reference-to-queue",
         revision=1,
@@ -51,6 +61,7 @@ def _contract(program: Program) -> TranslationContract:
             1,
             program_ref.content_digest,
         ),
+        mapping=mapping,
         observation=observation,
         context_digest=canonical_value_digest(
             {"initial_registers": {}, "inputs": {}, "max_steps": 10_000}
@@ -110,11 +121,17 @@ def test_translation_contract_digest_is_independent_of_set_like_input_order():
         1,
         {"fields": ["status", "state", "trace", "outputs"]},
     )
+    mapping = RepresentationRef.from_payload(
+        "mailcpu.interpreter-pairing",
+        1,
+        {"source": "reference", "target": "queue", "version": 1},
+    )
     first = TranslationContract(
         "ordering",
         1,
         program_ref,
         RepresentationRef("mailcpu.queue-program", 1, program_ref.content_digest),
+        mapping,
         observation,
         canonical_value_digest({}),
         precondition_digests=(
@@ -135,6 +152,7 @@ def test_translation_contract_digest_is_independent_of_set_like_input_order():
         1,
         program_ref,
         RepresentationRef("mailcpu.queue-program", 1, program_ref.content_digest),
+        mapping,
         observation,
         canonical_value_digest({}),
         precondition_digests=tuple(reversed(first.precondition_digests)),
@@ -146,6 +164,29 @@ def test_translation_contract_digest_is_independent_of_set_like_input_order():
     )
 
     assert first.digest == second.digest
+
+
+
+def test_changing_mapping_definition_changes_translation_contract_digest():
+    """Mathematics: H(C[mapping:=M1]) differs from H(C[mapping:=M2]) when the mapping definition digest differs."""
+    from dataclasses import replace
+
+    contract = _contract(addition_program(7, 8))
+    changed_mapping = RepresentationRef.from_payload(
+        "mailcpu.interpreter-pairing",
+        1,
+        {
+            "source_backend": "reference",
+            "target_backend": "queue",
+            "transition_algebra": "mailcpu.T.v2",
+            "observation": "canonical_result.v1",
+        },
+    )
+
+    changed = replace(contract, mapping=changed_mapping)
+
+    assert changed.mapping.content_digest != contract.mapping.content_digest
+    assert changed.digest != contract.digest
 
 
 def test_mismatching_observations_are_reported_not_raised_as_success():
@@ -210,6 +251,7 @@ def test_external_effects_cannot_claim_unledgered_deterministic_replay():
             1,
             program_ref,
             RepresentationRef("remote.result", 1, program_ref.content_digest),
+            RepresentationRef.from_payload("mailcpu.remote-effect-map", 1, {"adapter": "remote"}),
             observation,
             canonical_value_digest({}),
             effect_class=EffectClass.EXTERNAL,
