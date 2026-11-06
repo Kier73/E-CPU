@@ -231,7 +231,10 @@ def restore_and_continue(
     )
     assert hosts and hosts[0].calls == 0
     restored_phase = session.phase
-    assert restored_phase in {"idle", "request-ready"}
+    valid_restore_phases = {"idle", "request-ready"}
+    if resend_published_response:
+        valid_restore_phases.add("response-unacknowledged")
+    assert restored_phase in valid_restore_phases
     assert session.request.channel.next_receive_sequence == 1
     expected_response_pending = (1,) if resend_published_response else ()
     assert session.response.channel.pending_sequences() == expected_response_pending
