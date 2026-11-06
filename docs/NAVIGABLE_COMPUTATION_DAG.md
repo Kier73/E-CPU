@@ -68,9 +68,9 @@ The join is itself submitted through Transit. It is not an implicit in-memory sh
 
 ## Relation to recovery and Transit
 
-This graph snapshot is currently a separate digest-bound object. PR #30's combined Transit checkpoint captures the receiver, both requester channel cursors, route catalogue/query/result, and retry event at explicit in-flight cuts. The next integration step is to compose the DAG snapshot with that combined checkpoint so the computation frontier, committed branch effects, receiver ledgers, and transport retry state are published as one atomic recovery envelope.
+The DAG can be carried inside the combined Transit checkpoint (schema v3). Its snapshot is included under the same canonical outer digest as receiver/session state, both requester channel cursors, route catalogue/query/result, and retry event. Restore validates and reconstructs the graph before creating runtime endpoints. The crash-cut recovery test proves that a committed Structural Memory receipt and a pending CPU frontier survive together; after the original request is retried or replayed, the exact result can be committed to the restored graph. This composes the persistent frontier with protocol recovery without claiming that every node in a multi-branch DAG executes as one atomic transaction.
 
-The current fan-out/fan-in test serializes the graph after two branch commits and reconstructs it in the same test process. The four transaction-cut tests separately reconstruct the receiver and transports across in-flight cuts. They are not yet a single test that crashes and restores an entire multi-branch workload.
+The fan-out/fan-in test serializes the graph after two branch commits and reconstructs it in the same test process. Separately, each of the four transaction-cut cases serializes the combined receiver/channel/route/DAG envelope with a committed memory node and a pending CPU node, reconstructs the graph and runtime over fresh streams, and commits the recovered CPU result into the restored DAG. Both remain deterministic test-harness reconstructions rather than OS process-kill tests.
 
 ## Proof boundary
 
