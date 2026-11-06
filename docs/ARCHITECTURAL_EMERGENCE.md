@@ -300,6 +300,29 @@ Experiment: define an attention budget with explicit units—for example, candid
 
 Failure condition: attention only changes scheduling labels without improving useful coverage per unit cost, or it permits lower verification quality to be mistaken for higher confidence.
 
+### 3.8 A complete Structural Memory-to-CPU navigation path
+
+A focused integration test composes the receiver-side Structural Memory Transit
+read, pure CPU Transit execution, semantic translation contracts, independent
+operation oracles, and evidence-indexed route resolution.
+
+One admitted integer recurrence supplies a coordinate value to a second CPU
+request. The exact read receipt is connected to the receiver-authorized CPU
+request by a paired translation edge; the CPU request is connected to its
+committed handler effect by the receiver-generated translation and independent
+oracle evidence. The resolver must join the two complete representation
+identities while satisfying both live capabilities and aggregate declared
+resource ceilings.
+
+The test also checks a semantic replay under a new transport frame, a stable
+catalogue snapshot digest, and the kernel journal chain. The route remains a
+non-authoritative proposal and the two operations remain independently
+authorized. The current test does not yet include one combined process-restart
+recovery across both operations and the route catalogue.
+
+See [NAVIGABLE_COMPUTATION_EXPERIMENT.md](NAVIGABLE_COMPUTATION_EXPERIMENT.md)
+for the exact workload, assumptions, commands, and proof boundaries.
+
 ## 4. Questions to ask at every milestone
 
 1. What can now be done that was not previously executable?
