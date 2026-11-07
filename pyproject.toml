@@ -34,6 +34,9 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=7", "build>=1"]
+vgi = [
+  "virtual-ground-interpreter @ git+https://github.com/Kier73/Virtual-Ground-Interpreter.git@43289a54c3e881ba70bf64924c71aa30e680b6d2#subdirectory=virtual_ground_interpreter",
+]
 
 [project.urls]
 Homepage = "https://github.com/Kier73/E-CPU"

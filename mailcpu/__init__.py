@@ -283,6 +283,14 @@ from .virtual_layer import (
     VirtualOperatorRef,
     VirtualStructuralMemoryRef,
 )
+from .vgi_host import (
+    VGIHostError,
+    VGI_SIGNAL8_INPUT_SCHEMA,
+    VGI_SIGNAL8_OPERATOR_ID,
+    execute_vgi_signal8,
+    make_vgi_signal8_operator,
+    register_vgi_signal8_operator,
+)
 from .transit_compute import TransitComputeError, TransitComputeHost
 from .transit_memory import TransitMemoryTransferError, TransitMemoryTransferHost
 from .transit_structural_memory import (
