@@ -398,6 +398,22 @@ def test_public_directory_merge_requires_the_authenticated_transport_object() ->
         )
 
 
+def test_directory_peer_capacity_reserves_local_identity_before_local_snapshot() -> None:
+    directory = ComputationalFabricDirectory(
+        "peer-a",
+        {"peer-b": "peer-b.fabric.test"},
+        max_peers=2,
+    )
+    directory._merge_verified_peer_snapshot(
+        _snapshot("peer-b"),
+        authenticated_peer_id="peer-b",
+        authenticated_server_name="peer-b.fabric.test",
+    )
+
+    assert directory.register_local_snapshot(_snapshot("peer-a"))
+    assert tuple(item.peer_id for item in directory.active_snapshots) == ("peer-a", "peer-b")
+
+
 def test_directory_trust_map_is_detached_from_caller_mutation() -> None:
     configured = {"peer-b": "peer-b.fabric.test"}
     directory = ComputationalFabricDirectory("peer-a", configured)
