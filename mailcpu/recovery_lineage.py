@@ -210,6 +210,113 @@ class RecoveryCheckpointManifest:
 
 
 @dataclass(frozen=True)
+class RecoveryStateManifest:
+    """Mathematics: Single-artifact state root for quorum-anchored recovery outside Transit endpoint bundles."""
+
+    machine_id: str
+    incarnation: int
+    owner_id: str
+    owner_term: int
+    membership_digest: str
+    generation: int
+    predecessor_digest: str
+    state_digest: str
+    capture_cut: str
+
+    def __post_init__(self) -> None:
+        """Mathematics: Validate one state artifact's machine membership, monotonic slot and content identities."""
+        _label(self.machine_id, "machine id")
+        _positive(self.incarnation, "machine incarnation")
+        _label(self.owner_id, "lineage owner id")
+        _positive(self.owner_term, "owner term")
+        _positive(self.generation, "recovery generation")
+        _label(self.capture_cut, "checkpoint capture cut")
+        for field_name in ("membership_digest", "predecessor_digest", "state_digest"):
+            object.__setattr__(self, field_name, _digest(getattr(self, field_name), field_name))
+
+    def snapshot(self) -> dict[str, object]:
+        """Mathematics: Project every coordinate that determines the single-artifact recovery root."""
+        return {
+            "schema": "mailcpu.recovery-state-manifest.v1",
+            "version": 1,
+            "machine_id": self.machine_id,
+            "incarnation": self.incarnation,
+            "owner_id": self.owner_id,
+            "owner_term": self.owner_term,
+            "membership_digest": self.membership_digest,
+            "generation": self.generation,
+            "predecessor_digest": self.predecessor_digest,
+            "state_digest": self.state_digest,
+            "capture_cut": self.capture_cut,
+        }
+
+    @property
+    def digest(self) -> str:
+        """Mathematics: Compute the root digest over the exact state artifact manifest."""
+        return hashlib.sha256(_canonical_bytes(self.snapshot())).hexdigest()
+
+    @property
+    def request_fingerprint(self) -> str:
+        """Mathematics: Domain-separate single-state recovery from endpoint-bundle checkpoint proposals."""
+        payload = {
+            "kind": "mailcpu.recovery-lineage.state-manifest",
+            "manifest_digest": self.digest,
+            "machine_id": self.machine_id,
+            "generation": self.generation,
+        }
+        return hashlib.sha256(_canonical_bytes(payload)).hexdigest()
+
+    def verify_payload(self, payload: bytes) -> None:
+        """Mathematics: Require the persisted state artifact to match the exact digest sealed by this manifest."""
+        if not isinstance(payload, bytes):
+            raise RecoveryLineageError("recovery state payload must be bytes")
+        if hashlib.sha256(payload).hexdigest() != self.state_digest:
+            raise RecoveryLineageError("recovery state payload digest does not match its manifest")
+
+    @classmethod
+    def from_snapshot(cls, payload: Mapping[str, Any]) -> "RecoveryStateManifest":
+        """Mathematics: Reconstruct a single-state manifest only from its exact versioned field set."""
+        fields = {
+            "schema",
+            "version",
+            "machine_id",
+            "incarnation",
+            "owner_id",
+            "owner_term",
+            "membership_digest",
+            "generation",
+            "predecessor_digest",
+            "state_digest",
+            "capture_cut",
+        }
+        if (
+            not isinstance(payload, Mapping)
+            or set(payload) != fields
+            or payload.get("schema") != "mailcpu.recovery-state-manifest.v1"
+            or not isinstance(payload.get("version"), int)
+            or isinstance(payload.get("version"), bool)
+            or payload.get("version") != 1
+        ):
+            raise RecoveryLineageError("recovery state manifest fields or version are invalid")
+        try:
+            return cls(
+                payload["machine_id"],
+                payload["incarnation"],
+                payload["owner_id"],
+                payload["owner_term"],
+                payload["membership_digest"],
+                payload["generation"],
+                payload["predecessor_digest"],
+                payload["state_digest"],
+                payload["capture_cut"],
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            if isinstance(exc, RecoveryLineageError):
+                raise
+            raise RecoveryLineageError("recovery state manifest is malformed") from exc
+
+
+@dataclass(frozen=True)
 class RecoveryLineageProof:
     """Mathematics: Quorum certificate and durable commit decisions for one checkpoint manifest."""
 
@@ -402,11 +509,14 @@ class RecoveryLineageCoordinator:
         self.membership = membership
         self.authorities = dict(sorted(selected.items()))
 
-    def proposal_for(self, manifest: RecoveryCheckpointManifest) -> SeedCommitProposal:
-        """Mathematics: Translate one checkpoint manifest into the existing fixed-membership slot algebra."""
+    def proposal_for(
+        self,
+        manifest: RecoveryCheckpointManifest | RecoveryStateManifest,
+    ) -> SeedCommitProposal:
+        """Mathematics: Translate a typed checkpoint/state manifest into the fixed-membership recovery slot algebra."""
 
-        if not isinstance(manifest, RecoveryCheckpointManifest):
-            raise RecoveryLineageError("lineage proposal requires a typed checkpoint manifest")
+        if not isinstance(manifest, (RecoveryCheckpointManifest, RecoveryStateManifest)):
+            raise RecoveryLineageError("lineage proposal requires a typed checkpoint or state manifest")
         if (
             manifest.machine_id != self.membership.system_id
             or manifest.incarnation != self.membership.incarnation
@@ -427,8 +537,11 @@ class RecoveryLineageCoordinator:
             manifest.digest,
         )
 
-    def seal(self, manifest: RecoveryCheckpointManifest) -> RecoveryLineageProof:
-        """Mathematics: Prepare, certify, and fsync one checkpoint root on a strict majority before issuing proof."""
+    def seal(
+        self,
+        manifest: RecoveryCheckpointManifest | RecoveryStateManifest,
+    ) -> RecoveryLineageProof:
+        """Mathematics: Prepare, certify, and fsync one recovery state root on a strict majority before issuing proof."""
 
         proposal = self.proposal_for(manifest)
         votes: dict[str, SeedPrepareVote] = {}
@@ -619,6 +732,26 @@ class RecoveryLineageCoordinator:
             )
         if proposal.digest != latest.proposal.digest:
             raise RecoveryLineageError("checkpoint manifest conflicts with committed high-water generation")
+        return latest
+
+    def verify_state(self, manifest: RecoveryStateManifest) -> RecoveryLineageProof:
+        """Mathematics: Admit only a single-state manifest matching the exact latest quorum-anchored recovery root."""
+        if not isinstance(manifest, RecoveryStateManifest):
+            raise RecoveryLineageError("state verification requires a typed RecoveryStateManifest")
+        proposal = self.proposal_for(manifest)
+        latest = self.latest_proof()
+        if latest is None:
+            raise RecoveryLineageError("no recovery state generation has been quorum-anchored")
+        if proposal.slot < latest.proposal.slot:
+            raise RecoveryLineageError(
+                f"recovery state generation {proposal.slot} is stale; high-water generation is {latest.proposal.slot}"
+            )
+        if proposal.slot > latest.proposal.slot:
+            raise RecoveryLineageError(
+                f"recovery state generation {proposal.slot} is ahead of committed high-water {latest.proposal.slot}"
+            )
+        if proposal.digest != latest.proposal.digest:
+            raise RecoveryLineageError("recovery state manifest conflicts with committed high-water generation")
         return latest
 
     def verify_checkpoint_bundle(
