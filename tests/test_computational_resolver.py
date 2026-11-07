@@ -24,6 +24,7 @@ from mailcpu import (
     VirtualGroundRef,
     VirtualLayerWorkload,
     VirtualOperatorRef,
+    VirtualStructuralMemoryRef,
     VirtualLayerRuntime,
 )
 
@@ -79,7 +80,11 @@ def _workload(identity, ground, *, budget=None, eligible_nodes=("node-a",), oper
     )
 
 
-def _runtime(node_id: str, calls: list[str] | None = None) -> VirtualLayerRuntime:
+def _runtime(
+    node_id: str,
+    calls: list[str] | None = None,
+    substrates: tuple[str, ...] = ("cpu",),
+) -> VirtualLayerRuntime:
     registry = OperatorRegistry()
     spec = _spec()
 
@@ -89,7 +94,7 @@ def _runtime(node_id: str, calls: list[str] | None = None) -> VirtualLayerRuntim
         return value["left"] + value["right"]
 
     registry.register(spec, execute)
-    return VirtualLayerRuntime(registry, node_id, frozenset({"cpu"}))
+    return VirtualLayerRuntime(registry, node_id, frozenset(substrates))
 
 
 def _costs(latency: int, energy: int = 20, byte_count: int = 128, risk: int = 0):
@@ -290,6 +295,17 @@ def test_resolver_refuses_wrong_node_substrate_and_stale_system_ground() -> None
     assert stale_result.blockers[0].host_id == "system-ground"
     assert stale_result.blockers[0].code is ComputationalBlockerCode.GROUND_MISMATCH
 
+    gpu_runtime = _runtime("node-a", substrates=("gpu",))
+    gpu_pid = _worker_pid(operating_system)
+    gpu_catalogue = ComputationalHostCatalogue((
+        _locus("gpu-only-host", operating_system, gpu_runtime, authority_pid=gpu_pid, costs=_costs(1)),
+    ))
+    substrate_result = ComputationalAddressResolver().resolve(
+        _address(_workload(identity, ground)), gpu_catalogue, operating_system
+    )
+    assert substrate_result.status is ComputationalResolutionStatus.BLOCKED
+    assert any(item.code is ComputationalBlockerCode.SUBSTRATE_MISMATCH for item in substrate_result.blockers)
+
 
 def test_resolver_applies_address_cost_ceilings_and_workload_budgets() -> None:
     operating_system = HeadlessOS()
@@ -329,3 +345,64 @@ def test_resolver_reports_unreachable_operator_without_claiming_host_discovery()
     assert result.status is ComputationalResolutionStatus.UNREACHABLE
     assert result.candidate_count == 0
     assert result.witness is None
+
+
+def test_resolver_refuses_missing_pinned_structural_memory_state() -> None:
+    operating_system = HeadlessOS()
+    identity, ground = _admitted(operating_system)
+    memory_ref = VirtualStructuralMemoryRef(
+        binding="left-state",
+        memory_id="missing-memory",
+        revision=1,
+        context={"domain": "test"},
+        coordinate=0,
+        spec_digest="c" * 64,
+        certificate_digest="d" * 64,
+    )
+    workload = VirtualLayerWorkload(
+        workload_id="resolver-structural-memory",
+        system=identity,
+        ground=ground,
+        intention={"goal": {"kind": "sum"}},
+        operators=(
+            VirtualOperatorRef(
+                "core.sum_pair",
+                1,
+                "cpu",
+                structural_memory=(memory_ref,),
+            ),
+        ),
+        input_value={"right": 5},
+        budget=VirtualBudget(10_000, 10_000, 1_000),
+        logical_time=24,
+        eligible_nodes=("node-a",),
+        max_hops=4,
+        schema_version=2,
+    )
+    runtime = _runtime("node-a")
+    authority_pid = operating_system.environment.kernel.spawn(
+        "structural-resolver-host",
+        capabilities=(
+            Capability("/virtual-layer/operators", frozenset({"compute"})),
+            Capability("/structural-memory/read", frozenset({"read"})),
+        ),
+        parent_pid=operating_system.environment.init_pid,
+    )
+    locus = ComputationalHostLocus.from_runtime(
+        host_id="host-memory",
+        runtime=runtime,
+        authority_pid=authority_pid,
+        operator_id="core.sum_pair",
+        computational_ground_fingerprints=(GROUND_FP,),
+        costs=_costs(1),
+        program_fingerprints=(PROGRAM_FP,),
+        supports_structural_memory=True,
+    )
+    catalogue = ComputationalHostCatalogue((locus,))
+
+    result = ComputationalAddressResolver().resolve(
+        _address(workload), catalogue, operating_system
+    )
+
+    assert result.status is ComputationalResolutionStatus.BLOCKED
+    assert any(item.code is ComputationalBlockerCode.STATE_UNAVAILABLE for item in result.blockers)
