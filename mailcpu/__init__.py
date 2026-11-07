@@ -156,6 +156,12 @@ from .recovery_lineage import (
     RecoveryLineageError,
     RecoveryLineageProof,
 )
+from .recovery_lineage_transport import (
+    DistributedRecoveryLineageCoordinator,
+    RecoveryLineagePeerClient,
+    RecoveryLineageProcessParticipant,
+    RecoveryLineageTransportError,
+)
 from .recovery_bundle import (
     RecoveryCheckpointBundleError,
     RecoveryCheckpointBundleStore,
@@ -793,6 +799,10 @@ __all__ = [
     "RecoveryLineageCoordinator",
     "RecoveryLineageError",
     "RecoveryLineageProof",
+    "DistributedRecoveryLineageCoordinator",
+    "RecoveryLineagePeerClient",
+    "RecoveryLineageProcessParticipant",
+    "RecoveryLineageTransportError",
     "SEED_QUORUM_COMMIT_KIND",
     "SEED_QUORUM_DECISION_KIND",
     "SEED_QUORUM_PREPARE_KIND",

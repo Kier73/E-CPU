@@ -459,16 +459,20 @@ class RecoveryLineageCoordinator:
         # larger new certificate would make the already-committed decision's
         # certificate-members projection differ from the retry.
         existing_certificate: SeedCommitCertificate | None = None
-        for authority in self.authorities.values():
-            # A participant may hold a minority prepare for a conflicting
-            # value at this slot. It is not part of this proposal's quorum and
-            # must not prevent the compatible majority from progressing.
-            occupied = authority.proposal_at(proposal.slot)
-            if occupied is None or occupied.digest != proposal.digest:
+        for member_id, authority in self.authorities.items():
+            # A member may be unavailable or hold a minority prepare for a
+            # conflicting value. Neither condition prevents a live strict
+            # majority from recovering the original committed certificate.
+            try:
+                occupied = authority.proposal_at(proposal.slot)
+                if occupied is None or occupied.digest != proposal.digest:
+                    continue
+                if authority.decision(proposal) is None:
+                    continue
+                stored = authority.certificate(proposal)
+            except RecoveryLineageError as exc:
+                refused[member_id] = str(exc)
                 continue
-            if authority.decision(proposal) is None:
-                continue
-            stored = authority.certificate(proposal)
             if stored is None:
                 raise RecoveryLineageError("committed recovery proposal has no durable certificate")
             if existing_certificate is not None and stored.snapshot() != existing_certificate.snapshot():
@@ -525,7 +529,12 @@ class RecoveryLineageCoordinator:
         states: dict[tuple[int, str], list[str]] = {}
         genesis = (0, self.membership.genesis_state_digest)
         for member_id, authority in self.authorities.items():
-            state = authority.committed_state() or genesis
+            try:
+                state = authority.committed_state() or genesis
+            except RecoveryLineageError:
+                # An unreachable participant contributes no read evidence.
+                # The remaining live members must still form a strict majority.
+                continue
             states.setdefault(state, []).append(member_id)
 
         supported = [
@@ -547,13 +556,18 @@ class RecoveryLineageCoordinator:
         decisions: dict[str, SeedCommitDecision] = {}
         for member_id in states[(generation, state_digest)]:
             authority = self.authorities[member_id]
-            candidate = authority.proposal_at(generation)
-            if candidate is None or candidate.result_state_digest != state_digest:
-                raise RecoveryLineageError("quorum high-water record has no matching prepared proposal")
-            candidate_certificate = authority.certificate(candidate)
-            candidate_decision = authority.decision(candidate)
+            try:
+                candidate = authority.proposal_at(generation)
+                if candidate is None or candidate.result_state_digest != state_digest:
+                    continue
+                candidate_certificate = authority.certificate(candidate)
+                candidate_decision = authority.decision(candidate)
+            except RecoveryLineageError:
+                # A member that disappears during inspection supplies no
+                # durable read proof; the read must still reach quorum below.
+                continue
             if candidate_certificate is None or candidate_decision is None:
-                raise RecoveryLineageError("quorum high-water record lacks its durable certificate or decision")
+                continue
             if proposal is None:
                 proposal = candidate
                 certificate = candidate_certificate
@@ -562,9 +576,12 @@ class RecoveryLineageCoordinator:
                 or candidate_certificate.snapshot() != certificate.snapshot()
             ):
                 raise RecoveryLineageError("authorities disagree on the high-water proposal or certificate")
-            # This idempotent call re-runs the ledger's strict certificate,
-            # membership, predecessor, and proposal validation.
-            authority.commit(candidate, candidate_certificate)
+            try:
+                # This idempotent call re-runs the ledger's strict certificate,
+                # membership, predecessor, and proposal validation.
+                authority.commit(candidate, candidate_certificate)
+            except RecoveryLineageError:
+                continue
             decisions[member_id] = candidate_decision
 
         if proposal is None or certificate is None or len(decisions) < self.membership.quorum:
