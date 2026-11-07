@@ -188,6 +188,8 @@ class TransitComputeWorker:
                 for operation, resource in cls._backend_manifest(host)
             )
         try:
+            if any(not isinstance(item, (list, tuple)) or len(item) != 3 for item in raw):
+                raise ValueError("backend implementation entries must be exact triples")
             manifest = tuple((item[0], item[1], item[2]) for item in raw)
         except (TypeError, IndexError) as exc:
             raise ValueError("transit compute backend implementation manifest is invalid") from exc
