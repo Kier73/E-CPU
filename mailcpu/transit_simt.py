@@ -49,8 +49,9 @@ class TransitSIMTSharedMemoryHost:
         max_total_elements: int = 4096,
         max_buffers: int = 16,
         max_integer_bits: int = 4096,
+        lane_count: int = 1,
     ) -> None:
-        """Mathematics: allocate finite buffer family M with total capacity at most B and initialize all cells as not-yet-written."""
+        """Mathematics: allocate finite buffer family M for fixed cohort L, within capacity B, with all cells initially uninitialized."""
 
         if not isinstance(buffers, Mapping) or not buffers:
             raise TransitSIMTError("shared_buffers must be a non-empty mapping")
@@ -64,6 +65,9 @@ class TransitSIMTSharedMemoryHost:
             or not isinstance(max_integer_bits, int)
             or isinstance(max_integer_bits, bool)
             or max_integer_bits <= 0
+            or not isinstance(lane_count, int)
+            or isinstance(lane_count, bool)
+            or lane_count <= 0
         ):
             raise ValueError("shared-memory bounds must be positive integers")
         if len(buffers) > max_buffers:
@@ -85,6 +89,13 @@ class TransitSIMTSharedMemoryHost:
         }
         self._epochs: list[dict[str, Any]] = []
         self._max_integer_bits = max_integer_bits
+        self._lane_count = lane_count
+
+    @property
+    def lane_count(self) -> int:
+        """Mathematics: expose the fixed lane cohort cardinality bound to which this memory host belongs."""
+
+        return self._lane_count
 
     @property
     def names(self) -> tuple[str, ...]:
@@ -109,8 +120,8 @@ class TransitSIMTSharedMemoryHost:
             raise TransitSIMTError("shared values must be integers")
         if value.bit_length() > self._max_integer_bits:
             raise TransitSIMTError("shared integer exceeds configured bit bound")
-        if not isinstance(lane, int) or isinstance(lane, bool) or lane < 0:
-            raise TransitSIMTError("shared writer lane is invalid")
+        if not isinstance(lane, int) or isinstance(lane, bool) or not 0 <= lane < self._lane_count:
+            raise TransitSIMTError("shared writer lane is outside its workgroup cohort")
         if index in self._pending[name]:
             previous_lane = self._pending[name][index][1]
             raise TransitSIMTError(
@@ -126,8 +137,8 @@ class TransitSIMTSharedMemoryHost:
             raise TransitSIMTError(f"unknown shared buffer: {name}")
         if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < len(self._visible[name]):
             raise TransitSIMTError(f"shared address {index!r} is outside buffer {name!r}")
-        if not isinstance(lane, int) or isinstance(lane, bool) or lane < 0:
-            raise TransitSIMTError("shared reader lane is invalid")
+        if not isinstance(lane, int) or isinstance(lane, bool) or not 0 <= lane < self._lane_count:
+            raise TransitSIMTError("shared reader lane is outside its workgroup cohort")
         if self._pending[name]:
             raise TransitSIMTError(
                 f"shared buffer {name!r} has uncommitted writes; a barrier is required before load"
@@ -142,8 +153,8 @@ class TransitSIMTSharedMemoryHost:
 
         if not isinstance(pc, int) or isinstance(pc, bool) or pc < 0:
             raise TransitSIMTError("shared-memory barrier program counter is invalid")
-        if not isinstance(lanes, int) or isinstance(lanes, bool) or lanes <= 0:
-            raise TransitSIMTError("shared-memory barrier lane count is invalid")
+        if not isinstance(lanes, int) or isinstance(lanes, bool) or lanes != self._lane_count:
+            raise TransitSIMTError("shared-memory barrier must include the complete workgroup cohort")
         published: dict[str, list[int]] = {}
         for name in self.names:
             indices = sorted(self._pending[name])
@@ -278,6 +289,7 @@ class TransitSIMTHost:
                 max_total_elements=self.max_shared_elements,
                 max_buffers=self.max_shared_buffers,
                 max_integer_bits=self.max_integer_bits,
+                lane_count=lanes,
             )
 
         raw_program = payload.get("program")
