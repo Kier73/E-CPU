@@ -405,6 +405,23 @@ def test_directory_trust_map_is_detached_from_caller_mutation() -> None:
     exposed = directory.trusted_peers
     exposed["peer-b"] = "attacker.fabric.test"
 
+    with pytest.raises(ComputationalFabricError, match="exactly one logical peer"):
+        ComputationalFabricDirectory(
+            "peer-a",
+            {
+                "peer-b": "shared.fabric.test",
+                "peer-c": "shared.fabric.test",
+            },
+        )
+    with pytest.raises(ComputationalFabricError, match="aggregate peer bound"):
+        ComputationalFabricDirectory(
+            "peer-a",
+            {
+                "peer-b": "peer-b.fabric.test",
+                "peer-c": "peer-c.fabric.test",
+            },
+            max_peers=2,
+        )
     snapshot = _snapshot("peer-b")
     assert directory.trusted_peers == {"peer-b": "peer-b.fabric.test"}
     assert directory._merge_verified_peer_snapshot(
