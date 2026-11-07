@@ -434,6 +434,12 @@ def test_resolver_requires_exact_program_pin_or_ground_bounded_compilation_polic
             dynamic_programs=True,
         ),
     ))
+    pinned_dynamic = ComputationalAddressResolver().resolve(
+        _address(_workload(identity, ground)), dynamic_catalogue, operating_system
+    )
+    assert pinned_dynamic.status is ComputationalResolutionStatus.BLOCKED
+    assert any(item.code is ComputationalBlockerCode.PROGRAM_MISMATCH for item in pinned_dynamic.blockers)
+
     dynamic_result = ComputationalAddressResolver().resolve(
         unpinned, dynamic_catalogue, operating_system
     )
