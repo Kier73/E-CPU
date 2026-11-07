@@ -27,6 +27,7 @@ from mailcpu import (
     VirtualStructuralMemoryRef,
     VirtualLayerRuntime,
 )
+from mailcpu.law_certifier import Law
 
 GROUND_FP = "a" * 64
 PROGRAM_FP = "b" * 64
@@ -446,3 +447,84 @@ def test_resolver_requires_exact_program_pin_or_ground_bounded_compilation_polic
     assert dynamic_result.status is ComputationalResolutionStatus.FOUND
     assert dynamic_result.witness is not None
     assert dynamic_result.witness.program_fingerprint is None
+
+
+def test_resolver_locates_pinned_structural_memory_without_evaluating_or_journaling_a_read() -> None:
+    operating_system = HeadlessOS(structural_memory_admission_policy=lambda proposal: True)
+    law = Law(
+        family="int",
+        params={"x0": 7, "step": 5, "mod": 97},
+        order=1,
+        verdict="GROUND",
+    )
+    proposal = operating_system.structural_memory.propose(
+        "orbit-alpha",
+        law,
+        {0: 7, 1: 12, 2: 17, 3: 22},
+        context={"tenant": "alpha", "partition": 4},
+    )
+    version = operating_system.structural_memory.admit(
+        proposal.proposal_id,
+        expected_revision=0,
+    )
+    identity, ground = _admitted(operating_system)
+    memory_ref = VirtualStructuralMemoryRef.from_version(
+        "left-state",
+        version,
+        10,
+    )
+    workload = VirtualLayerWorkload(
+        workload_id="resolver-structural-memory-locate",
+        system=identity,
+        ground=ground,
+        intention={"goal": {"kind": "sum"}},
+        operators=(
+            VirtualOperatorRef(
+                "core.sum_pair",
+                1,
+                "cpu",
+                structural_memory=(memory_ref,),
+            ),
+        ),
+        input_value={"right": 5},
+        budget=VirtualBudget(10_000, 10_000, 1_000),
+        logical_time=25,
+        eligible_nodes=("node-a",),
+        max_hops=4,
+        schema_version=2,
+    )
+    runtime = _runtime("node-a")
+    authority_pid = operating_system.environment.kernel.spawn(
+        "structural-resolver-locate-host",
+        capabilities=(
+            Capability("/virtual-layer/operators", frozenset({"compute"})),
+            Capability("/structural-memory/read", frozenset({"read"})),
+        ),
+        parent_pid=operating_system.environment.init_pid,
+    )
+    locus = ComputationalHostLocus.from_runtime(
+        host_id="host-memory",
+        runtime=runtime,
+        authority_pid=authority_pid,
+        operator_id="core.sum_pair",
+        computational_ground_fingerprints=(GROUND_FP,),
+        costs=_costs(2),
+        program_fingerprints=(PROGRAM_FP,),
+        supports_structural_memory=True,
+    )
+    catalogue = ComputationalHostCatalogue((locus,))
+    address = _address(workload)
+    journal_before = operating_system.environment.kernel.journal.snapshot()
+
+    result = ComputationalAddressResolver().resolve(
+        address,
+        catalogue,
+        operating_system,
+    )
+
+    assert result.status is ComputationalResolutionStatus.FOUND
+    assert result.witness is not None
+    assert result.witness.state_sources == ("structural-memory:orbit-alpha@1:10",)
+    assert result.witness.state_digest == address.state_digest
+    assert operating_system.environment.kernel.journal.snapshot() == journal_before
+    assert operating_system.structural_memory.version_for_revision("orbit-alpha", 1) == version
