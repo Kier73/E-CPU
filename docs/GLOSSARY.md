@@ -28,6 +28,35 @@ Registry of defined terms for this repository.
   named resource. Authority is a function of capabilities held, never of
   identity, argument validity, or model output.
 
+**host**
+: An identifiable logical operational locus in a communication substrate
+  where information can be received, observed, transformed, retained, routed,
+  or emitted under a defined capability and transition relation. A host need
+  not be a physical machine. A passive link is not a host unless it has an
+  operational state or transition of its own.
+
+**operational locus**
+: One addressable transition point within a host or composite operational
+  structure. Loci can be composed, nested, and connected by directed transitions.
+
+**placement node**
+: A physical or virtual infrastructure resource that realizes one or more
+  logical hosts at a particular time. Placement is distinct from logical host
+  identity and from a declared failure domain.
+
+**failure domain**
+: A declared boundary within which failures may be correlated. Distinct host
+  identities or network addresses alone do not prove independent failure domains.
+
+**navigable operational structure**
+: A bounded relation of operational host loci and permitted transitions through
+  which a request resolves to a required capability and a verified result.
+
+**E-GPU**
+: The E-CPU composite logical host that routes bounded lane-wise and reduction
+  methods through addressable dispatch, execution, and verification loci. It is
+  a reference operational structure, not a claim of physical GPU support.
+
 **check pointable**
 : A state component whose complete value round-trips through `save_checkpoint`
   and `load_checkpoint` without loss. Checkpointability is a property of a
