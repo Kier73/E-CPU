@@ -135,3 +135,37 @@ Forwarding requires its own limits and proof: peer-local authority, source/desti
 
 **Next:** add an authenticated multi-peer topology discovery protocol (gossip or directory federation) without trusting relayed peer claims; implement hop-by-hop request forwarding with its own Hypervisor admission and end-to-end operation identity; dispatch at the terminal host through the existing local resolver and execution coordinator; calibrate route estimates from measured path/service telemetry; exercise peer loss, forwarding retries, intermediate crash, destination crash and end-to-end recovery.
 
+
+## 8. Authenticated hop-by-hop forwarding
+
+The new ComputationalFabricForwardingEnvelope carries the portable computational address, the non-authoritative origin route proposal, the original (origin peer, origin channel, origin sequence, logical time) identity, and one exact peer-path cursor. It carries no PID, handler, runtime object, capability grant, or executable code. The forwarding channel is a deterministic namespace derived from the origin peer and origin channel; the original sequence remains the operation sequence at every hop.
+
+ComputationalFabricForwardingClient.forward() advances exactly one directed edge. Each receiver uses ComputationalFabricForwardingServer and the existing HypervisorOperationChannel, HypervisorOperationResultChannel, ReliableChannel, and local HeadlessOS.hypervisor_authorize_event() path. No new fabric scheduler or second execution ledger is introduced.
+
+Every receiving peer performs these checks before an effect:
+1. The request event is bound to the immediate authenticated TLS peer, the configured origin channel, and the original operation sequence.
+2. The envelope cursor names this peer as its current coordinate and the TLS peer as its previous coordinate.
+3. The previous peer's active, receiver-local snapshot owns the exact incoming directed link; this peer's own active snapshot owns the exact outgoing link.
+4. The next endpoint equals both the next route endpoint and the active directly observed endpoint, and the configured TLS DNS identity matches the authenticated certificate.
+5. The envelope fits the receiver, transport, and directed-link frame bounds; the route remains cycle-free and within both the workload and forwarding hop ceilings.
+6. The local process is granted the exact /computational/fabric/forward forward right at a relay, or /computational/fabric/execute execute right at the terminal peer, by the receiver's own Hypervisor.
+
+An intermediate peer forwards only after its local Hypervisor has admitted the forwarding operation. The next peer repeats the same checks with its own directly observed directory view. A peer does not trust the origin's directory digest as a substitute for its local edge/lease checks; the route witness is still only a route proposal.
+
+At the terminal peer, the server compares the advertised target host against the exact current local ComputationalHostLocus, calls ComputationalAddressResolver against the live local catalogue and HeadlessOS, and then invokes ComputationalExecutionAdmissionCoordinator. The coordinator revalidates the witness again and enters the existing Virtual Layer and Hypervisor path. The terminal operation uses the original origin identity, so its semantic replay key is stable across intermediate hops. The terminal peer's execution capability and the selected host process's Virtual Layer compute capability are separate local grants.
+
+Each peer returns a ComputationalFabricHopReceipt containing its local Hypervisor decision receipt and either a child receipt bound to the exact next envelope digest or the terminal ComputationalExecutionResult. The receipt tree is content-addressed and validates peer adjacency, hop index, operation identity, and child-envelope continuity. The origin reports success only when the terminal outcome is both accepted and executed; a refused terminal result propagates as a failed receipt tree.
+
+ReliableChannel supplies at-least-once delivery and bounded retries. The receiver's existing Hypervisor execution ledger supplies semantic deduplication: retrying the same operation identity and payload reuses its committed result; changing the payload under the same identity conflicts. In particular, a relay whose downstream operation committed but whose response was lost can retry the same child request and obtain the downstream peer's stored result without re-entering its operator.
+
+### Proof boundary and remaining gaps
+
+The first exercised network path is A→B→C over two distinct mutually authenticated TLS streams. It demonstrates direct-neighbor authentication, receiver-local admission at the relay and terminal, fresh terminal semantic resolution, a result receipt chain, and same-identity replay without a second operator call. It does not demonstrate arbitrary topology size, high availability, or full service lifecycle management.
+
+The receipt chain is digest-linked, not digitally signed. TLS authenticates each immediate connection, and each hop records a local Hypervisor journal decision, but a SHA-256 receipt does not independently prove who created it to a third party. This is not non-repudiation, hardware attestation, or a cryptographic chain of relay signatures.
+
+Each sender enforces a finite local monotonic RPC deadline, each route is hop-bounded, and payload/frame sizes are bounded. There is no globally comparable absolute deadline carried between machines; peer monotonic clocks must not be compared. A future protocol revision should introduce a carefully decremented remaining-work budget or hop-specific service budget if a strict end-to-end deadline is required.
+
+This slice does not yet checkpoint the complete forwarding session across hard process death. The reliable channels and Hypervisor ledgers have checkpoint/replay facilities elsewhere in the system, but their forwarding-specific state is not yet captured and restored as one receiver transaction. The next recovery experiment should bind each hop's request/result channels, local Hypervisor replay state, operation channel identity, and receipt publication cut into the existing checkpoint/recovery machinery. A later trust extension may add relay signatures if receipts need independent verification beyond the directly authenticated peers.
+
+Topology gossip, route-witness authority, and a second scheduling system are intentionally absent.

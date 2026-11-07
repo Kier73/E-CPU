@@ -1322,3 +1322,283 @@ def test_fabric_route_terminates_in_fresh_local_resolution_and_hypervisor_execut
     assert execution.execution.action.value == "allow"
     assert execution.execution.effect["result"] == 9
     assert calls == ["federated-sum-workload"]
+
+
+def test_federated_workload_forwards_over_two_authenticated_hops_and_replays_once(tmp_path) -> None:
+    """Mathematics: Exercise A→B→C over mutual TLS with local hop admission, terminal re-resolution, and semantic replay."""
+
+    from mailcpu.classifier import HypervisorPolicy
+    from mailcpu.computational_fabric_forwarding import (
+        ComputationalFabricForwardingClient,
+        ComputationalFabricForwardingEnvelope,
+        ComputationalFabricForwardingServer,
+        ComputationalFabricHopReceipt,
+        COMPUTATIONAL_FABRIC_EXECUTE_RESOURCE,
+        COMPUTATIONAL_FABRIC_FORWARD_RESOURCE,
+    )
+
+    certificates = _make_test_certificates(tmp_path)
+    listener_b = SocketTransport.listen("127.0.0.1", 0)
+    listener_c = SocketTransport.listen("127.0.0.1", 0)
+    port_b = listener_b.getsockname()[1]
+    port_c = listener_c.getsockname()[1]
+
+    endpoint_a = ComputationalPeerEndpoint("peer-a", "peer-a.fabric.test", "127.0.0.1", 44001)
+    endpoint_b = ComputationalPeerEndpoint("peer-b", "peer-b.fabric.test", "127.0.0.1", port_b)
+    endpoint_c = ComputationalPeerEndpoint("peer-c", "peer-c.fabric.test", "127.0.0.1", port_c)
+
+    destination_os = HeadlessOS()
+    system_identity = SystemIdentity("federated-forwarding-system", 1)
+    seed = SystemSeed.from_system(destination_os)
+    seed_envelope = SystemSeedEnvelope(
+        system_identity,
+        "federated-forwarding",
+        "federated-forwarding",
+        seed,
+    )
+    assert destination_os.seed_admission.admit(seed_envelope).accepted
+    system_ground = VirtualGroundRef.from_envelope(seed_envelope)
+
+    calls: list[str] = []
+    registry = OperatorRegistry()
+    spec = _spec()
+
+    def execute(value, workload):
+        """Mathematics: Run the terminal pure operation only after local Ground and capability admission."""
+        calls.append(workload.workload_id)
+        return value["left"] + value["right"]
+
+    registry.register(spec, execute)
+    runtime = VirtualLayerRuntime(registry, "node-c", frozenset({"cpu"}))
+    compute_pid = destination_os.environment.kernel.spawn(
+        "federated-terminal-compute",
+        capabilities=(Capability("/virtual-layer/operators", frozenset({"compute"})),),
+        parent_pid=destination_os.environment.init_pid,
+    )
+    locus = ComputationalHostLocus.from_runtime(
+        host_id="logical-host-c",
+        runtime=runtime,
+        authority_pid=compute_pid,
+        operator_id="core.sum_pair",
+        computational_ground_fingerprints=(GROUND_FP,),
+        program_fingerprints=(PROGRAM_FP,),
+        costs=_host_costs(3),
+        implementation_fingerprint=IMPLEMENTATION_FP,
+    )
+    catalogue = ComputationalHostCatalogue((locus,))
+    advertisement = ComputationalHostAdvertisement.from_locus(locus, "peer-c")
+
+    workload = VirtualLayerWorkload(
+        workload_id="federated-forwarding-sum",
+        system=system_identity,
+        ground=system_ground,
+        intention={"goal": {"kind": "sum", "expected": 9}},
+        operators=(VirtualOperatorRef("core.sum_pair", 1, "cpu"),),
+        input_value={"left": 4, "right": 5},
+        budget=VirtualBudget(10_000, 10_000, 10_000),
+        logical_time=23,
+        eligible_nodes=("node-c",),
+        max_hops=2,
+    )
+    address = ComputationalAddress.from_workload(
+        workload,
+        "core.sum_pair",
+        spec,
+        GROUND_FP,
+        program_fingerprint=PROGRAM_FP,
+        metric_order=METRICS,
+    )
+
+    link_ab = _link("peer-a", "peer-b", 2)
+    link_bc = _link("peer-b", "peer-c", 3)
+    snapshot_a = ComputationalPeerSnapshot(endpoint_a, 1, 60, (), (link_ab,))
+    snapshot_b = ComputationalPeerSnapshot(endpoint_b, 1, 60, (), (link_bc,))
+    snapshot_c = ComputationalPeerSnapshot(endpoint_c, 1, 60, (advertisement,), ())
+    directory_a = _directory(snapshot_a, snapshot_b, snapshot_c, local_peer_id="peer-a")
+    directory_b = _directory(snapshot_a, snapshot_b, snapshot_c, local_peer_id="peer-b")
+    directory_c = _directory(snapshot_b, snapshot_c, local_peer_id="peer-c")
+
+    planned = ComputationalFabricResolver().resolve(
+        address,
+        directory_a,
+        origin_peer_id="peer-a",
+    )
+    assert planned.status is ComputationalFabricStatus.FOUND
+    assert planned.witness is not None
+    assert planned.witness.peer_path == ("peer-a", "peer-b", "peer-c")
+    envelope = ComputationalFabricForwardingEnvelope.begin(
+        address,
+        planned.witness,
+        origin_channel="application.batch",
+        origin_sequence=7,
+    )
+
+    allow_policy = HypervisorPolicy(
+        review_confidence=0.0,
+        automatic_confidence=0.0,
+        destructive_confidence=0.0,
+        danger_review_probability=1.0,
+    )
+    relay_os = HeadlessOS()
+    relay_os.hypervisor.policy = allow_policy
+    relay_pid = relay_os.environment.kernel.spawn(
+        "federated-relay",
+        capabilities=(Capability(COMPUTATIONAL_FABRIC_FORWARD_RESOURCE, frozenset({"forward"})),),
+        parent_pid=relay_os.environment.init_pid,
+    )
+    execute_pid = destination_os.environment.kernel.spawn(
+        "federated-terminal-forwarding-gate",
+        capabilities=(Capability(COMPUTATIONAL_FABRIC_EXECUTE_RESOURCE, frozenset({"execute"})),),
+        parent_pid=destination_os.environment.init_pid,
+    )
+    destination_os.hypervisor.policy = allow_policy
+
+    client_context_a = _client_context(certificates)
+    client_context_b = ssl.create_default_context(
+        ssl.Purpose.SERVER_AUTH,
+        cafile=str(certificates["ca"]),
+    )
+    client_context_b.minimum_version = ssl.TLSVersion.TLSv1_2
+    client_context_b.load_cert_chain(
+        str(certificates["server_cert"]),
+        str(certificates["server_key"]),
+    )
+
+    stop_b = threading.Event()
+    stop_c = threading.Event()
+    failures: list[BaseException] = []
+    server_b_holder: dict[str, ComputationalFabricForwardingServer] = {}
+    server_c_holder: dict[str, ComputationalFabricForwardingServer] = {}
+    client_ab: ComputationalFabricForwardingClient | None = None
+    client_bc: ComputationalFabricForwardingClient | None = None
+    thread_accept_b: threading.Thread | None = None
+    thread_accept_c: threading.Thread | None = None
+    thread_b: threading.Thread | None = None
+    thread_c: threading.Thread | None = None
+
+    def accept_c() -> None:
+        """Mathematics: Accept only peer B's CA-verified certificate and construct C's terminal receiver."""
+        try:
+            server_c_holder["server"] = ComputationalFabricForwardingServer.accept_mutual_tls(
+                listener_c,
+                "peer-c",
+                "peer-b",
+                _server_context_c(certificates),
+                directory_c,
+                destination_os,
+                execute_pid,
+                origin_peer_id="peer-a",
+                origin_channel="application.batch",
+                catalogue=catalogue,
+                timeout=4.0,
+            )
+        except BaseException as exc:
+            failures.append(exc)
+
+    def accept_b() -> None:
+        """Mathematics: Accept only peer A's CA-verified certificate and construct B's locally admitted relay."""
+        try:
+            server_b_holder["server"] = ComputationalFabricForwardingServer.accept_mutual_tls(
+                listener_b,
+                "peer-b",
+                "peer-a",
+                _server_context(certificates),
+                directory_b,
+                relay_os,
+                relay_pid,
+                origin_peer_id="peer-a",
+                origin_channel="application.batch",
+                next_hop_clients={"peer-c": client_bc},
+                timeout=4.0,
+            )
+        except BaseException as exc:
+            failures.append(exc)
+
+    def serve(server: ComputationalFabricForwardingServer, stop: threading.Event) -> None:
+        """Mathematics: Repeatedly apply the receiver's one-frame forwarding transition until cleanup."""
+        while not stop.is_set():
+            try:
+                result = server.serve_once()
+                if result is None:
+                    time.sleep(0.001)
+            except BaseException as exc:
+                failures.append(exc)
+                stop.set()
+                return
+
+    try:
+        thread_accept_c = threading.Thread(target=accept_c, daemon=True)
+        thread_accept_c.start()
+        client_bc = ComputationalFabricForwardingClient.connect_mutual_tls(
+            "peer-b",
+            endpoint_c,
+            client_context_b,
+            origin_peer_id="peer-a",
+            origin_channel="application.batch",
+            timeout=4.0,
+        )
+        thread_accept_c.join(timeout=4.0)
+        assert not thread_accept_c.is_alive()
+        assert "server" in server_c_holder
+        server_c = server_c_holder["server"]
+
+        thread_accept_b = threading.Thread(target=accept_b, daemon=True)
+        thread_accept_b.start()
+        client_ab = ComputationalFabricForwardingClient.connect_mutual_tls(
+            "peer-a",
+            endpoint_b,
+            client_context_a,
+            origin_peer_id="peer-a",
+            origin_channel="application.batch",
+            timeout=4.0,
+        )
+        thread_accept_b.join(timeout=4.0)
+        assert not thread_accept_b.is_alive()
+        assert "server" in server_b_holder
+        server_b = server_b_holder["server"]
+
+        thread_c = threading.Thread(target=serve, args=(server_c, stop_c), daemon=True)
+        thread_b = threading.Thread(target=serve, args=(server_b, stop_b), daemon=True)
+        thread_c.start()
+        thread_b.start()
+
+        receipt = client_ab.forward(envelope, directory_a)
+        assert receipt.succeeded
+        assert receipt.peer_id == "peer-b"
+        assert receipt.previous_peer_id == "peer-a"
+        assert receipt.next_peer_id == "peer-c"
+        assert receipt.downstream is not None
+        assert receipt.downstream.peer_id == "peer-c"
+        assert receipt.downstream.previous_peer_id == "peer-b"
+        assert receipt.downstream.status == "executed"
+        assert receipt.downstream.terminal_execution is not None
+        terminal = receipt.downstream.terminal_execution
+        assert terminal["status"] == "executed"
+        assert terminal["execution"]["action"] == "allow"
+        assert terminal["execution"]["effect"]["result"] == 9
+        assert calls == ["federated-forwarding-sum"]
+
+        restored_receipt = ComputationalFabricHopReceipt.from_dict(receipt.to_dict())
+        assert restored_receipt.digest == receipt.digest
+
+        replay = client_ab.forward(envelope, directory_a)
+        assert replay.digest == receipt.digest
+        assert replay.succeeded
+        assert calls == ["federated-forwarding-sum"]
+        assert not failures
+    finally:
+        stop_b.set()
+        stop_c.set()
+        if client_ab is not None:
+            client_ab.close()
+        if client_bc is not None:
+            client_bc.close()
+        for server in server_b_holder.values():
+            server.close()
+        for server in server_c_holder.values():
+            server.close()
+        listener_b.close()
+        listener_c.close()
+        for thread in (thread_b, thread_c, thread_accept_b, thread_accept_c):
+            if thread is not None:
+                thread.join(timeout=3.0)
