@@ -175,7 +175,7 @@ def test_shared_memory_refuses_unfenced_reads_and_conflicting_writers() -> None:
         "max_steps": 16,
     }
     event = HypervisorArbitrationEvent(
-        "client", "simt", 1,
+        "client", "simt", 1, 100,
         HypervisorRequest(
             TransitSIMTHost.operation_name,
             TransitSIMTHost.resource_name,
@@ -203,7 +203,7 @@ def test_shared_memory_refuses_unfenced_reads_and_conflicting_writers() -> None:
         "max_steps": 16,
     }
     conflict_event = HypervisorArbitrationEvent(
-        "client", "simt", 2,
+        "client", "simt", 2, 101,
         HypervisorRequest(
             TransitSIMTHost.operation_name,
             TransitSIMTHost.resource_name,
