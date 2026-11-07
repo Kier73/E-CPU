@@ -269,6 +269,7 @@ def _stop(process: subprocess.Popen[str]) -> None:
     process.communicate(timeout=5)
 
 
+@pytest.mark.skipif(shutil.which("openssl") is None, reason="OpenSSL CLI is required to create ephemeral test certificates")
 def test_tls_authorities_fail_closed_below_quorum_then_rejoin_and_rebind(tmp_path: Path) -> None:
     """Mathematics: two severed TLS streams provide no quorum, while fresh authenticated streams recover the exact same durable generation."""
 
@@ -320,6 +321,7 @@ def test_tls_authorities_fail_closed_below_quorum_then_rejoin_and_rebind(tmp_pat
         _stop(process_c)
 
 
+@pytest.mark.skipif(shutil.which("openssl") is None, reason="OpenSSL CLI is required to create ephemeral test certificates")
 def test_tls_rejects_wrong_member_dns_identity_without_killing_authority_service(
     tmp_path: Path,
 ) -> None:
@@ -348,6 +350,7 @@ def test_tls_rejects_wrong_member_dns_identity_without_killing_authority_service
         _stop(process_b)
 
 
+@pytest.mark.skipif(shutil.which("openssl") is None, reason="OpenSSL CLI is required to create ephemeral test certificates")
 def test_owner_process_restart_reopens_exact_vote_and_recovers_with_remote_quorum(
     tmp_path: Path,
 ) -> None:
