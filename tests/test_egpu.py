@@ -224,6 +224,10 @@ def test_shared_memory_host_enforces_capacity_and_initialization() -> None:
     memory = TransitSIMTSharedMemoryHost({"scratch": 2})
     with pytest.raises(TransitSIMTError, match="has not been initialized"):
         memory.load("scratch", 0, 0)
+    with pytest.raises(TransitSIMTError, match="outside its workgroup cohort"):
+        memory.load("scratch", 0, 1)
+    with pytest.raises(TransitSIMTError, match="complete workgroup cohort"):
+        memory.barrier(pc=0, lanes=2)
 
 
 def _tcp_pair(local: str, peer: str):
