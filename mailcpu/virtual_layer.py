@@ -28,6 +28,7 @@ class VirtualLayerError(ValueError):
 _JSON_KINDS = frozenset({"any", "object", "array", "integer", "number", "string", "boolean", "null"})
 _EFFECT_MODES = frozenset({"pure", "idempotent", "transactional"})
 _SUBSTRATES = frozenset({"cpu", "gpu", "fpga", "dpu", "network", "memory", "sensor", "delay-loop"})
+VIRTUAL_LAYER_OPERATOR_OPERATION = "cpu register arithmetic instruction scheduling program execution virtual layer pure operator transformation"
 
 
 def _validate_json(value: Any, label: str) -> None:
@@ -780,7 +781,7 @@ class VirtualLayerRuntime:
         if logical_time != workload.logical_time:
             raise VirtualLayerError("event logical time must match workload logical time")
         reference, spec, _, input_value, input_bytes, energy, ticks = self._resolve_operator(workload, operator_id, enforce_placement=False, require_handler=False)
-        operation = "cpu register arithmetic instruction scheduling program execution virtual layer pure operator transformation"
+        operation = VIRTUAL_LAYER_OPERATOR_OPERATION
         resource = f"/virtual-layer/operators/{spec.operator_id}@{spec.version}"
         request = HypervisorRequest(
             operation=operation,
@@ -873,6 +874,20 @@ class VirtualLayerRuntime:
             return effect
 
         return authorized_event, invoke
+
+    def execute_authorized_event(
+        self,
+        operating_system: Any,
+        pid: int,
+        event: HypervisorArbitrationEvent,
+    ) -> dict[str, object]:
+        """Mathematics: execute the already-admitted Virtual Layer event through local Ground and operator refinement checks."""
+        authorized, invoke = self._prepare_event(operating_system, pid, event)
+        if authorized.identity != event.identity:
+            raise VirtualLayerError("local operator preparation changed semantic event identity")
+        if authorized.request.granted_rights != event.request.granted_rights:
+            raise VirtualLayerError("local operator preparation changed receiver capability projection")
+        return invoke()
 
     def execute_operator(self, operating_system: Any, pid: int, source: str, channel: str, sequence: int, logical_time: int, workload: VirtualLayerWorkload, operator_id: str) -> HypervisorExecutionResult:
         """Mathematics: Execute one local pure operator through the existing hypervisor decision and effect ledgers."""
