@@ -222,6 +222,18 @@ experiments: the next step is to connect an admitted route edge to a concrete
 receiver backend and have each edge pass through its own hypervisor admission.
 
 
+## 2.9 Authenticated computational fabric discovery and multi-hop planning
+
+The semantic-address layers now have a first network-level counterpart. A peer can publish a bounded snapshot of its own portable logical-host/operator advertisements and directed outgoing links. Configured peers exchange these snapshots over the repository's existing mutual-TLS framed transport and reliable-channel protocol. The local directory requires peer identity, TLS DNS identity, snapshot endpoint, monotonic revision, and locally measured lease validity to agree before an advertisement enters the active view.
+
+A bounded network resolver then selects a cost-feasible peer path to a host whose advertised operator contract, computational Ground, program policy, placement, substrate, observation kind, state capability, resource bounds, and implementation identity fit the address. The path witness binds the active directory/topology digests and decomposes network and host cost. A regression test demonstrates why the planner keeps alternatives indexed by hop count: the globally cheapest prefix can be too long even though a slightly more costly shorter route is feasible.
+
+This connects remote host discovery to multi-hop cost-aware planning. It deliberately stops before forwarding or execution. Portable advertisements do not carry PIDs, handlers, runtime objects, or capabilities; leases are receiver-local; the peer route is non-authoritative. The route must still terminate at the receiver-local semantic resolver and the existing Virtual Layer/Hypervisor execution boundary.
+
+The repository's other graphs remain distinct and composable: E-GPU's internal operational graph routes methods inside one host; EvidencePathResolver connects representations under evidence and observation contracts; NavigableComputationDAG governs dependencies; TransitOrbitScheduler selects ready path quanta; Structural Memory supplies revision-pinned state; TransitPathBinding can later inform empirical path-cost calibration; and RecoveryLineage can anchor future persistent directory/topology checkpoints. The new fabric graph does not duplicate any of those roles.
+
+See [COMPUTATIONAL_FABRIC.md](COMPUTATIONAL_FABRIC.md) for the full integration map and proof boundary.
+
 ## 3. Novel-to-this-architecture possibilities
 
 This section records research opportunities created by the combination of integrated and planned primitives. These are not claims of global historical priority. Related ideas may exist in symbolic execution, program synthesis, proof-carrying computation, procedural generation, distributed systems, databases, and other fields. The question is what a working combination inside E-CPU enables that its current components do not provide separately.
