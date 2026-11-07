@@ -16,7 +16,6 @@ import hashlib
 import json
 import math
 import re
-import socket
 import ssl
 import threading
 import time
@@ -924,12 +923,12 @@ class ComputationalFabricDirectory:
             raise ComputationalFabricError("verified merge requires a ComputationalPeerSnapshot")
         peer_id = _peer_id(authenticated_peer_id, "authenticated_peer_id")
         server_name = _dns_name(authenticated_server_name, "authenticated_server_name")
-        if snapshot.peer_id != peer_id:
-            raise ComputationalFabricError("snapshot peer identity differs from the authenticated transport peer")
         with self._lock:
             expected_dns = self._trusted_peers.get(peer_id)
             if expected_dns is None:
                 raise ComputationalFabricError("snapshot source is not an explicitly trusted direct peer")
+            if snapshot.peer_id != peer_id:
+                raise ComputationalFabricError("snapshot peer identity differs from the authenticated transport peer")
             if server_name != expected_dns or snapshot.endpoint.tls_server_name != expected_dns:
                 raise ComputationalFabricError("authenticated TLS DNS identity differs from configured peer trust")
             previous = self._snapshots.get(peer_id)
@@ -1086,7 +1085,7 @@ class ComputationalFabricPeerServer:
     def accept_mutual_tls(
         cls,
         authority: ComputationalFabricAuthority,
-        listener: socket.socket,
+        listener: Any,
         client_peer_id: str,
         *,
         expected_client_dns: str,
