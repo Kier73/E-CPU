@@ -371,6 +371,59 @@ def test_directory_requires_direct_peer_identity_and_monotonic_revisions() -> No
         )
 
 
+def test_directory_trust_map_is_detached_from_caller_mutation() -> None:
+    configured = {"peer-b": "peer-b.fabric.test"}
+    directory = ComputationalFabricDirectory("peer-a", configured)
+    configured["peer-b"] = "attacker.fabric.test"
+    exposed = directory.trusted_peers
+    exposed["peer-b"] = "attacker.fabric.test"
+
+    snapshot = _snapshot("peer-b")
+    assert directory.trusted_peers == {"peer-b": "peer-b.fabric.test"}
+    assert directory.merge_authenticated_snapshot(
+        snapshot,
+        authenticated_peer_id="peer-b",
+        authenticated_server_name="peer-b.fabric.test",
+    )
+
+
+def test_fabric_resolver_uses_one_lease_validated_directory_view() -> None:
+    ticks = iter((100.0, 105.0, 200.0, 201.0, 202.0))
+    calls: list[float] = []
+
+    def monotonic() -> float:
+        value = next(ticks, 300.0)
+        calls.append(value)
+        return value
+
+    advertisement = ComputationalHostAdvertisement.from_locus(_locus(), "peer-b")
+    directory = ComputationalFabricDirectory(
+        "peer-a",
+        {"peer-b": "peer-b.fabric.test"},
+        monotonic=monotonic,
+    )
+    directory.register_local_snapshot(
+        _snapshot("peer-a", links=(_link("peer-a", "peer-b", 1),))
+    )
+    directory.merge_authenticated_snapshot(
+        _snapshot("peer-b", hosts=(advertisement,), lease=10),
+        authenticated_peer_id="peer-b",
+        authenticated_server_name="peer-b.fabric.test",
+    )
+    result = ComputationalFabricResolver().resolve(
+        _address(),
+        directory,
+        origin_peer_id="peer-a",
+    )
+
+    assert result.status is ComputationalFabricStatus.FOUND
+    assert result.witness is not None
+    assert result.witness.peer_path == ("peer-a", "peer-b")
+    # One call establishes the peer lease deadline; one call captures
+    # the active view used for both directory and topology digests.
+    assert calls == [100.0, 105.0]
+
+
 def test_directory_leases_expire_on_receiver_monotonic_time() -> None:
     clock = [100.0]
     snapshot = _snapshot("peer-b", lease=5)
