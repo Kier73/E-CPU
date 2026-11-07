@@ -160,6 +160,13 @@ adds a reconnectable remote service protected by mutual TLS, and the
 external process supervisor. The owner can connect with
 `RecoveryLineagePeerClient.connect_mutual_tls()`; both certificate-chain and
 DNS-SAN identities are verified before the reliable channels are opened.
+The `RecoveryLineageDeployment` model and `mailcpu-recovery-topology` command
+validate exact membership coverage, unique declared host/failure-domain/TLS
+identities, unique authority endpoints, and node-local journal/TLS resource paths.
+The validator can export the normalized membership file consumed by each
+authority service; its placement declarations remain operator assertions, not
+physical-host attestation. See
+[`docs/RECOVERY_LINEAGE_DEPLOYMENT.md`](docs/RECOVERY_LINEAGE_DEPLOYMENT.md).
 See [`docs/RECOVERY_LINEAGE_PROCESSES.md`](docs/RECOVERY_LINEAGE_PROCESSES.md)
 and [`docs/RECOVERY_LINEAGE_SERVICE.md`](docs/RECOVERY_LINEAGE_SERVICE.md)
 for the process protocol, deployment procedure, failure semantics, and proof
