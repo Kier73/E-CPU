@@ -938,7 +938,7 @@ def test_mutual_tls_peer_client_discovers_and_merges_remote_host_snapshot(tmp_pa
             timeout=3.0,
         )
         assert client.refresh(directory)
-        assert tuple(item.peer_id for item in directory.active_snapshots) == ("peer-b",)
+        assert tuple(item.peer_id for item in directory.active_snapshots) == ("peer-a", "peer-b")
         assert directory.hosts[0].host_id == "logical-host-b"
         assert directory.hosts[0].implementation_fingerprint == IMPLEMENTATION_FP
         routed = ComputationalFabricResolver().resolve(
