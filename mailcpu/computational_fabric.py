@@ -838,6 +838,10 @@ def _certificate_has_dns(transport: SocketTransport, dns_name: str) -> bool:
     stream = getattr(transport, "socket", None)
     if not isinstance(stream, ssl.SSLSocket):
         return False
+    # A SAN string alone is not authentication. Require that the stream's
+    # handshake context also required and verified the peer certificate chain.
+    if stream.context.verify_mode is not ssl.CERT_REQUIRED:
+        return False
     try:
         certificate = stream.getpeercert()
     except (OSError, ValueError):
@@ -1164,6 +1168,17 @@ class ComputationalFabricBlocker:
             "detail": self.detail,
         }
 
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "ComputationalFabricBlocker":
+        """Mathematics: Reconstruct one blocker from its exact portable field set."""
+        if not isinstance(payload, Mapping) or set(payload) != {"subject_id", "code", "detail"}:
+            raise ComputationalFabricError("fabric blocker fields are malformed")
+        return cls(
+            payload["subject_id"],
+            ComputationalFabricBlockerCode(payload["code"]),
+            payload["detail"],
+        )
+
 
 @dataclass(frozen=True)
 class ComputationalFabricRouteWitness:
@@ -1262,6 +1277,41 @@ class ComputationalFabricRouteWitness:
             "total_costs": [item.to_dict() for item in self.total_costs],
         }
 
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "ComputationalFabricRouteWitness":
+        """Mathematics: Reconstruct a route proposal only from its exact schema and all digest-bound hop/cost fields."""
+        expected = {
+            "schema", "authoritative", "address_digest", "directory_digest",
+            "topology_digest", "origin_peer_id", "peer_path", "link_ids",
+            "peer_endpoints", "target_host", "network_costs", "host_costs",
+            "total_costs",
+        }
+        if not isinstance(payload, Mapping) or set(payload) != expected:
+            raise ComputationalFabricError("fabric route witness fields are malformed")
+        if (
+            payload["schema"] != "mailcpu.computational-fabric-route-witness.v1"
+            or payload["authoritative"] is not False
+        ):
+            raise ComputationalFabricError("fabric route witness schema or authority marker is invalid")
+        try:
+            return cls(
+                payload["address_digest"],
+                payload["directory_digest"],
+                payload["topology_digest"],
+                payload["origin_peer_id"],
+                tuple(payload["peer_path"]),
+                tuple(payload["link_ids"]),
+                tuple(ComputationalPeerEndpoint.from_dict(item) for item in payload["peer_endpoints"]),
+                ComputationalHostAdvertisement.from_dict(payload["target_host"]),
+                tuple(RouteMetric.from_dict(item) for item in payload["network_costs"]),
+                tuple(RouteMetric.from_dict(item) for item in payload["host_costs"]),
+                tuple(RouteMetric.from_dict(item) for item in payload["total_costs"]),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            if isinstance(exc, ComputationalFabricError):
+                raise
+            raise ComputationalFabricError("fabric route witness contains invalid nested values") from exc
+
 
 @dataclass(frozen=True)
 class ComputationalFabricResolutionResult:
@@ -1328,6 +1378,38 @@ class ComputationalFabricResolutionResult:
             "witness": None if self.witness is None else self.witness.to_dict(),
             "blockers": [item.to_dict() for item in self.blockers],
         }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "ComputationalFabricResolutionResult":
+        """Mathematics: Reconstruct a complete resolution result without elevating its non-authoritative witness."""
+        expected = {
+            "schema", "authoritative", "status", "address_digest",
+            "directory_digest", "topology_digest", "candidate_count",
+            "expanded_peers", "witness", "blockers",
+        }
+        if not isinstance(payload, Mapping) or set(payload) != expected:
+            raise ComputationalFabricError("fabric resolution result fields are malformed")
+        if (
+            payload["schema"] != "mailcpu.computational-fabric-result.v1"
+            or payload["authoritative"] is not False
+        ):
+            raise ComputationalFabricError("fabric result schema or authority marker is invalid")
+        try:
+            witness_payload = payload["witness"]
+            return cls(
+                ComputationalFabricStatus(payload["status"]),
+                payload["address_digest"],
+                payload["directory_digest"],
+                payload["topology_digest"],
+                payload["candidate_count"],
+                payload["expanded_peers"],
+                None if witness_payload is None else ComputationalFabricRouteWitness.from_dict(witness_payload),
+                tuple(ComputationalFabricBlocker.from_dict(item) for item in payload["blockers"]),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            if isinstance(exc, ComputationalFabricError):
+                raise
+            raise ComputationalFabricError("fabric result contains invalid nested values") from exc
 
 
 @dataclass(frozen=True)
@@ -1452,6 +1534,7 @@ class ComputationalFabricResolver:
         ]
         expanded = 0
         hit_hop_limit = False
+        hit_resource_limit = False
         while heap:
             costs, hops, path, link_ids, current = heapq.heappop(heap)
             label = best.get((current, hops))
@@ -1483,6 +1566,19 @@ class ComputationalFabricResolver:
                     continue
                 edge = _metric_vector(link.costs, metric_order, "network link costs")
                 candidate_costs = tuple(a + b for a, b in zip(costs, edge))
+                exceeded_network = [
+                    key.name
+                    for index, key in enumerate(metric_order)
+                    if key.name in ceilings and candidate_costs[index] > ceilings[key.name]
+                ]
+                if exceeded_network:
+                    hit_resource_limit = True
+                    blockers.add(ComputationalFabricBlocker(
+                        link.link_id,
+                        ComputationalFabricBlockerCode.RESOURCE_LIMIT,
+                        "network path cost exceeds " + ", ".join(sorted(exceeded_network)),
+                    ))
+                    continue
                 candidate_path = path + (link.target_peer_id,)
                 candidate_links = link_ids + (link.link_id,)
                 next_hops = hops + 1
@@ -1539,7 +1635,7 @@ class ComputationalFabricResolver:
             and item.operator_spec.version == reference.version
         )
         selected: list[tuple[tuple[Any, ...], ComputationalFabricRouteWitness]] = []
-        budget_exhausted = hit_hop_limit
+        budget_exhausted = hit_hop_limit or hit_resource_limit
         for host in hosts:
             spec = host.operator_spec
             reason: tuple[ComputationalFabricBlockerCode, str] | None = None
