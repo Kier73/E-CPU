@@ -291,11 +291,11 @@ The slice remains receiver-local. An implementation fingerprint in a locus is st
 
 ## 10. Executable third slice: authenticated fabric discovery and multi-hop route planning
 
-The first network-wide layer is implemented in \`mailcpu/computational_fabric.py\`. It composes the existing mutual-TLS framed transport and reliable-channel protocol with portable host advertisements and a bounded directed peer graph.
+The first network-wide layer is implemented in `mailcpu/computational_fabric.py`. It composes the existing mutual-TLS framed transport and reliable-channel protocol with portable host advertisements and a bounded directed peer graph.
 
-A peer publishes its own host/operator advertisements and outgoing links through \`ComputationalFabricAuthority\`. Its \`ComputationalFabricPeerServer\` answers snapshot requests over a direct mutual-TLS connection. A configured peer uses \`ComputationalFabricPeerClient\` to fetch the snapshot and merge it into \`ComputationalFabricDirectory\`:
+A peer publishes its own host/operator advertisements and outgoing links through `ComputationalFabricAuthority`. Its `ComputationalFabricPeerServer` answers snapshot requests over a direct mutual-TLS connection. A configured peer uses `ComputationalFabricPeerClient` to fetch the snapshot and merge it into `ComputationalFabricDirectory`:
 
-\`\`\`python
+```python
 directory = ComputationalFabricDirectory(
     local_peer_id="peer-a",
     trusted_peers={"peer-b": "compute-b.example.net"},
@@ -316,7 +316,7 @@ route = ComputationalFabricResolver().resolve(
     max_hops=8,
     max_expansions=4096,
 )
-\`\`\`
+```
 
 Trust begins with an explicit local mapping from peer identity to expected TLS DNS identity. The underlying TLS helper validates the certificate chain and peer name. The directory merge also checks that the authenticated transport peer, configured DNS identity, and snapshot peer/endpoint identities agree. A snapshot revision cannot move backwards; different content at the same revision is treated as peer equivocation. A received snapshot receives a receiver-local monotonic lease, bounded by local policy. Wall-clock timestamps are not used to order peer revisions or lease expiry.
 
@@ -324,21 +324,21 @@ A portable host advertisement is deliberately not a local execution locus. It co
 
 Peers advertise only their own host records and outgoing directed links. The directory accepts remote snapshots only from a directly authenticated configured peer. The resolver plans across the active peer graph, with explicit direction, deterministic lexicographic additive metrics, tie-breaks, hop and expansion limits, per-link frame ceilings, operator/Ground/program/placement/substrate/observation checks, resource ceilings, and a required implementation identity pin. It preserves separate best path labels by peer and hop count so a cheaper but too-long prefix cannot suppress a shorter feasible alternative.
 
-The result is a digest-bound \`ComputationalFabricRouteWitness\` with the ordered peer path, link identities, peer endpoints, candidate logical host, and separate network, host, and total cost vectors. Both the result and witness explicitly remain \`authoritative=False\`. Peer costs are advertised estimates; they are not measured latency or energy guarantees. The frame-size check uses the canonical serialized address size as a bounded planning estimate, not a guarantee of final transport frame size.
+The result is a digest-bound `ComputationalFabricRouteWitness` with the ordered peer path, link identities, peer endpoints, candidate logical host, and separate network, host, and total cost vectors. Both the result and witness explicitly remain `authoritative=False`. Peer costs are advertised estimates; they are not measured latency or energy guarantees. The frame-size check uses the canonical serialized address size as a bounded planning estimate, not a guarantee of final transport frame size.
 
 ### What this connects—and what it does not
 
 This is the first federated discovery and multi-hop **planning** slice, not a multi-hop execution or forwarding service. The origin currently needs a direct authenticated snapshot for each peer represented in its directory, including peers that are intermediate nodes or the destination. The planner does not recursively query a peer for its neighbours, does not ask peers to forward requests, and does not dispatch the planned operation.
 
-When forwarding is added, each hop will need its own peer-bound admission, request/replay identity, resource and payload checks, deadline, causal receipt, and failure handling. At the destination the request must still be resolved against that receiver's local \`ComputationalHostCatalogue\` and then pass through \`ComputationalExecutionAdmissionCoordinator\`, the Virtual Layer, local capability reconstruction, and Hypervisor policy/effect ledger. A fabric route witness will never replace those checks.
+When forwarding is added, each hop will need its own peer-bound admission, request/replay identity, resource and payload checks, deadline, causal receipt, and failure handling. At the destination the request must still be resolved against that receiver's local `ComputationalHostCatalogue` and then pass through `ComputationalExecutionAdmissionCoordinator`, the Virtual Layer, local capability reconstruction, and Hypervisor policy/effect ledger. A fabric route witness will never replace those checks.
 
 The route also solves a different problem from the existing navigation components:
 
-- \`EGPUHost\` navigates a directed graph **inside one composite logical host** (dispatch, SIMT, workgroup/shared memory, reduction, verification).
-- \`ComputationalFabricResolver\` navigates a directed graph **between peer identities** to reach an advertised remote host.
-- \`EvidencePathResolver\` navigates a graph **between representation identities** through exact translation contracts, observation comparisons, prerequisites, invariants, and evidence.
-- \`ContextualNavigator\` and the formal navigation modules traverse a described process's **state space**.
-- \`NavigableComputationDAG\` owns operation dependencies/readiness; \`TransitOrbitScheduler\` owns deterministic path-quanta selection. Fabric discovery does not duplicate either one.
+- `EGPUHost` navigates a directed graph **inside one composite logical host** (dispatch, SIMT, workgroup/shared memory, reduction, verification).
+- `ComputationalFabricResolver` navigates a directed graph **between peer identities** to reach an advertised remote host.
+- `EvidencePathResolver` navigates a graph **between representation identities** through exact translation contracts, observation comparisons, prerequisites, invariants, and evidence.
+- `ContextualNavigator` and the formal navigation modules traverse a described process's **state space**.
+- `NavigableComputationDAG` owns operation dependencies/readiness; `TransitOrbitScheduler` owns deterministic path-quanta selection. Fabric discovery does not duplicate either one.
 
 These graphs may eventually compose. A DAG node may require a representation translation, a network route to an E-GPU host, and then an internal E-GPU method path. Each graph keeps its own identity and proof obligations; one route receipt does not silently prove the others.
 
