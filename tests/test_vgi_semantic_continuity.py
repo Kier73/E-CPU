@@ -30,6 +30,7 @@ from mailcpu import (  # noqa: E402
     SeedCommitMembership,
     SocketTransport,
     build_vgi_signal8_event,
+    virtual_layer_operator_resource,
 )
 from vgi_continuity_support import make_vgi_workload  # noqa: E402
 
@@ -221,6 +222,9 @@ def test_vgi_effect_survives_hard_receiver_death_and_quorum_bundle_restore(
             CHANNEL,
             1,
             workload.logical_time,
+        )
+        assert event.request.resource == virtual_layer_operator_resource(
+            "vgi.signal8.execute", 1
         )
         assert request_client.send(event) == 1
         _write_json_durable(
