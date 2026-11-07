@@ -90,9 +90,14 @@ session = bundle.restore_receiver_session(
 
 The authority journal directory must be configured separately from the bundle
 directory and kept outside the rollback scope of the requester/receiver
-checkpoint storage. If the requester, receiver, bundle directory, and every
-authority journal are all rolled back together, the external high-water
-evidence is also rolled back.
+checkpoint storage. For distributed operation, use
+`DistributedRecoveryLineageCoordinator` with the owner authority local to the
+coordinator process and one `RecoveryLineagePeerClient` for each remote
+`RecoveryLineageProcessParticipant`. Each remote process owns a distinct
+journal and can be restarted without copying the other members' storage. If
+the requester, receiver, bundle directory, and every authority journal are
+all rolled back together, the external high-water evidence is also rolled
+back.
 
 ## Failure behavior
 

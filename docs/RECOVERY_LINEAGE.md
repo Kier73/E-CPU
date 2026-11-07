@@ -122,11 +122,22 @@ reconstructed with RecoveryLineageProof.from_snapshot().
 
 ## Proof boundary and deployment requirements
 
-This is a reference quorum coordinator that calls independent participant
-objects in one Python process. The tests use separate local journal files; they
-do not yet run authority members as separate remote processes or physical
-hosts. The existing seed-commit reliable transport is the intended integration
-surface for that next slice.
+The local `RecoveryLineageCoordinator` remains a useful reference
+coordinator for unit tests and single-process deployments. For distributed
+operation, `DistributedRecoveryLineageCoordinator` keeps the owner authority
+in the owner process and uses `RecoveryLineagePeerClient` connections to
+independent `RecoveryLineageProcessParticipant` processes. Remote members own
+one journal each and use the existing seed-quorum request/response channel
+names, `ReliableChannel`, and `SocketTransport`; the recovery payloads are a
+separate typed command family over that same transport substrate.
+
+The process test harness hard-kills remote participants after PREPARE fsync
+and after COMMIT fsync but before they send a response or acknowledge the
+request. It then restarts the same member identity against the same journal
+and verifies exact vote/certificate/decision recovery. A further test kills
+both remote authorities after a quorum has committed a recovery bundle,
+reopens the owner and remote journals, and requires a fresh read quorum before
+the bundle is admitted.
 
 Rollback resistance depends on the authority journals being outside the
 checkpoint rollback scope. If an attacker can roll back the requester
