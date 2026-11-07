@@ -20,7 +20,6 @@ from typing import Any, Mapping, Sequence
 from .evidence_path_resolver import RouteMetric, RouteMetricKey
 from .headless import HeadlessOS
 from .kernel import ProcessStatus
-from .seed import SystemIdentity
 from .semantic_translation import canonical_value_digest
 from .structural_memory import StructuralMemoryError, StructuralMemoryReadReceipt
 from .virtual_layer import (
@@ -470,6 +469,7 @@ class ComputationalResolutionBlocker:
             raise ComputationalResolutionError("blocker detail must be text")
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize one deterministic candidate blocker."""
         return {"host_id": self.host_id, "code": self.code.value, "detail": self.detail}
 
 
