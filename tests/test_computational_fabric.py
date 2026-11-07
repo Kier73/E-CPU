@@ -219,7 +219,7 @@ def _snapshot(peer_id: str, *, hosts=(), links=(), revision: int = 1, lease: int
     )
 
 
-def _address() -> ComputationalAddress:
+def _address(*, max_hops: int = 4) -> ComputationalAddress:
     """Mathematics: Bind a typed workload to the exact Ground, program, operator and route objective."""
     operating_system = HeadlessOS()
     identity = SystemIdentity(f"fabric-system-{id(operating_system)}", 1)
@@ -236,7 +236,7 @@ def _address() -> ComputationalAddress:
         budget=VirtualBudget(10_000, 10_000, 10_000),
         logical_time=7,
         eligible_nodes=("node-b",),
-        max_hops=4,
+        max_hops=max_hops,
     )
     return ComputationalAddress.from_workload(
         workload,
@@ -380,6 +380,19 @@ def test_directory_requires_direct_peer_identity_and_monotonic_revisions() -> No
     with pytest.raises(ComputationalFabricError, match="equivocated"):
         directory._merge_verified_peer_snapshot(
             _snapshot("peer-b", revision=1, lease=45),
+            authenticated_peer_id="peer-b",
+            authenticated_server_name="peer-b.fabric.test",
+        )
+
+
+def test_public_directory_merge_requires_the_authenticated_transport_object() -> None:
+    directory = ComputationalFabricDirectory(
+        "peer-a",
+        {"peer-b": "peer-b.fabric.test"},
+    )
+    with pytest.raises(TypeError):
+        directory.merge_authenticated_snapshot(
+            _snapshot("peer-b"),
             authenticated_peer_id="peer-b",
             authenticated_server_name="peer-b.fabric.test",
         )
@@ -629,6 +642,30 @@ def test_fabric_resolver_applies_aggregate_network_cost_ceilings() -> None:
     assert result.status is ComputationalFabricStatus.BUDGET_EXHAUSTED
     assert result.witness is None
     assert any(item.code.value == "resource_limit" for item in result.blockers)
+
+
+def test_fabric_resolver_obeys_workload_hop_budget_and_local_origin_identity() -> None:
+    advertisement = ComputationalHostAdvertisement.from_locus(_locus(), "peer-c")
+    directory = _directory(
+        _snapshot("peer-a", links=(_link("peer-a", "peer-b", 1),)),
+        _snapshot("peer-b", links=(_link("peer-b", "peer-c", 1),)),
+        _snapshot("peer-c", hosts=(advertisement,)),
+    )
+    with pytest.raises(ComputationalFabricError, match="origin_peer_id must equal"):
+        ComputationalFabricResolver().resolve(
+            _address(),
+            directory,
+            origin_peer_id="peer-b",
+        )
+
+    limited = ComputationalFabricResolver().resolve(
+        _address(max_hops=1),
+        directory,
+        origin_peer_id="peer-a",
+        max_hops=8,
+    )
+    assert limited.status is ComputationalFabricStatus.BUDGET_EXHAUSTED
+    assert any(item.code.value == "hop_limit" for item in limited.blockers)
 
 
 def test_fabric_resolver_preserves_shorter_paths_when_the_cheapest_prefix_exceeds_hop_budget() -> None:
