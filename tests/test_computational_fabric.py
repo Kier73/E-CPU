@@ -900,9 +900,9 @@ def test_mutual_tls_peer_client_discovers_and_merges_remote_host_snapshot(tmp_pa
         assert server_result.get("server") is not None
         assert not server_errors
     finally:
+        stop.set()
         if client is not None:
             client.close()
-        stop.set()
         listener.close()
         thread.join(timeout=3.0)
     assert not thread.is_alive()
