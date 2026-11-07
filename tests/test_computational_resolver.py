@@ -406,3 +406,37 @@ def test_resolver_refuses_missing_pinned_structural_memory_state() -> None:
 
     assert result.status is ComputationalResolutionStatus.BLOCKED
     assert any(item.code is ComputationalBlockerCode.STATE_UNAVAILABLE for item in result.blockers)
+
+
+def test_resolver_requires_exact_program_pin_or_ground_bounded_compilation_policy() -> None:
+    operating_system = HeadlessOS()
+    identity, ground = _admitted(operating_system)
+    runtime = _runtime("node-a")
+    pid_exact = _worker_pid(operating_system)
+    exact_catalogue = ComputationalHostCatalogue((
+        _locus("exact-host", operating_system, runtime, authority_pid=pid_exact, costs=_costs(1)),
+    ))
+    unpinned = _address(_workload(identity, ground), program=None)
+
+    exact_only = ComputationalAddressResolver().resolve(unpinned, exact_catalogue, operating_system)
+    assert exact_only.status is ComputationalResolutionStatus.BLOCKED
+    assert any(item.code is ComputationalBlockerCode.PROGRAM_MISMATCH for item in exact_only.blockers)
+
+    pid_dynamic = _worker_pid(operating_system)
+    dynamic_catalogue = ComputationalHostCatalogue((
+        _locus(
+            "dynamic-host",
+            operating_system,
+            runtime,
+            authority_pid=pid_dynamic,
+            costs=_costs(2),
+            programs=(),
+            dynamic_programs=True,
+        ),
+    ))
+    dynamic_result = ComputationalAddressResolver().resolve(
+        unpinned, dynamic_catalogue, operating_system
+    )
+    assert dynamic_result.status is ComputationalResolutionStatus.FOUND
+    assert dynamic_result.witness is not None
+    assert dynamic_result.witness.program_fingerprint is None
