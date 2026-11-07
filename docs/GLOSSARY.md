@@ -28,6 +28,50 @@ Registry of defined terms for this repository.
   named resource. Authority is a function of capabilities held, never of
   identity, argument validity, or model output.
 
+**host**
+: An identifiable logical operational locus in a communication substrate
+  where information can be received, observed, transformed, retained, routed,
+  or emitted under a defined capability and transition relation. A host need
+  not be a physical machine. A passive link is not a host unless it has an
+  operational state or transition of its own.
+
+**operational locus**
+: One addressable transition point within a host or composite operational
+  structure. Loci can be composed, nested, and connected by directed transitions.
+
+**placement node**
+: A physical or virtual infrastructure resource that realizes one or more
+  logical hosts at a particular time. Placement is distinct from logical host
+  identity and from a declared failure domain.
+
+**failure domain**
+: A declared boundary within which failures may be correlated. Distinct host
+  identities or network addresses alone do not prove independent failure domains.
+
+**navigable operational structure**
+: A bounded relation of operational host loci and permitted transitions through
+  which a request resolves to a required capability and a verified result.
+
+**E-GPU**
+: The E-CPU composite logical host that routes bounded lane-wise, reduction,
+  and workgroup methods through addressable dispatch, execution, memory, and
+  verification loci. It is a reference operational structure, not a claim of
+  physical GPU support.
+
+**workgroup**
+: One bounded SIMT execution cohort whose lanes share a program counter and
+  structured active-lane mask, and whose invocation owns one isolated shared-memory region.
+
+**workgroup shared memory**
+: A bounded address space private to one workgroup invocation. Lane writes remain
+  pending until a converged barrier publishes them; the memory is not shared
+  across workgroups or retained after the invocation.
+
+**barrier epoch**
+: One workgroup synchronization interval ending when every lane is active at a
+  converged barrier. Pending single-writer shared-memory cells become visible
+  together at that transition.
+
 **check pointable**
 : A state component whose complete value round-trips through `save_checkpoint`
   and `load_checkpoint` without loss. Checkpointability is a property of a
@@ -173,6 +217,16 @@ Registry of defined terms for this repository.
 **redundant residue number system (RRNS)**
 : An algebraic representation encoding integer state across coprime moduli $(m_1, \dots, m_n)$,
   permitting exact Garner-free CRT state recovery from any $k \le n$ surviving residues.
+
+**computational Ground**
+: A versioned executable contract identifying a computational value domain,
+  permitted operations, observer profiles, assumptions, ambiguity policy, and
+  supporting evidence. It is distinct from the admitted E-CPU system Ground.
+
+**hosted computational domain**
+: An independently specified interpreter or mathematical runtime exposed as a
+  node-local Virtual Layer operator. E-CPU owns admission, authority, placement,
+  journaling, and replay; the hosted domain owns its execution semantics.
 
 ## Stage boundaries
 

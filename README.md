@@ -161,7 +161,7 @@ external process supervisor. The owner can connect with
 `RecoveryLineagePeerClient.connect_mutual_tls()`; both certificate-chain and
 DNS-SAN identities are verified before the reliable channels are opened.
 The `RecoveryLineageDeployment` model and `mailcpu-recovery-topology` command
-validate exact membership coverage, unique declared host/failure-domain/TLS
+validate exact membership coverage, unique declared placement-node/failure-domain/TLS
 identities, unique authority endpoints, and node-local journal/TLS resource paths.
 The validator can export the normalized membership file consumed by each
 authority service; its placement declarations remain operator assertions, not
@@ -222,3 +222,11 @@ scripts/     golden-trace recorder and repository verifiers
 examples/    assembly source fixtures
 docs/        specifications, architecture, invariants, glossary
 ```
+
+
+The E-GPU is a composite logical host for navigable lane-wise methods. It routes vector addition and multiplication through the existing bounded SIMT reference interpreter, exposes a deterministic tree-reduction method, and now includes an explicit workgroup/shared-memory route with barrier-published visibility and Transit checkpoint/replay coverage. Register EGPUHost as an exact TransitBackendRouter backend; the receiver still authorizes /gpu/egpu through its local kernel capabilities. This is a reference operational structure, not physical GPU support or a speedup claim. See [COMMUNICATION_HOST_MODEL.md](docs/COMMUNICATION_HOST_MODEL.md) and [EGPU_NAVIGABLE_FABRIC.md](docs/EGPU_NAVIGABLE_FABRIC.md).
+
+
+## Hosted VGI computational domain
+
+E-CPU can host the independently versioned Virtual Ground Interpreter through the Virtual Layer operator `vgi.signal8.execute@1`. The adapter preserves the distinction between the admitted E-CPU system Ground and VGI's mathematical computational Ground, executes typed Signal8 tasks without semantic integer decoding, and returns signal-valued outputs, trace evidence, and a VGI checkpoint. Install the optional integration with `python -m pip install ".[vgi]"`. See [VGI_VIRTUAL_LAYER.md](docs/VGI_VIRTUAL_LAYER.md) for the contract and proof boundary.

@@ -6,6 +6,12 @@ PRs #42–#44 established durable recovery-lineage authorities in independent pr
 
 The next boundary is placement across independent machines and failure domains. This document defines a machine-checkable deployment description for that topology. It does not claim that physical hosts have been provisioned or that network reachability has been exercised from this repository environment.
 
+## Terminology boundary: schema-v1 placement
+
+The schema-v1 JSON field named host_id has the narrower historical meaning of a declared infrastructure placement-node identifier. It does not use the general host definition in [COMMUNICATION_HOST_MODEL.md](COMMUNICATION_HOST_MODEL.md), where a host is any identifiable operational locus with a defined information transition.
+
+The schema is left unchanged so existing snapshots, canonical digests, and service configurations remain valid. Treat the field as placement_node_id in meaning, despite its legacy name. A future schema version should rename it explicitly. Failure domain, TLS identity, logical authority identity, and placement node remain separate coordinates.
+
 ## Topology model
 
 A schema-v1 topology contains:
@@ -13,7 +19,7 @@ A schema-v1 topology contains:
 - One exact fixed-membership snapshot, including system identity, incarnation, owner, owner term, genesis digest, and strict-majority quorum.
 - Exactly one topology member for every member ID in that snapshot.
 - One owner and at least two non-owner authorities.
-- A unique host ID, declared failure-domain label, and TLS DNS identity for every member.
+- A unique declared placement-node ID (stored under the legacy schema-v1 field host_id), failure-domain label, and TLS DNS identity for every member.
 - A distinct endpoint host and port for every remote authority.
 - An absolute, node-local journal path and distinct certificate, private-key, and peer trust-bundle paths for each member.
 

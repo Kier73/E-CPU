@@ -280,8 +280,17 @@ from .virtual_layer import (
     VirtualLayerError,
     VirtualLayerRuntime,
     VirtualLayerWorkload,
+    virtual_layer_operator_resource,
     VirtualOperatorRef,
     VirtualStructuralMemoryRef,
+)
+from .vgi_host import (
+    VGIHostError,
+    VGI_SIGNAL8_INPUT_SCHEMA,
+    VGI_SIGNAL8_OPERATOR_ID,
+    execute_vgi_signal8,
+    make_vgi_signal8_operator,
+    register_vgi_signal8_operator,
 )
 from .transit_compute import TransitComputeError, TransitComputeHost
 from .transit_memory import TransitMemoryTransferError, TransitMemoryTransferHost
@@ -292,13 +301,15 @@ from .transit_structural_memory import (
     TransitStructuralMemoryHost,
 )
 from .transit_router import TransitBackendRouter, TransitBackendRouterError
+from .transit_vgi import TransitVGIHost, build_vgi_signal8_event, make_transit_vgi_router
 from .transit_session import TransitComputeSession
 from .navigable_computation_checkpoint import (
     NavigableComputationCheckpoint,
     NavigableComputationCheckpointError,
     RestoredNavigableComputation,
 )
-from .transit_simt import TransitSIMTError, TransitSIMTHost
+from .transit_simt import TransitSIMTError, TransitSIMTHost, TransitSIMTSharedMemoryHost
+from .egpu import EGPUError, EGPUHost, EGPUOperationalLocus
 from .transit_worker import TransitComputeWorker
 from .transit_orbit import (
     TransitOrbitReceipt,
@@ -999,6 +1010,10 @@ __all__ = [
     "RestoredNavigableComputation",
     "TransitSIMTError",
     "TransitSIMTHost",
+    "TransitSIMTSharedMemoryHost",
+    "EGPUError",
+    "EGPUHost",
+    "EGPUOperationalLocus",
     "TransitComputeWorker",
     "TransitOrbitReceipt",
     "HypervisorTransitOrbitController",
@@ -1262,4 +1277,14 @@ __all__ = [
     "EvidenceStrength",
     "RouteMetric",
     "RouteMetricKey",
+    "VGIHostError",
+    "VGI_SIGNAL8_INPUT_SCHEMA",
+    "VGI_SIGNAL8_OPERATOR_ID",
+    "execute_vgi_signal8",
+    "make_vgi_signal8_operator",
+    "register_vgi_signal8_operator",
+    "TransitVGIHost",
+    "build_vgi_signal8_event",
+    "make_transit_vgi_router",
+    "virtual_layer_operator_resource",
 ]
