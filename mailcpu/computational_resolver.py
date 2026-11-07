@@ -21,7 +21,7 @@ from .evidence_path_resolver import RouteMetric, RouteMetricKey
 from .headless import HeadlessOS
 from .kernel import ProcessStatus
 from .semantic_translation import canonical_value_digest
-from .structural_memory import StructuralMemoryError, StructuralMemoryReadReceipt
+from .structural_memory import StructuralMemoryError
 from .virtual_layer import (
     OperatorSpec,
     VirtualLayerError,
@@ -774,25 +774,27 @@ class ComputationalAddressResolver:
                     else:
                         for memory_ref in reference.structural_memory:
                             try:
-                                receipt = operating_system.structural_memory.read_revision(
+                                version = operating_system.structural_memory.version_for_revision(
                                     memory_ref.memory_id,
                                     memory_ref.revision,
+                                )
+                                context_digest = operating_system.structural_memory.navigator.validate(
+                                    version.spec,
+                                    version.certificate,
                                     memory_ref.coordinate,
                                     context=dict(memory_ref.context),
                                 )
                             except StructuralMemoryError:
-                                reason = (ComputationalBlockerCode.STATE_UNAVAILABLE, "a pinned Structural Memory coordinate is unavailable")
+                                reason = (ComputationalBlockerCode.STATE_UNAVAILABLE, "a pinned Structural Memory revision, context, or coordinate is unavailable")
                                 break
                             if (
-                                not isinstance(receipt, StructuralMemoryReadReceipt)
-                                or receipt.memory_id != memory_ref.memory_id
-                                or receipt.revision != memory_ref.revision
-                                or receipt.coordinate != memory_ref.coordinate
-                                or receipt.spec_digest != memory_ref.spec_digest
-                                or receipt.certificate_digest != memory_ref.certificate_digest
-                                or receipt.context_digest != canonical_value_digest(_plain(memory_ref.context))
+                                version.spec.memory_id != memory_ref.memory_id
+                                or version.spec.revision != memory_ref.revision
+                                or version.spec.digest != memory_ref.spec_digest
+                                or version.certificate.digest != memory_ref.certificate_digest
+                                or context_digest != canonical_value_digest(_plain(memory_ref.context))
                             ):
-                                reason = (ComputationalBlockerCode.STATE_UNAVAILABLE, "Structural Memory receipt does not match its pinned address")
+                                reason = (ComputationalBlockerCode.STATE_UNAVAILABLE, "Structural Memory revision metadata does not match its pinned address")
                                 break
 
             if reason is None:
