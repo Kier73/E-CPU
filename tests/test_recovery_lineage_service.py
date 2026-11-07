@@ -271,7 +271,7 @@ def _stop(process: subprocess.Popen[str]) -> None:
 
 @pytest.mark.skipif(shutil.which("openssl") is None, reason="OpenSSL CLI is required to create ephemeral test certificates")
 def test_tls_authorities_fail_closed_below_quorum_then_rejoin_and_rebind(tmp_path: Path) -> None:
-    """Mathematics: two severed TLS streams provide no quorum, while fresh authenticated streams recover the exact same durable generation."""
+    """Mathematics: streams and then a service process can fail without losing the exact quorum-sealed generation from its member journal."""
 
     certificates = _make_certificates(tmp_path)
     membership = _membership()
@@ -309,6 +309,12 @@ def test_tls_authorities_fail_closed_below_quorum_then_rejoin_and_rebind(tmp_pat
         assert recovered.high_water() == (1, manifest.digest)
 
         replacement_b.close()
+
+        # Exercise the external supervisor path: terminate B's service process,
+        # start a fresh interpreter under the same member identity and journal,
+        # then require it to report the already-committed high-water.
+        _stop(process_b)
+        process_b, ready_b = _start_member(tmp_path, membership, certificates, "B")
         rebound_b = _reconnect_peer(membership, certificates, "B", ready_b)
         assert rebound_b.committed_state() == (1, manifest.digest)
         assert process_b.poll() is None
