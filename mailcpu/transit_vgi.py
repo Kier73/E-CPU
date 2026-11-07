@@ -19,9 +19,10 @@ from .virtual_layer import (
     VirtualLayerRuntime,
     VirtualLayerWorkload,
     VIRTUAL_LAYER_OPERATOR_OPERATION,
+    virtual_layer_operator_resource,
 )
 
-VGI_SIGNAL8_RESOURCE = f"/virtual-layer/operators/{VGI_SIGNAL8_OPERATOR_ID}@1"
+VGI_SIGNAL8_RESOURCE = virtual_layer_operator_resource(VGI_SIGNAL8_OPERATOR_ID, 1)
 
 
 class TransitVGIHost(TransitComputeHost):
