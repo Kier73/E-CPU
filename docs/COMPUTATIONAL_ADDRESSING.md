@@ -245,8 +245,8 @@ locus = ComputationalHostLocus.from_runtime(
     authority_pid=host.authority_pid,
     operator_id="vgi.signal8.execute",
     computational_ground_fingerprints=(signal8_ground_fingerprint,),
+    program_fingerprints=(compiled_program_fingerprint,),
     costs=declared_cost_vector,
-    supports_ground_program_compilation=True,
     implementation_fingerprint=host.implementation_fingerprint,
 )
 
