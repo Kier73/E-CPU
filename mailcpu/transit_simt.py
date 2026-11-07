@@ -126,6 +126,8 @@ class TransitSIMTSharedMemoryHost:
             raise TransitSIMTError(f"unknown shared buffer: {name}")
         if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < len(self._visible[name]):
             raise TransitSIMTError(f"shared address {index!r} is outside buffer {name!r}")
+        if not isinstance(lane, int) or isinstance(lane, bool) or lane < 0:
+            raise TransitSIMTError("shared reader lane is invalid")
         if self._pending[name]:
             raise TransitSIMTError(
                 f"shared buffer {name!r} has uncommitted writes; a barrier is required before load"
@@ -138,6 +140,10 @@ class TransitSIMTSharedMemoryHost:
     def barrier(self, *, pc: int, lanes: int) -> dict[str, Any]:
         """Mathematics: atomically publish every pending cell as one visibility epoch after all workgroup lanes arrive."""
 
+        if not isinstance(pc, int) or isinstance(pc, bool) or pc < 0:
+            raise TransitSIMTError("shared-memory barrier program counter is invalid")
+        if not isinstance(lanes, int) or isinstance(lanes, bool) or lanes <= 0:
+            raise TransitSIMTError("shared-memory barrier lane count is invalid")
         published: dict[str, list[int]] = {}
         for name in self.names:
             indices = sorted(self._pending[name])
@@ -164,7 +170,15 @@ class TransitSIMTSharedMemoryHost:
                 name: list(self._visible[name])
                 for name in self.names
             },
-            "shared_epochs": [dict(epoch) for epoch in self._epochs],
+            "shared_epochs": [
+                {
+                    "epoch": epoch["epoch"],
+                    "pc": epoch["pc"],
+                    "arrivals": epoch["arrivals"],
+                    "published": {name: list(indices) for name, indices in epoch["published"].items()},
+                }
+                for epoch in self._epochs
+            ],
         }
 
 
