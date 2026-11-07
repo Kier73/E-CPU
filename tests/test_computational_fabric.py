@@ -475,6 +475,43 @@ def test_directory_leases_expire_on_receiver_monotonic_time() -> None:
     assert directory.peer_snapshots == ()
 
 
+def test_purging_expired_peer_keeps_revision_rollback_high_water() -> None:
+    first = _snapshot("peer-b", revision=7, lease=5)
+    directory = ComputationalFabricDirectory(
+        "peer-a",
+        {"peer-b": "peer-b.fabric.test"},
+        monotonic=lambda: 100.0,
+    )
+    assert directory._merge_verified_peer_snapshot(
+        first,
+        authenticated_peer_id="peer-b",
+        authenticated_server_name="peer-b.fabric.test",
+    )
+    assert directory.peer_revision_high_water == (
+        ("peer-b", 7, first.digest),
+    )
+
+    clock = [106.0]
+    directory._monotonic = lambda: clock[0]
+    assert directory.purge_expired() == ("peer-b",)
+    assert directory.peer_snapshots == ()
+    assert directory.peer_revision_high_water == (
+        ("peer-b", 7, first.digest),
+    )
+    with pytest.raises(ComputationalFabricError, match="rollback"):
+        directory._merge_verified_peer_snapshot(
+            _snapshot("peer-b", revision=6),
+            authenticated_peer_id="peer-b",
+            authenticated_server_name="peer-b.fabric.test",
+        )
+    with pytest.raises(ComputationalFabricError, match="equivocated"):
+        directory._merge_verified_peer_snapshot(
+            _snapshot("peer-b", revision=7, lease=45),
+            authenticated_peer_id="peer-b",
+            authenticated_server_name="peer-b.fabric.test",
+        )
+
+
 def test_fabric_resolver_selects_lowest_cost_multi_hop_peer_path() -> None:
     ad = ComputationalHostAdvertisement.from_locus(_locus(), "peer-b")
     peer_a = _snapshot(
