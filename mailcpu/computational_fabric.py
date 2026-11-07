@@ -725,6 +725,93 @@ class ComputationalFabricDirectory:
                 for peer_id, (revision, digest) in sorted(self._revision_high_water.items())
             )
 
+    def checkpoint(self) -> dict[str, Any]:
+        """Mathematics: Export anti-rollback state and directory policy without restoring remote snapshots or live leases."""
+        with self._lock:
+            payload: dict[str, Any] = {
+                "schema": "mailcpu.computational-fabric-directory-checkpoint.v1",
+                "local_peer_id": self.local_peer_id,
+                "trusted_peers": dict(self._trusted_peers),
+                "max_peer_lease_seconds": self.max_peer_lease_seconds,
+                "max_peers": self.max_peers,
+                "max_hosts": self.max_hosts,
+                "max_links": self.max_links,
+                "peer_revision_high_water": [
+                    {
+                        "peer_id": peer_id,
+                        "revision": revision,
+                        "digest": digest,
+                    }
+                    for peer_id, (revision, digest) in sorted(self._revision_high_water.items())
+                ],
+            }
+            payload["digest"] = _canonical_digest(payload)
+            return payload
+
+    @classmethod
+    def from_checkpoint(
+        cls,
+        payload: Mapping[str, Any],
+        *,
+        monotonic: Callable[[], float] = time.monotonic,
+    ) -> "ComputationalFabricDirectory":
+        """Mathematics: Restore revision high-water state while forcing every remote peer to re-authenticate for a fresh lease."""
+        expected = {
+            "schema",
+            "local_peer_id",
+            "trusted_peers",
+            "max_peer_lease_seconds",
+            "max_peers",
+            "max_hosts",
+            "max_links",
+            "peer_revision_high_water",
+            "digest",
+        }
+        if not isinstance(payload, Mapping) or set(payload) != expected:
+            raise ComputationalFabricError("fabric directory checkpoint fields are malformed")
+        if payload["schema"] != "mailcpu.computational-fabric-directory-checkpoint.v1":
+            raise ComputationalFabricError("fabric directory checkpoint schema is unsupported")
+        expected_digest = _digest(payload["digest"], "directory checkpoint digest")
+        unsigned = {key: value for key, value in payload.items() if key != "digest"}
+        if _canonical_digest(unsigned) != expected_digest:
+            raise ComputationalFabricError("fabric directory checkpoint digest does not match its content")
+        trusted = payload["trusted_peers"]
+        if not isinstance(trusted, Mapping):
+            raise ComputationalFabricError("fabric directory checkpoint trust map is malformed")
+        directory = cls(
+            payload["local_peer_id"],
+            trusted,
+            max_peer_lease_seconds=payload["max_peer_lease_seconds"],
+            monotonic=monotonic,
+            max_peers=payload["max_peers"],
+            max_hosts=payload["max_hosts"],
+            max_links=payload["max_links"],
+        )
+        high_water = payload["peer_revision_high_water"]
+        if not isinstance(high_water, (list, tuple)):
+            raise ComputationalFabricError("fabric directory checkpoint high-water table is malformed")
+        if len(high_water) > len(directory._trusted_peers) + 1:
+            raise ComputationalFabricError("fabric directory checkpoint high-water table exceeds its trust domain")
+        restored: dict[str, tuple[int, str]] = {}
+        for item in high_water:
+            if not isinstance(item, Mapping) or set(item) != {"peer_id", "revision", "digest"}:
+                raise ComputationalFabricError("fabric directory checkpoint high-water entry is malformed")
+            peer_id = _peer_id(item["peer_id"], "checkpoint peer_id")
+            if peer_id != directory.local_peer_id and peer_id not in directory._trusted_peers:
+                raise ComputationalFabricError("fabric directory checkpoint contains an untrusted peer high-water mark")
+            if peer_id in restored:
+                raise ComputationalFabricError("fabric directory checkpoint contains duplicate peer high-water marks")
+            revision = _positive(item["revision"], "checkpoint peer revision", minimum=0)
+            digest = _digest(item["digest"], "checkpoint peer snapshot digest")
+            restored[peer_id] = (revision, digest)
+        if list(restored) != sorted(restored):
+            raise ComputationalFabricError("fabric directory checkpoint high-water entries are not canonically ordered")
+        with directory._lock:
+            directory._revision_high_water = restored
+        # Remote snapshots and monotonic deadlines deliberately remain empty.
+        # A restored peer must prove its identity again before it can become active.
+        return directory
+
     @property
     def peer_snapshots(self) -> tuple[ComputationalPeerSnapshot, ...]:
         """Mathematics: Return all last-known peer snapshots in stable peer-id order, including expired entries."""
@@ -784,14 +871,16 @@ class ComputationalFabricDirectory:
         if snapshot.peer_id != self.local_peer_id:
             raise ComputationalFabricError("local snapshot peer identity differs from this directory")
         with self._lock:
-            if self._local_snapshot is not None:
-                previous = self._local_snapshot
-                if snapshot.revision < previous.revision:
+            high_water = self._revision_high_water.get(self.local_peer_id)
+            if high_water is not None:
+                previous_revision, previous_digest = high_water
+                if snapshot.revision < previous_revision:
                     raise ComputationalFabricError("local peer snapshot revision cannot move backwards")
-                if snapshot.revision == previous.revision:
-                    if snapshot.digest != previous.digest:
+                if snapshot.revision == previous_revision:
+                    if snapshot.digest != previous_digest:
                         raise ComputationalFabricError("local peer equivocated at an existing snapshot revision")
-                    return False
+                    if self._local_snapshot is not None:
+                        return False
             self._validate_capacity(snapshot, replacing_peer=self.local_peer_id)
             self._local_snapshot = snapshot
             self._revision_high_water[self.local_peer_id] = (snapshot.revision, snapshot.digest)
@@ -851,11 +940,11 @@ class ComputationalFabricDirectory:
                     raise ComputationalFabricError("peer snapshot revision rollback detected")
                 if snapshot.revision == previous_revision and snapshot.digest != previous_digest:
                     raise ComputationalFabricError("peer equivocated at an existing snapshot revision")
-            self._validate_capacity(snapshot, replacing_peer=peer_id)
+            observed_at = self._validate_capacity(snapshot, replacing_peer=peer_id)
             changed = previous is None or previous.digest != snapshot.digest
             self._snapshots[peer_id] = snapshot
             self._revision_high_water[peer_id] = (snapshot.revision, snapshot.digest)
-            self._deadlines[peer_id] = self._monotonic() + min(
+            self._deadlines[peer_id] = observed_at + min(
                 snapshot.lease_seconds,
                 self.max_peer_lease_seconds,
             )
@@ -866,12 +955,14 @@ class ComputationalFabricDirectory:
         incoming: ComputationalPeerSnapshot,
         *,
         replacing_peer: str,
-    ) -> None:
-        """Mathematics: Check aggregate peer, host and link cardinalities before atomically admitting one revision."""
+    ) -> float:
+        """Mathematics: Count only live remote leases against aggregate peer, host and link bounds."""
+        observed_at = self._monotonic()
         snapshots = {
             peer_id: snapshot
             for peer_id, snapshot in self._snapshots.items()
             if peer_id != replacing_peer
+            and observed_at < self._deadlines.get(peer_id, float("-inf"))
         }
         if replacing_peer == self.local_peer_id:
             local_count = 1
@@ -890,6 +981,7 @@ class ComputationalFabricDirectory:
             raise ComputationalFabricError("federated host directory exceeds its host bound")
         if link_count > self.max_links:
             raise ComputationalFabricError("federated topology exceeds its directed-link bound")
+        return observed_at
 
     def purge_expired(self) -> tuple[str, ...]:
         """Mathematics: Remove expired remote snapshots and leases without mutating the local authority record."""
