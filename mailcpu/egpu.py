@@ -12,14 +12,15 @@ from typing import Any, Mapping, Sequence
 from .classifier import HypervisorArbitrationEvent, HypervisorRequest
 from .transit_simt import TransitSIMTError, TransitSIMTHost
 
-_OPERATION = "execute navigable E-GPU method"
+_OPERATION = "execute deterministic CPU E-GPU method"
 _RESOURCE = "/gpu/egpu"
 _EXECUTE = frozenset({"execute"})
 _METHODS = {
-    "simt.kernel": "simt.execute",
-    "vector.add": "simt.execute",
-    "vector.multiply": "simt.execute",
-    "vector.sum": "reduce.tree",
+    "simt.kernel": ("simt.execute",),
+    "vector.add": ("simt.execute",),
+    "vector.multiply": ("simt.execute",),
+    "vector.sum": ("reduce.tree",),
+    "workgroup.shared_kernel": ("workgroup.execute", "shared.memory"),
 }
 _HOST_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}\Z")
 
@@ -93,10 +94,14 @@ class EGPUHost:
         if loci is None:
             loci = (
                 EGPUOperationalLocus(f"{host_id}.dispatch", "dispatch", frozenset({"egpu.dispatch"}),
-                                    (f"{host_id}.simt", f"{host_id}.reduce")),
+                                    (f"{host_id}.simt", f"{host_id}.reduce", f"{host_id}.workgroup")),
                 EGPUOperationalLocus(f"{host_id}.simt", "simt-execution", frozenset({"simt.execute"}),
                                     (f"{host_id}.verify",)),
                 EGPUOperationalLocus(f"{host_id}.reduce", "tree-reduction", frozenset({"reduce.tree"}),
+                                    (f"{host_id}.verify",)),
+                EGPUOperationalLocus(f"{host_id}.workgroup", "workgroup-execution", frozenset({"workgroup.execute"}),
+                                    (f"{host_id}.shared",)),
+                EGPUOperationalLocus(f"{host_id}.shared", "workgroup-shared-memory", frozenset({"shared.memory"}),
                                     (f"{host_id}.verify",)),
                 EGPUOperationalLocus(f"{host_id}.verify", "verification", frozenset({"result.verify"}), ()),
             )
@@ -127,10 +132,22 @@ class EGPUHost:
 
         if not isinstance(capability, str) or not capability:
             raise EGPUError("requested capability must be non-empty text")
-        target = self._unique_locus(capability)
-        first = self._shortest_path(self._entry, target)
-        second = self._shortest_path(target, self._verify)
-        return first + second[1:]
+        return self._resolve_capabilities((capability,))
+
+    def _resolve_capabilities(self, capabilities: Sequence[str]) -> tuple[str, ...]:
+        """Mathematics: navigate an ordered sequence of unique capability hosts before the terminal verification locus."""
+
+        if not isinstance(capabilities, (tuple, list)) or not capabilities:
+            raise EGPUError("E-GPU route requires one or more capabilities")
+        current = self._entry
+        route = (current,)
+        for capability in capabilities:
+            target = self._unique_locus(capability)
+            segment = self._shortest_path(current, target)
+            route += segment[1:]
+            current = target
+        terminal = self._shortest_path(current, self._verify)
+        return route + terminal[1:]
 
     def handle(self, event: HypervisorArbitrationEvent) -> dict[str, Any]:
         """Mathematics: check the outer grant, navigate one fixed method, execute, verify, and return a canonical route receipt."""
@@ -147,14 +164,17 @@ class EGPUHost:
         if not isinstance(request.payload, Mapping):
             raise EGPUError("E-GPU payload must be a mapping")
         method = request.payload.get("method")
-        capability = _METHODS.get(method) if isinstance(method, str) else None
-        if capability is None:
+        capabilities = _METHODS.get(method) if isinstance(method, str) else None
+        if capabilities is None:
             raise EGPUError("unsupported E-GPU method")
-        route = self.resolve_path(capability)
+        route = self._resolve_capabilities(capabilities)
+        capability = capabilities[0]
         if method in {"vector.add", "vector.multiply"}:
             result = self._vector(event, method)
         elif method == "vector.sum":
             result = self._reduce(request.payload)
+        elif method == "workgroup.shared_kernel":
+            result = self._workgroup_kernel(event, request.payload)
         else:
             result = self._kernel(event, request.payload)
         self._verify_result(method, request.payload, result)
@@ -163,6 +183,7 @@ class EGPUHost:
             "host_id": self.host_id,
             "method": method,
             "capability": capability,
+            "capabilities": list(capabilities),
             "route": list(route),
             "result_digest": result_digest,
         }
@@ -237,12 +258,15 @@ class EGPUHost:
         return self._run_simt(event, payload["lanes"], payload["inputs"], payload["program"], payload["max_steps"])
 
     def _run_simt(self, event: HypervisorArbitrationEvent, lanes: Any, inputs: Any,
-                  program: Any, max_steps: Any) -> dict[str, Any]:
+                  program: Any, max_steps: Any, shared_buffers: Any = None) -> dict[str, Any]:
         """Mathematics: invoke the inner SIMT evaluator under the already-admitted outer E-GPU execution contract."""
 
+        inner_payload = {"lanes": lanes, "inputs": inputs, "program": program, "max_steps": max_steps}
+        if shared_buffers is not None:
+            inner_payload["shared_buffers"] = shared_buffers
         inner = HypervisorRequest(
             TransitSIMTHost.operation_name, TransitSIMTHost.resource_name,
-            {"lanes": lanes, "inputs": inputs, "program": program, "max_steps": max_steps},
+            inner_payload,
             _EXECUTE, _EXECUTE, False,
         )
         internal_event = HypervisorArbitrationEvent(
@@ -252,6 +276,25 @@ class EGPUHost:
             return self.simt_host.handle(internal_event)
         except (TransitSIMTError, TypeError, ValueError) as exc:
             raise EGPUError(f"SIMT execution refused: {exc}") from exc
+
+
+    def _workgroup_kernel(
+        self,
+        event: HypervisorArbitrationEvent,
+        payload: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Mathematics: execute one bounded workgroup kernel whose shared buffers become visible only at converged barrier epochs."""
+
+        if set(payload) != {"method", "lanes", "inputs", "shared_buffers", "program", "max_steps"}:
+            raise EGPUError("workgroup kernel fields are invalid")
+        return self._run_simt(
+            event,
+            payload["lanes"],
+            payload["inputs"],
+            payload["program"],
+            payload["max_steps"],
+            payload["shared_buffers"],
+        )
 
     def _reduce(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         """Mathematics: sum adjacent integer pairs at each level, carrying an odd final element unchanged."""
@@ -287,8 +330,12 @@ class EGPUHost:
     def _verify_result(self, method: str, payload: Mapping[str, Any], result: Mapping[str, Any]) -> None:
         """Mathematics: compare vector and reduction results with scalar definitions and recompute backend state digests."""
 
-        if method in {"simt.kernel", "vector.add", "vector.multiply"}:
-            fields = ("lanes", "steps", "registers", "outputs", "mask_trace", "barriers")
+        if method in {"simt.kernel", "vector.add", "vector.multiply", "workgroup.shared_kernel"}:
+            fields = ["lanes", "steps", "registers", "outputs", "mask_trace", "barriers"]
+            if method == "workgroup.shared_kernel":
+                fields.extend(("shared_memory", "shared_epochs"))
+            elif "shared_memory" in result:
+                fields.extend(("shared_memory", "shared_epochs"))
             if set(result) != set(fields) | {"state_digest"}:
                 raise EGPUError("SIMT result fields are invalid")
             state = {key: result[key] for key in fields}

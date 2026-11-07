@@ -28,12 +28,169 @@ _ARITY = {
     "endif": 0,
     "barrier": 0,
     "store": 2,
+    "shared_store": 3,
+    "shared_load": 3,
     "halt": 0,
 }
 
 
 class TransitSIMTError(ValueError):
     """Mathematics: reject a SIMT request unless typed program, lane masks, barriers, and resource bounds preserve the reference execution relation."""
+
+
+
+class TransitSIMTSharedMemoryHost:
+    """Workgroup-scoped shared memory with explicit single-writer epochs and barrier publication."""
+
+    def __init__(
+        self,
+        buffers: Mapping[str, Any],
+        *,
+        max_total_elements: int = 4096,
+        max_buffers: int = 16,
+        max_integer_bits: int = 4096,
+        lane_count: int = 1,
+    ) -> None:
+        """Mathematics: allocate finite buffer family M for fixed cohort L, within capacity B, with all cells initially uninitialized."""
+
+        if not isinstance(buffers, Mapping) or not buffers:
+            raise TransitSIMTError("shared_buffers must be a non-empty mapping")
+        if (
+            not isinstance(max_total_elements, int)
+            or isinstance(max_total_elements, bool)
+            or max_total_elements <= 0
+            or not isinstance(max_buffers, int)
+            or isinstance(max_buffers, bool)
+            or max_buffers <= 0
+            or not isinstance(max_integer_bits, int)
+            or isinstance(max_integer_bits, bool)
+            or max_integer_bits <= 0
+            or not isinstance(lane_count, int)
+            or isinstance(lane_count, bool)
+            or lane_count <= 0
+        ):
+            raise ValueError("shared-memory bounds must be positive integers")
+        if len(buffers) > max_buffers:
+            raise TransitSIMTError("shared buffer count exceeds configured bound")
+        normalized: dict[str, int] = {}
+        total = 0
+        for name, size in buffers.items():
+            if not isinstance(name, str) or _NAME.fullmatch(name) is None:
+                raise TransitSIMTError("shared buffer name is invalid")
+            if not isinstance(size, int) or isinstance(size, bool) or size <= 0:
+                raise TransitSIMTError(f"shared buffer {name!r} size must be a positive integer")
+            normalized[name] = size
+            total += size
+        if total > max_total_elements:
+            raise TransitSIMTError("total shared-memory capacity exceeds configured bound")
+        self._visible = {name: [None] * normalized[name] for name in sorted(normalized)}
+        self._pending: dict[str, dict[int, tuple[int, int]]] = {
+            name: {} for name in sorted(normalized)
+        }
+        self._epochs: list[dict[str, Any]] = []
+        self._max_integer_bits = max_integer_bits
+        self._lane_count = lane_count
+
+    @property
+    def lane_count(self) -> int:
+        """Mathematics: expose the fixed lane cohort cardinality bound to which this memory host belongs."""
+
+        return self._lane_count
+
+    @property
+    def names(self) -> tuple[str, ...]:
+        """Mathematics: expose the finite declared shared-buffer name domain in lexical order."""
+
+        return tuple(self._visible)
+
+    @property
+    def has_pending(self) -> bool:
+        """Mathematics: report whether the uncommitted write relation is non-empty."""
+
+        return any(self._pending[name] for name in self._pending)
+
+    def store(self, name: str, index: int, value: int, lane: int) -> None:
+        """Mathematics: admit one write iff its address is declared, bounded, and has no writer in the current visibility epoch."""
+
+        if name not in self._visible:
+            raise TransitSIMTError(f"unknown shared buffer: {name}")
+        if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < len(self._visible[name]):
+            raise TransitSIMTError(f"shared address {index!r} is outside buffer {name!r}")
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise TransitSIMTError("shared values must be integers")
+        if value.bit_length() > self._max_integer_bits:
+            raise TransitSIMTError("shared integer exceeds configured bit bound")
+        if not isinstance(lane, int) or isinstance(lane, bool) or not 0 <= lane < self._lane_count:
+            raise TransitSIMTError("shared writer lane is outside its workgroup cohort")
+        if index in self._pending[name]:
+            previous_lane = self._pending[name][index][1]
+            raise TransitSIMTError(
+                f"shared write conflict at {name}[{index}]: lanes {previous_lane} and {lane} "
+                "wrote within one barrier epoch"
+            )
+        self._pending[name][index] = (value, lane)
+
+    def load(self, name: str, index: int, lane: int) -> int:
+        """Mathematics: read only the last barrier-published cell; pending writes require a workgroup barrier first."""
+
+        if name not in self._visible:
+            raise TransitSIMTError(f"unknown shared buffer: {name}")
+        if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < len(self._visible[name]):
+            raise TransitSIMTError(f"shared address {index!r} is outside buffer {name!r}")
+        if not isinstance(lane, int) or isinstance(lane, bool) or not 0 <= lane < self._lane_count:
+            raise TransitSIMTError("shared reader lane is outside its workgroup cohort")
+        if self._pending[name]:
+            raise TransitSIMTError(
+                f"shared buffer {name!r} has uncommitted writes; a barrier is required before load"
+            )
+        value = self._visible[name][index]
+        if value is None:
+            raise TransitSIMTError(f"shared buffer {name!r} address {index} has not been initialized")
+        return value
+
+    def barrier(self, *, pc: int, lanes: int) -> dict[str, Any]:
+        """Mathematics: atomically publish every pending cell as one visibility epoch after all workgroup lanes arrive."""
+
+        if not isinstance(pc, int) or isinstance(pc, bool) or pc < 0:
+            raise TransitSIMTError("shared-memory barrier program counter is invalid")
+        if not isinstance(lanes, int) or isinstance(lanes, bool) or lanes != self._lane_count:
+            raise TransitSIMTError("shared-memory barrier must include the complete workgroup cohort")
+        published: dict[str, list[int]] = {}
+        for name in self.names:
+            indices = sorted(self._pending[name])
+            if indices:
+                for index in indices:
+                    value, _writer_lane = self._pending[name][index]
+                    self._visible[name][index] = value
+                published[name] = indices
+                self._pending[name].clear()
+        receipt = {
+            "epoch": len(self._epochs) + 1,
+            "pc": pc,
+            "arrivals": lanes,
+            "published": published,
+        }
+        self._epochs.append(receipt)
+        return receipt
+
+    def state(self) -> dict[str, Any]:
+        """Mathematics: project visible shared cells and committed visibility epochs into canonical JSON-compatible state."""
+
+        return {
+            "shared_memory": {
+                name: list(self._visible[name])
+                for name in self.names
+            },
+            "shared_epochs": [
+                {
+                    "epoch": epoch["epoch"],
+                    "pc": epoch["pc"],
+                    "arrivals": epoch["arrivals"],
+                    "published": {name: list(indices) for name, indices in epoch["published"].items()},
+                }
+                for epoch in self._epochs
+            ],
+        }
 
 
 class TransitSIMTHost:
@@ -51,6 +208,8 @@ class TransitSIMTHost:
         max_registers: int = 64,
         max_input_elements: int = 4096,
         max_integer_bits: int = 4096,
+        max_shared_elements: int = 4096,
+        max_shared_buffers: int = 16,
     ) -> None:
         """Mathematics: fix finite execution bounds B=(lanes,instructions,steps,registers,elements,integer_bits)."""
 
@@ -61,6 +220,8 @@ class TransitSIMTHost:
             max_registers,
             max_input_elements,
             max_integer_bits,
+            max_shared_elements,
+            max_shared_buffers,
         )
         if any(not isinstance(value, int) or isinstance(value, bool) or value <= 0 for value in bounds):
             raise ValueError("SIMT execution bounds must be positive integers")
@@ -70,6 +231,8 @@ class TransitSIMTHost:
         self.max_registers = max_registers
         self.max_input_elements = max_input_elements
         self.max_integer_bits = max_integer_bits
+        self.max_shared_elements = max_shared_elements
+        self.max_shared_buffers = max_shared_buffers
 
     def handle(self, event: HypervisorArbitrationEvent) -> dict[str, Any]:
         """Mathematics: evaluate bounded lockstep program P over lanes L and return outputs plus a canonical state receipt."""
@@ -87,7 +250,8 @@ class TransitSIMTHost:
         payload = request.payload
         if not isinstance(payload, Mapping):
             raise TransitSIMTError("SIMT payload must be a mapping")
-        if set(payload) != {"lanes", "inputs", "program", "max_steps"}:
+        required_fields = {"lanes", "inputs", "program", "max_steps"}
+        if set(payload) not in (required_fields, required_fields | {"shared_buffers"}):
             raise TransitSIMTError("SIMT payload fields are invalid")
 
         lanes = payload.get("lanes")
@@ -118,12 +282,26 @@ class TransitSIMTHost:
         if input_elements > self.max_input_elements:
             raise TransitSIMTError("SIMT input element count exceeds configured bound")
 
+        shared_memory = None
+        if "shared_buffers" in payload:
+            shared_memory = TransitSIMTSharedMemoryHost(
+                payload.get("shared_buffers"),
+                max_total_elements=self.max_shared_elements,
+                max_buffers=self.max_shared_buffers,
+                max_integer_bits=self.max_integer_bits,
+                lane_count=lanes,
+            )
+
         raw_program = payload.get("program")
         if not isinstance(raw_program, (list, tuple)) or not raw_program:
             raise TransitSIMTError("SIMT program must be a non-empty instruction sequence")
         if len(raw_program) > self.max_instructions:
             raise TransitSIMTError("SIMT instruction count exceeds configured bound")
-        program, register_names, output_names = self._validate_program(raw_program, inputs)
+        program, register_names, output_names = self._validate_program(
+            raw_program,
+            inputs,
+            frozenset(shared_memory.names) if shared_memory is not None else frozenset(),
+        )
         if len(register_names) > self.max_registers:
             raise TransitSIMTError("SIMT register count exceeds configured bound")
         budget = payload.get("max_steps")
@@ -226,15 +404,38 @@ class TransitSIMTHost:
                 barrier_trace.append(
                     {"epoch": epoch, "pc": pc, "arrivals": lanes}
                 )
+                if shared_memory is not None:
+                    shared_memory.barrier(pc=pc, lanes=lanes)
             elif opcode == "store":
                 output_name, source = args
                 for lane, enabled in enumerate(active):
                     if enabled:
                         value = self._read_integer(registers[source][lane], source, lane)
                         outputs[output_name][lane] = value
+            elif opcode == "shared_store":
+                if shared_memory is None:
+                    raise TransitSIMTError("SHARED_STORE requires declared shared_buffers")
+                buffer_name, index_register, value_register = args
+                for lane, enabled in enumerate(active):
+                    if enabled:
+                        index = self._read_integer(registers[index_register][lane], index_register, lane)
+                        value = self._read_integer(registers[value_register][lane], value_register, lane)
+                        self._require_integer_bound(value)
+                        shared_memory.store(buffer_name, index, value, lane)
+            elif opcode == "shared_load":
+                if shared_memory is None:
+                    raise TransitSIMTError("SHARED_LOAD requires declared shared_buffers")
+                destination, buffer_name, index_register = args
+                for lane, enabled in enumerate(active):
+                    if enabled:
+                        index = self._read_integer(registers[index_register][lane], index_register, lane)
+                        value = shared_memory.load(buffer_name, index, lane)
+                        registers[destination][lane] = value
             elif opcode == "halt":
                 if stack or not all(active):
                     raise TransitSIMTError("HALT requires all lanes to reconverge")
+                if shared_memory is not None and shared_memory.has_pending:
+                    raise TransitSIMTError("HALT requires a barrier to publish pending shared writes")
             else:
                 raise TransitSIMTError(f"unsupported SIMT opcode: {opcode}")
 
@@ -264,6 +465,8 @@ class TransitSIMTHost:
             "mask_trace": mask_trace,
             "barriers": barrier_trace,
         }
+        if shared_memory is not None:
+            state.update(shared_memory.state())
         canonical = json.dumps(
             state,
             sort_keys=True,
@@ -280,6 +483,7 @@ class TransitSIMTHost:
         self,
         raw_program: list[Any] | tuple[Any, ...],
         inputs: Mapping[str, tuple[int, ...]],
+        shared_buffers: frozenset[str] = frozenset(),
     ) -> tuple[list[tuple[str, tuple[Any, ...]]], set[str], set[str]]:
         """Mathematics: validate instruction typing and structured IF/ELSE/ENDIF nesting before executing program P."""
 
@@ -353,6 +557,22 @@ class TransitSIMTHost:
                 self._require_name(source, "register")
                 outputs.add(output_name)
                 registers.add(source)
+            elif opcode == "shared_store":
+                buffer_name, index_register, value_register = args
+                self._require_name(buffer_name, "shared buffer")
+                self._require_name(index_register, "register")
+                self._require_name(value_register, "register")
+                if buffer_name not in shared_buffers:
+                    raise TransitSIMTError(f"unknown shared buffer: {buffer_name}")
+                registers.update((index_register, value_register))
+            elif opcode == "shared_load":
+                destination, buffer_name, index_register = args
+                self._require_name(destination, "register")
+                self._require_name(buffer_name, "shared buffer")
+                self._require_name(index_register, "register")
+                if buffer_name not in shared_buffers:
+                    raise TransitSIMTError(f"unknown shared buffer: {buffer_name}")
+                registers.update((destination, index_register))
             elif opcode == "halt":
                 if stack:
                     raise TransitSIMTError("HALT cannot occur inside a divergent control region")
