@@ -25,12 +25,13 @@ from requester_process_recovery_worker import (  # noqa: E402
     _event,
     _make_session,
     _open_listeners,
-    _read_client_checkpoint,
+    _decode_client_checkpoint,
     _wait_request_ack,
     _wait_response,
     _write_client_checkpoint,
     _write_json_durable,
 )
+from recovery_lineage_process_support import open_recovery_bundle_store  # noqa: E402
 
 CUTS = frozenset({
     "before_execution",
@@ -103,12 +104,15 @@ def server_cut(cut: str, checkpoint: Path, marker: Path) -> None:
     raise TimeoutError(f"receiver did not reach Transit crash cut {cut!r}")
 
 
-def server_restore(cut: str, checkpoint: Path, result_path: Path) -> None:
-    """Restore an independent receiver checkpoint, replay sequence 1, then execute sequence 2."""
+def server_restore(cut: str, lineage_root: Path, result_path: Path) -> None:
+    """Verify the quorum bundle before opening replacement listeners, then replay sequence 1 and execute sequence 2."""
 
     if cut not in CUTS:
         raise ValueError(f"unsupported Transit crash cut: {cut}")
 
+    bundle = open_recovery_bundle_store(lineage_root).load_latest()
+    if bundle.manifest.capture_cut != cut:
+        raise ValueError("receiver restore cut does not match the quorum-anchored bundle")
     request_listener, response_listener, ports = _open_listeners()
     print(json.dumps({"pid": __import__("os").getpid(), **ports, "phase": "restored"}), flush=True)
     request_transport, response_transport = _accept_transports(
@@ -116,8 +120,7 @@ def server_restore(cut: str, checkpoint: Path, result_path: Path) -> None:
     )
 
     hosts: list[CountingHost] = []
-    session = TransitComputeSession.from_checkpoint(
-        checkpoint,
+    session = bundle.restore_receiver_session(
         request_transport,
         response_transport,
         compute_host_factory=_host_factory(hosts),
@@ -163,6 +166,8 @@ def server_restore(cut: str, checkpoint: Path, result_path: Path) -> None:
     _write_json_durable(result_path, {
         "server_pid": __import__("os").getpid(),
         "cut": cut,
+        "lineage_generation": bundle.generation,
+        "lineage_manifest_digest": bundle.manifest.digest,
         "request_receive_cursor": session.request.channel.next_receive_sequence,
         "sequence_1_execution_replayed": recovered.replayed,
         "sequence_1_answer": recovered.effect["registers"]["answer"],
@@ -203,7 +208,7 @@ def client_prepare(checkpoint: Path, marker: Path, request_port: int, response_p
 
 
 def client_restore(
-    checkpoint: Path,
+    lineage_root: Path,
     result_path: Path,
     server_result_path: Path,
     request_port: int,
@@ -212,9 +217,12 @@ def client_restore(
 ) -> None:
     """Restore the requester, consume results, and keep TCP open until receiver ACK drain."""
 
-    ports = {"request_port": request_port, "response_port": response_port}
-    envelope = _read_client_checkpoint(checkpoint)
+    bundle = open_recovery_bundle_store(lineage_root).load_latest()
+    if bundle.manifest.capture_cut != cut:
+        raise ValueError("requester restore cut does not match the quorum-anchored bundle")
+    envelope = _decode_client_checkpoint(bundle.requester_checkpoint)
     state = envelope["state"]
+    ports = {"request_port": request_port, "response_port": response_port}
     transports, request, response = _connect_client(ports)
     request = HypervisorOperationChannel(
         ReliableChannel.from_snapshot(state["request"], transports[0])
@@ -262,6 +270,8 @@ def client_restore(
         "client_pid": __import__("os").getpid(),
         "origin_client_pid": state["client_pid"],
         "cut": cut,
+        "lineage_generation": bundle.generation,
+        "lineage_manifest_digest": bundle.manifest.digest,
         "sequence_1_delivery_count": response_count,
         "sequence_1_first_delivery_fresh": recovered_results[0].replayed is False,
         "sequence_1_second_delivery_duplicate": (

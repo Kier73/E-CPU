@@ -149,6 +149,30 @@ from .seed_commit_quorum import (
     SeedCommitTransitionArtifact,
     SeedPrepareVote,
 )
+from .recovery_lineage import (
+    RecoveryCheckpointManifest,
+    RecoveryLineageAuthority,
+    RecoveryLineageCoordinator,
+    RecoveryLineageError,
+    RecoveryLineageProof,
+)
+from .recovery_lineage_transport import (
+    DistributedRecoveryLineageCoordinator,
+    RecoveryLineagePeerClient,
+    RecoveryLineageProcessParticipant,
+    RecoveryLineageTransportError,
+)
+from .recovery_lineage_service import RecoveryLineageAuthorityService
+from .recovery_deployment import (
+    RecoveryLineageDeployment,
+    RecoveryLineageDeploymentError,
+    RecoveryLineageDeploymentMember,
+)
+from .recovery_bundle import (
+    RecoveryCheckpointBundleError,
+    RecoveryCheckpointBundleStore,
+    VerifiedRecoveryCheckpointBundle,
+)
 from .seed_commit_coordinator import (
     SEED_QUORUM_COMMIT_KIND,
     SEED_QUORUM_DECISION_KIND,
@@ -773,6 +797,22 @@ __all__ = [
     "SeedCommitProposal",
     "SeedCommitTransitionArtifact",
     "SeedPrepareVote",
+    "RecoveryCheckpointManifest",
+    "RecoveryCheckpointBundleError",
+    "RecoveryCheckpointBundleStore",
+    "VerifiedRecoveryCheckpointBundle",
+    "RecoveryLineageAuthority",
+    "RecoveryLineageCoordinator",
+    "RecoveryLineageError",
+    "RecoveryLineageProof",
+    "DistributedRecoveryLineageCoordinator",
+    "RecoveryLineagePeerClient",
+    "RecoveryLineageProcessParticipant",
+    "RecoveryLineageTransportError",
+    "RecoveryLineageAuthorityService",
+    "RecoveryLineageDeployment",
+    "RecoveryLineageDeploymentError",
+    "RecoveryLineageDeploymentMember",
     "SEED_QUORUM_COMMIT_KIND",
     "SEED_QUORUM_DECISION_KIND",
     "SEED_QUORUM_PREPARE_KIND",

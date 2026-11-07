@@ -75,10 +75,13 @@ def _write_client_checkpoint(path: Path, state: dict[str, Any]) -> str:
     return digest
 
 
-def _read_client_checkpoint(path: Path) -> dict[str, Any]:
-    """Validate the exact client channel envelope before reconstructing either endpoint."""
+def _decode_client_checkpoint(payload: bytes) -> dict[str, Any]:
+    """Mathematics: Validate the exact in-memory client envelope before reconstructing either channel endpoint."""
 
-    envelope = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        envelope = json.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("client checkpoint is not valid UTF-8 JSON") from exc
     if not isinstance(envelope, dict) or set(envelope) != {"version", "digest", "state"}:
         raise ValueError("client checkpoint envelope fields are invalid")
     if envelope["version"] != 1 or not isinstance(envelope["state"], dict):
@@ -92,6 +95,12 @@ def _read_client_checkpoint(path: Path) -> dict[str, Any]:
     if set(envelope["state"]) != {"client_pid", "request", "response"}:
         raise ValueError("client checkpoint state fields are invalid")
     return envelope
+
+
+def _read_client_checkpoint(path: Path) -> dict[str, Any]:
+    """Mathematics: Read and validate one persisted requester checkpoint without changing its byte identity."""
+
+    return _decode_client_checkpoint(path.read_bytes())
 
 
 def _event(sequence: int, source: str) -> HypervisorArbitrationEvent:

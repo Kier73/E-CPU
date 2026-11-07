@@ -120,6 +120,67 @@ python scripts/verify_repo.py    # link, invariant, and integrity checks
 If the transition algebra `T` changes, `tests/golden_traces.json` is regenerated
 with `scripts/record_golden.py`.
 
+### 4.2 Callable Python utilities
+
+The command-line interface is one entry point; `mailcpu` is also an importable
+Python package. The package root exports the tested public surface, including
+the assembler, interpreters, virtual machine and headless OS, reliable
+transports, Transit compute sessions, structural-memory providers, navigation
+and evidence-path utilities, and checkpoint/recovery coordinators.
+
+A small entry point is:
+
+```python
+from mailcpu import assemble
+
+program = assemble(
+    """
+    SET left, 19
+    SET right, 23
+    ADD answer, left, right
+    HALT
+    """
+)
+```
+
+The returned `Program` is the validated instruction representation. It can
+then be supplied to the relevant interpreter or execution environment; the
+runtime does not silently select an execution regime or grant capabilities.
+
+For persistent Transit paths, the callable surface includes
+`TransitComputeSession.save_checkpoint()` and
+`TransitComputeSession.from_checkpoint()`. For jointly persisted requester
+and receiver state, `RecoveryCheckpointBundleStore.seal()` and
+`load_latest()` add an independent quorum admission step before restore.
+The fixed-membership recovery authority can run across independent processes
+using `RecoveryLineageProcessParticipant`, `RecoveryLineagePeerClient`, and
+`DistributedRecoveryLineageCoordinator`. `RecoveryLineageAuthorityService`
+adds a reconnectable remote service protected by mutual TLS, and the
+`mailcpu-recovery-authority` command runs one non-owner member under an
+external process supervisor. The owner can connect with
+`RecoveryLineagePeerClient.connect_mutual_tls()`; both certificate-chain and
+DNS-SAN identities are verified before the reliable channels are opened.
+The `RecoveryLineageDeployment` model and `mailcpu-recovery-topology` command
+validate exact membership coverage, unique declared host/failure-domain/TLS
+identities, unique authority endpoints, and node-local journal/TLS resource paths.
+The validator can export the normalized membership file consumed by each
+authority service; its placement declarations remain operator assertions, not
+physical-host attestation. See
+[`docs/RECOVERY_LINEAGE_DEPLOYMENT.md`](docs/RECOVERY_LINEAGE_DEPLOYMENT.md).
+See [`docs/RECOVERY_LINEAGE_PROCESSES.md`](docs/RECOVERY_LINEAGE_PROCESSES.md)
+and [`docs/RECOVERY_LINEAGE_SERVICE.md`](docs/RECOVERY_LINEAGE_SERVICE.md)
+for the process protocol, deployment procedure, failure semantics, and proof
+boundary. The complete checkpoint capture/restore protocol remains in
+[`docs/RECOVERY_BUNDLE.md`](docs/RECOVERY_BUNDLE.md).
+
+The public API is intentionally broader than the CLI command set. Most
+subsystems are configured objects rather than standalone shell commands:
+they require explicit state, capabilities, transports, backend registrations,
+or a fixed authority membership. The detailed specifications and executable
+tests are the usage contract for those components. The project remains Alpha;
+the root export list is a declared API surface, not a promise that every
+experimental subsystem has the same maturity or compatibility guarantees.
+
 ## 5. Determinism
 
 Subsystems are deterministic given their input state.
