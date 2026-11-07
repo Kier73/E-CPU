@@ -50,6 +50,7 @@ Index of specification documents. Documents use defined terms from `GLOSSARY.md`
 | 42 | [`COMMUNICATION_HOST_MODEL.md`](COMMUNICATION_HOST_MODEL.md) | Normative definition of host as a logical operational locus, identity versus placement, composable roles, and path-hosting |
 | 43 | [`EGPU_NAVIGABLE_FABRIC.md`](EGPU_NAVIGABLE_FABRIC.md) | Navigable E-GPU method graph, SIMT/vector/reduction/workgroup methods, route receipts, and implementation limits |
 | 44 | [`WORKGROUP_SHARED_MEMORY.md`](WORKGROUP_SHARED_MEMORY.md) | Workgroup-scoped shared-memory ownership, single-writer epochs, barrier publication, memory bounds, and visibility rules |
+| 45 | [`VGI_VIRTUAL_LAYER.md`](VGI_VIRTUAL_LAYER.md) | Hosted VGI Signal8 computation, dual-Ground identity, bounded compile/execute, signal-valued receipts, checkpoints, and semantic replay |
 
 ## Document classes
 
