@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 from collections.abc import Mapping
+from functools import lru_cache
+from pathlib import Path
 from typing import Any, Callable
 
 from .virtual_layer import (
@@ -36,6 +39,91 @@ def _canonical_digest(value: Any) -> str:
         allow_nan=False,
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+@lru_cache(maxsize=32)
+def vgi_signal8_implementation_fingerprint(
+    implementation_type: type[Any] | None = None,
+) -> str:
+    """Fingerprint the installed E-CPU/VGI Python source and optional concrete host class.
+
+    The digest is path-independent and intentionally separate from both the
+    mathematical Ground fingerprint and the OperatorSpec contract digest. It
+    is a source identity, not a hardware or complete runtime attestation.
+    """
+    try:
+        import vgi
+    except ImportError as exc:
+        raise VGIHostError("VGI is required to fingerprint the Signal8 implementation") from exc
+
+    roots = (
+        ("mailcpu", Path(__file__).resolve().parent),
+        ("vgi", Path(vgi.__file__).resolve().parent),
+    )
+    sources: dict[str, Path] = {}
+    for namespace, root in roots:
+        if not root.is_dir():
+            raise VGIHostError(f"cannot locate {namespace} Python source package")
+        for source_path in sorted(root.rglob("*.py")):
+            if source_path.is_symlink():
+                raise VGIHostError("implementation source packages cannot contain symlinked Python files")
+            if source_path.is_file():
+                relative = source_path.relative_to(root).as_posix()
+                sources[f"{namespace}/{relative}"] = source_path
+
+    required = {
+        "mailcpu/vgi_host.py",
+        "mailcpu/transit_vgi.py",
+        "mailcpu/virtual_layer.py",
+        "mailcpu/transit_router.py",
+        "mailcpu/transit_worker.py",
+        "vgi/__init__.py",
+        "vgi/compiler.py",
+        "vgi/ground.py",
+        "vgi/ir.py",
+        "vgi/machine.py",
+        "vgi/values.py",
+    }
+    missing = required - set(sources)
+    if missing:
+        raise VGIHostError(
+            "implementation source manifest is incomplete: " + ", ".join(sorted(missing))
+        )
+
+    implementation_name = "vgi.signal8.adapter"
+    if implementation_type is not None:
+        if not isinstance(implementation_type, type):
+            raise TypeError("implementation_type must be a class")
+        module_name = implementation_type.__module__
+        implementation_name = f"{module_name}.{implementation_type.__qualname__}"
+        module = sys.modules.get(module_name)
+        module_file = getattr(module, "__file__", None)
+        if not isinstance(module_file, str) or not module_file:
+            raise VGIHostError("concrete backend class has no inspectable Python source module")
+        extension_path = Path(module_file).resolve()
+        if extension_path.suffix != ".py" or not extension_path.is_file():
+            raise VGIHostError("concrete backend class source must be an available .py file")
+        if extension_path not in sources.values():
+            sources[f"host-extension/{module_name.replace('.', '/')}.py"] = extension_path
+
+    file_manifest = []
+    for source_name, source_path in sorted(sources.items()):
+        try:
+            source_bytes = source_path.read_bytes()
+        except OSError as exc:
+            raise VGIHostError(f"cannot read implementation source {source_name}") from exc
+        file_manifest.append({
+            "path": source_name,
+            "size": len(source_bytes),
+            "sha256": hashlib.sha256(source_bytes).hexdigest(),
+        })
+
+    return _canonical_digest({
+        "schema": "vgi.signal8.implementation-source.v1",
+        "vgi_version": getattr(vgi, "__version__", None),
+        "implementation_type": implementation_name,
+        "files": file_manifest,
+    })
 
 
 def _positive_integer(value: Any, name: str, maximum: int) -> int:
@@ -166,6 +254,10 @@ def execute_vgi_signal8(
         "interpreter": {
             "name": "virtual-ground-interpreter",
             "version": vgi_version,
+        },
+        "implementation": {
+            "source_fingerprint": vgi_signal8_implementation_fingerprint(),
+            "scope": "E-CPU mailcpu and installed VGI Python source packages",
         },
         "system_ground": workload.ground.to_dict(),
         "computation_ground": {
