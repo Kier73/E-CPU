@@ -999,6 +999,17 @@ class ComputationalFabricPeerServer:
             COMPUTATIONAL_DIRECTORY_RESPONSE_CHANNEL,
             selected_policy,
         )
+        self.retry_interval = 0.03
+        self._last_retry = time.monotonic()
+
+    def _tick_outbound_if_due(self) -> tuple[int, ...]:
+        """Mathematics: Advance response retry state only after a finite monotonic retry interval."""
+        now = time.monotonic()
+        if now - self._last_retry < self.retry_interval:
+            return ()
+        failed = self.outbound.tick()
+        self._last_retry = now
+        return failed
 
     @classmethod
     def accept_mutual_tls(
@@ -1039,7 +1050,7 @@ class ComputationalFabricPeerServer:
         """Mathematics: Commit one snapshot request into the reliable response channel before acknowledging its inbound sequence."""
         self.outbound.process_ack()
         if self.outbound.available_window < 1:
-            self.outbound.tick()
+            self._tick_outbound_if_due()
             return False
         handled = False
 
@@ -1080,7 +1091,7 @@ class ComputationalFabricPeerServer:
             self.outbound.send(response)
 
         received = self.inbound.receive(commit=apply)
-        self.outbound.tick()
+        self._tick_outbound_if_due()
         return handled or received is not None
 
     def serve_forever(
