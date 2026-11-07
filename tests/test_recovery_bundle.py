@@ -50,6 +50,25 @@ def _receiver_bytes(backend: list[list[str]] | None = None) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 
 
+def _receiver_bytes_v3(fingerprint: str = "a" * 64) -> bytes:
+    """Encode a v3 backend manifest with one implementation-bound route."""
+
+    value = {
+        "format": "mailcpu-transit-worker-checkpoint-v3",
+        "state": {
+            "backend_manifest": [
+                ["cpu.execute", "/cpu/compute"],
+                ["vgi.execute", "/virtual-layer/operators/vgi.signal8.execute/v1"],
+            ],
+            "backend_implementation_manifest": [
+                ["cpu.execute", "/cpu/compute", None],
+                ["vgi.execute", "/virtual-layer/operators/vgi.signal8.execute/v1", fingerprint],
+            ],
+        },
+    }
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
+
 def _write_sources(root: Path, requester: bytes, receiver: bytes) -> tuple[Path, Path]:
     """Persist source endpoint bytes used as the inputs to immutable bundle capture."""
 
@@ -214,3 +233,36 @@ def test_bundle_generation_refuses_different_bytes_on_retry_for_same_slot(tmp_pa
     requester_path.write_bytes(b'{"requester":"changed"}')
     with pytest.raises(RecoveryCheckpointBundleError, match="different checkpoint bytes"):
         store.seal(requester_path, receiver_path, "before_execution")
+
+
+def test_bundle_store_quorum_seals_v3_backend_implementation_identity(tmp_path: Path) -> None:
+    """The recovery bundle root binds both dispatch domain and implementation fingerprints."""
+
+    requester = b'{"requester":"implementation-bound"}'
+    receiver = _receiver_bytes_v3("b" * 64)
+    requester_path, receiver_path = _write_sources(tmp_path, requester, receiver)
+    store = _store(tmp_path)
+
+    captured = store.seal(requester_path, receiver_path, "after_execution_commit")
+    expected_backend_manifest = json.dumps(
+        {
+            "backend_manifest": [
+                ["cpu.execute", "/cpu/compute"],
+                ["vgi.execute", "/virtual-layer/operators/vgi.signal8.execute/v1"],
+            ],
+            "backend_implementation_manifest": [
+                ["cpu.execute", "/cpu/compute", None],
+                ["vgi.execute", "/virtual-layer/operators/vgi.signal8.execute/v1", "b" * 64],
+            ],
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    assert captured.backend_manifest == expected_backend_manifest
+    assert store.load_latest().backend_manifest == expected_backend_manifest
+
+    artifact = tmp_path / "bundles" / "generation-00000000000000000001" / "receiver.json"
+    artifact.write_bytes(_receiver_bytes_v3("c" * 64))
+    with pytest.raises(RecoveryCheckpointBundleError):
+        _store(tmp_path).load_latest()
