@@ -311,7 +311,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if arguments.write_membership is not None:
         try:
             arguments.write_membership.write_text(
-                json.dumps(deployment.membership.snapshot(), sort_keys=True, indent=2) + "\\n",
+                json.dumps(deployment.membership.snapshot(), sort_keys=True, indent=2) + "\n",
                 encoding="utf-8",
             )
         except OSError as exc:
