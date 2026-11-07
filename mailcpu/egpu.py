@@ -12,7 +12,7 @@ from typing import Any, Mapping, Sequence
 from .classifier import HypervisorArbitrationEvent, HypervisorRequest
 from .transit_simt import TransitSIMTError, TransitSIMTHost
 
-_OPERATION = "execute navigable E-GPU method"
+_OPERATION = "execute deterministic CPU E-GPU method"
 _RESOURCE = "/gpu/egpu"
 _EXECUTE = frozenset({"execute"})
 _METHODS = {
@@ -183,6 +183,7 @@ class EGPUHost:
             "host_id": self.host_id,
             "method": method,
             "capability": capability,
+            "capabilities": list(capabilities),
             "route": list(route),
             "result_digest": result_digest,
         }
