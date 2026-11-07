@@ -28,6 +28,7 @@ class TransitBackendRouter(TransitComputeHost):
             max_registers=selected.max_registers,
         )
         self._handlers: dict[tuple[str, str], Callable[[HypervisorArbitrationEvent], Any]] = {}
+        self._implementation_fingerprints: dict[tuple[str, str], str | None] = {}
         self.register_backend(selected)
 
     def register(
@@ -35,6 +36,8 @@ class TransitBackendRouter(TransitComputeHost):
         operation: str,
         resource: str,
         handler: Callable[[HypervisorArbitrationEvent], Any],
+        *,
+        implementation_fingerprint: str | None = None,
     ) -> None:
         """Mathematics: extend partial function R only when key k=(operation,resource) is nonempty, callable, and not already defined."""
 
@@ -44,10 +47,19 @@ class TransitBackendRouter(TransitComputeHost):
             raise TransitBackendRouterError("backend resource name must be non-empty")
         if not callable(handler):
             raise TransitBackendRouterError("backend handler must be callable")
+        if implementation_fingerprint is not None and (
+            not isinstance(implementation_fingerprint, str)
+            or len(implementation_fingerprint) != 64
+            or any(character not in "0123456789abcdef" for character in implementation_fingerprint)
+        ):
+            raise TransitBackendRouterError(
+                "backend implementation fingerprint must be a lowercase SHA-256 digest"
+            )
         key = (operation, resource)
         if key in self._handlers:
             raise TransitBackendRouterError(f"backend already registered for {key!r}")
         self._handlers[key] = handler
+        self._implementation_fingerprints[key] = implementation_fingerprint
 
     def register_backend(self, backend: Any) -> None:
         """Mathematics: project backend b to key (b.operation_name,b.resource_name) and handler b.handle."""
@@ -55,7 +67,15 @@ class TransitBackendRouter(TransitComputeHost):
         operation = getattr(backend, "operation_name", None)
         resource = getattr(backend, "resource_name", None)
         handler = getattr(backend, "handle", None)
-        self.register(operation, resource, handler)
+        implementation_fingerprint = getattr(backend, "implementation_fingerprint", None)
+        if callable(implementation_fingerprint):
+            implementation_fingerprint = implementation_fingerprint()
+        self.register(
+            operation,
+            resource,
+            handler,
+            implementation_fingerprint=implementation_fingerprint,
+        )
 
     def handle(self, event: HypervisorArbitrationEvent) -> Any:
         """Mathematics: evaluate H(event)=R[(event.request.operation,event.request.resource)](event), refusing unknown query algebras."""
@@ -72,3 +92,13 @@ class TransitBackendRouter(TransitComputeHost):
         """Mathematics: expose the finite domain dom(R) in deterministic key order without exposing handler internals."""
 
         return tuple(sorted(self._handlers))
+
+    def registered_backend_implementations(
+        self,
+    ) -> tuple[tuple[str, str, str | None], ...]:
+        """Expose each dispatch key with its optional concrete source fingerprint."""
+
+        return tuple(
+            (operation, resource, self._implementation_fingerprints[(operation, resource)])
+            for operation, resource in sorted(self._handlers)
+        )

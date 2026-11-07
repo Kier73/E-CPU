@@ -61,7 +61,17 @@ def _write_json_durable(path: Path, value: dict[str, Any]) -> None:
         stream.write("\n")
         stream.flush()
         os.fsync(stream.fileno())
-    os.replace(temporary, path)
+    # The supervising peer may hold the progress marker open while polling
+    # the next stage. Retry transient Windows sharing violations so the
+    # durable state machine can advance without losing the previous marker.
+    for attempt in range(50):
+        try:
+            os.replace(temporary, path)
+            break
+        except PermissionError:
+            if attempt == 49:
+                raise
+            time.sleep(0.01)
 
 
 def _write_client_checkpoint(path: Path, state: dict[str, Any]) -> str:

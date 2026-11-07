@@ -8,6 +8,7 @@ from mailcpu import (
     Capability,
     HeadlessOS,
     HypervisorAction,
+    HypervisorError,
     HypervisorPolicy,
     LexicalDecisionModel,
     OperatorRegistry,
@@ -16,6 +17,7 @@ from mailcpu import (
     SystemSeedEnvelope,
     VirtualBudget,
     VirtualGroundRef,
+    VirtualLayerError,
     VirtualLayerRuntime,
     VirtualLayerWorkload,
     VirtualOperatorRef,
@@ -25,10 +27,19 @@ from mailcpu.vgi_host import (
     VGI_SIGNAL8_OPERATOR_ID,
     make_vgi_signal8_operator,
     register_vgi_signal8_operator,
+    vgi_signal8_implementation_fingerprint,
 )
+from mailcpu.transit_vgi import TransitVGIHost
 
 vgi = pytest.importorskip("vgi")
-from vgi import SIGNAL8_GROUND, Signal8Backend, SignalStateMachine, TaskSpec, VirtualGroundInterpreter
+from vgi import (
+    SIGNAL8_GROUND,
+    RuntimeErrorVGI,
+    Signal8Backend,
+    SignalStateMachine,
+    TaskSpec,
+    VirtualGroundInterpreter,
+)
 
 
 def _task() -> dict[str, object]:
@@ -147,6 +158,10 @@ def test_vgi_host_execution_preserves_both_ground_identities(monkeypatch) -> Non
     assert receipt["computation_ground"]["ground_id"] == SIGNAL8_GROUND.ground_id
     assert receipt["computation_ground"]["fingerprint"] == SIGNAL8_GROUND.fingerprint
     assert receipt["program"]["fingerprint"]
+    assert receipt["implementation"]["source_fingerprint"] == (
+        vgi_signal8_implementation_fingerprint()
+    )
+    assert len(receipt["implementation"]["source_fingerprint"]) == 64
     assert receipt["execution"]["halted"] is True
     assert receipt["execution"]["step_count"] == len(receipt["execution"]["trace"])
     assert any(
@@ -205,6 +220,77 @@ def test_vgi_host_rejects_memory_that_does_not_match_declared_task_inputs() -> N
         handler(bad_request, workload)
 
 
+
+def test_vgi_host_rejects_changed_input_under_the_same_execution_identity() -> None:
+    """A committed event identity cannot be rebound to a different input or workload digest."""
+    operating_system, workload, _, runtime, pid, calls, _ = _case()
+    first = runtime.execute_operator(
+        operating_system,
+        pid,
+        "origin",
+        "vgi",
+        1,
+        workload.logical_time,
+        workload,
+        VGI_SIGNAL8_OPERATOR_ID,
+    )
+    assert first.executed is True
+
+    changed_request = dict(workload.input_value)
+    changed_memory = dict(changed_request["initial_memory"])
+    changed_memory["input.a"] = Signal8Backend().encode_symbol(
+        4, observer=1
+    ).to_dict()
+    changed_request["initial_memory"] = changed_memory
+    changed_workload = replace(workload, input_value=changed_request)
+
+    with pytest.raises(HypervisorError, match="conflicting execution retransmission"):
+        runtime.execute_operator(
+            operating_system,
+            pid,
+            "origin",
+            "vgi",
+            1,
+            changed_workload.logical_time,
+            changed_workload,
+            VGI_SIGNAL8_OPERATOR_ID,
+        )
+
+    records = operating_system.environment.kernel.journal.snapshot()
+    assert calls == [workload.workload_id]
+    assert sum(item["kind"] == "hypervisor.execution.commit" for item in records) == 1
+    assert sum(item["kind"] == "hypervisor.execution.conflict" for item in records) == 1
+    assert operating_system.environment.kernel.journal.verify()
+
+
+def test_vgi_host_rejects_mismatched_system_ground_before_execution() -> None:
+    """A valid program and computational Ground cannot run from a stale E-CPU system Ground."""
+    operating_system, workload, _, runtime, pid, calls, _ = _case()
+    stale_ground = VirtualGroundRef(
+        workload.ground.origin_digest,
+        "f" * 64,
+        workload.ground.coordinate,
+        workload.ground.frontier_digest,
+    )
+    stale_workload = replace(workload, ground=stale_ground)
+
+    with pytest.raises(VirtualLayerError, match="Virtual Ground or causal frontier is stale"):
+        runtime.execute_operator(
+            operating_system,
+            pid,
+            "origin",
+            "vgi",
+            1,
+            stale_workload.logical_time,
+            stale_workload,
+            VGI_SIGNAL8_OPERATOR_ID,
+        )
+
+    records = operating_system.environment.kernel.journal.snapshot()
+    assert calls == []
+    assert not any(item["kind"] == "hypervisor.execution.commit" for item in records)
+    assert operating_system.environment.kernel.journal.verify()
+
 def test_vgi_host_checkpoint_restores_under_the_same_program_and_ground() -> None:
     """The returned VGI machine checkpoint must restore only under the identical program and Ground."""
     operating_system, workload, _, runtime, pid, _, _ = _case()
@@ -220,3 +306,35 @@ def test_vgi_host_checkpoint_restores_under_the_same_program_and_ground() -> Non
     assert restored.halted is True
     assert restored.pc == receipt["checkpoint"]["pc"]
     assert restored.snapshot()["state_digest"] == receipt["checkpoint"]["state_digest"]
+
+    corrupted = dict(receipt["checkpoint"])
+    corrupted["state_digest"] = "0" * 64
+    with pytest.raises(RuntimeErrorVGI, match="snapshot state digest mismatch"):
+        SignalStateMachine.restore(interpreter, program, corrupted)
+
+    changed_task = dict(workload.input_value["task"])
+    changed_task["outputs"] = [{
+        "label": "selected",
+        "expression": {"type": "input", "address": "input.a"},
+    }]
+    changed_program = interpreter.compile_task(TaskSpec.from_dict(changed_task))
+    with pytest.raises(RuntimeErrorVGI, match="different program"):
+        SignalStateMachine.restore(interpreter, changed_program, receipt["checkpoint"])
+
+
+def test_vgi_implementation_identity_binds_host_class_and_execution_profile() -> None:
+    """The Transit implementation identity changes with the concrete host or its configured step ceiling."""
+
+    base = vgi_signal8_implementation_fingerprint(
+        TransitVGIHost,
+        max_configured_steps=128,
+    )
+    wider_profile = vgi_signal8_implementation_fingerprint(
+        TransitVGIHost,
+        max_configured_steps=256,
+    )
+    adapter_only = vgi_signal8_implementation_fingerprint()
+
+    assert len(base) == 64
+    assert base != wider_profile
+    assert base != adapter_only

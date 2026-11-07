@@ -53,7 +53,17 @@ def write_json_durable(path: Path, value: dict[str, Any]) -> None:
         stream.write("\n")
         stream.flush()
         os.fsync(stream.fileno())
-    os.replace(temporary, path)
+    # Windows readers may briefly hold the destination open while the
+    # supervising test polls the progress marker. Retry that transient sharing
+    # violation instead of leaving the previous stage visible.
+    for attempt in range(50):
+        try:
+            os.replace(temporary, path)
+            break
+        except PermissionError:
+            if attempt == 49:
+                raise
+            time.sleep(0.01)
 
 
 def make_session(

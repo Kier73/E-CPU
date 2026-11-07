@@ -172,6 +172,17 @@ def make_restored_router(operating_system, authority_pid, hosts):
     return router
 
 
+def serve_next(session: TransitComputeSession, timeout: float = 30.0):
+    """Wait for the requester to retransmit its pending operation onto the rebound socket."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        result = session.serve_once()
+        if result is not None:
+            return result
+        time.sleep(0.005)
+    raise TimeoutError("restored VGI receiver did not receive the requester retry")
+
+
 def prepare(
     checkpoint_path: Path,
     requester_path: Path,
@@ -288,18 +299,22 @@ def restore(root: Path, result_path: Path) -> None:
     )
     if len(hosts) != 1 or hosts[0].calls != 0:
         raise AssertionError("fresh backend must start without an interpreter invocation")
-    if session.phase != "request-ready":
-        raise AssertionError(f"restored request was not pending: {session.phase}")
+    restored_phase = session.phase
+    if restored_phase not in {"idle", "request-ready"}:
+        raise AssertionError(f"restored session entered an invalid phase: {restored_phase}")
     write_json_durable(result_path, {
         "stage": "restored",
         "pid": os.getpid(),
         "bundle_generation": bundle.generation,
         "bundle_manifest_digest": bundle.manifest.digest,
-        "session_phase": session.phase,
+        "session_phase": restored_phase,
     })
 
-    replay = session.serve_once()
-    if replay is None or not replay.replayed or not replay.executed:
+    # The requester retransmits after the restored process publishes its
+    # listeners. The restored channel may start idle until that frame arrives;
+    # wait for the explicit retry instead of depending on process scheduling.
+    replay = serve_next(session)
+    if not replay.replayed or not replay.executed:
         raise AssertionError("restored operation did not replay its committed effect")
     if hosts[0].calls != 0:
         raise AssertionError("replayed operation re-entered the VGI interpreter")

@@ -635,6 +635,19 @@ from .evidence_path_resolver import (
     RouteMetricKey,
 )
 
+from .computational_resolver import (
+    ComputationalAddress,
+    ComputationalAddressResolver,
+    ComputationalBlockerCode,
+    ComputationalHostCatalogue,
+    ComputationalHostLocus,
+    ComputationalResolutionBlocker,
+    ComputationalResolutionError,
+    ComputationalResolutionResult,
+    ComputationalResolutionStatus,
+    ComputationalRouteWitness,
+)
+
 from .navigation_admission import (
     HypervisorNavigationAdmissionCoordinator,
     NavigationAdmissionError,
@@ -1265,6 +1278,16 @@ __all__ = [
     "ComputationNode",
     "CommittedComputationResult",
     "NavigableComputationDAG",
+    "ComputationalAddress",
+    "ComputationalAddressResolver",
+    "ComputationalBlockerCode",
+    "ComputationalHostCatalogue",
+    "ComputationalHostLocus",
+    "ComputationalResolutionBlocker",
+    "ComputationalResolutionError",
+    "ComputationalResolutionResult",
+    "ComputationalResolutionStatus",
+    "ComputationalRouteWitness",
     "EvidencePathBlocker",
     "EvidencePathBlockerCode",
     "EvidencePathCatalogue",

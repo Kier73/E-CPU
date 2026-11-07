@@ -19,6 +19,7 @@ The experiment does not equate a program, its computational Ground, the host tha
 | Program | VGI compiled program fingerprint | The compiled transition relation for the supplied typed task |
 | Input and context | Canonical workload/input digests plus workload constraints | The particular task instance, input signal values, budget, intention, logical time, and placement constraints |
 | Operator | `operator_id`, version, and `OperatorSpec.digest` | The declared operation contract selected by the receiver |
+| Implementation | Source fingerprint of the E-CPU/VGI Python packages, concrete host class, and configured step ceiling | The concrete software implementation/profile rebound for this operation |
 | Host | Transit node identifier plus receiver-local process authority | The operational locus and authority under which the operation is admitted |
 | Execution | `(source, channel, sequence)`, event fingerprint, decision receipt, and effect receipt | One logical operation attempt and its committed result |
 
@@ -33,10 +34,10 @@ The integration adds `TransitVGIHost` as a receiver-local backend registered thr
 1. The sender constructs a typed `VirtualLayerWorkload` and `build_vgi_signal8_event` creates its normal hypervisor event. The event carries a workload and operator reference, not executable Python or remote authority.
 2. The receiver reconstructs granted capabilities from its own process table. The event's workload digest, operator contract digest, input digest, budget, placement, and System Ground are checked by the existing `VirtualLayerRuntime` preparation path.
 3. The Transit router resolves the exact operation/resource pair to `TransitVGIHost`. The host reuses the Virtual Layer operator contract and invokes the Signal8 interpreter only after the hypervisor selects the CPU execution domain.
-4. The VGI receipt is wrapped in the normal `virtual_layer.operator_result` effect. It preserves both Grounds, the VGI interpreter version, program fingerprint, trace, outputs, and Signal8 machine checkpoint.
+4. The VGI receipt is wrapped in the normal `virtual_layer.operator_result` effect. It preserves both Grounds, the VGI interpreter version, source-package fingerprint, program fingerprint, trace, outputs, and Signal8 machine checkpoint. The outer Transit effect adds the concrete backend implementation fingerprint.
 5. Transit adds its canonical semantic-translation evidence. The hypervisor execution ledger stores the resulting effect under the stable execution identity, and the shared event journal records `hypervisor.execution.commit`.
 
-The Transit backend manifest records the operation/resource relation, not Python callables. A receiving process must explicitly rebind the same trusted backend relation during restore. The checkpoint does not transfer executable handler objects.
+The Transit backend dispatch manifest records the operation/resource relation, while the separate implementation manifest records an optional source fingerprint for each registered route. A receiving process must explicitly rebind the same backend relation and matching implementation identities during restore. The checkpoint does not transfer executable handler objects.
 
 ## Recovery cut and observed law
 
@@ -47,17 +48,17 @@ The subprocess experiment deliberately stops at:
 At that cut, the receiver:
 
 - writes its Transit session checkpoint;
-- seals the requester checkpoint, receiver checkpoint, backend manifest, and checkpoint manifest through `RecoveryCheckpointBundleStore`;
+- seals the requester checkpoint, receiver checkpoint, backend dispatch/implementation manifests, and checkpoint manifest through `RecoveryCheckpointBundleStore`;
 - obtains the fixed-membership recovery-lineage proof; and
 - publishes a marker so the test process can terminate the receiver without graceful shutdown.
 
-A new Python interpreter then loads the bundle through the quorum-gated restore path, reconstructs the receiver, rebinds the same backend relation, and receives the same requester frame again.
+A new Python interpreter then loads the bundle through the quorum-gated restore path, reconstructs the receiver, and rebinds the same backend relation. The receiver's TCP transport is a newly attached connection: the old socket's unread bytes are not treated as durable checkpoint state. The requester retains its reliable sender frame and retransmits that exact frame after reconnecting. Until that retry reaches the new socket, the restored receiver may correctly report an idle request channel; it then applies the persisted receive cursor and execution ledger to the incoming retry.
 
 The expected recovery relation is:
 
 `Restore(Persist(receiver))` contains the same committed effect `E[I]` for the same event identity `I` and fingerprint `F`.
 
-The replay must return the stored effect, leave the VGI backend invocation count at zero after restart, preserve one execution-ledger entry and one `hypervisor.execution.commit` record, and append a replay observation. The VGI execution digest, System Ground, Computational Ground, program fingerprint, execution trace/output, and VGI checkpoint are compared with the pre-crash committed receipt.
+The replay must return the stored effect, leave the VGI backend invocation count at zero after restart, preserve one execution-ledger entry and one `hypervisor.execution.commit` record, and append a replay observation. The VGI execution digest, System Ground, Computational Ground, program fingerprint, source-package fingerprint, outer backend implementation fingerprint, execution trace/output, and VGI checkpoint are compared with the pre-crash committed receipt. Restore independently compares the saved route implementation manifest with the replacement host before reopening the session.
 
 ## Guarantee and boundary
 
@@ -70,11 +71,22 @@ The current proof also has explicit limits:
 - It exercises one typed Signal8 program and its exact operator contract; it does not yet prove general Ground-to-Operator refinement across arbitrary CPU, GPU, FPGA, or distributed backends.
 - The three recovery authorities in this test are independent durable journals within the test environment. The test exercises the existing strict-majority lineage protocol and bundle verification; it is not a deployment or network-partition certification.
 - The requester remains alive and retains its own channel state while only the receiver is killed. Joint requester/receiver death and independent restoration of both endpoints remain separate recovery obligations.
-- The receipt includes the VGI interpreter version and the pinned dependency used by the integration, but a standalone cryptographic implementation fingerprint for the complete loaded interpreter/adapter code is still a future identity refinement.
+- The implementation fingerprint is a reproducible source/profile identity: it hashes the installed E-CPU and VGI Python source packages plus the concrete host class source, and includes the configured VGI step ceiling. It is not a signed attestation of the Python runtime, native libraries, operating system, hardware, firmware, or remote machine identity.
 
 ## Next proof obligations
 
 1. Extend the process-death test to failures before execution commit and at the persistence/lineage boundary, preserving the distinction between retryable execution and committed-effect replay.
 2. Add negative recovery cases for altered input under the same operation identity, mismatched System Ground, changed VGI Ground/program, corrupted VGI checkpoint, and changed backend manifest.
 3. Formalize Ground-to-Operator refinement so multiple concrete backend steps may implement one abstract VGI transition while preserving declared observations and numerical tolerances.
-4. Bind a stable implementation fingerprint to the operator identity and compare it during backend reattachment.
+4. Extend implementation identity into a deployment trust/attestation model where required; source hashing alone does not establish host authenticity or runtime integrity.
+
+## Negative continuity tests
+
+The VGI-specific rejection suite checks the other direction of the continuity relation: state is preserved only when every identity factor still matches.
+
+- **Operation identity conflict:** after a VGI effect commits, a different input/workload presented under the same `(source, channel, sequence)` is refused as a conflicting execution retransmission. The interpreter call count remains one; the journal retains one commit and one conflict record.
+- **System Ground mismatch:** a workload carrying a stale admitted-system state or causal frontier is rejected before the VGI operator runs, even when its Signal8 computational Ground and program are otherwise valid.
+- **Checkpoint integrity:** a VGI machine snapshot with an altered state digest is refused.
+- **Program identity:** a valid VGI machine snapshot is refused when restored under a different compiled program fingerprint.
+
+The generic Transit suite covers changed backend dispatch domains and implementation fingerprints on restore, implementation-manifest inclusion in the quorum-sealed bundle root, modified recovery-bundle artifacts, stale generations after a newer quorum commit, and a locally durable but unanchored bundle. These checks complement the VGI-specific tests above.

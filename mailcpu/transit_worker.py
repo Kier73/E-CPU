@@ -169,6 +169,59 @@ class TransitComputeWorker:
             raise ValueError("transit compute host backend manifest must be sorted, unique, and non-empty")
         return manifest
 
+    @classmethod
+    def _backend_implementation_manifest(
+        cls,
+        host: TransitComputeHost,
+    ) -> tuple[tuple[str, str, str | None], ...]:
+        """Bind dispatch keys to declared source fingerprints when a backend provides one."""
+
+        registered = getattr(host, "registered_backend_implementations", None)
+        if callable(registered):
+            raw = registered()
+        else:
+            fingerprint = getattr(host, "implementation_fingerprint", None)
+            if callable(fingerprint):
+                fingerprint = fingerprint()
+            raw = tuple(
+                (operation, resource, fingerprint)
+                for operation, resource in cls._backend_manifest(host)
+            )
+        try:
+            raw_items = tuple(raw)
+            if any(not isinstance(item, (list, tuple)) or len(item) != 3 for item in raw_items):
+                raise ValueError("backend implementation entries must be exact triples")
+            manifest = tuple((item[0], item[1], item[2]) for item in raw_items)
+        except (TypeError, IndexError) as exc:
+            raise ValueError("transit compute backend implementation manifest is invalid") from exc
+        if (
+            not manifest
+            or any(
+                not isinstance(operation, str)
+                or not operation
+                or not isinstance(resource, str)
+                or not resource
+                or (
+                    fingerprint is not None
+                    and (
+                        not isinstance(fingerprint, str)
+                        or len(fingerprint) != 64
+                        or any(character not in "0123456789abcdef" for character in fingerprint)
+                    )
+                )
+                for operation, resource, fingerprint in manifest
+            )
+            or tuple(sorted(set((operation, resource) for operation, resource, _ in manifest)))
+            != tuple((operation, resource) for operation, resource, _ in manifest)
+            or tuple((operation, resource) for operation, resource, _ in manifest)
+            != cls._backend_manifest(host)
+        ):
+            raise ValueError(
+                "transit compute backend implementation manifest must match the sorted backend domain "
+                "and use optional lowercase SHA-256 fingerprints"
+            )
+        return manifest
+
     def snapshot(
         self,
         request: HypervisorOperationChannel,
@@ -190,7 +243,7 @@ class TransitComputeWorker:
             if response.channel.pending_sequences() or response.channel.transport.pending() != 0:
                 raise ValueError("cannot checkpoint transit worker with unacknowledged response data")
         state = {
-            "version": 2,
+            "version": 3,
             "authority_pid": self.authority_pid,
             "compute_bounds": {
                 "max_source_bytes": self.compute_host.max_source_bytes,
@@ -199,6 +252,9 @@ class TransitComputeWorker:
                 "max_registers": self.compute_host.max_registers,
             },
             "backend_manifest": [list(item) for item in self._backend_manifest(self.compute_host)],
+            "backend_implementation_manifest": [
+                list(item) for item in self._backend_implementation_manifest(self.compute_host)
+            ],
             "receiver": self.operating_system.snapshot(),
             "request_channel": request.channel.snapshot(),
             "response_channel": response.snapshot(),
@@ -211,7 +267,7 @@ class TransitComputeWorker:
             allow_nan=False,
         ).encode("utf-8")
         return {
-            "format": "mailcpu-transit-worker-checkpoint-v2",
+            "format": "mailcpu-transit-worker-checkpoint-v3",
             "digest": hashlib.sha256(canonical).hexdigest(),
             "state": state,
         }
@@ -252,6 +308,18 @@ class TransitComputeWorker:
                 "authority_pid",
                 "compute_bounds",
                 "backend_manifest",
+                "receiver",
+                "request_channel",
+                "response_channel",
+            }
+        elif checkpoint_format == "mailcpu-transit-worker-checkpoint-v3":
+            expected_version = 3
+            expected_state_fields = {
+                "version",
+                "authority_pid",
+                "compute_bounds",
+                "backend_manifest",
+                "backend_implementation_manifest",
                 "receiver",
                 "request_channel",
                 "response_channel",
@@ -331,7 +399,7 @@ class TransitComputeWorker:
             if actual_bounds != dict(raw_bounds):
                 raise ValueError("restored backend compute bounds do not match checkpoint")
 
-        if expected_version == 2:
+        if expected_version in {2, 3}:
             raw_manifest = state.get("backend_manifest")
             if not isinstance(raw_manifest, list) or not raw_manifest:
                 raise ValueError("transit worker backend manifest must be a non-empty list")
@@ -355,6 +423,52 @@ class TransitComputeWorker:
         if actual_manifest != expected_manifest:
             raise ValueError(
                 "restored backend manifest does not match checkpoint; reattach the same operation/resource handlers"
+            )
+
+        if expected_version == 3:
+            raw_implementations = state.get("backend_implementation_manifest")
+            if not isinstance(raw_implementations, list) or not raw_implementations:
+                raise ValueError("transit worker backend implementation manifest must be a non-empty list")
+            implementation_items: list[tuple[str, str, str | None]] = []
+            for item in raw_implementations:
+                if (
+                    not isinstance(item, list)
+                    or len(item) != 3
+                    or not isinstance(item[0], str)
+                    or not item[0]
+                    or not isinstance(item[1], str)
+                    or not item[1]
+                    or (
+                        item[2] is not None
+                        and (
+                            not isinstance(item[2], str)
+                            or len(item[2]) != 64
+                            or any(character not in "0123456789abcdef" for character in item[2])
+                        )
+                    )
+                ):
+                    raise ValueError("transit worker backend implementation entries are invalid")
+                implementation_items.append((item[0], item[1], item[2]))
+            expected_implementations = tuple(implementation_items)
+            if (
+                tuple(sorted(set((operation, resource) for operation, resource, _ in expected_implementations)))
+                != tuple((operation, resource) for operation, resource, _ in expected_implementations)
+                or tuple((operation, resource) for operation, resource, _ in expected_implementations)
+                != expected_manifest
+            ):
+                raise ValueError("transit worker backend implementation manifest domain is invalid")
+        else:
+            # Legacy checkpoints did not attest implementation source. They
+            # remain usable only with backends that do not now claim a fingerprint.
+            expected_implementations = tuple(
+                (operation, resource, None) for operation, resource in expected_manifest
+            )
+
+        actual_implementations = cls._backend_implementation_manifest(host)
+        if actual_implementations != expected_implementations:
+            raise ValueError(
+                "restored backend implementation manifest does not match checkpoint; "
+                "reattach the same implementation source fingerprint"
             )
 
         worker = cls(operating_system, authority_pid, host)

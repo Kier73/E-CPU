@@ -57,15 +57,18 @@ The returned VGI receipt includes:
 - VGI version, task/program fingerprint, and instruction count;
 - halted status, final program counter, signal-valued outputs, and instruction trace;
 - a VGI machine snapshot with its own state digest;
-- a canonical execution digest binding the receipt.
+- a canonical execution digest binding the receipt;
+- a source fingerprint for the installed E-CPU/VGI Python source packages.
 
-The outer Virtual Layer result adds the operator-contract digest, node, substrate, workload identity, system Ground, resource accounting, and canonical result digest.
+The outer Virtual Layer result adds the operator-contract digest, node, substrate, workload identity, system Ground, resource accounting, and canonical result digest. Transit adds a concrete backend implementation fingerprint, including the host class source and configured VGI step ceiling.
 
 ## Persistence and replay
 
 The VGI checkpoint is included in the pure operator result. The E-CPU hypervisor effect ledger records the committed result under the semantic operation identity. On an exact retry, E-CPU returns the recorded effect without re-entering the node-local VGI handler. The checkpoint can be restored by VGI only with the matching Program and computational Ground fingerprints.
 
-This first slice proves local hosted execution and exact semantic replay through the E-CPU effect ledger. It does not yet claim hard-process restart of a VGI host, cross-process restoration of a VGI machine from an independent checkpoint bundle, or durable storage of VGI's checkpoint outside the existing effect/checkpoint boundaries. Those are explicit next gates.
+The Transit worker's v3 checkpoint additionally binds each registered operation/resource pair to an optional implementation fingerprint. Restore refuses a replacement VGI backend whose concrete source/profile fingerprint differs, even if its operation/resource key remains unchanged. The recovery bundle seals this implementation manifest along with the receiver checkpoint under the existing quorum lineage root. The real subprocess experiment kills the receiver after commit, restores it in a fresh interpreter, and verifies that the exact committed effect replays with zero VGI re-entry.
+
+The tested continuity property begins at the durable semantic commit. It is not a claim of exactly-once physical execution before commit, nor is the source fingerprint a hardware, operating-system, or remote-host attestation.
 
 ## Installation
 
@@ -85,7 +88,8 @@ The current interpreter is bounded to its declared finite Signal8 Ground and typ
 
 ## Next gates
 
-1. Exercise VGI checkpoint restoration after actual E-CPU requester/receiver process termination.
-2. Define canonical floating-point/phasor reproducibility requirements across platforms before claiming cross-platform byte-identical result receipts.
-3. Introduce VGI's typed backend protocol and instruction read/write contracts before exposing alternative Ground implementations.
-4. Prototype a signal-native E-GPU method only after the hosted scalar VGI path is stable.
+1. Define canonical floating-point/phasor reproducibility requirements across platforms before claiming cross-platform byte-identical result receipts.
+2. Introduce VGI's typed backend protocol and instruction read/write contracts before exposing alternative Ground implementations.
+3. Formalize Ground-to-Operator refinement for alternative CPU/GPU/FPGA implementations.
+4. Extend source identity into a deployment trust/attestation model where required; source hashes alone do not prove host authenticity or runtime integrity.
+5. Prototype a signal-native E-GPU method only after the hosted scalar VGI path is stable.
