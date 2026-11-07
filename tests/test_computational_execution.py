@@ -274,7 +274,7 @@ def test_execution_refuses_equivalent_but_unbound_runtime_instance() -> None:
     (
         _operating_system,
         calls,
-        _runtime,
+        original_runtime,
         catalogue,
         address,
         witness,
@@ -302,7 +302,7 @@ def test_execution_refuses_runtime_that_does_not_match_selected_locus() -> None:
     (
         _operating_system,
         calls,
-        _runtime,
+        original_runtime,
         catalogue,
         address,
         witness,
