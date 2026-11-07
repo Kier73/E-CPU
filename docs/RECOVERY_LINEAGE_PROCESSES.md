@@ -21,6 +21,10 @@ Each remote process opens exactly one `DurableSeedCommitLedger` through
 `RecoveryLineageProcessParticipant`. Its journal path is local to that
 process's storage domain. A process restart reopens that same journal and
 reconstructs the participant ledger from its hash-chained durable records.
+`RecoveryLineageAuthorityService` now provides the long-lived server loop:
+it accepts one mutually authenticated owner stream, serves the participant,
+and returns to the listener after disconnect so a fresh owner stream can
+rebind to the same member journal.
 
 The owner uses `RecoveryLineagePeerClient` to bind each remote member to a
 `SocketTransport` plus two `ReliableChannel` instances. The requests and
@@ -115,10 +119,14 @@ coordinator = DistributedRecoveryLineageCoordinator(
 proof = coordinator.seal(manifest)
 ```
 
-Each remote process constructs `RecoveryLineageProcessParticipant` using its
-own journal path and accepted `SocketTransport`, then repeatedly calls
-`service_once()`. An external supervisor owns listener creation, process
-launch, restart policy, journal placement, and endpoint provisioning.
+Each remote process can either construct `RecoveryLineageProcessParticipant`
+directly over an accepted stream, or run `RecoveryLineageAuthorityService` with
+a server SSL context, expected owner DNS SAN, and persistent journal path.
+The `mailcpu-recovery-authority` command exposes this service for deployment.
+An external supervisor owns process launch/restart, machine placement, journal
+provisioning, certificate distribution/rotation, and endpoint configuration.
+The service itself handles connection loss and accepts a new TLS stream without
+replacing the member's journal.
 
 ## Failure semantics and proof boundary
 
@@ -134,9 +142,12 @@ previous result object as proof that the remote processes still hold the
 committed state.
 
 This implementation runs the owner authority/coordinator in one process and
-each non-owner member in a separate process. It establishes process-level
-separation and fresh-stream recovery, not physical-host isolation. Production
-deployment still requires separate machines or fault domains, authenticated
-transport (for example, the existing mutual-TLS SocketTransport adapter),
-protected storage, explicit member supervision, and a membership/owner-term
-lifecycle. It is not Byzantine consensus or a power-loss qualification.
+each non-owner member in a separate service process. Mutual TLS now verifies
+certificate chains and the configured DNS SAN for each side; the service can
+accept fresh authenticated streams while retaining its journal. The tests
+establish process-level separation and stream recovery, not physical-host
+isolation. Production deployment still requires separate machines or fault
+domains, protected durable storage, an external process supervisor, certificate
+lifecycle controls, and an explicit membership/owner-term lifecycle. It is not
+Byzantine consensus, automatic owner election, or a power-loss qualification.
+See `RECOVERY_LINEAGE_SERVICE.md` for the TLS service and deployment contract.
