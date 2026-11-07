@@ -16,7 +16,6 @@ from .transit_router import TransitBackendRouter
 from .vgi_host import VGI_SIGNAL8_OPERATOR_ID, make_vgi_signal8_operator
 from .virtual_layer import (
     OperatorRegistry,
-    VirtualGroundRef,
     VirtualLayerRuntime,
     VirtualLayerWorkload,
     VIRTUAL_LAYER_OPERATOR_OPERATION,
