@@ -254,6 +254,7 @@ def test_egpu_shared_workgroup_survives_transit_checkpoint_and_semantic_replay(t
         ReliabilityPolicy,
         ReliableChannel,
         TransitComputeSession,
+        TransitComputeWorker,
     )
 
     backend_calls: list[tuple[str, str, int]] = []
@@ -310,7 +311,7 @@ def test_egpu_shared_workgroup_survives_transit_checkpoint_and_semantic_replay(t
     )
     router = build_router(receiver, authority_pid)
     session = TransitComputeSession(
-        __import__("mailcpu").TransitComputeWorker(receiver, authority_pid, router),
+        TransitComputeWorker(receiver, authority_pid, router),
         request_receiver,
         response_sender,
     )
