@@ -235,6 +235,41 @@ def test_execution_refuses_stale_witness_after_catalogue_change() -> None:
     assert calls == []
 
 
+def test_execution_requires_explicit_implementation_fingerprint() -> None:
+    (
+        _operating_system,
+        calls,
+        runtime,
+        catalogue,
+        address,
+        _witness,
+        coordinator,
+    ) = _fixture()
+    from mailcpu import ComputationalHostCatalogue
+
+    unpinned_locus = replace(catalogue.loci[0], implementation_fingerprint=None)
+    unpinned_catalogue = ComputationalHostCatalogue((unpinned_locus,))
+    resolution = ComputationalAddressResolver().resolve(address, unpinned_catalogue, coordinator.operating_system)
+    assert resolution.status is ComputationalResolutionStatus.FOUND
+    assert resolution.witness is not None
+    assert resolution.witness.implementation_fingerprint is None
+
+    result = coordinator.execute(
+        address,
+        resolution.witness,
+        unpinned_catalogue,
+        runtime,
+        source="semantic-client",
+        channel="computational.execution",
+        sequence=10,
+    )
+
+    assert result.status is ComputationalExecutionStatus.HOST_MISMATCH
+    assert not result.accepted
+    assert result.execution is None
+    assert calls == []
+
+
 def test_execution_refuses_equivalent_but_unbound_runtime_instance() -> None:
     (
         _operating_system,
