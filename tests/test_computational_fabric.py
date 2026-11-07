@@ -415,7 +415,7 @@ def test_directory_trust_map_is_detached_from_caller_mutation() -> None:
 
 
 def test_fabric_resolver_uses_one_lease_validated_directory_view() -> None:
-    ticks = iter((100.0, 105.0, 200.0, 201.0, 202.0))
+    ticks = iter((90.0, 100.0, 105.0, 200.0, 201.0, 202.0))
     calls: list[float] = []
 
     def monotonic() -> float:
@@ -446,9 +446,10 @@ def test_fabric_resolver_uses_one_lease_validated_directory_view() -> None:
     assert result.status is ComputationalFabricStatus.FOUND
     assert result.witness is not None
     assert result.witness.peer_path == ("peer-a", "peer-b")
-    # One call establishes the peer lease deadline; one call captures
-    # the active view used for both directory and topology digests.
-    assert calls == [100.0, 105.0]
+    # Capacity observes the local registration and peer merge once each.
+    # The resolver then captures one active view for both directory and
+    # topology digests, so a lease cannot expire between those identities.
+    assert calls == [90.0, 100.0, 105.0]
 
 
 def test_directory_leases_expire_on_receiver_monotonic_time() -> None:
@@ -510,6 +511,122 @@ def test_purging_expired_peer_keeps_revision_rollback_high_water() -> None:
             authenticated_peer_id="peer-b",
             authenticated_server_name="peer-b.fabric.test",
         )
+
+
+def test_directory_checkpoint_preserves_anti_rollback_and_requires_fresh_peer_observation() -> None:
+    clock = [100.0]
+    first = _snapshot("peer-b", revision=7, lease=5)
+    directory = ComputationalFabricDirectory(
+        "peer-a",
+        {"peer-b": "peer-b.fabric.test"},
+        monotonic=lambda: clock[0],
+    )
+    assert directory._merge_verified_peer_snapshot(
+        first,
+        authenticated_peer_id="peer-b",
+        authenticated_server_name="peer-b.fabric.test",
+    )
+
+    checkpoint = directory.checkpoint()
+    assert checkpoint["schema"] == "mailcpu.computational-fabric-directory-checkpoint.v1"
+    assert checkpoint["peer_revision_high_water"] == [
+        {"peer_id": "peer-b", "revision": 7, "digest": first.digest},
+    ]
+
+    # Restoring a checkpoint restores anti-rollback memory, not a remote
+    # snapshot or a lease deadline measured by another process's clock.
+    clock[0] = 1_000.0
+    restored = ComputationalFabricDirectory.from_checkpoint(
+        checkpoint,
+        monotonic=lambda: clock[0],
+    )
+    assert restored.peer_snapshots == ()
+    assert restored.active_snapshots == ()
+    assert restored.peer_revision_high_water == (("peer-b", 7, first.digest),)
+
+    with pytest.raises(ComputationalFabricError, match="rollback"):
+        restored._merge_verified_peer_snapshot(
+            _snapshot("peer-b", revision=6),
+            authenticated_peer_id="peer-b",
+            authenticated_server_name="peer-b.fabric.test",
+        )
+    with pytest.raises(ComputationalFabricError, match="equivocated"):
+        restored._merge_verified_peer_snapshot(
+            _snapshot("peer-b", revision=7, lease=45),
+            authenticated_peer_id="peer-b",
+            authenticated_server_name="peer-b.fabric.test",
+        )
+
+    assert restored._merge_verified_peer_snapshot(
+        first,
+        authenticated_peer_id="peer-b",
+        authenticated_server_name="peer-b.fabric.test",
+    )
+    assert tuple(item.peer_id for item in restored.active_snapshots) == ("peer-b",)
+
+    tampered = dict(checkpoint)
+    tampered["max_links"] = checkpoint["max_links"] + 1
+    with pytest.raises(ComputationalFabricError, match="digest"):
+        ComputationalFabricDirectory.from_checkpoint(tampered)
+
+
+def test_local_snapshot_registration_checks_restored_revision_high_water() -> None:
+    local = _snapshot("peer-a", revision=4)
+    directory = ComputationalFabricDirectory("peer-a", {"peer-b": "peer-b.fabric.test"})
+    assert directory.register_local_snapshot(local)
+    restored = ComputationalFabricDirectory.from_checkpoint(directory.checkpoint())
+
+    with pytest.raises(ComputationalFabricError, match="cannot move backwards"):
+        restored.register_local_snapshot(_snapshot("peer-a", revision=3))
+    with pytest.raises(ComputationalFabricError, match="equivocated"):
+        restored.register_local_snapshot(_snapshot("peer-a", revision=4, lease=45))
+
+    assert restored.register_local_snapshot(local)
+    assert tuple(item.peer_id for item in restored.active_snapshots) == ("peer-a",)
+    assert not restored.register_local_snapshot(local)
+
+
+def test_expired_peer_snapshots_do_not_consume_live_directory_capacity() -> None:
+    clock = [100.0]
+    host_b = ComputationalHostAdvertisement.from_locus(
+        _locus("peer-b", "logical-host-b"),
+        "peer-b",
+    )
+    host_c = ComputationalHostAdvertisement.from_locus(
+        _locus("peer-c", "logical-host-c"),
+        "peer-c",
+    )
+    directory = ComputationalFabricDirectory(
+        "peer-a",
+        {
+            "peer-b": "peer-b.fabric.test",
+            "peer-c": "peer-c.fabric.test",
+        },
+        monotonic=lambda: clock[0],
+        max_peers=1,
+        max_hosts=1,
+    )
+    assert directory._merge_verified_peer_snapshot(
+        _snapshot("peer-b", hosts=(host_b,), lease=5),
+        authenticated_peer_id="peer-b",
+        authenticated_server_name="peer-b.fabric.test",
+    )
+    clock[0] = 105.0
+
+    # Explicit purge is not required to free active capacity. The expired
+    # snapshot may remain as last-known metadata, but it no longer counts as
+    # a live peer/host/link advertisement.
+    assert directory._merge_verified_peer_snapshot(
+        _snapshot("peer-c", hosts=(host_c,), lease=30),
+        authenticated_peer_id="peer-c",
+        authenticated_server_name="peer-c.fabric.test",
+    )
+    assert tuple(item.peer_id for item in directory.active_snapshots) == ("peer-c",)
+    assert {item.peer_id for item in directory.peer_snapshots} == {"peer-b", "peer-c"}
+    assert directory.peer_revision_high_water == (
+        ("peer-b", 1, _snapshot("peer-b", hosts=(host_b,), lease=5).digest),
+        ("peer-c", 1, _snapshot("peer-c", hosts=(host_c,), lease=30).digest),
+    )
 
 
 def test_fabric_resolver_selects_lowest_cost_multi_hop_peer_path() -> None:
