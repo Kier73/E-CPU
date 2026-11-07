@@ -226,10 +226,46 @@ A later heterogeneous backend will need a formal refinement claim. In one possib
 
 The observation projection \(O\), tolerance \(\epsilon\), allowed stuttering/microsteps, and proof evidence must be declared by the operator contract. Existing semantic-translation and oracle checks provide useful foundations, but general Ground-to-Operator refinement across CPU, GPU, FPGA, and network backends is not yet established.
 
-## 8. What exists now and what remains proposed
+## 8. Executable first slice: local semantic Locate/Resolve
 
-**Already present in E-CPU:** typed Virtual Layer workloads; separate System and Computational Grounds; versioned operator contracts; local capability reconstruction; exact Transit dispatch; reliable message channels; causal sequence/frontier data; execution commit/replay ledgers; Structural Memory references; checkpoints; quorum-verified recovery bundles; backend dispatch manifests; and VGI source-implementation fingerprint checks during restoration.
+The first executable resolver is implemented in `mailcpu/computational_resolver.py`. It intentionally reuses `VirtualLayerWorkload` rather than defining a competing request envelope:
 
-**Not yet a general capability:** global semantic address discovery across arbitrary hosts; an index for locating any arbitrary intermediate state; automatic cost-optimized path construction over a network-wide host graph; transparent migration of arbitrary live processes between CPU/GPU/FPGA substrates; or general proofs that any replacement implementation refines any Ground.
+```python
+address = ComputationalAddress.from_workload(
+    workload,
+    operator_id="vgi.signal8.execute",
+    operator_spec=host.runtime.registry.contract("vgi.signal8.execute"),
+    computational_ground_fingerprint=signal8_ground_fingerprint,
+    program_fingerprint=compiled_program_fingerprint,  # optional exact program pin
+)
+
+locus = ComputationalHostLocus.from_runtime(
+    host_id="logical-vgi-host",
+    runtime=host.runtime,
+    authority_pid=host.authority_pid,
+    operator_id="vgi.signal8.execute",
+    computational_ground_fingerprints=(signal8_ground_fingerprint,),
+    program_fingerprints=(compiled_program_fingerprint,),
+    costs=declared_cost_vector,
+    implementation_fingerprint=host.implementation_fingerprint,
+)
+
+catalogue = ComputationalHostCatalogue((locus,))
+resolution = ComputationalAddressResolver().resolve(address, catalogue, receiver_os)
+```
+
+The executable slice is a **receiver-local** catalogue. Each locus has a stable logical `host_id`, a separately represented `node_id` placement, a local authority PID (not exported in catalogue metadata), an exact `OperatorSpec`, supported computational Grounds/programs/substrates, resource ceilings, cost estimates, and optional implementation fingerprint.
+
+Resolution verifies the locally admitted System Ground and causal frontier, exact operator contract, computational Ground, node eligibility, substrate, observation kind, input type/bytes, virtual energy/ticks, live process status, required local capabilities, and pinned Structural Memory revision metadata where advertised. Structural Memory validation uses the immutable admitted revision plus its certificate/context/horizon validator; it does not evaluate the coordinate or append a read event. If the address pins a program fingerprint, the host must advertise that exact fingerprint; an unpinned program is admissible only when the host explicitly advertises Ground-bounded dynamic compilation. It then chooses a feasible candidate by the address's ordered metric vector with stable logical-host/node tie-breaking. If no candidate passes, the result records deterministic blockers instead of inventing a route.
+
+The resulting `ComputationalRouteWitness` binds the address/catalogue digests, logical host, placement node, authority snapshot digest, both Ground identities, operator contract, input/state digests, program/implementation identity, resource estimate, and selected costs. In this version the observation constraint is the operator's declared output kind; a richer projection identity must wait until the operator contract itself exposes a typed observation-projection contract. Both witness and resolution result explicitly expose `authoritative=False`: route discovery does not grant rights, create a Hypervisor decision, or execute an operation. The normal Virtual Layer/Transit preparation and Hypervisor arbitration must still happen at execution time.
+
+For this first slice, **Locate** means that inline workload input is already materialized, or that every pinned Structural Memory reference can be resolved under the selected host's local read capability. Arbitrary intermediate-machine-state lookup, general checkpoint catalogues, and remote host discovery are not claimed. Advertised route costs are caller-supplied estimates, not measured latency/energy guarantees. The existing evidence-path resolver remains responsible for a different problem: chaining verified representation translations with evidence and cost constraints.
+
+## 9. What exists now and what remains proposed
+
+**Already present in E-CPU:** typed Virtual Layer workloads; separate System and Computational Grounds; versioned operator contracts; local capability reconstruction; exact Transit dispatch; reliable message channels; causal sequence/frontier data; execution commit/replay ledgers; Structural Memory references; checkpoints; quorum-verified recovery bundles; backend dispatch manifests; VGI source-implementation fingerprint checks during restoration; and the first receiver-local semantic-address resolver with non-authoritative route witnesses.
+
+**Not yet a general capability:** global semantic address discovery across remote hosts; an index for locating any arbitrary intermediate state or checkpoint; automatic multi-hop cost-optimized path construction over a network-wide host graph; transparent migration of arbitrary live processes between CPU/GPU/FPGA substrates; or general proofs that any replacement implementation refines any Ground.
 
 The prudent direction is incremental: make existing identity/address components explicit, prove one new resolution law at a time, and only then generalize route selection. A continuously available computational environment emerges from persistent commitments plus procedural reachability—not from materializing every possible execution or assuming that network transport itself is a processor.
