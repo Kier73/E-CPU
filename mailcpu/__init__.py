@@ -162,6 +162,7 @@ from .recovery_lineage_transport import (
     RecoveryLineageProcessParticipant,
     RecoveryLineageTransportError,
 )
+from .recovery_lineage_service import RecoveryLineageAuthorityService
 from .recovery_bundle import (
     RecoveryCheckpointBundleError,
     RecoveryCheckpointBundleStore,
@@ -803,6 +804,7 @@ __all__ = [
     "RecoveryLineagePeerClient",
     "RecoveryLineageProcessParticipant",
     "RecoveryLineageTransportError",
+    "RecoveryLineageAuthorityService",
     "SEED_QUORUM_COMMIT_KIND",
     "SEED_QUORUM_DECISION_KIND",
     "SEED_QUORUM_PREPARE_KIND",
