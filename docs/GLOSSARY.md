@@ -218,6 +218,16 @@ Registry of defined terms for this repository.
 : An algebraic representation encoding integer state across coprime moduli $(m_1, \dots, m_n)$,
   permitting exact Garner-free CRT state recovery from any $k \le n$ surviving residues.
 
+**computational Ground**
+: A versioned executable contract identifying a computational value domain,
+  permitted operations, observer profiles, assumptions, ambiguity policy, and
+  supporting evidence. It is distinct from the admitted E-CPU system Ground.
+
+**hosted computational domain**
+: An independently specified interpreter or mathematical runtime exposed as a
+  node-local Virtual Layer operator. E-CPU owns admission, authority, placement,
+  journaling, and replay; the hosted domain owns its execution semantics.
+
 ## Stage boundaries
 
 **stage boundary**
