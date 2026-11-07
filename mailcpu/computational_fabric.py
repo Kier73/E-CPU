@@ -1610,6 +1610,8 @@ class ComputationalFabricResolutionResult:
 
 @dataclass(frozen=True)
 class _PeerPathLabel:
+    """One best deterministic path label for a peer at an exact hop count."""
+
     costs: tuple[int, ...]
     path: tuple[str, ...]
     link_ids: tuple[str, ...]
