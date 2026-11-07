@@ -18,9 +18,9 @@ def _write_marker(path: Path, payload: dict[str, object]) -> None:
     """Mathematics: fsync one owner-vote witness and atomically publish its crash-cut marker."""
 
     temporary = path.with_name(path.name + ".tmp")
-    with temporary.open("w", encoding="utf-8", newline="\\n") as stream:
+    with temporary.open("w", encoding="utf-8", newline="\n") as stream:
         json.dump(payload, stream, sort_keys=True)
-        stream.write("\\n")
+        stream.write("\n")
         stream.flush()
         os.fsync(stream.fileno())
     os.replace(temporary, path)
