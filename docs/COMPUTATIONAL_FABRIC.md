@@ -148,7 +148,7 @@ Every receiving peer performs these checks before an effect:
 3. The previous peer's active, receiver-local snapshot owns the exact incoming directed link; this peer's own active snapshot owns the exact outgoing link.
 4. The next endpoint equals both the next route endpoint and the active directly observed endpoint, and the configured TLS DNS identity matches the authenticated certificate.
 5. The envelope fits the receiver, transport, and directed-link frame bounds; the route remains cycle-free and within both the workload and forwarding hop ceilings.
-6. The local process is granted the exact /computational/fabric/forward forward right at a relay, or /computational/fabric/execute execute right at the terminal peer, by the receiver's own Hypervisor.
+6. The local process is granted the exact /network/computational-fabric/forward forward right at a relay, or /network/computational-fabric/execute execute right at the terminal peer, by the receiver's own Hypervisor.
 
 An intermediate peer forwards only after its local Hypervisor has admitted the forwarding operation. The next peer repeats the same checks with its own directly observed directory view. A peer does not trust the origin's directory digest as a substitute for its local edge/lease checks; the route witness is still only a route proposal.
 
@@ -169,3 +169,12 @@ Each sender enforces a finite local monotonic RPC deadline, each route is hop-bo
 This slice does not yet checkpoint the complete forwarding session across hard process death. The reliable channels and Hypervisor ledgers have checkpoint/replay facilities elsewhere in the system, but their forwarding-specific state is not yet captured and restored as one receiver transaction. The next recovery experiment should bind each hop's request/result channels, local Hypervisor replay state, operation channel identity, and receipt publication cut into the existing checkpoint/recovery machinery. A later trust extension may add relay signatures if receipts need independent verification beyond the directly authenticated peers.
 
 Topology gossip, route-witness authority, and a second scheduling system are intentionally absent.
+
+
+The hop-level Hypervisor event is classified in the NETWORK domain because its effect is a peer-to-peer transport operation. The terminal's nested semantic computation is separately resolved and arbitrated in the CPU domain by the existing Virtual Layer path; a network-forwarding grant does not substitute for the host process's compute capability.
+
+The NETWORK-domain hop event governs the act of receiving/forwarding the transport request. The terminal computation is a nested, separate CPU-domain operation and still requires the selected local host process's compute right. The forwarding receipt does not collapse those authority planes.
+
+The current server loop stops on an unhandled downstream failure while leaving the reliable request unacknowledged; it does not spin indefinitely on that same frame. A supervisor must decide whether and how to rebind the per-peer service. That restart path is not yet a forwarding-specific crash-recovery proof.
+
+The original origin identity is carried through the path and used by the terminal semantic execution ledger, but this first version does not include an origin signature. Intermediate peers authenticate their immediate neighbors with mutual TLS; trust in the end-to-end origin claim is therefore transitive through those explicitly trusted relays.

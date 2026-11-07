@@ -39,10 +39,10 @@ from .reliability import ReliabilityPolicy, ReliableChannel
 from .socket_transport import SocketTransport
 
 
-COMPUTATIONAL_FABRIC_FORWARD_OPERATION = "forward federated computational workload"
-COMPUTATIONAL_FABRIC_FORWARD_RESOURCE = "/computational/fabric/forward"
-COMPUTATIONAL_FABRIC_EXECUTE_OPERATION = "execute federated computational workload"
-COMPUTATIONAL_FABRIC_EXECUTE_RESOURCE = "/computational/fabric/execute"
+COMPUTATIONAL_FABRIC_FORWARD_OPERATION = "forward network packet for federated computation"
+COMPUTATIONAL_FABRIC_FORWARD_RESOURCE = "/network/computational-fabric/forward"
+COMPUTATIONAL_FABRIC_EXECUTE_OPERATION = "receive network request for local computational execution"
+COMPUTATIONAL_FABRIC_EXECUTE_RESOURCE = "/network/computational-fabric/execute"
 COMPUTATIONAL_FABRIC_FORWARD_RESULT_KIND = "mailcpu.computational_fabric.hop_receipt"
 _FORWARD_CHANNEL_PREFIX = "computational.fabric.forward.v1."
 _RESPONSE_SUFFIX = ".result"
@@ -693,7 +693,7 @@ class ComputationalFabricForwardingClient:
             or result.sequence != child.origin_sequence
             or result.logical_time != child.logical_time
             or result.action is not HypervisorAction.ALLOW
-            or result.domain is not HypervisorDomain.CPU
+            or result.domain is not HypervisorDomain.NETWORK
             or not result.executed
             or not isinstance(result.effect, Mapping)
         ):
@@ -844,7 +844,7 @@ class ComputationalFabricForwardingServer:
             _peer(local_peer_id, "local_peer_id"),
             previous,
             context,
-            expected_client_dns=expected_dns,
+            expected_peer_dns=expected_dns,
             handshake_timeout=handshake_timeout,
         )
         try:
@@ -1048,8 +1048,8 @@ class ComputationalFabricForwardingServer:
         if decision is None:
             raise ComputationalFabricForwardingError("forwarding effect has no committed local Hypervisor decision")
         action, domain, decision_receipt, _revision = decision
-        if action is not HypervisorAction.ALLOW or domain is not HypervisorDomain.CPU:
-            raise ComputationalFabricForwardingError("forwarding receipt requires a local CPU ALLOW decision")
+        if action is not HypervisorAction.ALLOW or domain is not HypervisorDomain.NETWORK:
+            raise ComputationalFabricForwardingError("forwarding receipt requires a local NETWORK ALLOW decision")
         envelope = self._decode_envelope(authorized_event)
         next_peer = None
         next_digest = None
@@ -1134,7 +1134,7 @@ class ComputationalFabricForwardingServer:
         result = self.inbound.receive_and_reply_event(
             self.operating_system.hypervisor_arbitration,
             authorize,
-            {HypervisorDomain.CPU: execute},
+            {HypervisorDomain.NETWORK: execute},
             self.outbound,
             encode,
         )
