@@ -53,9 +53,24 @@ Registry of defined terms for this repository.
   which a request resolves to a required capability and a verified result.
 
 **E-GPU**
-: The E-CPU composite logical host that routes bounded lane-wise and reduction
-  methods through addressable dispatch, execution, and verification loci. It is
-  a reference operational structure, not a claim of physical GPU support.
+: The E-CPU composite logical host that routes bounded lane-wise, reduction,
+  and workgroup methods through addressable dispatch, execution, memory, and
+  verification loci. It is a reference operational structure, not a claim of
+  physical GPU support.
+
+**workgroup**
+: One bounded SIMT execution cohort whose lanes share a program counter and
+  structured active-lane mask, and whose invocation owns one isolated shared-memory region.
+
+**workgroup shared memory**
+: A bounded address space private to one workgroup invocation. Lane writes remain
+  pending until a converged barrier publishes them; the memory is not shared
+  across workgroups or retained after the invocation.
+
+**barrier epoch**
+: One workgroup synchronization interval ending when every lane is active at a
+  converged barrier. Pending single-writer shared-memory cells become visible
+  together at that transition.
 
 **check pointable**
 : A state component whose complete value round-trips through `save_checkpoint`
