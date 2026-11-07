@@ -502,6 +502,45 @@ class ComputationalRouteWitness:
     estimated_virtual_ticks: int
     costs: tuple[RouteMetric, ...]
 
+    def __post_init__(self) -> None:
+        """Validate every identity and accounting field carried by this route proof."""
+        for name in (
+            "address_digest", "catalogue_digest", "authority_digest",
+            "system_ground_digest", "operator_contract_digest",
+            "computational_ground_fingerprint", "input_digest", "state_digest",
+        ):
+            _digest(getattr(self, name), name)
+        if self.program_fingerprint is not None:
+            _digest(self.program_fingerprint, "program_fingerprint")
+        if self.implementation_fingerprint is not None:
+            _digest(self.implementation_fingerprint, "implementation_fingerprint")
+        _label(self.host_id, "host_id", 128)
+        _label(self.node_id, "node_id", 128)
+        _label(self.operator_id, "operator_id", 128)
+        _label(self.resource, "resource")
+        _label(self.substrate, "substrate", 64)
+        _label(self.observation_kind, "observation_kind", 64)
+        if type(self.operator_version) is not int or self.operator_version < 1:
+            raise ComputationalResolutionError("operator_version must be a positive strict integer")
+        if type(self.logical_time) is not int or self.logical_time < 0:
+            raise ComputationalResolutionError("logical_time must be a non-negative strict integer")
+        for name in ("estimated_input_bytes", "estimated_energy", "estimated_virtual_ticks"):
+            value = getattr(self, name)
+            if type(value) is not int or value < 0:
+                raise ComputationalResolutionError(f"{name} must be a non-negative strict integer")
+        sources = tuple(self.state_sources)
+        if not sources or any(not isinstance(item, str) or not item for item in sources):
+            raise ComputationalResolutionError("state_sources must contain non-empty coordinates")
+        if len(set(sources)) != len(sources):
+            raise ComputationalResolutionError("state_sources must be unique")
+        object.__setattr__(self, "state_sources", sources)
+        costs = tuple(self.costs)
+        if not costs or any(not isinstance(item, RouteMetric) for item in costs):
+            raise ComputationalResolutionError("route witness requires a non-empty typed cost vector")
+        if len({item.name for item in costs}) != len(costs):
+            raise ComputationalResolutionError("route witness cost metric names must be unique")
+        object.__setattr__(self, "costs", tuple(sorted(costs, key=lambda item: item.name)))
+
     @property
     def authoritative(self) -> bool:
         """Route discovery is non-authoritative by construction."""
@@ -563,6 +602,11 @@ class ComputationalResolutionResult:
             raise ComputationalResolutionError("candidate_count must be a non-negative strict integer")
         if self.witness is not None and not isinstance(self.witness, ComputationalRouteWitness):
             raise ComputationalResolutionError("witness must be a ComputationalRouteWitness or None")
+        if self.status is ComputationalResolutionStatus.FOUND:
+            if self.candidate_count < 1:
+                raise ComputationalResolutionError("FOUND result requires at least one candidate")
+            if self.witness.address_digest != self.address_digest or self.witness.catalogue_digest != self.catalogue_digest:
+                raise ComputationalResolutionError("route witness belongs to a different address or catalogue")
         blockers = tuple(self.blockers)
         if any(not isinstance(item, ComputationalResolutionBlocker) for item in blockers):
             raise ComputationalResolutionError("blockers must contain ComputationalResolutionBlocker values")
