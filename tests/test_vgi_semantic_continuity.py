@@ -132,10 +132,16 @@ def _wait_marker(
     deadline = time.monotonic() + timeout
     while not path.exists() and process.poll() is None and time.monotonic() < deadline:
         time.sleep(0.01)
-    assert path.exists(), (
-        "receiver did not publish the quorum-sealed post-commit cut: "
-        f"exit={process.poll()}"
-    )
+    if not path.exists():
+        exit_code = process.poll()
+        child_output = ""
+        if exit_code is not None:
+            stdout, stderr = process.communicate(timeout=5)
+            child_output = f"\nstdout:\n{stdout}\nstderr:\n{stderr}"
+        raise AssertionError(
+            "receiver did not publish the quorum-sealed post-commit cut: "
+            f"exit={exit_code}{child_output}"
+        )
     return json.loads(path.read_text(encoding="utf-8"))
 
 
