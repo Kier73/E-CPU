@@ -562,22 +562,27 @@ class RecoveryLineageCoordinator:
                     continue
                 candidate_certificate = authority.certificate(candidate)
                 candidate_decision = authority.decision(candidate)
-                if candidate_certificate is None or candidate_decision is None:
-                    continue
-                if proposal is None:
-                    proposal = candidate
-                    certificate = candidate_certificate
-                elif (
-                    candidate.digest != proposal.digest
-                    or candidate_certificate.snapshot() != certificate.snapshot()
-                ):
-                    raise RecoveryLineageError("authorities disagree on the high-water proposal or certificate")
+            except RecoveryLineageError:
+                # A member that disappears during inspection supplies no
+                # durable read proof; the read must still reach quorum below.
+                continue
+            if candidate_certificate is None or candidate_decision is None:
+                continue
+            if proposal is None:
+                proposal = candidate
+                certificate = candidate_certificate
+            elif (
+                candidate.digest != proposal.digest
+                or candidate_certificate.snapshot() != certificate.snapshot()
+            ):
+                raise RecoveryLineageError("authorities disagree on the high-water proposal or certificate")
+            try:
                 # This idempotent call re-runs the ledger's strict certificate,
                 # membership, predecessor, and proposal validation.
                 authority.commit(candidate, candidate_certificate)
-                decisions[member_id] = candidate_decision
             except RecoveryLineageError:
                 continue
+            decisions[member_id] = candidate_decision
 
         if proposal is None or certificate is None or len(decisions) < self.membership.quorum:
             raise RecoveryLineageError("high-water record is not supported by a durable decision quorum")
