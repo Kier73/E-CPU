@@ -1033,7 +1033,7 @@ class ComputationalFabricPeerServer:
     def service_once(self) -> bool:
         """Mathematics: Commit one snapshot request into the reliable response channel before acknowledging its inbound sequence."""
         self.outbound.process_ack()
-        if self.outbound.available_window() < 1:
+        if self.outbound.available_window < 1:
             self.outbound.tick()
             return False
         handled = False
