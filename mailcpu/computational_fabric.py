@@ -136,10 +136,13 @@ def _canonical_digest(value: Any) -> str:
 def _dns_name(value: Any, name: str) -> str:
     """Mathematics: Validate a bounded DNS identity without accepting wildcards or URL syntax."""
     _label(value, name, 253)
-    parts = value.rstrip(".").split(".")
+    if value.endswith(".."):
+        raise ComputationalFabricError(f"{name} must not contain repeated trailing dots")
+    normalized = value[:-1] if value.endswith(".") else value
+    parts = normalized.split(".")
     if not parts or any(not _DNS_LABEL.fullmatch(part) for part in parts):
         raise ComputationalFabricError(f"{name} must be a DNS hostname without wildcards")
-    return value.rstrip(".").lower()
+    return normalized.lower()
 
 
 def _metric_vector(
