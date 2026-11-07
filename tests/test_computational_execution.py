@@ -235,6 +235,34 @@ def test_execution_refuses_stale_witness_after_catalogue_change() -> None:
     assert calls == []
 
 
+def test_execution_refuses_equivalent_but_unbound_runtime_instance() -> None:
+    (
+        _operating_system,
+        calls,
+        _runtime,
+        catalogue,
+        address,
+        witness,
+        coordinator,
+    ) = _fixture()
+    equivalent_runtime = _runtime("node-a", calls)
+
+    result = coordinator.execute(
+        address,
+        witness,
+        catalogue,
+        equivalent_runtime,
+        source="semantic-client",
+        channel="computational.execution",
+        sequence=9,
+    )
+
+    assert result.status is ComputationalExecutionStatus.HOST_MISMATCH
+    assert not result.accepted
+    assert result.execution is None
+    assert calls == []
+
+
 def test_execution_refuses_runtime_that_does_not_match_selected_locus() -> None:
     (
         _operating_system,
@@ -303,6 +331,7 @@ def test_execution_preserves_declared_substrate_preference_order() -> None:
         computational_ground_fingerprints=(GROUND_FP,),
         program_fingerprints=(PROGRAM_FP,),
         costs=_costs(3),
+        implementation_fingerprint="d" * 64,
     )
     catalogue = ComputationalHostCatalogue((locus,))
     workload = replace(

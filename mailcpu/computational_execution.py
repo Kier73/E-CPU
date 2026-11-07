@@ -226,6 +226,14 @@ class ComputationalExecutionAdmissionCoordinator:
         """Mathematics: Verify that the concrete node-local runtime matches its selected declarative locus."""
         if not isinstance(runtime, VirtualLayerRuntime):
             return False, "selected host runtime is not a VirtualLayerRuntime"
+        if locus.runtime_binding is not runtime:
+            return False, "runtime object is not the exact receiver-local runtime bound to this host locus"
+        if (
+            locus.implementation_fingerprint is None
+            or witness.implementation_fingerprint is None
+            or locus.implementation_fingerprint != witness.implementation_fingerprint
+        ):
+            return False, "execution requires a matching explicit host implementation fingerprint pin"
         if runtime.node_id != witness.node_id or runtime.node_id != locus.node_id:
             return False, "runtime placement differs from the selected logical-host locus"
         try:
@@ -234,6 +242,8 @@ class ComputationalExecutionAdmissionCoordinator:
             return False, f"selected runtime cannot resolve the exact operator: {type(exc).__name__}: {exc}"
         if handler is None or not callable(handler):
             return False, "selected runtime has no bound local operator implementation"
+        if locus.handler_binding is not handler:
+            return False, "runtime operator handler is not the exact handler bound to this host locus"
         if (
             spec.digest != address.operator_contract_digest
             or spec.digest != locus.operator_spec.digest
