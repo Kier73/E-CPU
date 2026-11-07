@@ -107,7 +107,8 @@ class RecoveryLineageDeploymentMember:
         """Mathematics: enforce role-specific endpoint shape and a one-to-one mapping from identity to persistent host resources."""
 
         _text(self.member_id, "member id")
-        if self.role not in {"owner", "authority"}:
+        role = _text(self.role, "member role")
+        if role not in {"owner", "authority"}:
             raise RecoveryLineageDeploymentError("member role must be 'owner' or 'authority'")
         _dns_name(self.dns_name, "TLS DNS identity")
         host_id = _text(self.host_id, "host id")
@@ -304,7 +305,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         payload = json.loads(arguments.topology.read_text(encoding="utf-8"))
         deployment = RecoveryLineageDeployment.from_snapshot(payload)
-    except (OSError, UnicodeError, json.JSONDecodeError, RecoveryLineageDeploymentError) as exc:
+    except (OSError, UnicodeError, json.JSONDecodeError, TypeError, RecoveryLineageDeploymentError) as exc:
         print(f"invalid recovery-lineage topology: {exc}")
         return 2
 
