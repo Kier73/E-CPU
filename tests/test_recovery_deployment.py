@@ -289,3 +289,17 @@ def test_cli_rejects_aliased_failure_domains(tmp_path: Path, capsys: pytest.Capt
 
     assert main(["--topology", str(path)]) == 2
     assert "unique failure domain" in capsys.readouterr().out
+
+def test_cli_rejects_non_text_member_role_without_traceback(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Mathematics: malformed member-role values map to the CLI invalid-topology disposition."""
+
+    snapshot = _deployment().snapshot()
+    snapshot["members"][1]["role"] = []
+    path = tmp_path / "malformed-role.json"
+    path.write_text(json.dumps(snapshot), encoding="utf-8")
+
+    assert main(["--topology", str(path)]) == 2
+    assert "member role must be non-empty trimmed text" in capsys.readouterr().out
