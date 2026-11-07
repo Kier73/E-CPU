@@ -415,6 +415,22 @@ def test_public_directory_merge_requires_the_authenticated_transport_object() ->
         )
 
 
+def test_directory_peer_capacity_reserves_local_identity_before_local_snapshot() -> None:
+    directory = ComputationalFabricDirectory(
+        "peer-a",
+        {"peer-b": "peer-b.fabric.test"},
+        max_peers=2,
+    )
+    directory._merge_verified_peer_snapshot(
+        _snapshot("peer-b"),
+        authenticated_peer_id="peer-b",
+        authenticated_server_name="peer-b.fabric.test",
+    )
+
+    assert directory.register_local_snapshot(_snapshot("peer-a"))
+    assert tuple(item.peer_id for item in directory.active_snapshots) == ("peer-a", "peer-b")
+
+
 def test_directory_trust_map_is_detached_from_caller_mutation() -> None:
     configured = {"peer-b": "peer-b.fabric.test"}
     directory = ComputationalFabricDirectory("peer-a", configured)
@@ -422,6 +438,23 @@ def test_directory_trust_map_is_detached_from_caller_mutation() -> None:
     exposed = directory.trusted_peers
     exposed["peer-b"] = "attacker.fabric.test"
 
+    with pytest.raises(ComputationalFabricError, match="exactly one logical peer"):
+        ComputationalFabricDirectory(
+            "peer-a",
+            {
+                "peer-b": "shared.fabric.test",
+                "peer-c": "shared.fabric.test",
+            },
+        )
+    with pytest.raises(ComputationalFabricError, match="aggregate peer bound"):
+        ComputationalFabricDirectory(
+            "peer-a",
+            {
+                "peer-b": "peer-b.fabric.test",
+                "peer-c": "peer-c.fabric.test",
+            },
+            max_peers=2,
+        )
     snapshot = _snapshot("peer-b")
     assert directory.trusted_peers == {"peer-b": "peer-b.fabric.test"}
     assert directory._merge_verified_peer_snapshot(
@@ -793,6 +826,53 @@ def test_fabric_resolver_fails_closed_on_incompatible_computational_ground() -> 
     assert any(item.code.value == "ground_mismatch" for item in blocked.blockers)
 
 
+def test_fabric_resolver_requires_ground_bounded_policy_for_unpinned_programs() -> None:
+    advertisement = ComputationalHostAdvertisement.from_locus(_locus(), "peer-b")
+    workload = _address().workload
+    unpinned_address = ComputationalAddress.from_workload(
+        workload,
+        "core.sum_pair",
+        _spec(),
+        GROUND_FP,
+        program_fingerprint=None,
+        metric_order=METRICS,
+    )
+    no_policy = replace(
+        advertisement,
+        program_fingerprints=(),
+        supports_ground_program_compilation=False,
+    )
+    dynamic_policy = replace(
+        advertisement,
+        program_fingerprints=(),
+        supports_ground_program_compilation=True,
+    )
+    no_policy_directory = _directory(
+        _snapshot("peer-a", links=(_link("peer-a", "peer-b", 1),)),
+        _snapshot("peer-b", hosts=(no_policy,)),
+    )
+    denied = ComputationalFabricResolver().resolve(
+        unpinned_address,
+        no_policy_directory,
+        origin_peer_id="peer-a",
+    )
+    assert denied.status is ComputationalFabricStatus.BLOCKED
+    assert any(item.code.value == "program_mismatch" for item in denied.blockers)
+
+    dynamic_directory = _directory(
+        _snapshot("peer-a", links=(_link("peer-a", "peer-b", 1),)),
+        _snapshot("peer-b", hosts=(dynamic_policy,)),
+    )
+    accepted = ComputationalFabricResolver().resolve(
+        unpinned_address,
+        dynamic_directory,
+        origin_peer_id="peer-a",
+    )
+    assert accepted.status is ComputationalFabricStatus.FOUND
+    assert accepted.witness is not None
+    assert accepted.witness.target_host.program_fingerprints == ()
+
+
 def test_fabric_resolver_applies_aggregate_network_cost_ceilings() -> None:
     advertisement = ComputationalHostAdvertisement.from_locus(_locus(), "peer-b")
     directory = _directory(
@@ -970,9 +1050,9 @@ def test_mutual_tls_peer_client_discovers_and_merges_remote_host_snapshot(tmp_pa
         assert server_result.get("server") is not None
         assert not server_errors
     finally:
+        stop.set()
         if client is not None:
             client.close()
-        stop.set()
         listener.close()
         thread.join(timeout=3.0)
     assert not thread.is_alive()

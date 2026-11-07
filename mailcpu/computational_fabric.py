@@ -135,10 +135,13 @@ def _canonical_digest(value: Any) -> str:
 def _dns_name(value: Any, name: str) -> str:
     """Mathematics: Validate a bounded DNS identity without accepting wildcards or URL syntax."""
     _label(value, name, 253)
-    parts = value.rstrip(".").split(".")
+    if value.endswith(".."):
+        raise ComputationalFabricError(f"{name} must not contain repeated trailing dots")
+    normalized = value[:-1] if value.endswith(".") else value
+    parts = normalized.split(".")
     if not parts or any(not _DNS_LABEL.fullmatch(part) for part in parts):
         raise ComputationalFabricError(f"{name} must be a DNS hostname without wildcards")
-    return value.rstrip(".").lower()
+    return normalized.lower()
 
 
 def _metric_vector(
@@ -691,7 +694,10 @@ class ComputationalFabricDirectory:
             peer_id = _peer_id(peer)
             if peer_id == self.local_peer_id or peer_id in normalized:
                 raise ComputationalFabricError("trusted peer identities must be unique and exclude the local peer")
-            normalized[peer_id] = _dns_name(dns_name, "trusted peer DNS identity")
+            normalized_dns = _dns_name(dns_name, "trusted peer DNS identity")
+            if normalized_dns in normalized.values():
+                raise ComputationalFabricError("TLS DNS identities must map to exactly one logical peer ID")
+            normalized[peer_id] = normalized_dns
         self._trusted_peers = dict(sorted(normalized.items()))
         self._lock = threading.RLock()
         self.max_peer_lease_seconds = _positive(
@@ -703,6 +709,8 @@ class ComputationalFabricDirectory:
             raise ComputationalFabricError("monotonic must be callable")
         self._monotonic = monotonic
         self.max_peers = _positive(max_peers, "max_peers", maximum=4096)
+        if len(normalized) + 1 > self.max_peers:
+            raise ComputationalFabricError("trusted peer mapping exceeds the aggregate peer bound")
         self.max_hosts = _positive(max_hosts, "max_hosts", maximum=65_536)
         self.max_links = _positive(max_links, "max_links", maximum=262_144)
         self._snapshots: dict[str, ComputationalPeerSnapshot] = {}
@@ -963,17 +971,19 @@ class ComputationalFabricDirectory:
             if peer_id != replacing_peer
             and observed_at < self._deadlines.get(peer_id, float("-inf"))
         }
-        if replacing_peer == self.local_peer_id:
-            local_count = 1
+        local_snapshot = self._local_snapshot
+        if incoming.peer_id == self.local_peer_id:
+            local_snapshot = incoming
         else:
-            local_count = int(self._local_snapshot is not None)
-        snapshots[incoming.peer_id] = incoming
-        peer_count = len(snapshots) + local_count
-        host_count = sum(len(item.hosts) for item in snapshots.values())
-        link_count = sum(len(item.links) for item in snapshots.values())
-        if self._local_snapshot is not None and replacing_peer != self.local_peer_id:
-            host_count += len(self._local_snapshot.hosts)
-            link_count += len(self._local_snapshot.links)
+            remote_snapshots[incoming.peer_id] = incoming
+        # The local peer occupies one slot even before its own host/link
+        # snapshot has been registered.
+        peer_count = 1 + len(remote_snapshots)
+        host_count = sum(len(item.hosts) for item in remote_snapshots.values())
+        link_count = sum(len(item.links) for item in remote_snapshots.values())
+        if local_snapshot is not None:
+            host_count += len(local_snapshot.hosts)
+            link_count += len(local_snapshot.links)
         if peer_count > self.max_peers:
             raise ComputationalFabricError("federated peer directory exceeds its peer bound")
         if host_count > self.max_hosts:
@@ -1080,6 +1090,17 @@ class ComputationalFabricPeerServer:
             COMPUTATIONAL_DIRECTORY_RESPONSE_CHANNEL,
             selected_policy,
         )
+        self.retry_interval = 0.03
+        self._last_retry = time.monotonic()
+
+    def _tick_outbound_if_due(self) -> tuple[int, ...]:
+        """Mathematics: Advance response retry state only after a finite monotonic retry interval."""
+        now = time.monotonic()
+        if now - self._last_retry < self.retry_interval:
+            return ()
+        failed = self.outbound.tick()
+        self._last_retry = now
+        return failed
 
     @classmethod
     def accept_mutual_tls(
@@ -1120,7 +1141,7 @@ class ComputationalFabricPeerServer:
         """Mathematics: Commit one snapshot request into the reliable response channel before acknowledging its inbound sequence."""
         self.outbound.process_ack()
         if self.outbound.available_window < 1:
-            self.outbound.tick()
+            self._tick_outbound_if_due()
             return False
         handled = False
 
@@ -1161,7 +1182,7 @@ class ComputationalFabricPeerServer:
             self.outbound.send(response)
 
         received = self.inbound.receive(commit=apply)
-        self.outbound.tick()
+        self._tick_outbound_if_due()
         return handled or received is not None
 
     def serve_forever(
