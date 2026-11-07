@@ -659,6 +659,53 @@ def test_fabric_resolver_fails_closed_on_incompatible_computational_ground() -> 
     assert any(item.code.value == "ground_mismatch" for item in blocked.blockers)
 
 
+def test_fabric_resolver_requires_ground_bounded_policy_for_unpinned_programs() -> None:
+    advertisement = ComputationalHostAdvertisement.from_locus(_locus(), "peer-b")
+    workload = _address().workload
+    unpinned_address = ComputationalAddress.from_workload(
+        workload,
+        "core.sum_pair",
+        _spec(),
+        GROUND_FP,
+        program_fingerprint=None,
+        metric_order=METRICS,
+    )
+    no_policy = replace(
+        advertisement,
+        program_fingerprints=(),
+        supports_ground_program_compilation=False,
+    )
+    dynamic_policy = replace(
+        advertisement,
+        program_fingerprints=(),
+        supports_ground_program_compilation=True,
+    )
+    no_policy_directory = _directory(
+        _snapshot("peer-a", links=(_link("peer-a", "peer-b", 1),)),
+        _snapshot("peer-b", hosts=(no_policy,)),
+    )
+    denied = ComputationalFabricResolver().resolve(
+        unpinned_address,
+        no_policy_directory,
+        origin_peer_id="peer-a",
+    )
+    assert denied.status is ComputationalFabricStatus.BLOCKED
+    assert any(item.code.value == "program_mismatch" for item in denied.blockers)
+
+    dynamic_directory = _directory(
+        _snapshot("peer-a", links=(_link("peer-a", "peer-b", 1),)),
+        _snapshot("peer-b", hosts=(dynamic_policy,)),
+    )
+    accepted = ComputationalFabricResolver().resolve(
+        unpinned_address,
+        dynamic_directory,
+        origin_peer_id="peer-a",
+    )
+    assert accepted.status is ComputationalFabricStatus.FOUND
+    assert accepted.witness is not None
+    assert accepted.witness.target_host.program_fingerprints == ()
+
+
 def test_fabric_resolver_applies_aggregate_network_cost_ceilings() -> None:
     advertisement = ComputationalHostAdvertisement.from_locus(_locus(), "peer-b")
     directory = _directory(
