@@ -161,7 +161,7 @@ external process supervisor. The owner can connect with
 `RecoveryLineagePeerClient.connect_mutual_tls()`; both certificate-chain and
 DNS-SAN identities are verified before the reliable channels are opened.
 The `RecoveryLineageDeployment` model and `mailcpu-recovery-topology` command
-validate exact membership coverage, unique declared host/failure-domain/TLS
+validate exact membership coverage, unique declared placement-node/failure-domain/TLS
 identities, unique authority endpoints, and node-local journal/TLS resource paths.
 The validator can export the normalized membership file consumed by each
 authority service; its placement declarations remain operator assertions, not
