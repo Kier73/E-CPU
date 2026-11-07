@@ -788,12 +788,38 @@ class ComputationalFabricDirectory:
         self,
         snapshot: ComputationalPeerSnapshot,
         *,
+        authenticated_transport: SocketTransport,
+    ) -> bool:
+        """Mathematics: Admit a snapshot only from the actual trusted mutual-TLS stream and its verified peer certificate."""
+        if not isinstance(snapshot, ComputationalPeerSnapshot):
+            raise ComputationalFabricError("remote merge requires a ComputationalPeerSnapshot")
+        if not isinstance(authenticated_transport, SocketTransport):
+            raise ComputationalFabricError("authenticated merge requires a SocketTransport")
+        if authenticated_transport.local_endpoint != self.local_peer_id:
+            raise ComputationalFabricError("authenticated transport is not bound to this local peer")
+        peer_id = _peer_id(authenticated_transport.peer_endpoint, "authenticated transport peer")
+        with self._lock:
+            expected_dns = self._trusted_peers.get(peer_id)
+        if expected_dns is None:
+            raise ComputationalFabricError("snapshot source is not an explicitly trusted direct peer")
+        if not _certificate_has_dns(authenticated_transport, expected_dns):
+            raise ComputationalFabricError("transport peer certificate chain or DNS SAN is not authenticated")
+        return self._merge_verified_peer_snapshot(
+            snapshot,
+            authenticated_peer_id=peer_id,
+            authenticated_server_name=expected_dns,
+        )
+
+    def _merge_verified_peer_snapshot(
+        self,
+        snapshot: ComputationalPeerSnapshot,
+        *,
         authenticated_peer_id: str,
         authenticated_server_name: str,
     ) -> bool:
-        """Mathematics: Admit only a direct TLS peer's matching snapshot and strictly monotonic revision, renewing its local lease."""
+        """Mathematics: Apply revision/lease state only after a trusted ingress has verified the direct peer transport."""
         if not isinstance(snapshot, ComputationalPeerSnapshot):
-            raise ComputationalFabricError("remote merge requires a ComputationalPeerSnapshot")
+            raise ComputationalFabricError("verified merge requires a ComputationalPeerSnapshot")
         peer_id = _peer_id(authenticated_peer_id, "authenticated_peer_id")
         server_name = _dns_name(authenticated_server_name, "authenticated_server_name")
         if snapshot.peer_id != peer_id:
@@ -1191,8 +1217,7 @@ class ComputationalFabricPeerClient:
         snapshot = self._exchange_snapshot()
         return directory.merge_authenticated_snapshot(
             snapshot,
-            authenticated_peer_id=self.remote_endpoint.peer_id,
-            authenticated_server_name=self.remote_endpoint.tls_server_name,
+            authenticated_transport=self.transport,
         )
 
     def close(self) -> None:
