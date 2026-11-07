@@ -280,6 +280,7 @@ from .virtual_layer import (
     VirtualLayerError,
     VirtualLayerRuntime,
     VirtualLayerWorkload,
+    virtual_layer_operator_resource,
     VirtualOperatorRef,
     VirtualStructuralMemoryRef,
 )
@@ -1285,4 +1286,5 @@ __all__ = [
     "TransitVGIHost",
     "build_vgi_signal8_event",
     "make_transit_vgi_router",
+    "virtual_layer_operator_resource",
 ]
