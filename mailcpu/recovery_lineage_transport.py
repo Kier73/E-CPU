@@ -8,6 +8,7 @@ each remote process owns exactly one authority journal.
 
 from __future__ import annotations
 
+import ssl
 import time
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -32,6 +33,7 @@ from .seed_commit_quorum import (
 )
 from .reliability import ReliabilityPolicy, ReliableChannel
 from .socket_transport import SocketTransport
+from .mtls_transport import connect_mutual_tls as _connect_mutual_tls
 
 
 RECOVERY_LINEAGE_PREPARE = "mailcpu.seed.quorum.recovery.prepare"
@@ -294,6 +296,55 @@ class RecoveryLineagePeerClient:
         )
         self._request_sequence = 0
         self._inspection_cache: dict[int, dict[str, Any]] = {}
+
+    @classmethod
+    def connect_mutual_tls(
+        cls,
+        membership: SeedCommitMembership,
+        member_id: str,
+        host: str,
+        port: int,
+        context: ssl.SSLContext,
+        *,
+        server_hostname: str,
+        timeout: float = 3.0,
+        handshake_timeout: float = 5.0,
+        policy: ReliabilityPolicy | None = None,
+    ) -> "RecoveryLineagePeerClient":
+        """Mathematics: bind one remote authority only after mutual TLS verifies the server chain, DNS SAN, and client certificate."""
+
+        if not isinstance(membership, SeedCommitMembership):
+            raise RecoveryLineageTransportError("peer client requires fixed seed-commit membership")
+        if member_id not in membership.member_ids or member_id == membership.owner_id:
+            raise RecoveryLineageTransportError("authenticated remote peer must be a configured non-owner")
+        if not isinstance(context, ssl.SSLContext):
+            raise RecoveryLineageTransportError("mutual-TLS peer client requires an SSLContext")
+        try:
+            transport = _connect_mutual_tls(
+                host,
+                port,
+                membership.owner_id,
+                member_id,
+                context,
+                server_hostname=server_hostname,
+                timeout=timeout,
+                handshake_timeout=handshake_timeout,
+            )
+        except Exception as exc:
+            raise RecoveryLineageTransportError(
+                f"cannot establish authenticated recovery authority stream {member_id}: {exc}"
+            ) from exc
+        try:
+            return cls(
+                membership,
+                member_id,
+                transport,
+                timeout=timeout,
+                policy=policy,
+            )
+        except Exception:
+            transport.close()
+            raise
 
     @classmethod
     def connect(
