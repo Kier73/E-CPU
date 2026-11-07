@@ -62,9 +62,10 @@ def _live_pair(
     tmp_path,
     *,
     delayed_peer_seconds: float = 0.08,
+    delayed_peer_gate: threading.Event | None = None,
     members: tuple[str, ...] = ("A", "B", "C"),
 ):
-    """Mathematics: assemble a three-member fixed group with two TCP peer paths and independent durable participant state."""
+    """Mathematics: assemble a fixed group with two TCP peer paths and optionally gate delayed-peer service on an explicit test event."""
 
     owner, pid = _admitted_machine()
     genesis = SystemSeed.from_system(owner).origin_digest
@@ -101,7 +102,11 @@ def _live_pair(
             """Mathematics: repeatedly apply `P_{n+1}=service(P_n)` while preserving retryable failures and FIFO order."""
 
             if delay:
-                time.sleep(delay)
+                if delayed_peer_gate is None:
+                    time.sleep(delay)
+                else:
+                    while not stopping.is_set() and not delayed_peer_gate.wait(0.01):
+                        pass
             while not stopping.is_set():
                 try:
                     if not current_participant.service_once():
@@ -884,7 +889,13 @@ def test_owner_does_not_publish_after_local_decision_until_peer_decision_is_reco
 def test_observed_vote_is_fsynced_before_ack_and_reused_after_owner_restart(tmp_path) -> None:
     """Mathematics: an ACKed peer vote remains in the owner journal, so `restart + new vote` is unnecessary for quorum recovery."""
 
-    context = _live_pair(tmp_path, delayed_peer_seconds=0.8, members=("A", "B", "C", "D", "E"))
+    release_delayed_peer = threading.Event()
+    context = _live_pair(
+        tmp_path,
+        delayed_peer_seconds=0.8,
+        delayed_peer_gate=release_delayed_peer,
+        members=("A", "B", "C", "D", "E"),
+    )
     try:
         request = _request(context["owner"], context["pid"])
         proposal, artifact = context["coordinator"].propose_seed_input(request, "client", "seed.input", 1)
@@ -896,6 +907,9 @@ def test_observed_vote_is_fsynced_before_ack_and_reused_after_owner_restart(tmp_
         assert context["owner"].snapshot() == context["peer_nodes"]["B"]["operating_system"].snapshot()
         assert context["owner_journal"].snapshot()["operations"] == 0
 
+        # Release C only after the timeout has been observed. This preserves
+        # the intended partial-vote state independent of runner scheduling.
+        release_delayed_peer.set()
         restarted_ledger = DurableSeedCommitLedger(tmp_path / "A.quorum", "A", context["membership"])
         restarted_journal = DurableSeedCommitJournal(tmp_path / "A.publication", "A")
         context["coordinator"] = SeedCommitQuorumCoordinator(
