@@ -48,6 +48,7 @@ class TransitSIMTSharedMemoryHost:
         *,
         max_total_elements: int = 4096,
         max_buffers: int = 16,
+        max_integer_bits: int = 4096,
     ) -> None:
         """Mathematics: allocate finite buffer family M with total capacity at most B and initialize all cells as not-yet-written."""
 
@@ -60,6 +61,9 @@ class TransitSIMTSharedMemoryHost:
             or not isinstance(max_buffers, int)
             or isinstance(max_buffers, bool)
             or max_buffers <= 0
+            or not isinstance(max_integer_bits, int)
+            or isinstance(max_integer_bits, bool)
+            or max_integer_bits <= 0
         ):
             raise ValueError("shared-memory bounds must be positive integers")
         if len(buffers) > max_buffers:
@@ -80,6 +84,7 @@ class TransitSIMTSharedMemoryHost:
             name: {} for name in sorted(normalized)
         }
         self._epochs: list[dict[str, Any]] = []
+        self._max_integer_bits = max_integer_bits
 
     @property
     def names(self) -> tuple[str, ...]:
@@ -102,6 +107,8 @@ class TransitSIMTSharedMemoryHost:
             raise TransitSIMTError(f"shared address {index!r} is outside buffer {name!r}")
         if not isinstance(value, int) or isinstance(value, bool):
             raise TransitSIMTError("shared values must be integers")
+        if value.bit_length() > self._max_integer_bits:
+            raise TransitSIMTError("shared integer exceeds configured bit bound")
         if not isinstance(lane, int) or isinstance(lane, bool) or lane < 0:
             raise TransitSIMTError("shared writer lane is invalid")
         if index in self._pending[name]:
@@ -256,6 +263,7 @@ class TransitSIMTHost:
                 payload.get("shared_buffers"),
                 max_total_elements=self.max_shared_elements,
                 max_buffers=self.max_shared_buffers,
+                max_integer_bits=self.max_integer_bits,
             )
 
         raw_program = payload.get("program")
