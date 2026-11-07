@@ -146,8 +146,10 @@ def test_membership_coverage_and_role_binding_are_exact() -> None:
     """Mathematics: deployment member ids equal the fixed membership set and role(member)=owner iff member is the configured owner."""
 
     deployment = _deployment()
+    members = list(deployment.members)
+    replacement = replace(members[2], member_id="D", dns_name="authority-d.mailcpu.test")
     with pytest.raises(RecoveryLineageDeploymentError, match="cover the fixed membership exactly"):
-        RecoveryLineageDeployment(deployment.membership, deployment.members[:2])
+        RecoveryLineageDeployment(deployment.membership, (members[0], members[1], replacement))
 
     members = list(deployment.members)
     members[0] = replace(members[0], role="authority", endpoint_host="192.0.2.10", port=7443)
@@ -256,6 +258,24 @@ def test_cli_reports_topology_validation_without_exposing_local_key_paths(
     assert [item["member_id"] for item in summary["authorities"]] == ["B", "C"]
     assert "private_key_path" not in output
     assert "/etc/mailcpu" not in output
+
+
+def test_cli_can_emit_exact_membership_snapshot(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Mathematics: the emitted authority-service membership file equals the normalized membership projection."""
+
+    topology_path = tmp_path / "topology.json"
+    membership_path = tmp_path / "membership.json"
+    deployment = _deployment()
+    topology_path.write_text(json.dumps(deployment.snapshot()), encoding="utf-8")
+
+    assert main(
+        ["--topology", str(topology_path), "--write-membership", str(membership_path)]
+    ) == 0
+    capsys.readouterr()
+    assert json.loads(membership_path.read_text(encoding="utf-8")) == deployment.membership.snapshot()
 
 
 def test_cli_rejects_aliased_failure_domains(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
