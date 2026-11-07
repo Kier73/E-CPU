@@ -19,7 +19,7 @@ from typing import Any, Mapping, Sequence
 
 from .evidence_path_resolver import RouteMetric, RouteMetricKey
 from .headless import HeadlessOS
-from .kernel import Capability, ProcessStatus
+from .kernel import ProcessStatus
 from .seed import SystemIdentity
 from .semantic_translation import canonical_value_digest
 from .structural_memory import StructuralMemoryError, StructuralMemoryReadReceipt
@@ -74,18 +74,21 @@ class ComputationalBlockerCode(str, Enum):
 
 
 def _label(value: Any, name: str, maximum: int = 256) -> str:
+    """Validate one bounded non-empty identifier or display label."""
     if not isinstance(value, str) or not value or value.strip() != value or len(value.encode("utf-8")) > maximum:
         raise ComputationalResolutionError(f"{name} must be non-empty trimmed text of at most {maximum} UTF-8 bytes")
     return value
 
 
 def _digest(value: Any, name: str) -> str:
+    """Require a lowercase SHA-256 digest string."""
     if not isinstance(value, str) or _SHA256.fullmatch(value) is None:
         raise ComputationalResolutionError(f"{name} must be a lowercase SHA-256 digest")
     return value
 
 
 def _canonical_bytes(value: Any) -> bytes:
+    """Encode a detached JSON value using the resolver's canonical byte form."""
     try:
         return json.dumps(
             _plain(value),
@@ -99,6 +102,7 @@ def _canonical_bytes(value: Any) -> bytes:
 
 
 def _plain(value: Any) -> Any:
+    """Detach frozen mappings and tuples into ordinary JSON containers."""
     if isinstance(value, Mapping):
         return {key: _plain(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
@@ -107,6 +111,7 @@ def _plain(value: Any) -> Any:
 
 
 def _value_matches(value: Any, kind: str) -> bool:
+    """Check whether an inline JSON value matches a Virtual Layer input kind."""
     if kind == "any":
         return True
     if kind == "object":
@@ -208,12 +213,12 @@ class ComputationalAddress:
 
     @property
     def input_digest(self) -> str:
-        """Identity of the exact inline input envelope."""
+        """Return the identity of the exact inline input envelope."""
         return canonical_value_digest(_plain(self.workload.input_value))
 
     @property
     def state_digest(self) -> str:
-        """Identity of inline input plus all pinned Structural Memory coordinates."""
+        """Return the identity of inline input plus pinned Structural Memory coordinates."""
         reference = self.workload.operator_ref(self.operator_id)
         return canonical_value_digest({
             "input_digest": self.input_digest,
@@ -222,9 +227,11 @@ class ComputationalAddress:
 
     @property
     def digest(self) -> str:
+        """Return the content identity of this complete semantic address."""
         return canonical_value_digest(self.to_dict())
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize the typed workload address without code or authority."""
         return {
             "schema": "mailcpu.computational-address.v1",
             "workload": self.workload.to_dict(),
@@ -239,6 +246,7 @@ class ComputationalAddress:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "ComputationalAddress":
+        """Reconstruct an address only from its exact versioned JSON schema."""
         expected = {
             "schema", "workload", "operator_id", "operator_contract_digest",
             "computational_ground_fingerprint", "program_fingerprint",
@@ -370,10 +378,12 @@ class ComputationalHostLocus:
 
     @property
     def resource(self) -> str:
+        """Return the capability-safe resource path for this operator version."""
         return virtual_layer_operator_resource(self.operator_spec.operator_id, self.operator_spec.version)
 
     @property
     def locus_digest(self) -> str:
+        """Return a stable digest of this logical host/operator advertisement."""
         return canonical_value_digest(self.to_dict())
 
     def to_dict(self) -> dict[str, Any]:
@@ -409,9 +419,11 @@ class ComputationalHostCatalogue:
 
     @property
     def loci(self) -> tuple[ComputationalHostLocus, ...]:
+        """Return the local locus catalogue in stable identity order."""
         return tuple(self._loci[key] for key in sorted(self._loci))
 
     def register(self, locus: ComputationalHostLocus) -> str:
+        """Register one immutable logical host/operator advertisement."""
         if not isinstance(locus, ComputationalHostLocus):
             raise ComputationalResolutionError("catalogue accepts only ComputationalHostLocus values")
         key = (locus.host_id, locus.operator_spec.operator_id, locus.operator_spec.version)
@@ -425,9 +437,11 @@ class ComputationalHostCatalogue:
         return locus.locus_digest
 
     def remove(self, host_id: str, operator_id: str, version: int = 1) -> bool:
+        """Remove one exact logical host/operator locus, returning whether it existed."""
         return self._loci.pop((host_id, operator_id, version), None) is not None
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize the declarative catalogue while omitting local authority PIDs."""
         return {
             "schema": "mailcpu.computational-host-catalogue.v1",
             "max_loci": self.max_loci,
@@ -436,6 +450,7 @@ class ComputationalHostCatalogue:
 
     @property
     def digest(self) -> str:
+        """Return a stable digest of the ordered declarative host catalogue."""
         return canonical_value_digest(self.to_dict())
 
 
@@ -488,13 +503,16 @@ class ComputationalRouteWitness:
 
     @property
     def authoritative(self) -> bool:
+        """Route discovery is non-authoritative by construction."""
         return False
 
     @property
     def digest(self) -> str:
+        """Return the stable identity of this route witness."""
         return canonical_value_digest(self.to_dict())
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize all route, Ground, state, authority, cost, and implementation identities."""
         return {
             "schema": "mailcpu.computational-route-witness.v1",
             "authoritative": False,
@@ -559,13 +577,16 @@ class ComputationalResolutionResult:
 
     @property
     def authoritative(self) -> bool:
+        """A route proposal never authorizes or executes an operation."""
         return False
 
     @property
     def digest(self) -> str:
+        """Return the stable identity of this complete resolution result."""
         return canonical_value_digest(self.to_dict())
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize the outcome, selected witness, and deterministic blockers."""
         return {
             "schema": "mailcpu.computational-resolution-result.v1",
             "authoritative": False,
@@ -587,6 +608,7 @@ class ComputationalAddressResolver:
         catalogue: ComputationalHostCatalogue,
         operating_system: HeadlessOS,
     ) -> ComputationalResolutionResult:
+        """Resolve an address against trusted local advertisements and live receiver capabilities."""
         if not isinstance(address, ComputationalAddress):
             raise ComputationalResolutionError("resolve requires a ComputationalAddress")
         if not isinstance(catalogue, ComputationalHostCatalogue):
@@ -719,6 +741,7 @@ class ComputationalAddressResolver:
                                 or receipt.coordinate != memory_ref.coordinate
                                 or receipt.spec_digest != memory_ref.spec_digest
                                 or receipt.certificate_digest != memory_ref.certificate_digest
+                                or receipt.context_digest != canonical_value_digest(_plain(memory_ref.context))
                             ):
                                 reason = (ComputationalBlockerCode.STATE_UNAVAILABLE, "Structural Memory receipt does not match its pinned address")
                                 break
