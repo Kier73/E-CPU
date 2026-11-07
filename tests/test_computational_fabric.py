@@ -14,6 +14,8 @@ import pytest
 from mailcpu import (
     Capability,
     ComputationalAddress,
+    ComputationalAddressResolver,
+    ComputationalExecutionAdmissionCoordinator,
     ComputationalFabricAuthority,
     ComputationalFabricDirectory,
     ComputationalFabricPeerClient,
@@ -21,6 +23,7 @@ from mailcpu import (
     ComputationalFabricResolver,
     ComputationalFabricStatus,
     ComputationalHostAdvertisement,
+    ComputationalHostCatalogue,
     ComputationalHostLocus,
     ComputationalNetworkLink,
     ComputationalPeerEndpoint,
@@ -1110,3 +1113,116 @@ def test_three_peer_federation_discovers_directly_and_routes_over_two_authentica
             thread.join(timeout=3.0)
     assert all(not thread.is_alive() for thread in threads)
     assert not server_errors, repr(server_errors)
+
+
+def test_fabric_route_terminates_in_fresh_local_resolution_and_hypervisor_execution() -> None:
+    """A non-authoritative remote route locates the destination; only a fresh local witness can enter Hypervisor execution."""
+    destination_os = HeadlessOS()
+    system_identity = SystemIdentity("federated-execution-system", 1)
+    seed = SystemSeed.from_system(destination_os)
+    envelope = SystemSeedEnvelope(
+        system_identity,
+        "federated-execution",
+        "federated-execution",
+        seed,
+    )
+    assert destination_os.seed_admission.admit(envelope).accepted
+    system_ground = VirtualGroundRef.from_envelope(envelope)
+
+    calls: list[str] = []
+    registry = OperatorRegistry()
+    spec = _spec()
+
+    def execute(value, workload):
+        """Mathematics: Execute the pure sum only after receiver-local Hypervisor admission."""
+        calls.append(workload.workload_id)
+        return value["left"] + value["right"]
+
+    registry.register(spec, execute)
+    runtime = VirtualLayerRuntime(registry, "node-b", frozenset({"cpu"}))
+    pid = destination_os.environment.kernel.spawn(
+        "federated-compute-host",
+        capabilities=(Capability("/virtual-layer/operators", frozenset({"compute"})),),
+        parent_pid=destination_os.environment.init_pid,
+    )
+    locus = ComputationalHostLocus.from_runtime(
+        host_id="logical-host-c",
+        runtime=runtime,
+        authority_pid=pid,
+        operator_id="core.sum_pair",
+        computational_ground_fingerprints=(GROUND_FP,),
+        program_fingerprints=(PROGRAM_FP,),
+        costs=_host_costs(3),
+        implementation_fingerprint=IMPLEMENTATION_FP,
+    )
+    catalogue = ComputationalHostCatalogue((locus,))
+
+    workload = VirtualLayerWorkload(
+        workload_id="federated-sum-workload",
+        system=system_identity,
+        ground=system_ground,
+        intention={"goal": {"kind": "sum", "expected": 9}},
+        operators=(VirtualOperatorRef("core.sum_pair", 1, "cpu"),),
+        input_value={"left": 4, "right": 5},
+        budget=VirtualBudget(10_000, 10_000, 10_000),
+        logical_time=13,
+        eligible_nodes=("node-b",),
+        max_hops=3,
+    )
+    address = ComputationalAddress.from_workload(
+        workload,
+        "core.sum_pair",
+        spec,
+        GROUND_FP,
+        program_fingerprint=PROGRAM_FP,
+        metric_order=METRICS,
+    )
+
+    advertisement = ComputationalHostAdvertisement.from_locus(locus, "peer-c")
+    directory = _directory(
+        _snapshot("peer-a", links=(_link("peer-a", "peer-b", 2),)),
+        _snapshot("peer-b", links=(_link("peer-b", "peer-c", 3),)),
+        _snapshot("peer-c", hosts=(advertisement,)),
+    )
+    fabric_result = ComputationalFabricResolver().resolve(
+        address,
+        directory,
+        origin_peer_id="peer-a",
+    )
+
+    assert fabric_result.status is ComputationalFabricStatus.FOUND
+    assert fabric_result.witness is not None
+    assert fabric_result.authoritative is False
+    assert fabric_result.witness.peer_path == ("peer-a", "peer-b", "peer-c")
+    assert fabric_result.witness.target_host.digest == advertisement.digest
+    assert "authority_pid" not in fabric_result.witness.target_host.to_dict()
+    assert "runtime_binding" not in fabric_result.witness.target_host.to_dict()
+    assert "handler_binding" not in fabric_result.witness.target_host.to_dict()
+    assert calls == []
+
+    # The terminal peer does not consume the fabric witness as an execution
+    # grant. It resolves the original address against its own live catalogue,
+    # current System Ground, process rights, runtime object and handler.
+    local_resolution = ComputationalAddressResolver().resolve(
+        address,
+        catalogue,
+        destination_os,
+    )
+    assert local_resolution.status.value == "found"
+    assert local_resolution.witness is not None
+    assert local_resolution.authoritative is False
+
+    execution = ComputationalExecutionAdmissionCoordinator(destination_os).execute(
+        address,
+        local_resolution.witness,
+        catalogue,
+        runtime,
+        source="federated-requester",
+        channel="federated.execution",
+        sequence=1,
+    )
+    assert execution.executed
+    assert execution.hypervisor_result is not None
+    assert execution.hypervisor_result.action.value == "allow"
+    assert execution.hypervisor_result.value["result"] == 9
+    assert calls == ["federated-sum-workload"]
