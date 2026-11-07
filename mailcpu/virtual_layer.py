@@ -122,6 +122,13 @@ def _positive_int(value: int, name: str, *, allow_zero: bool = False) -> int:
     return value
 
 
+def virtual_layer_operator_resource(operator_id: str, version: int) -> str:
+    """Mathematics: Map a typed operator identity to a canonical capability-safe Virtual Layer resource path."""
+    identity = _operator_id(operator_id)
+    _positive_int(version, "operator version")
+    return f"/virtual-layer/operators/{identity}/v{version}"
+
+
 def _value_matches(value: Any, kind: str) -> bool:
     """Mathematics: Check that one JSON value has the operator contract's declared type."""
     if kind == "any":
@@ -782,7 +789,7 @@ class VirtualLayerRuntime:
             raise VirtualLayerError("event logical time must match workload logical time")
         reference, spec, _, input_value, input_bytes, energy, ticks = self._resolve_operator(workload, operator_id, enforce_placement=False, require_handler=False)
         operation = VIRTUAL_LAYER_OPERATOR_OPERATION
-        resource = f"/virtual-layer/operators/{spec.operator_id}@{spec.version}"
+        resource = virtual_layer_operator_resource(spec.operator_id, spec.version)
         request = HypervisorRequest(
             operation=operation,
             resource=resource,
@@ -821,7 +828,7 @@ class VirtualLayerRuntime:
             raise VirtualLayerError("operator contract does not match this execution node")
         if handler is None or reference.version != version:
             raise VirtualLayerError("operator implementation or version is unavailable")
-        if request.resource != f"/virtual-layer/operators/{spec.operator_id}@{spec.version}" or request.required_rights != spec.required_rights:
+        if request.resource != virtual_layer_operator_resource(spec.operator_id, spec.version) or request.required_rights != spec.required_rights:
             raise VirtualLayerError("operation resource or required rights differ from the local operator contract")
         if payload.get("input_digest") != _digest(input_value, "operator input"):
             raise VirtualLayerError("operator input digest mismatch")
