@@ -873,22 +873,24 @@ class ComputationalFabricDirectory:
         replacing_peer: str,
     ) -> None:
         """Mathematics: Check aggregate peer, host and link cardinalities before atomically admitting one revision."""
-        snapshots = {
+        remote_snapshots = {
             peer_id: snapshot
             for peer_id, snapshot in self._snapshots.items()
-            if peer_id != replacing_peer
+            if peer_id != self.local_peer_id and peer_id != replacing_peer
         }
-        if replacing_peer == self.local_peer_id:
-            local_count = 1
+        local_snapshot = self._local_snapshot
+        if incoming.peer_id == self.local_peer_id:
+            local_snapshot = incoming
         else:
-            local_count = int(self._local_snapshot is not None)
-        snapshots[incoming.peer_id] = incoming
-        peer_count = len(snapshots) + local_count
-        host_count = sum(len(item.hosts) for item in snapshots.values())
-        link_count = sum(len(item.links) for item in snapshots.values())
-        if self._local_snapshot is not None and replacing_peer != self.local_peer_id:
-            host_count += len(self._local_snapshot.hosts)
-            link_count += len(self._local_snapshot.links)
+            remote_snapshots[incoming.peer_id] = incoming
+        # The local peer occupies one slot even before its own host/link
+        # snapshot has been registered.
+        peer_count = 1 + len(remote_snapshots)
+        host_count = sum(len(item.hosts) for item in remote_snapshots.values())
+        link_count = sum(len(item.links) for item in remote_snapshots.values())
+        if local_snapshot is not None:
+            host_count += len(local_snapshot.hosts)
+            link_count += len(local_snapshot.links)
         if peer_count > self.max_peers:
             raise ComputationalFabricError("federated peer directory exceeds its peer bound")
         if host_count > self.max_hosts:
