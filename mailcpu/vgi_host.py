@@ -111,7 +111,7 @@ def vgi_signal8_implementation_fingerprint(
     file_manifest = []
     for source_name, source_path in sorted(sources.items()):
         try:
-            source_bytes = source_path.read_bytes()
+            source_bytes = source_path.read_bytes().replace(b"\r\n", b"\n")
         except OSError as exc:
             raise VGIHostError(f"cannot read implementation source {source_name}") from exc
         file_manifest.append({
