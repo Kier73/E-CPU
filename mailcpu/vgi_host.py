@@ -47,11 +47,12 @@ def vgi_signal8_implementation_fingerprint(
     *,
     max_configured_steps: int | None = None,
 ) -> str:
-    """Fingerprint the installed E-CPU/VGI Python source and optional concrete host class.
+    """Fingerprint normalized E-CPU/VGI Python source, host class, and execution profile.
 
-    The digest is path-independent and intentionally separate from both the
-    mathematical Ground fingerprint and the OperatorSpec contract digest. It
-    is a source identity, not a hardware or complete runtime attestation.
+    The digest is path-independent and intentionally separate from the
+    mathematical Ground fingerprint and OperatorSpec contract digest.
+    max_configured_steps binds the concrete VGI resource ceiling. This is
+    source/profile identity, not hardware or complete runtime attestation.
     """
     try:
         import vgi
