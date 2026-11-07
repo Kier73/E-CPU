@@ -28,6 +28,7 @@ class VirtualLayerError(ValueError):
 _JSON_KINDS = frozenset({"any", "object", "array", "integer", "number", "string", "boolean", "null"})
 _EFFECT_MODES = frozenset({"pure", "idempotent", "transactional"})
 _SUBSTRATES = frozenset({"cpu", "gpu", "fpga", "dpu", "network", "memory", "sensor", "delay-loop"})
+VIRTUAL_LAYER_OPERATOR_OPERATION = "cpu register arithmetic instruction scheduling program execution virtual layer pure operator transformation"
 
 
 def _validate_json(value: Any, label: str) -> None:
@@ -119,6 +120,13 @@ def _positive_int(value: int, name: str, *, allow_zero: bool = False) -> int:
         relation = "non-negative" if allow_zero else "positive"
         raise VirtualLayerError(f"{name} must be a {relation} integer")
     return value
+
+
+def virtual_layer_operator_resource(operator_id: str, version: int) -> str:
+    """Mathematics: Map a typed operator identity to a canonical capability-safe Virtual Layer resource path."""
+    identity = _operator_id(operator_id)
+    _positive_int(version, "operator version")
+    return f"/virtual-layer/operators/{identity}/v{version}"
 
 
 def _value_matches(value: Any, kind: str) -> bool:
@@ -780,8 +788,8 @@ class VirtualLayerRuntime:
         if logical_time != workload.logical_time:
             raise VirtualLayerError("event logical time must match workload logical time")
         reference, spec, _, input_value, input_bytes, energy, ticks = self._resolve_operator(workload, operator_id, enforce_placement=False, require_handler=False)
-        operation = "cpu register arithmetic instruction scheduling program execution virtual layer pure operator transformation"
-        resource = f"/virtual-layer/operators/{spec.operator_id}@{spec.version}"
+        operation = VIRTUAL_LAYER_OPERATOR_OPERATION
+        resource = virtual_layer_operator_resource(spec.operator_id, spec.version)
         request = HypervisorRequest(
             operation=operation,
             resource=resource,
@@ -820,7 +828,7 @@ class VirtualLayerRuntime:
             raise VirtualLayerError("operator contract does not match this execution node")
         if handler is None or reference.version != version:
             raise VirtualLayerError("operator implementation or version is unavailable")
-        if request.resource != f"/virtual-layer/operators/{spec.operator_id}@{spec.version}" or request.required_rights != spec.required_rights:
+        if request.resource != virtual_layer_operator_resource(spec.operator_id, spec.version) or request.required_rights != spec.required_rights:
             raise VirtualLayerError("operation resource or required rights differ from the local operator contract")
         if payload.get("input_digest") != _digest(input_value, "operator input"):
             raise VirtualLayerError("operator input digest mismatch")
@@ -873,6 +881,20 @@ class VirtualLayerRuntime:
             return effect
 
         return authorized_event, invoke
+
+    def execute_authorized_event(
+        self,
+        operating_system: Any,
+        pid: int,
+        event: HypervisorArbitrationEvent,
+    ) -> dict[str, object]:
+        """Mathematics: execute the already-admitted Virtual Layer event through local Ground and operator refinement checks."""
+        authorized, invoke = self._prepare_event(operating_system, pid, event)
+        if authorized.identity != event.identity:
+            raise VirtualLayerError("local operator preparation changed semantic event identity")
+        if authorized.request.granted_rights != event.request.granted_rights:
+            raise VirtualLayerError("local operator preparation changed receiver capability projection")
+        return invoke()
 
     def execute_operator(self, operating_system: Any, pid: int, source: str, channel: str, sequence: int, logical_time: int, workload: VirtualLayerWorkload, operator_id: str) -> HypervisorExecutionResult:
         """Mathematics: Execute one local pure operator through the existing hypervisor decision and effect ledgers."""
