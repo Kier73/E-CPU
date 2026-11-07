@@ -123,6 +123,20 @@ The tests in tests/test_recovery_lineage_service.py cover:
 
 The service also preserves the prior PR #42 tests for process death after remote PREPARE, after remote COMMIT, and after quorum completion.
 
+## TCP partition and member catch-up
+
+The recovery-lineage service test suite also includes an explicit TCP byte-stream partition experiment. A test proxy terminates TLS at neither endpoint: it relays the established encrypted stream normally, then can blackhole bytes in both directions while keeping the owner and authority service processes alive.
+
+The experiment establishes the following sequence:
+
+1. Owner A and authorities B/C connect over mutual TLS. C's established TCP path is routed through the partition proxy; B remains directly connected.
+2. The proxy drops all bytes on C's link. C supplies no prepare vote and is not terminated. A and B still provide the configured strict majority, so generation one seals with the exact A+B certificate and a read quorum verifies its high-water.
+3. The timed-out C stream is closed, the proxy heals, and C accepts a new mutually authenticated stream over the same service listener and journal.
+4. The owner retries the same manifest. A and B's original prepare certificate is reused; C completes its local decision from that exact certificate and reaches the same generation-one high-water.
+5. Generation two then seals with A, B, and C, proving that the rejoined member can re-enter the next quorum after catching up.
+
+This is a TCP-level blackhole/partition experiment between independent local processes. It is stronger than a graceful client disconnect, but it remains a proxy-based simulation on one host. It does not demonstrate routing failures across real machines, kernel/firewall behavior, cloud network partitions, or host-level fault-domain independence.
+
 ## Operational limits and proof boundary
 
 The tests use independent local processes, ephemeral test certificates, loopback TCP, and deliberate stream closure. They establish certificate-chain and DNS-SAN authentication, reconnection to an existing member journal, quorum refusal below threshold, and exact same-owner restart recovery. They do not establish separate physical-host fault domains, firewall-level partition behavior, arbitrary packet-loss/latency tolerance, certificate revocation or live rotation, storage power-loss guarantees, Byzantine tolerance, or automatic leader election.

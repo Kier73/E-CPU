@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import json
 import os
+import select
 import shutil
+import socket
 import ssl
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -45,8 +48,12 @@ def _membership() -> SeedCommitMembership:
     )
 
 
-def _manifest(membership: SeedCommitMembership) -> RecoveryCheckpointManifest:
-    """Bind deterministic endpoint checkpoint and backend digests to generation one."""
+def _manifest(
+    membership: SeedCommitMembership,
+    generation: int = 1,
+    predecessor: str = GENESIS,
+) -> RecoveryCheckpointManifest:
+    """Bind deterministic endpoint checkpoint and backend digests to one selected generation."""
 
     import hashlib
 
@@ -56,10 +63,10 @@ def _manifest(membership: SeedCommitMembership) -> RecoveryCheckpointManifest:
         membership.owner_id,
         membership.owner_term,
         membership.digest,
-        1,
-        GENESIS,
-        hashlib.sha256(b"requester-checkpoint").hexdigest(),
-        hashlib.sha256(b"receiver-checkpoint").hexdigest(),
+        generation,
+        predecessor,
+        hashlib.sha256(f"requester-checkpoint-{generation}".encode()).hexdigest(),
+        hashlib.sha256(f"receiver-checkpoint-{generation}".encode()).hexdigest(),
         hashlib.sha256(b'[[\"cpu.execute\",\"/cpu/compute\"]]').hexdigest(),
         "after_response_publish",
     )
@@ -129,6 +136,123 @@ def _make_certificates(directory: Path) -> dict[str, Path]:
         files[f"{member_id}_key"] = key
         files[f"{member_id}_cert"] = certificate
     return files
+
+
+class _TCPPartitionProxy:
+    """A byte-stream TCP relay that can blackhole an established link without killing either endpoint."""
+
+    def __init__(self, upstream_host: str, upstream_port: int) -> None:
+        """Mathematics: bind one local listener L and route each accepted stream to fixed upstream endpoint U."""
+
+        self.upstream_host = upstream_host
+        self.upstream_port = int(upstream_port)
+        self.listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.listener.bind(("127.0.0.1", 0))
+        self.listener.listen(8)
+        self.listener.settimeout(0.1)
+        self.host, self.port = self.listener.getsockname()
+        self._partitioned = threading.Event()
+        self._stopping = threading.Event()
+        self._lock = threading.Lock()
+        self._connections: set[socket.socket] = set()
+        self._workers: set[threading.Thread] = set()
+        self._acceptor = threading.Thread(target=self._accept_loop, daemon=True)
+        self._acceptor.start()
+
+    def partition(self) -> None:
+        """Mathematics: set the link cut so bytes are consumed but not forwarded in either direction."""
+
+        self._partitioned.set()
+
+    def heal(self) -> None:
+        """Mathematics: clear the link cut for new streams; existing TLS streams are discarded and must reconnect."""
+
+        self._partitioned.clear()
+
+    def close(self) -> None:
+        """Mathematics: stop accepting streams and close every local and upstream connection owned by this relay."""
+
+        self._stopping.set()
+        try:
+            self.listener.close()
+        except OSError:
+            pass
+        with self._lock:
+            connections = tuple(self._connections)
+        for connection in connections:
+            try:
+                connection.close()
+            except OSError:
+                pass
+        self._acceptor.join(timeout=2.0)
+        with self._lock:
+            workers = tuple(self._workers)
+        for worker in workers:
+            worker.join(timeout=2.0)
+
+    def _accept_loop(self) -> None:
+        """Mathematics: create one bounded forwarding worker for every accepted TCP stream until shutdown."""
+
+        while not self._stopping.is_set():
+            try:
+                client, _address = self.listener.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            worker = threading.Thread(target=self._relay, args=(client,), daemon=True)
+            with self._lock:
+                self._connections.add(client)
+                self._workers.add(worker)
+            worker.start()
+
+    def _relay(self, client: socket.socket) -> None:
+        """Mathematics: forward bytes bidirectionally unless partitioned, preserving TCP ordering within each direction."""
+
+        upstream: socket.socket | None = None
+        try:
+            upstream = socket.create_connection(
+                (self.upstream_host, self.upstream_port),
+                timeout=2.0,
+            )
+            upstream.setblocking(False)
+            client.setblocking(False)
+            with self._lock:
+                self._connections.add(upstream)
+            pairs = ((client, upstream), (upstream, client))
+            while not self._stopping.is_set():
+                readable, _writable, _exceptional = select.select(
+                    [client, upstream], [], [], 0.05
+                )
+                for source in readable:
+                    try:
+                        payload = source.recv(65536)
+                    except (BlockingIOError, InterruptedError):
+                        continue
+                    if not payload:
+                        return
+                    if not self._partitioned.is_set():
+                        target = upstream if source is client else client
+                        target.sendall(payload)
+        except OSError:
+            return
+        finally:
+            for connection in (client, upstream):
+                if connection is None:
+                    continue
+                try:
+                    connection.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+                try:
+                    connection.close()
+                except OSError:
+                    pass
+                with self._lock:
+                    self._connections.discard(connection)
+            with self._lock:
+                self._workers.discard(threading.current_thread())
 
 
 def _server_context(certificates: dict[str, Path], member_id: str) -> ssl.SSLContext:
@@ -214,18 +338,21 @@ def _connect_peer(
     ready: dict[str, Any],
     *,
     server_hostname: str | None = None,
+    connect_host: str | None = None,
+    connect_port: int | None = None,
+    timeout: float = 0.8,
 ) -> RecoveryLineagePeerClient:
-    """Open a mutual-TLS peer client bound to the configured member and certificate DNS identity."""
+    """Open a mutual-TLS peer client through a direct or proxied TCP endpoint with fixed certificate identity."""
 
     return RecoveryLineagePeerClient.connect_mutual_tls(
         membership,
         member_id,
-        ready["host"],
-        int(ready["port"]),
+        connect_host or ready["host"],
+        int(ready["port"] if connect_port is None else connect_port),
         _owner_context(certificates),
         server_hostname=server_hostname or f"member-{member_id.lower()}.mailcpu.test",
-        timeout=0.8,
-        handshake_timeout=0.8,
+        timeout=timeout,
+        handshake_timeout=timeout,
     )
 
 
@@ -445,6 +572,96 @@ def test_owner_process_restart_reopens_exact_vote_and_recovers_with_remote_quoru
     finally:
         peer_b.close()
         peer_c.close()
+        _stop(process_b)
+        _stop(process_c)
+
+
+
+@pytest.mark.skipif(shutil.which("openssl") is None, reason="OpenSSL CLI is required to create ephemeral test certificates")
+def test_tcp_partition_preserves_two_member_quorum_and_rejoined_member_catches_up(
+    tmp_path: Path,
+) -> None:
+    """Mathematics: blackholing one established TCP path leaves a strict owner majority able to commit, then the healed member replays the same certificate and catches up."""
+
+    certificates = _make_certificates(tmp_path)
+    membership = _membership()
+    manifest_one = _manifest(membership)
+    owner = RecoveryLineageAuthority(
+        membership, "A", tmp_path / "authorities" / "A.jsonl"
+    )
+    process_b, ready_b = _start_member(tmp_path, membership, certificates, "B")
+    process_c, ready_c = _start_member(tmp_path, membership, certificates, "C")
+    proxy = _TCPPartitionProxy(ready_c["host"], int(ready_c["port"]))
+    peer_b: RecoveryLineagePeerClient | None = None
+    peer_c: RecoveryLineagePeerClient | None = None
+    rejoined_c: RecoveryLineagePeerClient | None = None
+    try:
+        peer_b = _connect_peer(membership, certificates, "B", ready_b)
+        peer_c = _connect_peer(
+            membership,
+            certificates,
+            "C",
+            ready_c,
+            connect_host=str(proxy.host),
+            connect_port=proxy.port,
+            timeout=0.35,
+        )
+        coordinator = _coordinator(membership, owner, {"B": peer_b, "C": peer_c})
+
+        # The proxy keeps both TCP endpoints alive but discards every byte in
+        # either direction. C cannot supply a vote; A and B still form q=2.
+        proxy.partition()
+        proof_one = coordinator.seal(manifest_one)
+        assert tuple(vote.member_id for vote in proof_one.certificate.votes) == ("A", "B")
+        assert tuple(decision.member_id for decision in proof_one.decisions) == ("A", "B")
+        assert coordinator.high_water() == (1, manifest_one.digest)
+        assert process_b.poll() is None
+        assert process_c.poll() is None
+
+        # Close the timed-out TLS stream, heal the path and establish a fresh
+        # authenticated stream to the still-running C service.
+        peer_c.close()
+        proxy.heal()
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline:
+            try:
+                rejoined_c = _connect_peer(
+                    membership,
+                    certificates,
+                    "C",
+                    ready_c,
+                    connect_host=str(proxy.host),
+                    connect_port=proxy.port,
+                    timeout=0.5,
+                )
+                break
+            except RecoveryLineageTransportError:
+                time.sleep(0.03)
+        assert rejoined_c is not None, "C did not accept a fresh authenticated stream after partition heal"
+
+        recovered = _coordinator(membership, owner, {"B": peer_b, "C": rejoined_c})
+        proof_replayed = recovered.seal(manifest_one)
+        assert proof_replayed.certificate.snapshot() == proof_one.certificate.snapshot()
+        assert rejoined_c.committed_state() == (1, manifest_one.digest)
+        assert recovered.high_water() == (1, manifest_one.digest)
+
+        # Once caught up, C can participate in a new generation and the
+        # certificate reflects all three authority members.
+        manifest_two = _manifest(
+            membership,
+            generation=2,
+            predecessor=manifest_one.digest,
+        )
+        proof_two = recovered.seal(manifest_two)
+        assert tuple(vote.member_id for vote in proof_two.certificate.votes) == ("A", "B", "C")
+        assert recovered.high_water() == (2, manifest_two.digest)
+        assert process_b.poll() is None
+        assert process_c.poll() is None
+    finally:
+        for peer in (peer_b, peer_c, rejoined_c):
+            if peer is not None:
+                peer.close()
+        proxy.close()
         _stop(process_b)
         _stop(process_c)
 
