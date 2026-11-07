@@ -96,7 +96,7 @@ class TransitBackendRouter(TransitComputeHost):
     def registered_backend_implementations(
         self,
     ) -> tuple[tuple[str, str, str | None], ...]:
-        """Expose each dispatch key with its optional concrete source fingerprint."""
+        """Mathematics: Expose each dispatch key with its optional concrete source fingerprint."""
 
         return tuple(
             (operation, resource, self._implementation_fingerprints[(operation, resource)])

@@ -47,7 +47,7 @@ def vgi_signal8_implementation_fingerprint(
     *,
     max_configured_steps: int | None = None,
 ) -> str:
-    """Fingerprint normalized E-CPU/VGI Python source, host class, and execution profile.
+    """Mathematics: Fingerprint normalized E-CPU/VGI Python source, host class, and execution profile.
 
     The digest is path-independent and intentionally separate from the
     mathematical Ground fingerprint and OperatorSpec contract digest.

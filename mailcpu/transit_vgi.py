@@ -69,7 +69,7 @@ class TransitVGIHost(TransitComputeHost):
 
     @property
     def implementation_fingerprint(self) -> str:
-        """Return the source identity of this concrete hosted VGI backend class."""
+        """Mathematics: Return the source identity of this concrete hosted VGI backend class."""
         return self._implementation_fingerprint
 
     def handle(self, event: HypervisorArbitrationEvent) -> dict[str, object]:
