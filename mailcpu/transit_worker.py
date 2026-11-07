@@ -396,7 +396,7 @@ class TransitComputeWorker:
             if actual_bounds != dict(raw_bounds):
                 raise ValueError("restored backend compute bounds do not match checkpoint")
 
-        if expected_version == 2:
+        if expected_version in {2, 3}:
             raw_manifest = state.get("backend_manifest")
             if not isinstance(raw_manifest, list) or not raw_manifest:
                 raise ValueError("transit worker backend manifest must be a non-empty list")
