@@ -686,6 +686,11 @@ class ComputationalAddressResolver:
             elif address.computational_ground_fingerprint not in locus.computational_ground_fingerprints:
                 reason = (ComputationalBlockerCode.GROUND_MISMATCH, "computational Ground is not supported by this host")
             elif (
+                address.program_fingerprint is None
+                and not locus.supports_ground_program_compilation
+            ):
+                reason = (ComputationalBlockerCode.PROGRAM_MISMATCH, "address has no exact program pin and host does not advertise Ground-bounded compilation")
+            elif (
                 address.program_fingerprint is not None
                 and address.program_fingerprint not in locus.program_fingerprints
                 and not locus.supports_ground_program_compilation
