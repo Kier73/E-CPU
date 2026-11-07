@@ -561,11 +561,13 @@ class ComputationalFabricAuthority:
         self._revision = 0
         self._hosts: dict[tuple[str, str, int], ComputationalHostAdvertisement] = {}
         self._links: dict[str, ComputationalNetworkLink] = {}
+        self._lock = threading.RLock()
 
     @property
     def revision(self) -> int:
         """Mathematics: Expose the current monotonic advertisement revision."""
-        return self._revision
+        with self._lock:
+            return self._revision
 
     def register_host(
         self,
@@ -586,20 +588,22 @@ class ComputationalFabricAuthority:
             advertisement.operator_spec.operator_id,
             advertisement.operator_spec.version,
         )
-        existing = self._hosts.get(key)
-        if existing == advertisement:
+        with self._lock:
+            existing = self._hosts.get(key)
+            if existing == advertisement:
+                return advertisement.digest
+            self._hosts[key] = advertisement
+            self._revision += 1
             return advertisement.digest
-        self._hosts[key] = advertisement
-        self._revision += 1
-        return advertisement.digest
 
     def remove_host(self, host_id: str, operator_id: str, version: int = 1) -> bool:
         """Mathematics: Remove one exact host/operator registration and advance the peer revision iff it existed."""
         key = (_label(host_id, "host_id"), _label(operator_id, "operator_id"), _positive(version, "version"))
-        if self._hosts.pop(key, None) is None:
-            return False
-        self._revision += 1
-        return True
+        with self._lock:
+            if self._hosts.pop(key, None) is None:
+                return False
+            self._revision += 1
+            return True
 
     def register_link(self, link: ComputationalNetworkLink) -> str:
         """Mathematics: Register one directed outgoing link whose source is this authenticated peer."""
@@ -607,33 +611,36 @@ class ComputationalFabricAuthority:
             raise ComputationalFabricError("register_link requires a ComputationalNetworkLink")
         if link.source_peer_id != self.endpoint.peer_id:
             raise ComputationalFabricError("peer may register only its own outgoing links")
-        existing = self._links.get(link.link_id)
-        if existing == link:
+        with self._lock:
+            existing = self._links.get(link.link_id)
+            if existing == link:
+                return link.link_id
+            self._links[link.link_id] = link
+            if len(self._links) > _MAX_NETWORK_LINKS:
+                del self._links[link.link_id]
+                raise ComputationalFabricError("peer link catalogue exceeds its bound")
+            self._revision += 1
             return link.link_id
-        self._links[link.link_id] = link
-        if len(self._links) > _MAX_NETWORK_LINKS:
-            del self._links[link.link_id]
-            raise ComputationalFabricError("peer link catalogue exceeds its bound")
-        self._revision += 1
-        return link.link_id
 
     def remove_link(self, link_id: str) -> bool:
         """Mathematics: Remove one exact content-addressed link and revise the peer snapshot iff it existed."""
         _digest(link_id, "link_id")
-        if self._links.pop(link_id, None) is None:
-            return False
-        self._revision += 1
-        return True
+        with self._lock:
+            if self._links.pop(link_id, None) is None:
+                return False
+            self._revision += 1
+            return True
 
     def snapshot(self) -> ComputationalPeerSnapshot:
         """Mathematics: Produce the exact current peer-owned host and topology revision."""
-        return ComputationalPeerSnapshot(
-            self.endpoint,
-            self._revision,
-            self.lease_seconds,
-            tuple(self._hosts.values()),
-            tuple(self._links.values()),
-        )
+        with self._lock:
+            return ComputationalPeerSnapshot(
+                self.endpoint,
+                self._revision,
+                self.lease_seconds,
+                tuple(self._hosts.values()),
+                tuple(self._links.values()),
+            )
 
     @classmethod
     def from_snapshot(
