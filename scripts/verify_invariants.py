@@ -213,6 +213,7 @@ def _expected_symbol(establishes: str) -> str | None:
         "computational_resolver": "ComputationalAddressResolver",
         "computational_execution": "ComputationalExecutionAdmissionCoordinator",
         "computational_fabric": "ComputationalFabricResolver",
+        "computational_fabric_recovery": "ComputationalFabricRecoveryStore",
         "transit_simt": "TransitSIMTHost",
         "seed_commit_quorum": "DurableSeedCommitLedger",
     }
