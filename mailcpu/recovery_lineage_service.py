@@ -5,12 +5,11 @@ from __future__ import annotations
 import argparse
 import json
 import signal
-import socket
 import ssl
 import threading
 import time
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 
 from .mtls_transport import MutualTLSTransportError, accept_mutual_tls
 from .recovery_lineage_transport import (
@@ -30,7 +29,7 @@ class RecoveryLineageAuthorityService:
         membership: SeedCommitMembership,
         member_id: str,
         journal_path: str | Path,
-        listener: socket.socket,
+        listener: Any,
         tls_context: ssl.SSLContext,
         *,
         expected_owner_dns: str,
@@ -47,8 +46,10 @@ class RecoveryLineageAuthorityService:
             raise ValueError("authority service member must belong to fixed membership")
         if member_id == membership.owner_id:
             raise ValueError("authority service hosts non-owner members only")
-        if not isinstance(listener, socket.socket):
-            raise TypeError("authority service listener must be a socket")
+        if not callable(getattr(listener, "accept", None)) or not callable(
+            getattr(listener, "getsockname", None)
+        ):
+            raise TypeError("authority service listener must expose accept() and getsockname()")
         if not isinstance(tls_context, ssl.SSLContext):
             raise TypeError("authority service requires a server SSLContext")
         if (
