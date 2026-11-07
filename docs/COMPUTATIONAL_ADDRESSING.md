@@ -289,10 +289,64 @@ The wrapper returns a typed result distinguishing executed, replayed, Hypervisor
 
 The slice remains receiver-local. An implementation fingerprint in a locus is still trusted advertised source/profile identity, not independent runtime or hardware attestation. The optional program fingerprint is likewise a host-advertised exact identity; this layer does not load arbitrary program bytes or prove hardware refinement. Global discovery and multi-hop routing remain future work.
 
-## 10. What exists now and what remains proposed
+## 10. Executable third slice: authenticated fabric discovery and multi-hop route planning
 
-**Already present in E-CPU:** typed Virtual Layer workloads; separate System and Computational Grounds; versioned operator contracts; local capability reconstruction; exact Transit dispatch; reliable message channels; causal sequence/frontier data; execution commit/replay ledgers; Structural Memory references; checkpoints; quorum-verified recovery bundles; backend dispatch manifests; VGI source-implementation fingerprint checks during restoration; the first receiver-local semantic-address resolver with non-authoritative route witnesses, and the second-slice witness revalidation/Virtual Layer execution handoff.
+The first network-wide layer is implemented in `mailcpu/computational_fabric.py`. It composes the existing mutual-TLS framed transport and reliable-channel protocol with portable host advertisements and a bounded directed peer graph.
 
-**Not yet a general capability:** global semantic address discovery across remote hosts; an index for locating any arbitrary intermediate state or checkpoint; automatic multi-hop cost-optimized path construction over a network-wide host graph; transparent migration of arbitrary live processes between CPU/GPU/FPGA substrates; or general proofs that any replacement implementation refines any Ground.
+A peer publishes its own host/operator advertisements and outgoing links through `ComputationalFabricAuthority`. Its `ComputationalFabricPeerServer` answers snapshot requests over a direct mutual-TLS connection. A configured peer uses `ComputationalFabricPeerClient` to fetch the snapshot and merge it into `ComputationalFabricDirectory`:
 
-The prudent direction is incremental: make existing identity/address components explicit, prove one new resolution law at a time, and only then generalize route selection. A continuously available computational environment emerges from persistent commitments plus procedural reachability—not from materializing every possible execution or assuming that network transport itself is a processor.
+```python
+directory = ComputationalFabricDirectory(
+    local_peer_id="peer-a",
+    trusted_peers={"peer-b": "compute-b.example.net"},
+)
+directory.register_local_snapshot(local_authority.snapshot())
+
+client = ComputationalFabricPeerClient.connect_mutual_tls(
+    "peer-a",
+    remote_endpoint,
+    client_tls_context,
+)
+client.refresh(directory)
+
+route = ComputationalFabricResolver().resolve(
+    address,
+    directory,
+    origin_peer_id="peer-a",
+    max_hops=8,
+    max_expansions=4096,
+)
+```
+
+Trust begins with an explicit local mapping from peer identity to expected TLS DNS identity. The underlying TLS helper validates the certificate chain and peer name. The directory merge also checks that the authenticated transport peer, configured DNS identity, and snapshot peer/endpoint identities agree. A snapshot revision cannot move backwards; different content at the same revision is treated as peer equivocation. A received snapshot receives a receiver-local monotonic lease, bounded by local policy. Wall-clock timestamps are not used to order peer revisions or lease expiry.
+
+A portable host advertisement is deliberately not a local execution locus. It contains logical host identity, placement node, operator contract/version, Ground/program support, substrate and resource declarations, estimated cost vector, and an optional implementation source/profile fingerprint. It does **not** contain the receiver PID, capability set, runtime object, or callable handler. Remote claims identify candidates; they do not create local authority or prove the remote process is currently alive.
+
+Peers advertise only their own host records and outgoing directed links. The directory accepts remote snapshots only from a directly authenticated configured peer. The resolver plans across the active peer graph, with explicit direction, deterministic lexicographic additive metrics, tie-breaks, hop and expansion limits, per-link frame ceilings, operator/Ground/program/placement/substrate/observation checks, resource ceilings, and a required implementation identity pin. It preserves separate best path labels by peer and hop count so a cheaper but too-long prefix cannot suppress a shorter feasible alternative.
+
+The result is a digest-bound `ComputationalFabricRouteWitness` with the ordered peer path, link identities, peer endpoints, candidate logical host, and separate network, host, and total cost vectors. Both the result and witness explicitly remain `authoritative=False`. Peer costs are advertised estimates; they are not measured latency or energy guarantees. The frame-size check uses the canonical serialized address size as a bounded planning estimate, not a guarantee of final transport frame size.
+
+### What this connects—and what it does not
+
+This is the first federated discovery and multi-hop **planning** slice, not a multi-hop execution or forwarding service. The origin currently needs a direct authenticated snapshot for each peer represented in its directory, including peers that are intermediate nodes or the destination. The planner does not recursively query a peer for its neighbours, does not ask peers to forward requests, and does not dispatch the planned operation.
+
+When forwarding is added, each hop will need its own peer-bound admission, request/replay identity, resource and payload checks, deadline, causal receipt, and failure handling. At the destination the request must still be resolved against that receiver's local `ComputationalHostCatalogue` and then pass through `ComputationalExecutionAdmissionCoordinator`, the Virtual Layer, local capability reconstruction, and Hypervisor policy/effect ledger. A fabric route witness will never replace those checks.
+
+The route also solves a different problem from the existing navigation components:
+
+- `EGPUHost` navigates a directed graph **inside one composite logical host** (dispatch, SIMT, workgroup/shared memory, reduction, verification).
+- `ComputationalFabricResolver` navigates a directed graph **between peer identities** to reach an advertised remote host.
+- `EvidencePathResolver` navigates a graph **between representation identities** through exact translation contracts, observation comparisons, prerequisites, invariants, and evidence.
+- `ContextualNavigator` and the formal navigation modules traverse a described process's **state space**.
+- `NavigableComputationDAG` owns operation dependencies/readiness; `TransitOrbitScheduler` owns deterministic path-quanta selection. Fabric discovery does not duplicate either one.
+
+These graphs may eventually compose. A DAG node may require a representation translation, a network route to an E-GPU host, and then an internal E-GPU method path. Each graph keeps its own identity and proof obligations; one route receipt does not silently prove the others.
+
+## 11. What exists now and what remains proposed
+
+**Already present in E-CPU:** typed Virtual Layer workloads; separate System and Computational Grounds; versioned operator contracts; local capability reconstruction; exact Transit dispatch; reliable message channels; causal sequence/frontier data; execution commit/replay ledgers; Structural Memory references; checkpoints; quorum-verified recovery bundles; backend dispatch manifests; VGI source-implementation fingerprint checks during restoration; receiver-local semantic-address resolution; witness revalidation and Hypervisor-governed execution handoff; and the first authenticated peer directory plus cost/hop-bounded multi-hop route planner.
+
+**Not yet a general capability:** recursive discovery/gossip or a global name service; hop-by-hop forwarding and end-to-end dispatch across the selected peer path; terminal remote invocation through a network RPC execution service; an index for arbitrary intermediate state or checkpoint coordinates; transparent migration of arbitrary live processes between CPU/GPU/FPGA substrates; independently attested remote runtime/hardware identity; or general proofs that any replacement implementation refines any Ground.
+
+The prudent direction is compositional: keep peer trust and logical host identity explicit, connect each graph only through typed contracts, measure route costs from real path observations, and require each destination to re-establish local authority. A continuous computational environment should emerge from persistent commitments and procedural reachability—not from equating advertised addresses with execution authority or treating network transport itself as a processor.
+
