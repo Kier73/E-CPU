@@ -1520,7 +1520,12 @@ class ComputationalFabricResolver:
         if not isinstance(directory, ComputationalFabricDirectory):
             raise ComputationalFabricError("resolve requires a ComputationalFabricDirectory")
         origin = _peer_id(origin_peer_id, "origin_peer_id")
-        max_hops = _positive(max_hops, "max_hops", minimum=0, maximum=128)
+        if origin != directory.local_peer_id:
+            raise ComputationalFabricError("origin_peer_id must equal this directory's local peer identity")
+        max_hops = min(
+            _positive(max_hops, "max_hops", minimum=0, maximum=128),
+            address.workload.max_hops,
+        )
         max_expansions = _positive(max_expansions, "max_expansions", maximum=100_000)
         address_digest = address.digest
         # Capture one lease-filtered view and derive both identities from that
