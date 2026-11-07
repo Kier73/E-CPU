@@ -684,7 +684,8 @@ class ComputationalFabricDirectory:
             if peer_id == self.local_peer_id or peer_id in normalized:
                 raise ComputationalFabricError("trusted peer identities must be unique and exclude the local peer")
             normalized[peer_id] = _dns_name(dns_name, "trusted peer DNS identity")
-        self.trusted_peers = dict(sorted(normalized.items()))
+        self._trusted_peers = dict(sorted(normalized.items()))
+        self._lock = threading.RLock()
         self.max_peer_lease_seconds = _positive(
             max_peer_lease_seconds,
             "max_peer_lease_seconds",
@@ -701,24 +702,31 @@ class ComputationalFabricDirectory:
         self._local_snapshot: ComputationalPeerSnapshot | None = None
 
     @property
+    def trusted_peers(self) -> dict[str, str]:
+        """Mathematics: Return a detached view of the immutable peer→TLS-DNS bootstrap trust mapping."""
+        return dict(self._trusted_peers)
+
+    @property
     def peer_snapshots(self) -> tuple[ComputationalPeerSnapshot, ...]:
         """Mathematics: Return all last-known peer snapshots in stable peer-id order, including expired entries."""
-        values = dict(self._snapshots)
-        if self._local_snapshot is not None:
-            values[self.local_peer_id] = self._local_snapshot
-        return tuple(values[key] for key in sorted(values))
+        with self._lock:
+            values = dict(self._snapshots)
+            if self._local_snapshot is not None:
+                values[self.local_peer_id] = self._local_snapshot
+            return tuple(values[key] for key in sorted(values))
 
     @property
     def active_snapshots(self) -> tuple[ComputationalPeerSnapshot, ...]:
         """Mathematics: Return only the local snapshot and remote snapshots whose receiver-local leases remain live."""
-        now = self._monotonic()
-        selected: dict[str, ComputationalPeerSnapshot] = {}
-        if self._local_snapshot is not None:
-            selected[self.local_peer_id] = self._local_snapshot
-        for peer_id, snapshot in self._snapshots.items():
-            if now < self._deadlines.get(peer_id, float("-inf")):
-                selected[peer_id] = snapshot
-        return tuple(selected[key] for key in sorted(selected))
+        with self._lock:
+            now = self._monotonic()
+            selected: dict[str, ComputationalPeerSnapshot] = {}
+            if self._local_snapshot is not None:
+                selected[self.local_peer_id] = self._local_snapshot
+            for peer_id, snapshot in self._snapshots.items():
+                if now < self._deadlines.get(peer_id, float("-inf")):
+                    selected[peer_id] = snapshot
+            return tuple(selected[key] for key in sorted(selected))
 
     @property
     def hosts(self) -> tuple[ComputationalHostAdvertisement, ...]:
@@ -743,11 +751,12 @@ class ComputationalFabricDirectory:
     @property
     def expired_peer_ids(self) -> tuple[str, ...]:
         """Mathematics: Return remote peer identities whose local lease deadlines have elapsed."""
-        now = self._monotonic()
-        return tuple(sorted(
-            peer_id for peer_id, deadline in self._deadlines.items()
-            if now >= deadline
-        ))
+        with self._lock:
+            now = self._monotonic()
+            return tuple(sorted(
+                peer_id for peer_id, deadline in self._deadlines.items()
+                if now >= deadline
+            ))
 
     def register_local_snapshot(self, snapshot: ComputationalPeerSnapshot) -> bool:
         """Mathematics: Register the local peer's own snapshot without inventing a remote TLS observation."""
@@ -755,17 +764,18 @@ class ComputationalFabricDirectory:
             raise ComputationalFabricError("local registration requires a ComputationalPeerSnapshot")
         if snapshot.peer_id != self.local_peer_id:
             raise ComputationalFabricError("local snapshot peer identity differs from this directory")
-        if self._local_snapshot is not None:
-            previous = self._local_snapshot
-            if snapshot.revision < previous.revision:
-                raise ComputationalFabricError("local peer snapshot revision cannot move backwards")
-            if snapshot.revision == previous.revision:
-                if snapshot.digest != previous.digest:
-                    raise ComputationalFabricError("local peer equivocated at an existing snapshot revision")
-                return False
-        self._validate_capacity(snapshot, replacing_peer=self.local_peer_id)
-        self._local_snapshot = snapshot
-        return True
+        with self._lock:
+            if self._local_snapshot is not None:
+                previous = self._local_snapshot
+                if snapshot.revision < previous.revision:
+                    raise ComputationalFabricError("local peer snapshot revision cannot move backwards")
+                if snapshot.revision == previous.revision:
+                    if snapshot.digest != previous.digest:
+                        raise ComputationalFabricError("local peer equivocated at an existing snapshot revision")
+                    return False
+            self._validate_capacity(snapshot, replacing_peer=self.local_peer_id)
+            self._local_snapshot = snapshot
+            return True
 
     def merge_authenticated_snapshot(
         self,
@@ -779,27 +789,28 @@ class ComputationalFabricDirectory:
             raise ComputationalFabricError("remote merge requires a ComputationalPeerSnapshot")
         peer_id = _peer_id(authenticated_peer_id, "authenticated_peer_id")
         server_name = _dns_name(authenticated_server_name, "authenticated_server_name")
-        expected_dns = self.trusted_peers.get(peer_id)
-        if expected_dns is None:
-            raise ComputationalFabricError("snapshot source is not an explicitly trusted direct peer")
         if snapshot.peer_id != peer_id:
             raise ComputationalFabricError("snapshot peer identity differs from the authenticated transport peer")
-        if server_name != expected_dns or snapshot.endpoint.tls_server_name != expected_dns:
-            raise ComputationalFabricError("authenticated TLS DNS identity differs from configured peer trust")
-        previous = self._snapshots.get(peer_id)
-        if previous is not None:
-            if snapshot.revision < previous.revision:
-                raise ComputationalFabricError("peer snapshot revision rollback detected")
-            if snapshot.revision == previous.revision and snapshot.digest != previous.digest:
-                raise ComputationalFabricError("peer equivocated at an existing snapshot revision")
-        self._validate_capacity(snapshot, replacing_peer=peer_id)
-        changed = previous is None or previous.digest != snapshot.digest
-        self._snapshots[peer_id] = snapshot
-        self._deadlines[peer_id] = self._monotonic() + min(
-            snapshot.lease_seconds,
-            self.max_peer_lease_seconds,
-        )
-        return changed
+        with self._lock:
+            expected_dns = self._trusted_peers.get(peer_id)
+            if expected_dns is None:
+                raise ComputationalFabricError("snapshot source is not an explicitly trusted direct peer")
+            if server_name != expected_dns or snapshot.endpoint.tls_server_name != expected_dns:
+                raise ComputationalFabricError("authenticated TLS DNS identity differs from configured peer trust")
+            previous = self._snapshots.get(peer_id)
+            if previous is not None:
+                if snapshot.revision < previous.revision:
+                    raise ComputationalFabricError("peer snapshot revision rollback detected")
+                if snapshot.revision == previous.revision and snapshot.digest != previous.digest:
+                    raise ComputationalFabricError("peer equivocated at an existing snapshot revision")
+            self._validate_capacity(snapshot, replacing_peer=peer_id)
+            changed = previous is None or previous.digest != snapshot.digest
+            self._snapshots[peer_id] = snapshot
+            self._deadlines[peer_id] = self._monotonic() + min(
+                snapshot.lease_seconds,
+                self.max_peer_lease_seconds,
+            )
+            return changed
 
     def _validate_capacity(
         self,
@@ -833,11 +844,16 @@ class ComputationalFabricDirectory:
 
     def purge_expired(self) -> tuple[str, ...]:
         """Mathematics: Remove expired remote snapshots and leases without mutating the local authority record."""
-        expired = self.expired_peer_ids
-        for peer_id in expired:
-            self._snapshots.pop(peer_id, None)
-            self._deadlines.pop(peer_id, None)
-        return expired
+        with self._lock:
+            now = self._monotonic()
+            expired = tuple(sorted(
+                peer_id for peer_id, deadline in self._deadlines.items()
+                if now >= deadline
+            ))
+            for peer_id in expired:
+                self._snapshots.pop(peer_id, None)
+                self._deadlines.pop(peer_id, None)
+            return expired
 
     @property
     def digest(self) -> str:
@@ -1665,7 +1681,9 @@ class ComputationalFabricResolver:
                 best_by_peer[peer_id] = candidate
 
         hosts = tuple(
-            item for item in directory.hosts
+            item
+            for snapshot in active
+            for item in snapshot.hosts
             if item.operator_spec.operator_id == address.operator_id
             and item.operator_spec.version == reference.version
         )
