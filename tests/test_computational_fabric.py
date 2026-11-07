@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import shutil
 import socket
 import ssl
@@ -498,7 +499,7 @@ def test_fabric_resolver_enforces_hop_frame_budget_and_implementation_pins() -> 
     assert any(item.code.value == "resource_limit" for item in tiny.blockers)
 
 
-def test_fabric_resolver_fails_closed_on_contract_ground_program_and_operator_type() -> None:
+def test_fabric_resolver_fails_closed_on_incompatible_computational_ground() -> None:
     good = ComputationalHostAdvertisement.from_locus(_locus(), "peer-b")
     wrong_ground = ComputationalHostAdvertisement(
         good.host_id, good.node_id, good.peer_id, good.operator_spec, good.substrates,
@@ -515,6 +516,64 @@ def test_fabric_resolver_fails_closed_on_contract_ground_program_and_operator_ty
     )
     assert blocked.status is ComputationalFabricStatus.BLOCKED
     assert any(item.code.value == "ground_mismatch" for item in blocked.blockers)
+
+
+def test_fabric_resolver_preserves_shorter_paths_when_the_cheapest_prefix_exceeds_hop_budget() -> None:
+    advertisement = ComputationalHostAdvertisement.from_locus(_locus(), "peer-d")
+    directory = _directory(
+        _snapshot(
+            "peer-a",
+            links=(
+                _link("peer-a", "peer-b", 1),
+                _link("peer-a", "peer-c", 5),
+            ),
+        ),
+        _snapshot("peer-b", links=(_link("peer-b", "peer-c", 1),)),
+        _snapshot("peer-c", links=(_link("peer-c", "peer-d", 1),)),
+        _snapshot("peer-d", hosts=(advertisement,)),
+    )
+
+    result = ComputationalFabricResolver().resolve(
+        _address(),
+        directory,
+        origin_peer_id="peer-a",
+        max_hops=2,
+    )
+
+    assert result.status is ComputationalFabricStatus.FOUND
+    assert result.witness is not None
+    assert result.witness.peer_path == ("peer-a", "peer-c", "peer-d")
+    assert tuple(
+        item.amount for item in result.witness.network_costs if item.name == "latency"
+    ) == (6,)
+
+
+def test_fabric_resolver_rejects_program_and_operator_contract_mismatches() -> None:
+    advertisement = ComputationalHostAdvertisement.from_locus(_locus(), "peer-b")
+    program_mismatch = replace(advertisement, program_fingerprints=("d" * 64,))
+    contract_mismatch = replace(
+        advertisement,
+        operator_spec=replace(
+            advertisement.operator_spec,
+            description="A different operator contract with the same operator name",
+        ),
+    )
+    for candidate, code in (
+        (program_mismatch, "program_mismatch"),
+        (contract_mismatch, "contract_mismatch"),
+    ):
+        directory = _directory(
+            _snapshot("peer-a", links=(_link("peer-a", "peer-b", 1),)),
+            _snapshot("peer-b", hosts=(candidate,)),
+        )
+        result = ComputationalFabricResolver().resolve(
+            _address(),
+            directory,
+            origin_peer_id="peer-a",
+        )
+        assert result.status is ComputationalFabricStatus.BLOCKED
+        assert result.witness is None
+        assert any(item.code.value == code for item in result.blockers)
 
 
 @pytest.mark.skipif(shutil.which("openssl") is None, reason="OpenSSL CLI is required for ephemeral mutual-TLS certificates")
@@ -565,6 +624,9 @@ def test_mutual_tls_peer_client_discovers_and_merges_remote_host_snapshot(tmp_pa
             "peer-a",
             {"peer-b": "peer-b.fabric.test"},
         )
+        directory.register_local_snapshot(
+            _snapshot("peer-a", links=(_link("peer-a", "peer-b", 2),))
+        )
         client = ComputationalFabricPeerClient.connect_mutual_tls(
             "peer-a",
             endpoint,
@@ -575,6 +637,15 @@ def test_mutual_tls_peer_client_discovers_and_merges_remote_host_snapshot(tmp_pa
         assert tuple(item.peer_id for item in directory.active_snapshots) == ("peer-b",)
         assert directory.hosts[0].host_id == "logical-host-b"
         assert directory.hosts[0].implementation_fingerprint == IMPLEMENTATION_FP
+        routed = ComputationalFabricResolver().resolve(
+            _address(),
+            directory,
+            origin_peer_id="peer-a",
+        )
+        assert routed.status is ComputationalFabricStatus.FOUND
+        assert routed.witness is not None
+        assert routed.witness.peer_path == ("peer-a", "peer-b")
+        assert routed.witness.target_host.host_id == "logical-host-b"
         assert server_result.get("server") is not None
         assert not server_errors
     finally:
