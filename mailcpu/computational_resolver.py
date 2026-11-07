@@ -737,9 +737,8 @@ class ComputationalAddressResolver:
             elif (
                 address.program_fingerprint is not None
                 and address.program_fingerprint not in locus.program_fingerprints
-                and not locus.supports_ground_program_compilation
             ):
-                reason = (ComputationalBlockerCode.PROGRAM_MISMATCH, "program is neither registered nor dynamically compilable under this Ground")
+                reason = (ComputationalBlockerCode.PROGRAM_MISMATCH, "exact program fingerprint is not registered by this host")
             elif reference.target_node is not None and reference.target_node != locus.node_id:
                 reason = (ComputationalBlockerCode.PLACEMENT_MISMATCH, "operator reference targets a different node")
             elif workload.eligible_nodes and locus.node_id not in workload.eligible_nodes:
