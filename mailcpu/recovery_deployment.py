@@ -289,6 +289,11 @@ def build_parser() -> argparse.ArgumentParser:
         description="Validate a fixed-membership, multi-host recovery-lineage deployment topology."
     )
     parser.add_argument("--topology", type=Path, required=True)
+    parser.add_argument(
+        "--write-membership",
+        type=Path,
+        help="write the normalized fixed-membership snapshot for authority services",
+    )
     return parser
 
 
@@ -302,6 +307,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     except (OSError, UnicodeError, json.JSONDecodeError, RecoveryLineageDeploymentError) as exc:
         print(f"invalid recovery-lineage topology: {exc}")
         return 2
+
+    if arguments.write_membership is not None:
+        try:
+            arguments.write_membership.write_text(
+                json.dumps(deployment.membership.snapshot(), sort_keys=True, indent=2) + "\\n",
+                encoding="utf-8",
+            )
+        except OSError as exc:
+            print(f"could not write membership snapshot: {exc}")
+            return 2
 
     authorities = [
         {
