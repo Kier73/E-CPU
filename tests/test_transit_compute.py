@@ -1288,8 +1288,11 @@ def test_transit_worker_checkpoint_requires_matching_backend_manifest_on_restore
 
     checkpoint = worker.snapshot(request, response)
     expected_manifest = set(router.registered_backends())
-    assert checkpoint["format"] == "mailcpu-transit-worker-checkpoint-v2"
+    assert checkpoint["format"] == "mailcpu-transit-worker-checkpoint-v3"
     assert {tuple(item) for item in checkpoint["state"]["backend_manifest"]} == expected_manifest
+    implementation_manifest = checkpoint["state"]["backend_implementation_manifest"]
+    assert {(item[0], item[1]) for item in implementation_manifest} == expected_manifest
+    assert all(item[2] is None for item in implementation_manifest)
 
     try:
         TransitComputeWorker.from_snapshot(checkpoint, transport, transport)
@@ -1307,3 +1310,71 @@ def test_transit_worker_checkpoint_requires_matching_backend_manifest_on_restore
     assert restored.compute_host.registered_backends() == router.registered_backends()
     assert restored_request.channel.snapshot() == request.channel.snapshot()
     assert restored_response.snapshot() == response.snapshot()
+
+
+
+def test_transit_worker_restore_rejects_backend_implementation_fingerprint_drift() -> None:
+    """A matching dispatch domain cannot conceal a changed concrete backend source identity."""
+
+    from mailcpu import InMemoryTransport
+
+    class FingerprintedHost(TransitComputeHost):
+        operation_name = "test.fingerprinted.execute"
+        resource_name = "/test/fingerprinted"
+
+        def __init__(self, fingerprint: str) -> None:
+            super().__init__()
+            self.implementation_fingerprint = fingerprint
+
+    receiver = HeadlessOS()
+    authority_pid = receiver.environment.kernel.spawn(
+        "fingerprint-worker",
+        capabilities=(Capability("/cpu/compute", frozenset({"execute"})),),
+        parent_pid=receiver.environment.init_pid,
+    )
+
+    def build_router(fingerprint: str):
+        def factory(operating_system, pid):
+            router = TransitBackendRouter()
+            router.register_backend(FingerprintedHost(fingerprint))
+            return router
+        return factory
+
+    router = build_router("a" * 64)(receiver, authority_pid)
+    worker = TransitComputeWorker(receiver, authority_pid, router)
+    transport = InMemoryTransport()
+    policy = ReliabilityPolicy(window_size=4)
+    request = HypervisorOperationChannel(
+        ReliableChannel(transport, "worker", "worker", "fingerprint", policy, peer="client")
+    )
+    response = HypervisorOperationResultChannel(
+        ReliableChannel(transport, "worker", "client", "fingerprint.result", policy),
+        "client",
+        "fingerprint",
+    )
+    checkpoint = worker.snapshot(request, response)
+    assert checkpoint["format"] == "mailcpu-transit-worker-checkpoint-v3"
+    assert [item[2] for item in checkpoint["state"]["backend_implementation_manifest"]] == [
+        None,
+        "a" * 64,
+    ]
+
+    restored, _, _ = TransitComputeWorker.from_snapshot(
+        checkpoint,
+        transport,
+        transport,
+        compute_host_factory=build_router("a" * 64),
+    )
+    assert restored.compute_host.registered_backends() == router.registered_backends()
+
+    try:
+        TransitComputeWorker.from_snapshot(
+            checkpoint,
+            transport,
+            transport,
+            compute_host_factory=build_router("b" * 64),
+        )
+    except ValueError as exc:
+        assert "implementation manifest" in str(exc)
+    else:
+        raise AssertionError("restore accepted a backend with a changed implementation fingerprint")

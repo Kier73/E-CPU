@@ -1,0 +1,235 @@
+# Computational Addressing and Execution in Transit
+
+## Purpose
+
+This note formalizes one architectural direction for E-CPU: a computational system can be treated as a persistent, addressable transition structure whose state and operations are reached through communication. The execution substrate may be a local CPU, an E-GPU method, another server, or a later distributed backend. Computational identity should not be confused with the machine or process that realizes one transition.
+
+This is an architectural synthesis, not a claim that E-CPU already has a universal network-wide state-space resolver. The current implementation supplies several necessary primitives: typed Virtual Layer workloads, Ground and operator identities, exact Transit routing, receiver-local authority reconstruction, execution ledgers, durable channel state, and quorum-gated recovery bundles.
+
+## 1. Computational structure
+
+Represent one declared computational domain as:
+
+\[
+\mathcal{C}=(G,P,\Sigma,\Delta,\mathcal{R})
+\]
+
+where:
+
+- \(G\) is the computational Ground: domain, valid representations, assumptions, and observation rules;
+- \(P\) is the program or declared transition relation;
+- \(\Sigma\) is its state space, including materialized states and states that can be procedurally reconstructed;
+- \(\Delta\) is the set of permitted state transitions;
+- \(\mathcal{R}\) resolves a request to an eligible execution capability and verified path.
+
+Ground and program descriptions may be finite even when the set of possible executions is very large. The system does not need to enumerate every possible state. It needs sufficient rules and identity to generate, locate, restore, and verify states relevant to admitted requests. Every real implementation remains bounded by declared execution, memory, time, and placement limits; this is not a claim of unbounded physical computation.
+
+A computation path is a composition of transitions:
+
+\[
+s_n = T_n \circ T_{n-1} \circ \cdots \circ T_1(s_0)
+\]
+
+A transition may be realized by a different host from its predecessor. The path is therefore the logical composition of verified transformations, not necessarily one process or one chip.
+
+## 2. Computational address
+
+A request can be represented by a semantic address:
+
+\[
+A=(G_s,G_c,P,\theta,x,\tau,O)
+\]
+
+where:
+
+- \(G_s\): admitted E-CPU System Ground and causal frontier;
+- \(G_c\): computational Ground under which the operation has meaning;
+- \(P\): program/task identity and, after compilation, its compiled fingerprint;
+- \(\theta\): intention and requested operation;
+- \(x\): a state coordinate, content reference, checkpoint, or Structural Memory address;
+- \(\tau\): logical execution coordinate and causal position;
+- \(O\): requested observation or output projection.
+
+An address is semantic rather than physical. It does not contain a required server IP, process ID, or CPU core. It names what is requested and the conditions under which a result is valid. A resolver may choose a physical implementation later, subject to policy, capability, budget, Ground compatibility, and refinement evidence.
+
+### Existing E-CPU correspondence
+
+| Address component | Existing E-CPU representation |
+|---|---|
+| System Ground \(G_s\) | VirtualGroundRef(origin_digest, state_digest, coordinate, frontier_digest) |
+| Computational Ground \(G_c\) | Domain fingerprint, such as VGI SIGNAL8_GROUND.fingerprint |
+| Program \(P\) | Typed task payload and compiled program fingerprint in the execution receipt |
+| Intention \(\theta\) | VirtualLayerWorkload.intention, operator reference, and event operation/resource |
+| State coordinate \(x\) | Input digest, Structural Memory references, state/checkpoint data and recovery bundle references |
+| Logical/causal coordinate \(\tau\) | Workload logical time, event channel/sequence, reliable cursors, Ground frontier, and execution journal |
+| Observation \(O\) | Declared output kind, result digest, execution trace, translation evidence, and oracle evidence |
+| Candidate placement | eligible_nodes, substrate constraints, hop budget, and receiver-local Transit backend registration |
+
+VirtualLayerWorkload already carries most of the semantic address. E-CPU should extend that existing structure only when a new field adds a distinct, enforced proof obligation; it should not create a second parallel request/address protocol.
+
+The correspondence has an important limit: the current TransitBackendRouter resolves an exact operation/resource pair against a receiver-local registry. It is not yet a global resolver that searches all reachable hosts, checkpoints, and execution paths for an arbitrary semantic address.
+
+## 3. One interface, four different operations
+
+The address can expose several operation modes. They share identity and validation, but they must not be conflated.
+
+### Locate
+
+\[
+\operatorname{Locate}(A)\rightarrow (s,\rho)
+\]
+
+Find an already materialized or committed state/effect and return a receipt \(\rho\). In current E-CPU, exact event retry can locate a committed execution effect through the hypervisor execution ledger and replay it without invoking the backend again.
+
+This is not yet arbitrary random access to every intermediate program state or every historical snapshot. A general state index and queryable state catalogue would be a future capability.
+
+### Restore
+
+\[
+\operatorname{Restore}(A,B)\rightarrow s
+\]
+
+Reconstruct state from a digest-checked checkpoint and recovery bundle \(B\), only after its lineage proof, backend domain, implementation identities, and local runtime constraints are accepted. Recovery can replace the process and transport connections while retaining the committed computation.
+
+### Continue
+
+\[
+\operatorname{Continue}(A,s,m)\rightarrow s'
+\]
+
+Admit a new transition from a known state using message or task input \(m\). The new event receives a new execution identity. An exact retry of an already committed event returns its effect; a different input under the same execution identity is a conflict, not a new continuation.
+
+### Transform
+
+\[
+\operatorname{Transform}(G,P,s,\theta)\rightarrow (s',O)
+\]
+
+Apply the declared operator or program transition and produce an observation under the declared Ground. For VGI Signal8, the workload is compiled to typed VGI IR, executed with a bounded step limit, and returned with Ground, program, trace, checkpoint, and execution digests.
+
+## 4. Resolution and path selection
+
+A future general resolver can be expressed as:
+
+\[
+\operatorname{Resolve}(A,\mathcal{H})\rightarrow(h,\rho,s,\pi)
+\]
+
+where \(\mathcal{H}\) is the available host/capability set, \(h\) is a selected host, \(\rho\) is its receiver-local authority context, \(s\) is the located or restored state, and \(\pi\) is the transition route.
+
+The candidate path set is:
+
+\[
+\Pi(A)=\{\pi\mid \pi\text{ satisfies Ground, causal, capability, and budget constraints}\}
+\]
+
+A route objective can be represented as a vector rather than collapsing incomparable quantities into one arbitrary scalar:
+
+\[
+\mathbf{C}(\pi)=(L(\pi),E(\pi),B(\pi),R(\pi))
+\]
+
+where declared dimensions may represent latency, energy, byte movement, and recovery/verification risk. Selection may use a policy-defined lexicographic order or explicit ceilings:
+
+\[
+\pi^*=\operatorname*{arg\,min}_{\pi\in\Pi(A)}^{\text{policy}}\mathbf{C}(\pi)
+\]
+
+No route is admissible merely because it is cheap. It must first satisfy semantic compatibility, local authority, causal dependencies, workload budgets, and the required verification tier.
+
+Today, E-CPU has exact local dispatch and several specialized navigation/path-resolution components. A global resolver across networked hosts, persistent streams, and checkpoint catalogues remains proposed work.
+
+## 5. The required order of operations
+
+A safe request path should preserve this order. Exact internal call boundaries may vary, but proof dependencies should not.
+
+1. **Canonicalize and bind the request.** Validate the typed request, input digest, and stable execution identity.
+2. **Validate both Grounds.** Check the admitted System Ground and causal frontier; separately check the computational Ground fingerprint and its assumptions.
+3. **Resolve the declared program and operator contract.** Match operator ID, version, schema, contract digest, and program identity.
+4. **Resolve state and candidate placement.** Locate an existing effect/state or select an admissible checkpoint and receiver-local backend. Keep physical placement late-bound.
+5. **Reconstruct local authority.** Derive permissions from the receiving system's own capability state. Never accept remote claims of authority as grants.
+6. **Select the operation mode.** Locate, restore, continue, or transform. Do not execute a committed effect merely to rediscover it.
+7. **Execute and verify.** Enforce resource bounds and check the result against declared observations, translation contracts, or independent oracles where available.
+8. **Commit semantic effect.** Bind the result and evidence to the event identity in the execution ledger/journal.
+9. **Publish and acknowledge.** Only after commit, make the effect available over the replaceable communication connection and acknowledge reliable delivery.
+
+The commit-before-publication order is the continuity boundary exercised by the Transit VGI process-death experiment.
+
+## 6. Communication path as execution path
+
+Communication is a carrier and causal structure; it does not compute by itself. A computation is realized when a participating endpoint applies an admitted transition and makes the resulting state/effect available to the next step.
+
+The full logical path can therefore be:
+
+\[
+m_0\xrightarrow{T_1,h_1}m_1
+\xrightarrow{T_2,h_2}m_2
+\xrightarrow{T_3,h_3}\cdots
+\xrightarrow{T_n,h_n}m_n
+\]
+
+Each \(T_i\) is a declared transformation; \(h_i\) is the host/substrate that realizes it. Hosts may be heterogeneous or replaced between steps. The composition behaves as one computational path only when each edge preserves the required identity, causal, authority, and observation invariants.
+
+### Causality is not a universal wall clock
+
+logical_time is a logical coordinate, not a claim that all distributed transitions share one physical clock or one global total order. Channel sequence, execution identity, Ground frontier, and recorded dependencies help establish causal ordering. Independent branches may progress concurrently. Non-commuting transitions cannot be reordered merely because separate hosts are available; reordering requires an explicit independence or commutativity argument.
+
+### Durable state is not the socket buffer
+
+For recovery, distinguish the durable logical path state:
+
+\[
+X=(C,Q,L,E)
+\]
+
+where:
+
+- \(C\): persistent checkpoints and admitted structural state;
+- \(Q\): durable queued/retry frames and reliable-channel cursors;
+- \(L\): execution/commit/replay ledger;
+- \(E\): execution receipts, event journal, and verification evidence.
+
+Raw bytes unread in a particular TCP connection are not durable state. A terminated connection may lose them. E-CPU's recovery design retains the sender's reliable frame and receiver's committed execution state, then reconnects over a fresh transport and retransmits. Thus the communication relationship and protocol state can persist while a particular socket does not.
+
+## 7. Implementation identity and semantic refinement
+
+A host follows the normative definition in [COMMUNICATION_HOST_MODEL.md](COMMUNICATION_HOST_MODEL.md):
+
+\[
+H=(I,C,S,T,K,L)
+\]
+
+It is an identifiable operational locus with logical identity \(I\), communication interfaces/adjacency \(C\), operational state \(S\) (which may be empty for a stateless transform), transition relation \(T\), permitted capabilities \(K\), and operational lineage \(L\). A host is therefore not synonymous with a server, process, CPU, or placement node. A passive network link is a substrate edge; a queue, router, filter, or scheduler becomes a host only when it owns a defined operational transition and capability. A logical host may be realized by different resources over time, provided its identity and lineage continuity obligations are preserved.
+
+For this address model, the **host** is the locus that owns or exposes the requested operation; the **implementation** is the concrete source/profile used to realize its transition; and **placement** is the current physical or virtual realization. A process ID and in-memory objects may disappear. A replacement host is admissible only if it reconstructs the required authority and rebinds an implementation satisfying the saved contract and continuity conditions. The source fingerprint below identifies implementation, not the logical host itself.
+
+Keep these identities separate:
+
+1. **System Ground** — admitted E-CPU system context and causal frontier.
+2. **Computational Ground** — the domain's formal meaning and observation rules.
+3. **Program** — the typed task and compiled transition relation.
+4. **Input/context** — the concrete request, values, constraints, and context digest.
+5. **Operator contract** — declared operation, version, types, resources, and rights.
+6. **Implementation** — concrete source identity and relevant execution profile.
+7. **Host** — current placement and receiver-local authority.
+8. **Execution** — one event identity, decision, committed effect, and receipt.
+
+The VGI Transit path records a source fingerprint for the E-CPU/VGI Python implementation and concrete host class. Transit checkpoint schema v3 binds each registered dispatch key to an optional implementation fingerprint; restore compares the replacement backend manifest before reconstructing the worker. For VGI, the configured step bound is also part of the backend implementation identity. The VGI execution receipt carries the source-package fingerprint, while the outer Transit effect and checkpoint carry the concrete backend fingerprint.
+
+This fingerprint is deliberately scoped. It hashes the installed mailcpu and VGI Python source packages and the concrete host class source. It is not a signature, hardware/firmware attestation, Python ABI identity, complete operating-system image identity, or proof that a remote machine is trustworthy. Deployment authenticity and measured runtime attestation would require a separate trust model.
+
+A later heterogeneous backend will need a formal refinement claim. In one possible form, if an abstract Ground transition is \(T\) and host \(h\) realizes it with concrete implementation \(I_h\), then:
+
+\[
+\operatorname{Obs}_{O}(I_h(s))\approx_{\epsilon}\operatorname{Obs}_{O}(T(s))
+\]
+
+The observation projection \(O\), tolerance \(\epsilon\), allowed stuttering/microsteps, and proof evidence must be declared by the operator contract. Existing semantic-translation and oracle checks provide useful foundations, but general Ground-to-Operator refinement across CPU, GPU, FPGA, and network backends is not yet established.
+
+## 8. What exists now and what remains proposed
+
+**Already present in E-CPU:** typed Virtual Layer workloads; separate System and Computational Grounds; versioned operator contracts; local capability reconstruction; exact Transit dispatch; reliable message channels; causal sequence/frontier data; execution commit/replay ledgers; Structural Memory references; checkpoints; quorum-verified recovery bundles; backend dispatch manifests; and VGI source-implementation fingerprint checks during restoration.
+
+**Not yet a general capability:** global semantic address discovery across arbitrary hosts; an index for locating any arbitrary intermediate state; automatic cost-optimized path construction over a network-wide host graph; transparent migration of arbitrary live processes between CPU/GPU/FPGA substrates; or general proofs that any replacement implementation refines any Ground.
+
+The prudent direction is incremental: make existing identity/address components explicit, prove one new resolution law at a time, and only then generalize route selection. A continuously available computational environment emerges from persistent commitments plus procedural reachability—not from materializing every possible execution or assuming that network transport itself is a processor.

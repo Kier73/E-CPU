@@ -266,6 +266,16 @@ def test_vgi_effect_survives_hard_receiver_death_and_quorum_bundle_restore(
         assert len(executions) == 1
         committed_effect = executions[0]["effect"]
         committed_receipt = committed_effect["result"]
+        assert receiver_envelope["format"] == "mailcpu-transit-worker-checkpoint-v3"
+        implementation_entries = receiver_envelope["state"]["backend_implementation_manifest"]
+        vgi_implementation = next(
+            item[2]
+            for item in implementation_entries
+            if item[1] == "/virtual-layer/operators/vgi.signal8.execute/v1"
+        )
+        assert vgi_implementation == committed_effect["backend_implementation_fingerprint"]
+        assert len(vgi_implementation) == 64
+        assert committed_receipt["implementation"]["source_fingerprint"]
         assert committed_receipt["execution_digest"] == cut["vgi_execution_digest"]
         assert committed_receipt["checkpoint"]["ground_fingerprint"] == (
             cut["computation_ground_fingerprint"]

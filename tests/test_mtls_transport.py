@@ -425,7 +425,7 @@ def test_transit_compute_operation_executes_over_mutual_tls(tmp_path) -> None:
         assert _wait_for_ack(request_sender.channel, (1,)) == (1,)
         assert _wait_for_ack(result_sender.channel, (1,)) == (1,)
         assert session.phase == "idle"
-        assert session.snapshot()["format"] == "mailcpu-transit-worker-checkpoint-v2"
+        assert session.snapshot()["format"] == "mailcpu-transit-worker-checkpoint-v3"
 
         # A fresh TLS-carried frame with the same semantic operation identity
         # must replay the stored result instead of launching another compute VM.

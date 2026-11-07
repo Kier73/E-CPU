@@ -13,7 +13,11 @@ from typing import Any
 from .classifier import HypervisorArbitrationEvent
 from .transit_compute import TransitComputeHost
 from .transit_router import TransitBackendRouter
-from .vgi_host import VGI_SIGNAL8_OPERATOR_ID, make_vgi_signal8_operator
+from .vgi_host import (
+    VGI_SIGNAL8_OPERATOR_ID,
+    make_vgi_signal8_operator,
+    vgi_signal8_implementation_fingerprint,
+)
 from .virtual_layer import (
     OperatorRegistry,
     VirtualLayerRuntime,
@@ -58,6 +62,16 @@ class TransitVGIHost(TransitComputeHost):
             frozenset({"cpu"}),
         )
 
+        self._implementation_fingerprint = vgi_signal8_implementation_fingerprint(
+            type(self),
+            max_configured_steps=max_steps,
+        )
+
+    @property
+    def implementation_fingerprint(self) -> str:
+        """Return the source identity of this concrete hosted VGI backend class."""
+        return self._implementation_fingerprint
+
     def handle(self, event: HypervisorArbitrationEvent) -> dict[str, object]:
         """Mathematics: refine one authorized Transit event into the same typed Virtual Layer effect used by local execution."""
         if not isinstance(event, HypervisorArbitrationEvent):
@@ -68,11 +82,14 @@ class TransitVGIHost(TransitComputeHost):
             or event.request.destructive
         ):
             raise ValueError("Transit event does not match the VGI Signal8 backend identity")
-        return self.runtime.execute_authorized_event(
+        effect = self.runtime.execute_authorized_event(
             self.operating_system,
             self.authority_pid,
             event,
         )
+        bound_effect = dict(effect)
+        bound_effect["backend_implementation_fingerprint"] = self.implementation_fingerprint
+        return bound_effect
 
 
 def build_vgi_signal8_event(

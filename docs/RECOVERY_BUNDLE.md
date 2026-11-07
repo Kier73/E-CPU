@@ -50,8 +50,11 @@ The store then:
 
 - loads the selected generation's exact requester, receiver, backend, and
   manifest bytes;
-- checks canonical manifest encoding and the backend manifest's agreement
-  with the receiver checkpoint;
+- checks canonical manifest encoding and the backend dispatch manifest's
+  agreement with the receiver checkpoint;
+- for Transit checkpoint schema v3, also validates the per-route implementation
+  fingerprint manifest and requires its operation/resource domain to match the
+  dispatch manifest;
 - verifies all three content digests against the manifest;
 - asks the coordinator to verify that this exact root is the latest
   quorum-anchored generation.

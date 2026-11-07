@@ -60,7 +60,7 @@ def _fsync_directory(path: Path) -> None:
 
 
 def _backend_manifest_bytes(receiver_checkpoint: bytes) -> bytes:
-    """Mathematics: Extract the canonical registered operation/resource domain from a v2 Transit receiver checkpoint."""
+    """Extract the canonical backend dispatch and implementation identity from a Transit checkpoint."""
 
     try:
         envelope = json.loads(receiver_checkpoint.decode("utf-8"))
@@ -68,13 +68,17 @@ def _backend_manifest_bytes(receiver_checkpoint: bytes) -> bytes:
         raise RecoveryCheckpointBundleError("receiver checkpoint is not UTF-8 JSON") from exc
     if (
         not isinstance(envelope, Mapping)
-        or envelope.get("format") != "mailcpu-transit-worker-checkpoint-v2"
+        or envelope.get("format") not in {
+            "mailcpu-transit-worker-checkpoint-v2",
+            "mailcpu-transit-worker-checkpoint-v3",
+        }
         or not isinstance(envelope.get("state"), Mapping)
     ):
         raise RecoveryCheckpointBundleError(
-            "recovery bundle requires a v2 Transit receiver checkpoint with an explicit backend manifest"
+            "recovery bundle requires a v2 or v3 Transit receiver checkpoint with an explicit backend manifest"
         )
-    manifest = envelope["state"].get("backend_manifest")
+    state = envelope["state"]
+    manifest = state.get("backend_manifest")
     if not isinstance(manifest, list) or not manifest:
         raise RecoveryCheckpointBundleError("receiver checkpoint backend manifest is missing")
     pairs: list[tuple[str, str]] = []
@@ -88,7 +92,46 @@ def _backend_manifest_bytes(receiver_checkpoint: bytes) -> bytes:
         pairs.append((item[0], item[1]))
     if pairs != sorted(set(pairs)):
         raise RecoveryCheckpointBundleError("receiver backend manifest must be sorted and unique")
-    return _canonical_json([[operation, resource] for operation, resource in pairs])
+    canonical_pairs = [[operation, resource] for operation, resource in pairs]
+
+    if envelope["format"] == "mailcpu-transit-worker-checkpoint-v2":
+        return _canonical_json(canonical_pairs)
+
+    raw_implementations = state.get("backend_implementation_manifest")
+    if not isinstance(raw_implementations, list) or not raw_implementations:
+        raise RecoveryCheckpointBundleError("receiver backend implementation manifest is missing")
+    implementations: list[tuple[str, str, str | None]] = []
+    for item in raw_implementations:
+        if (
+            not isinstance(item, list)
+            or len(item) != 3
+            or not isinstance(item[0], str)
+            or not item[0]
+            or not isinstance(item[1], str)
+            or not item[1]
+            or (
+                item[2] is not None
+                and (
+                    not isinstance(item[2], str)
+                    or len(item[2]) != 64
+                    or any(character not in "0123456789abcdef" for character in item[2])
+                )
+            )
+        ):
+            raise RecoveryCheckpointBundleError("receiver backend implementation entries are invalid")
+        implementations.append((item[0], item[1], item[2]))
+    implementation_pairs = [(operation, resource) for operation, resource, _ in implementations]
+    if (
+        implementations != sorted(set(implementations), key=lambda item: (item[0], item[1]))
+        or implementation_pairs != pairs
+    ):
+        raise RecoveryCheckpointBundleError(
+            "receiver backend implementation manifest must be sorted and match the backend domain"
+        )
+    return _canonical_json({
+        "backend_manifest": canonical_pairs,
+        "backend_implementation_manifest": [list(item) for item in implementations],
+    })
 
 
 @dataclass(frozen=True)
