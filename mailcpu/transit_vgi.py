@@ -62,7 +62,10 @@ class TransitVGIHost(TransitComputeHost):
             frozenset({"cpu"}),
         )
 
-        self._implementation_fingerprint = vgi_signal8_implementation_fingerprint(type(self))
+        self._implementation_fingerprint = vgi_signal8_implementation_fingerprint(
+            type(self),
+            max_configured_steps=max_steps,
+        )
 
     @property
     def implementation_fingerprint(self) -> str:
