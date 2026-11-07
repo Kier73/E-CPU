@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import socket
 import sys
 import time
 from pathlib import Path
@@ -18,7 +17,6 @@ sys.path.insert(0, str(HELPERS))
 
 from mailcpu import (  # noqa: E402
     Capability,
-    HeadlessOS,
     RecoveryCheckpointBundleStore,
     RecoveryLineageAuthority,
     RecoveryLineageCoordinator,
@@ -240,7 +238,13 @@ def prepare(
             ).encode("utf-8")).hexdigest(),
             "vgi_execution_digest": receipt["execution_digest"],
             "program_fingerprint": receipt["program"]["fingerprint"],
-            "system_ground_digest": receipt["system_ground"]["digest"],
+            "system_ground_digest": hashlib.sha256(json.dumps(
+                receipt["system_ground"],
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+                allow_nan=False,
+            ).encode("utf-8")).hexdigest(),
             "computation_ground_fingerprint": receipt["computation_ground"]["fingerprint"],
             "journal_valid": session.worker.operating_system.environment.kernel.journal.verify(),
             "session_phase": session.phase,
