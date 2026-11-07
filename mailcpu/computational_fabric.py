@@ -919,7 +919,7 @@ def _certificate_has_dns(transport: SocketTransport, dns_name: str) -> bool:
         return False
     # A SAN string alone is not authentication. Require that the stream's
     # handshake context also required and verified the peer certificate chain.
-    if stream.context.verify_mode is not ssl.CERT_REQUIRED:
+    if stream.context.verify_mode != ssl.CERT_REQUIRED:
         return False
     try:
         certificate = stream.getpeercert()
@@ -1580,6 +1580,7 @@ class ComputationalFabricResolver:
         ceilings = {item.name: item.amount for item in address.resource_ceilings}
         request_frame_bytes = len(_canonical_bytes(address.to_dict()))
         blockers: set[ComputationalFabricBlocker] = set()
+        hit_resource_limit = False
         adjacency: dict[str, list[ComputationalNetworkLink]] = {}
         for snapshot in active:
             for link in snapshot.links:
@@ -1598,6 +1599,7 @@ class ComputationalFabricResolver:
                     ))
                     continue
                 if request_frame_bytes > link.max_frame_bytes:
+                    hit_resource_limit = True
                     blockers.add(ComputationalFabricBlocker(
                         link.link_id,
                         ComputationalFabricBlockerCode.RESOURCE_LIMIT,
@@ -1629,7 +1631,6 @@ class ComputationalFabricResolver:
         ]
         expanded = 0
         hit_hop_limit = False
-        hit_resource_limit = False
         while heap:
             costs, hops, path, link_ids, current = heapq.heappop(heap)
             label = best.get((current, hops))
