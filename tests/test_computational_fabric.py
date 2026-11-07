@@ -411,6 +411,11 @@ def test_fabric_resolver_selects_lowest_cost_multi_hop_peer_path() -> None:
     assert tuple(item.amount for item in result.witness.total_costs if item.name == "latency") == (5,)
     assert tuple(item.peer_id for item in result.witness.peer_endpoints) == result.witness.peer_path
     assert result.witness.to_dict()["authoritative"] is False
+    restored_witness = type(result.witness).from_dict(result.witness.to_dict())
+    restored_result = type(result).from_dict(result.to_dict())
+    assert restored_witness == result.witness
+    assert restored_witness.digest == result.witness.digest
+    assert restored_result.digest == result.digest
 
 
 def test_fabric_route_uses_stable_path_tie_break_and_never_invents_reverse_edges() -> None:
@@ -516,6 +521,28 @@ def test_fabric_resolver_fails_closed_on_incompatible_computational_ground() -> 
     )
     assert blocked.status is ComputationalFabricStatus.BLOCKED
     assert any(item.code.value == "ground_mismatch" for item in blocked.blockers)
+
+
+def test_fabric_resolver_applies_aggregate_network_cost_ceilings() -> None:
+    advertisement = ComputationalHostAdvertisement.from_locus(_locus(), "peer-b")
+    directory = _directory(
+        _snapshot("peer-a", links=(_link("peer-a", "peer-b", 4),)),
+        _snapshot("peer-b", hosts=(advertisement,)),
+    )
+    address = replace(
+        _address(),
+        resource_ceilings=(RouteMetric("latency", "ticks", 3),),
+    )
+
+    result = ComputationalFabricResolver().resolve(
+        address,
+        directory,
+        origin_peer_id="peer-a",
+    )
+
+    assert result.status is ComputationalFabricStatus.BUDGET_EXHAUSTED
+    assert result.witness is None
+    assert any(item.code.value == "resource_limit" for item in result.blockers)
 
 
 def test_fabric_resolver_preserves_shorter_paths_when_the_cheapest_prefix_exceeds_hop_budget() -> None:
