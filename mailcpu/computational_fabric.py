@@ -692,7 +692,10 @@ class ComputationalFabricDirectory:
             peer_id = _peer_id(peer)
             if peer_id == self.local_peer_id or peer_id in normalized:
                 raise ComputationalFabricError("trusted peer identities must be unique and exclude the local peer")
-            normalized[peer_id] = _dns_name(dns_name, "trusted peer DNS identity")
+            normalized_dns = _dns_name(dns_name, "trusted peer DNS identity")
+            if normalized_dns in normalized.values():
+                raise ComputationalFabricError("TLS DNS identities must map to exactly one logical peer ID")
+            normalized[peer_id] = normalized_dns
         self._trusted_peers = dict(sorted(normalized.items()))
         self._lock = threading.RLock()
         self.max_peer_lease_seconds = _positive(
@@ -704,6 +707,8 @@ class ComputationalFabricDirectory:
             raise ComputationalFabricError("monotonic must be callable")
         self._monotonic = monotonic
         self.max_peers = _positive(max_peers, "max_peers", maximum=4096)
+        if len(normalized) + 1 > self.max_peers:
+            raise ComputationalFabricError("trusted peer mapping exceeds the aggregate peer bound")
         self.max_hosts = _positive(max_hosts, "max_hosts", maximum=65_536)
         self.max_links = _positive(max_links, "max_links", maximum=262_144)
         self._snapshots: dict[str, ComputationalPeerSnapshot] = {}
