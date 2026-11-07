@@ -981,7 +981,7 @@ def test_mutual_tls_peer_client_discovers_and_merges_remote_host_snapshot(tmp_pa
 
 @pytest.mark.skipif(shutil.which("openssl") is None, reason="OpenSSL CLI is required for ephemeral mutual-TLS certificates")
 def test_three_peer_federation_discovers_directly_and_routes_over_two_authenticated_hops(tmp_path) -> None:
-    """Two direct mutual-TLS observations compose into a live two-hop route and recover after lease expiry."""
+    """A preferred remote host fails over to an active peer and returns after its lease is refreshed."""
     certificates = _make_test_certificates(tmp_path)
     client_context = _client_context(certificates)
     listeners = {
@@ -997,8 +997,15 @@ def test_three_peer_federation_discovers_directly_and_routes_over_two_authentica
         )
         for peer_id, listener in listeners.items()
     }
-    authority_b = ComputationalFabricAuthority(endpoints["peer-b"], lease_seconds=5)
+    authority_b = ComputationalFabricAuthority(endpoints["peer-b"], lease_seconds=10)
     authority_b.register_link(_link("peer-b", "peer-c", 3))
+    fallback_locus = replace(
+        _locus("peer-b", "logical-host-b"),
+        costs=_host_costs(50),
+    )
+    authority_b.register_host(
+        ComputationalHostAdvertisement.from_locus(fallback_locus, "peer-b")
+    )
     authority_c = ComputationalFabricAuthority(endpoints["peer-c"], lease_seconds=5)
     authority_c.register_host(
         ComputationalHostAdvertisement.from_locus(
@@ -1079,20 +1086,25 @@ def test_three_peer_federation_discovers_directly_and_routes_over_two_authentica
         assert first.witness.target_host.host_id == "logical-host-c"
         assert tuple(item.amount for item in first.witness.network_costs if item.name == "latency") == (5,)
 
-        # A receiver-local lease is not extended by the remote peer's clock
-        # or by retaining the old snapshot as diagnostic metadata.
+        # The preferred host on C expires first. B remains live and has a
+        # compatible but more expensive host, so the planner must fail over
+        # to B rather than declaring the entire operator unreachable.
         clock[0] = 105.0
-        assert tuple(item.peer_id for item in directory.active_snapshots) == ("peer-a",)
-        expired = ComputationalFabricResolver().resolve(
+        assert tuple(item.peer_id for item in directory.active_snapshots) == ("peer-a", "peer-b")
+        fallback = ComputationalFabricResolver().resolve(
             _address(max_hops=3),
             directory,
             origin_peer_id="peer-a",
         )
-        assert expired.status is ComputationalFabricStatus.UNREACHABLE
+        assert fallback.status is ComputationalFabricStatus.FOUND
+        assert fallback.witness is not None
+        assert fallback.witness.peer_path == ("peer-a", "peer-b")
+        assert fallback.witness.target_host.host_id == "logical-host-b"
+        assert tuple(item.amount for item in fallback.witness.total_costs if item.name == "latency") == (52,)
 
-        # Re-observing an unchanged snapshot over the still-authenticated
-        # direct channels refreshes each receiver-local lease.
-        assert not clients["peer-b"].refresh(directory)
+        # Re-observing C's unchanged snapshot over the still-authenticated
+        # direct channel renews its receiver-local lease. The planner should
+        # return to C because its network+host objective is now lower.
         assert not clients["peer-c"].refresh(directory)
         refreshed = ComputationalFabricResolver().resolve(
             _address(max_hops=3),
@@ -1102,6 +1114,8 @@ def test_three_peer_federation_discovers_directly_and_routes_over_two_authentica
         assert refreshed.status is ComputationalFabricStatus.FOUND
         assert refreshed.witness is not None
         assert refreshed.witness.peer_path == ("peer-a", "peer-b", "peer-c")
+        assert refreshed.witness.target_host.host_id == "logical-host-c"
+        assert tuple(item.amount for item in refreshed.witness.total_costs if item.name == "latency") == (8,)
         assert not server_errors
     finally:
         for client in clients.values():
