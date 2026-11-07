@@ -29,6 +29,7 @@ from mailcpu.vgi_host import (
     register_vgi_signal8_operator,
     vgi_signal8_implementation_fingerprint,
 )
+from mailcpu.transit_vgi import TransitVGIHost
 
 vgi = pytest.importorskip("vgi")
 from vgi import (
@@ -319,3 +320,21 @@ def test_vgi_host_checkpoint_restores_under_the_same_program_and_ground() -> Non
     changed_program = interpreter.compile_task(TaskSpec.from_dict(changed_task))
     with pytest.raises(RuntimeErrorVGI, match="different program"):
         SignalStateMachine.restore(interpreter, changed_program, receipt["checkpoint"])
+
+
+def test_vgi_implementation_identity_binds_host_class_and_execution_profile() -> None:
+    """The Transit implementation identity changes with the concrete host or its configured step ceiling."""
+
+    base = vgi_signal8_implementation_fingerprint(
+        TransitVGIHost,
+        max_configured_steps=128,
+    )
+    wider_profile = vgi_signal8_implementation_fingerprint(
+        TransitVGIHost,
+        max_configured_steps=256,
+    )
+    adapter_only = vgi_signal8_implementation_fingerprint()
+
+    assert len(base) == 64
+    assert base != wider_profile
+    assert base != adapter_only
