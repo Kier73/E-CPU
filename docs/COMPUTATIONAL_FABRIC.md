@@ -65,7 +65,9 @@ The receiver's `ComputationalFabricDirectory` has an explicit bootstrap trust ma
 
 A lower revision is rejected. Reuse of the current revision with changed content is rejected as equivocation. Equal revision and equal digest is idempotent, although it refreshes the local lease because a new authenticated observation was received. Expiry uses the directory's injected monotonic clock on the receiving peer; peer wall clocks are not compared. Local policy caps the maximum accepted lease. Expired snapshots are excluded from active route views and can be purged.
 
-The directory applies finite bounds to peers, host advertisements and links. A peer may publish only its own hosts and outgoing links; it cannot use its snapshot to impersonate another peer's host ownership or add a reverse edge on behalf of another peer.
+The directory applies finite bounds to peers, host advertisements and links. `ComputationalFabricAuthority.from_snapshot()` can restore a peer's portable advertisement revision, host records and outgoing links. That restores directory metadata only: the peer must rebind/re-register its local executable runtimes and handlers; no PID or callable is recovered from the snapshot. The receiving `ComputationalFabricDirectory` keeps its remote snapshots and monotonic lease deadlines as in-memory observations. After a process restart, it should rebuild the active view by re-authenticating configured peers rather than restoring old lease deadlines as live. The local authority snapshot can later be anchored in the existing RecoveryLineage/RecoveryCheckpointBundle mechanisms.
+
+A peer may publish only its own hosts and outgoing links; it cannot use its snapshot to impersonate another peer's host ownership or add a reverse edge on behalf of another peer.
 
 ## 4. Mutual-TLS and reliable snapshot exchange
 
