@@ -1,4 +1,4 @@
-"""Semantic addressing and non-authoritative resolution of computational host loci.
+"""Mathematics: Semantic addressing and non-authoritative resolution of computational host loci.
 
 A computational address names a workload, its computational Ground, program
 identity (when exact), state/input coordinate, and output observation. A local
@@ -42,11 +42,11 @@ _MAX_LOCI = 4096
 
 
 class ComputationalResolutionError(ValueError):
-    """A semantic address or computational-host catalogue is invalid."""
+    """Mathematics: A semantic address or computational-host catalogue is invalid."""
 
 
 class ComputationalResolutionStatus(str, Enum):
-    """Non-authoritative outcome of one bounded local semantic-address resolution."""
+    """Mathematics: Non-authoritative outcome of one bounded local semantic-address resolution."""
 
     FOUND = "found"
     UNREACHABLE = "unreachable"
@@ -55,7 +55,7 @@ class ComputationalResolutionStatus(str, Enum):
 
 
 class ComputationalBlockerCode(str, Enum):
-    """Deterministic reason why one candidate host cannot satisfy an address."""
+    """Mathematics: Deterministic reason why one candidate host cannot satisfy an address."""
 
     OPERATOR_MISMATCH = "operator_mismatch"
     CONTRACT_MISMATCH = "contract_mismatch"
@@ -73,21 +73,21 @@ class ComputationalBlockerCode(str, Enum):
 
 
 def _label(value: Any, name: str, maximum: int = 256) -> str:
-    """Validate one bounded non-empty identifier or display label."""
+    """Mathematics: Validate one bounded non-empty identifier or display label."""
     if not isinstance(value, str) or not value or value.strip() != value or len(value.encode("utf-8")) > maximum:
         raise ComputationalResolutionError(f"{name} must be non-empty trimmed text of at most {maximum} UTF-8 bytes")
     return value
 
 
 def _digest(value: Any, name: str) -> str:
-    """Require a lowercase SHA-256 digest string."""
+    """Mathematics: Require a lowercase SHA-256 digest string."""
     if not isinstance(value, str) or _SHA256.fullmatch(value) is None:
         raise ComputationalResolutionError(f"{name} must be a lowercase SHA-256 digest")
     return value
 
 
 def _canonical_bytes(value: Any) -> bytes:
-    """Encode a detached JSON value using the resolver's canonical byte form."""
+    """Mathematics: Encode a detached JSON value using the resolver's canonical byte form."""
     try:
         return json.dumps(
             _plain(value),
@@ -101,7 +101,7 @@ def _canonical_bytes(value: Any) -> bytes:
 
 
 def _plain(value: Any) -> Any:
-    """Detach frozen mappings and tuples into ordinary JSON containers."""
+    """Mathematics: Detach frozen mappings and tuples into ordinary JSON containers."""
     if isinstance(value, Mapping):
         return {key: _plain(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
@@ -110,7 +110,7 @@ def _plain(value: Any) -> Any:
 
 
 def _value_matches(value: Any, kind: str) -> bool:
-    """Check whether an inline JSON value matches a Virtual Layer input kind."""
+    """Mathematics: Check whether an inline JSON value matches a Virtual Layer input kind."""
     if kind == "any":
         return True
     if kind == "object":
@@ -134,7 +134,7 @@ def _value_matches(value: Any, kind: str) -> bool:
 
 @dataclass(frozen=True)
 class ComputationalAddress:
-    """Portable semantic address; it contains no executable handler or authority."""
+    """Mathematics: Portable semantic address; it contains no executable handler or authority."""
 
     workload: VirtualLayerWorkload
     operator_id: str
@@ -190,7 +190,7 @@ class ComputationalAddress:
         metric_order: Sequence[RouteMetricKey] = _DEFAULT_METRICS,
         resource_ceilings: Sequence[RouteMetric] = (),
     ) -> "ComputationalAddress":
-        """Bind the address to the exact locally declared operator contract."""
+        """Mathematics: Bind the address to the exact locally declared operator contract."""
         if not isinstance(operator_spec, OperatorSpec):
             raise ComputationalResolutionError("address construction requires an OperatorSpec")
         try:
@@ -212,12 +212,12 @@ class ComputationalAddress:
 
     @property
     def input_digest(self) -> str:
-        """Return the identity of the exact inline input envelope."""
+        """Mathematics: Return the identity of the exact inline input envelope."""
         return canonical_value_digest(_plain(self.workload.input_value))
 
     @property
     def state_digest(self) -> str:
-        """Return the identity of inline input plus pinned Structural Memory coordinates."""
+        """Mathematics: Return the identity of inline input plus pinned Structural Memory coordinates."""
         reference = self.workload.operator_ref(self.operator_id)
         return canonical_value_digest({
             "input_digest": self.input_digest,
@@ -226,11 +226,11 @@ class ComputationalAddress:
 
     @property
     def digest(self) -> str:
-        """Return the content identity of this complete semantic address."""
+        """Mathematics: Return the content identity of this complete semantic address."""
         return canonical_value_digest(self.to_dict())
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize the typed workload address without code or authority."""
+        """Mathematics: Serialize the typed workload address without code or authority."""
         return {
             "schema": "mailcpu.computational-address.v1",
             "workload": self.workload.to_dict(),
@@ -245,7 +245,7 @@ class ComputationalAddress:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "ComputationalAddress":
-        """Reconstruct an address only from its exact versioned JSON schema."""
+        """Mathematics: Reconstruct an address only from its exact versioned JSON schema."""
         expected = {
             "schema", "workload", "operator_id", "operator_contract_digest",
             "computational_ground_fingerprint", "program_fingerprint",
@@ -274,7 +274,7 @@ class ComputationalAddress:
 
 @dataclass(frozen=True)
 class ComputationalHostLocus:
-    """Local declarative advertisement for one logical host/operator pair."""
+    """Mathematics: Local declarative advertisement for one logical host/operator pair."""
 
     host_id: str
     node_id: str
@@ -351,7 +351,7 @@ class ComputationalHostLocus:
         supports_structural_memory: bool = False,
         implementation_fingerprint: str | None = None,
     ) -> "ComputationalHostLocus":
-        """Create an advertisement from a trusted local runtime and its declarative operator contract."""
+        """Mathematics: Create an advertisement from a trusted local runtime and its declarative operator contract."""
         if not isinstance(runtime, VirtualLayerRuntime):
             raise ComputationalResolutionError("host-locus registration requires a VirtualLayerRuntime")
         try:
@@ -378,16 +378,16 @@ class ComputationalHostLocus:
 
     @property
     def resource(self) -> str:
-        """Return the capability-safe resource path for this operator version."""
+        """Mathematics: Return the capability-safe resource path for this operator version."""
         return virtual_layer_operator_resource(self.operator_spec.operator_id, self.operator_spec.version)
 
     @property
     def locus_digest(self) -> str:
-        """Return a stable digest of this logical host/operator advertisement."""
+        """Mathematics: Return a stable digest of this logical host/operator advertisement."""
         return canonical_value_digest(self.to_dict())
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize portable locus metadata; the local authority PID is never exported."""
+        """Mathematics: Serialize portable locus metadata; the local authority PID is never exported."""
         return {
             "host_id": self.host_id,
             "node_id": self.node_id,
@@ -407,7 +407,7 @@ class ComputationalHostLocus:
 
 
 class ComputationalHostCatalogue:
-    """Bounded local catalogue of independently addressable logical host loci."""
+    """Mathematics: Bounded local catalogue of independently addressable logical host loci."""
 
     def __init__(self, loci: Sequence[ComputationalHostLocus] = (), *, max_loci: int = _MAX_LOCI) -> None:
         if type(max_loci) is not int or max_loci < 1 or max_loci > _MAX_LOCI:
@@ -419,11 +419,11 @@ class ComputationalHostCatalogue:
 
     @property
     def loci(self) -> tuple[ComputationalHostLocus, ...]:
-        """Return the local locus catalogue in stable identity order."""
+        """Mathematics: Return the local locus catalogue in stable identity order."""
         return tuple(self._loci[key] for key in sorted(self._loci))
 
     def register(self, locus: ComputationalHostLocus) -> str:
-        """Register one immutable logical host/operator advertisement."""
+        """Mathematics: Register one immutable logical host/operator advertisement."""
         if not isinstance(locus, ComputationalHostLocus):
             raise ComputationalResolutionError("catalogue accepts only ComputationalHostLocus values")
         key = (locus.host_id, locus.operator_spec.operator_id, locus.operator_spec.version)
@@ -437,11 +437,11 @@ class ComputationalHostCatalogue:
         return locus.locus_digest
 
     def remove(self, host_id: str, operator_id: str, version: int = 1) -> bool:
-        """Remove one exact logical host/operator locus, returning whether it existed."""
+        """Mathematics: Remove one exact logical host/operator locus, returning whether it existed."""
         return self._loci.pop((host_id, operator_id, version), None) is not None
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize the declarative catalogue while omitting local authority PIDs."""
+        """Mathematics: Serialize the declarative catalogue while omitting local authority PIDs."""
         return {
             "schema": "mailcpu.computational-host-catalogue.v1",
             "max_loci": self.max_loci,
@@ -450,13 +450,13 @@ class ComputationalHostCatalogue:
 
     @property
     def digest(self) -> str:
-        """Return a stable digest of the ordered declarative host catalogue."""
+        """Mathematics: Return a stable digest of the ordered declarative host catalogue."""
         return canonical_value_digest(self.to_dict())
 
 
 @dataclass(frozen=True)
 class ComputationalResolutionBlocker:
-    """One candidate exclusion with a stable code and logical host identity."""
+    """Mathematics: One candidate exclusion with a stable code and logical host identity."""
 
     host_id: str
     code: ComputationalBlockerCode
@@ -470,13 +470,13 @@ class ComputationalResolutionBlocker:
             raise ComputationalResolutionError("blocker detail must be text")
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize one deterministic candidate blocker."""
+        """Mathematics: Serialize one deterministic candidate blocker."""
         return {"host_id": self.host_id, "code": self.code.value, "detail": self.detail}
 
 
 @dataclass(frozen=True)
 class ComputationalRouteWitness:
-    """Non-authoritative single-locus route proposal bound to exact address and live capability evidence."""
+    """Mathematics: Non-authoritative single-locus route proposal bound to exact address and live capability evidence."""
 
     address_digest: str
     catalogue_digest: str
@@ -503,7 +503,7 @@ class ComputationalRouteWitness:
     costs: tuple[RouteMetric, ...]
 
     def __post_init__(self) -> None:
-        """Validate every identity and accounting field carried by this route proof."""
+        """Mathematics: Validate every identity and accounting field carried by this route proof."""
         for name in (
             "address_digest", "catalogue_digest", "authority_digest",
             "system_ground_digest", "operator_contract_digest",
@@ -543,16 +543,16 @@ class ComputationalRouteWitness:
 
     @property
     def authoritative(self) -> bool:
-        """Route discovery is non-authoritative by construction."""
+        """Mathematics: Route discovery is non-authoritative by construction."""
         return False
 
     @property
     def digest(self) -> str:
-        """Return the stable identity of this route witness."""
+        """Mathematics: Return the stable identity of this route witness."""
         return canonical_value_digest(self.to_dict())
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize all route, Ground, state, authority, cost, and implementation identities."""
+        """Mathematics: Serialize all route, Ground, state, authority, cost, and implementation identities."""
         return {
             "schema": "mailcpu.computational-route-witness.v1",
             "authoritative": False,
@@ -584,7 +584,7 @@ class ComputationalRouteWitness:
 
 @dataclass(frozen=True)
 class ComputationalResolutionResult:
-    """Non-authoritative resolution result; execution and hypervisor admission remain separate."""
+    """Mathematics: Non-authoritative resolution result; execution and hypervisor admission remain separate."""
 
     status: ComputationalResolutionStatus
     address_digest: str
@@ -622,16 +622,16 @@ class ComputationalResolutionResult:
 
     @property
     def authoritative(self) -> bool:
-        """A route proposal never authorizes or executes an operation."""
+        """Mathematics: A route proposal never authorizes or executes an operation."""
         return False
 
     @property
     def digest(self) -> str:
-        """Return the stable identity of this complete resolution result."""
+        """Mathematics: Return the stable identity of this complete resolution result."""
         return canonical_value_digest(self.to_dict())
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize the outcome, selected witness, and deterministic blockers."""
+        """Mathematics: Serialize the outcome, selected witness, and deterministic blockers."""
         return {
             "schema": "mailcpu.computational-resolution-result.v1",
             "authoritative": False,
@@ -645,7 +645,7 @@ class ComputationalResolutionResult:
 
 
 class ComputationalAddressResolver:
-    """Resolve a semantic address to the lowest-cost eligible local logical host."""
+    """Mathematics: Resolve a semantic address to the lowest-cost eligible local logical host."""
 
     def resolve(
         self,
@@ -653,7 +653,7 @@ class ComputationalAddressResolver:
         catalogue: ComputationalHostCatalogue,
         operating_system: HeadlessOS,
     ) -> ComputationalResolutionResult:
-        """Resolve an address against trusted local advertisements and live receiver capabilities."""
+        """Mathematics: Resolve an address against trusted local advertisements and live receiver capabilities."""
         if not isinstance(address, ComputationalAddress):
             raise ComputationalResolutionError("resolve requires a ComputationalAddress")
         if not isinstance(catalogue, ComputationalHostCatalogue):
