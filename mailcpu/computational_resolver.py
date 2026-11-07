@@ -863,7 +863,7 @@ class ComputationalAddressResolver:
             substrate = (
                 reference.preferred_substrate
                 if reference.preferred_substrate is not None
-                else sorted(set(locus.substrates) & set(spec.substrates))[0]
+                else next(item for item in spec.substrates if item in locus.substrates)
             )
             state_sources = tuple(
                 f"structural-memory:{item.memory_id}@{item.revision}:{item.coordinate}"

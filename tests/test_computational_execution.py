@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from mailcpu import (
@@ -259,6 +261,81 @@ def test_execution_refuses_runtime_that_does_not_match_selected_locus() -> None:
     assert not result.accepted
     assert result.execution is None
     assert calls == []
+
+
+def test_execution_preserves_declared_substrate_preference_order() -> None:
+    operating_system = HeadlessOS()
+    identity, ground = _admitted(operating_system)
+    calls: list[str] = []
+    spec = OperatorSpec(
+        operator_id="core.sum_pair",
+        version=1,
+        description="Add two integers from a JSON object",
+        input_kind="object",
+        output_kind="integer",
+        substrates=("gpu", "cpu"),
+        required_rights=frozenset({"compute"}),
+        base_energy=8,
+        energy_per_byte=1,
+        max_input_bytes=4096,
+        max_output_bytes=64,
+        deterministic=True,
+        effect_mode="pure",
+    )
+    registry = OperatorRegistry()
+
+    def execute(value, workload):
+        calls.append(workload.workload_id)
+        return value["left"] + value["right"]
+
+    registry.register(spec, execute)
+    runtime = VirtualLayerRuntime(registry, "node-a", frozenset({"cpu", "gpu"}))
+    pid = operating_system.environment.kernel.spawn(
+        "computational-execution-dual-substrate-host",
+        capabilities=(Capability("/virtual-layer/operators", frozenset({"compute"})),),
+        parent_pid=operating_system.environment.init_pid,
+    )
+    locus = ComputationalHostLocus.from_runtime(
+        host_id="dual-substrate-host",
+        runtime=runtime,
+        authority_pid=pid,
+        operator_id="core.sum_pair",
+        computational_ground_fingerprints=(GROUND_FP,),
+        program_fingerprints=(PROGRAM_FP,),
+        costs=_costs(3),
+    )
+    catalogue = ComputationalHostCatalogue((locus,))
+    workload = replace(
+        _workload(identity, ground),
+        operators=(VirtualOperatorRef("core.sum_pair", 1),),
+    )
+    address = ComputationalAddress.from_workload(
+        workload,
+        "core.sum_pair",
+        spec,
+        GROUND_FP,
+        program_fingerprint=PROGRAM_FP,
+        metric_order=METRICS,
+    )
+    resolution = ComputationalAddressResolver().resolve(address, catalogue, operating_system)
+    assert resolution.status is ComputationalResolutionStatus.FOUND
+    assert resolution.witness is not None
+    assert resolution.witness.substrate == "gpu"
+
+    outcome = ComputationalExecutionAdmissionCoordinator(operating_system).execute(
+        address,
+        resolution.witness,
+        catalogue,
+        runtime,
+        source="semantic-client",
+        channel="computational.execution",
+        sequence=8,
+    )
+
+    assert outcome.status is ComputationalExecutionStatus.EXECUTED
+    assert outcome.execution is not None
+    assert outcome.execution.effect["substrate"] == "gpu"
+    assert calls == [workload.workload_id]
 
 
 def test_virtual_layer_rejects_malformed_computational_admission_context() -> None:
