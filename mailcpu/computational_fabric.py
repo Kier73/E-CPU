@@ -1358,9 +1358,22 @@ class ComputationalFabricResolver:
         max_hops = _positive(max_hops, "max_hops", minimum=0, maximum=128)
         max_expansions = _positive(max_expansions, "max_expansions", maximum=100_000)
         address_digest = address.digest
-        directory_digest = directory.digest
-        topology_digest = directory.topology_digest
+        # Capture one lease-filtered view and derive both identities from that
+        # same snapshot set; lease expiry between property reads must not
+        # produce a witness whose directory and topology digests describe
+        # different federated states.
         active = directory.active_snapshots
+        directory_digest = _canonical_digest({
+            "schema": "mailcpu.computational-fabric-directory.v1",
+            "local_peer_id": directory.local_peer_id,
+            "trusted_peers": directory.trusted_peers,
+            "active_peer_ids": [item.peer_id for item in active],
+            "snapshots": [item.to_dict() for item in active],
+        })
+        topology_digest = _canonical_digest({
+            "peers": [item.endpoint.to_dict() for item in active],
+            "links": [link.to_dict() for item in active for link in item.links],
+        })
         peers = {snapshot.peer_id: snapshot for snapshot in active}
         if origin not in peers:
             return ComputationalFabricResolutionResult(
@@ -1429,7 +1442,11 @@ class ComputationalFabricResolver:
 
         zero = tuple(0 for _ in metric_order)
         initial = _PeerPathLabel(zero, (origin,), ())
-        best: dict[str, _PeerPathLabel] = {origin: initial}
+        # Hop count is part of the search state. Keeping only one
+        # lexicographically cheapest prefix per peer can discard a more
+        # expensive but shorter prefix that is the only one able to reach a
+        # target within max_hops.
+        best: dict[tuple[str, int], _PeerPathLabel] = {(origin, 0): initial}
         heap: list[tuple[tuple[int, ...], int, tuple[str, ...], tuple[str, ...], str]] = [
             (zero, 0, (origin,), (), origin)
         ]
@@ -1437,7 +1454,7 @@ class ComputationalFabricResolver:
         hit_hop_limit = False
         while heap:
             costs, hops, path, link_ids, current = heapq.heappop(heap)
-            label = best.get(current)
+            label = best.get((current, hops))
             if label is None or (
                 label.costs != costs or label.path != path or label.link_ids != link_ids
             ):
@@ -1468,7 +1485,9 @@ class ComputationalFabricResolver:
                 candidate_costs = tuple(a + b for a, b in zip(costs, edge))
                 candidate_path = path + (link.target_peer_id,)
                 candidate_links = link_ids + (link.link_id,)
-                previous = best.get(link.target_peer_id)
+                next_hops = hops + 1
+                state_key = (link.target_peer_id, next_hops)
+                previous = best.get(state_key)
                 candidate_key = (candidate_costs, len(candidate_links), candidate_path, candidate_links)
                 if previous is not None:
                     previous_key = (
@@ -1479,7 +1498,7 @@ class ComputationalFabricResolver:
                     )
                     if previous_key <= candidate_key:
                         continue
-                best[link.target_peer_id] = _PeerPathLabel(
+                best[state_key] = _PeerPathLabel(
                     candidate_costs,
                     candidate_path,
                     candidate_links,
@@ -1488,12 +1507,31 @@ class ComputationalFabricResolver:
                     heap,
                     (
                         candidate_costs,
-                        len(candidate_links),
+                        next_hops,
                         candidate_path,
                         candidate_links,
                         link.target_peer_id,
                     ),
                 )
+
+        # A target may have several feasible hop-count states. Select
+        # its best path only after preserving those states during search.
+        best_by_peer: dict[str, _PeerPathLabel] = {}
+        for (peer_id, _hops), candidate in best.items():
+            previous = best_by_peer.get(peer_id)
+            candidate_key = (
+                candidate.costs,
+                len(candidate.link_ids),
+                candidate.path,
+                candidate.link_ids,
+            )
+            if previous is None or candidate_key < (
+                previous.costs,
+                len(previous.link_ids),
+                previous.path,
+                previous.link_ids,
+            ):
+                best_by_peer[peer_id] = candidate
 
         hosts = tuple(
             item for item in directory.hosts
@@ -1505,7 +1543,7 @@ class ComputationalFabricResolver:
         for host in hosts:
             spec = host.operator_spec
             reason: tuple[ComputationalFabricBlockerCode, str] | None = None
-            route = best.get(host.peer_id)
+            route = best_by_peer.get(host.peer_id)
             if route is None:
                 reason = (
                     ComputationalFabricBlockerCode.PEER_UNAVAILABLE,
@@ -1663,7 +1701,7 @@ class ComputationalFabricResolver:
             ))
         elif budget_exhausted:
             status = ComputationalFabricStatus.BUDGET_EXHAUSTED
-        elif not any(host.peer_id in best for host in hosts):
+        elif not any(host.peer_id in best_by_peer for host in hosts):
             status = ComputationalFabricStatus.UNREACHABLE
         else:
             status = ComputationalFabricStatus.BLOCKED
