@@ -300,6 +300,7 @@ from .transit_structural_memory import (
     TransitStructuralMemoryHost,
 )
 from .transit_router import TransitBackendRouter, TransitBackendRouterError
+from .transit_vgi import TransitVGIHost, build_vgi_signal8_event, make_transit_vgi_router
 from .transit_session import TransitComputeSession
 from .navigable_computation_checkpoint import (
     NavigableComputationCheckpoint,
@@ -1281,4 +1282,7 @@ __all__ = [
     "execute_vgi_signal8",
     "make_vgi_signal8_operator",
     "register_vgi_signal8_operator",
+    "TransitVGIHost",
+    "build_vgi_signal8_event",
+    "make_transit_vgi_router",
 ]
