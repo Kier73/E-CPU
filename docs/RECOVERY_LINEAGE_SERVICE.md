@@ -116,8 +116,8 @@ When a peer stream fails, close that peer client and create a new RecoveryLineag
 
 The tests in tests/test_recovery_lineage_service.py cover:
 
-1. Both remote streams are severed. The owner alone cannot form a prepare quorum and refuses to advance. The still-running B/C services accept fresh TLS connections, recover their journals, and seal the original generation.
-2. A client expects member C's DNS SAN but connects to B. TLS verification fails; B remains alive and accepts a subsequent correctly authenticated owner connection.
+1. Both remote streams are severed. The owner alone cannot form a prepare quorum and refuses to advance. The still-running B/C services accept fresh TLS connections, recover their journals, and seal the original generation. B is then hard-killed; a replacement service process reopens B's same journal and returns the exact committed high-water.
+2. A client expects member C's DNS SAN but connects to B, and a client presenting C's CA-trusted certificate attempts to connect as owner A. Both identity mismatches are rejected; B remains alive and accepts a subsequent correctly authenticated owner connection.
 3. The owner process is hard-killed immediately after its PREPARE record is fsynced. A replacement owner process reopens the same journal, obtains the exact original vote, and completes the generation with B/C.
 4. B and C cannot form an admissible certificate without the fixed owner A's vote. The protocol does not self-elect a replacement owner.
 
