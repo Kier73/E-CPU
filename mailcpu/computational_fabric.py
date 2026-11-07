@@ -592,6 +592,8 @@ class ComputationalFabricAuthority:
             existing = self._hosts.get(key)
             if existing == advertisement:
                 return advertisement.digest
+            if existing is None and len(self._hosts) >= _MAX_HOST_ADVERTISEMENTS:
+                raise ComputationalFabricError("peer host catalogue exceeds its advertisement bound")
             self._hosts[key] = advertisement
             self._revision += 1
             return advertisement.digest
@@ -1308,16 +1310,17 @@ class ComputationalFabricRouteWitness:
         object.__setattr__(self, "peer_path", path)
         object.__setattr__(self, "link_ids", links)
         object.__setattr__(self, "peer_endpoints", endpoints)
-        basis = tuple(item.name for item in self.total_costs)
-        if not basis or len(set(basis)) != len(basis):
-            raise ComputationalFabricError("route total costs require unique dimensions")
-        for values, name in (
-            (self.network_costs, "network_costs"),
-            (self.host_costs, "host_costs"),
-            (self.total_costs, "total_costs"),
-        ):
-            if any(not isinstance(item, RouteMetric) for item in values):
-                raise ComputationalFabricError(f"{name} must contain RouteMetric values")
+        metric_vectors: dict[str, tuple[RouteMetric, ...]] = {}
+        for field_name in ("network_costs", "host_costs", "total_costs"):
+            values = tuple(getattr(self, field_name))
+            if not values or any(not isinstance(item, RouteMetric) for item in values):
+                raise ComputationalFabricError(f"{field_name} must contain typed RouteMetric values")
+            if len({item.name for item in values}) != len(values):
+                raise ComputationalFabricError(f"{field_name} metric names must be unique")
+            metric_vectors[field_name] = values
+            object.__setattr__(self, field_name, values)
+        basis = tuple(item.name for item in metric_vectors["total_costs"])
+        for name, values in metric_vectors.items():
             if {item.name for item in values} != set(basis):
                 raise ComputationalFabricError(f"{name} dimensions differ from total costs")
         network = {item.name: item for item in self.network_costs}
@@ -1404,7 +1407,7 @@ class ComputationalFabricResolutionResult:
     directory_digest: str
     topology_digest: str
     candidate_count: int
-    expanded_peers: int
+    expanded_states: int
     witness: ComputationalFabricRouteWitness | None = None
     blockers: tuple[ComputationalFabricBlocker, ...] = ()
 
@@ -1415,7 +1418,11 @@ class ComputationalFabricResolutionResult:
         for name in ("address_digest", "directory_digest", "topology_digest"):
             _digest(getattr(self, name), name)
         _positive(self.candidate_count, "candidate_count", minimum=0)
-        _positive(self.expanded_peers, "expanded_peers", minimum=0)
+        _positive(self.expanded_states, "expanded_states", minimum=0)
+        if self.status is ComputationalFabricStatus.FOUND and (
+            self.candidate_count < 1 or self.expanded_states < 1
+        ):
+            raise ComputationalFabricError("FOUND fabric result requires candidates and expanded search states")
         if self.witness is not None:
             if not isinstance(self.witness, ComputationalFabricRouteWitness):
                 raise ComputationalFabricError("witness must be ComputationalFabricRouteWitness or None")
@@ -1457,7 +1464,7 @@ class ComputationalFabricResolutionResult:
             "directory_digest": self.directory_digest,
             "topology_digest": self.topology_digest,
             "candidate_count": self.candidate_count,
-            "expanded_peers": self.expanded_peers,
+            "expanded_states": self.expanded_states,
             "witness": None if self.witness is None else self.witness.to_dict(),
             "blockers": [item.to_dict() for item in self.blockers],
         }
@@ -1468,7 +1475,7 @@ class ComputationalFabricResolutionResult:
         expected = {
             "schema", "authoritative", "status", "address_digest",
             "directory_digest", "topology_digest", "candidate_count",
-            "expanded_peers", "witness", "blockers",
+            "expanded_states", "witness", "blockers",
         }
         if not isinstance(payload, Mapping) or set(payload) != expected:
             raise ComputationalFabricError("fabric resolution result fields are malformed")
@@ -1485,7 +1492,7 @@ class ComputationalFabricResolutionResult:
                 payload["directory_digest"],
                 payload["topology_digest"],
                 payload["candidate_count"],
-                payload["expanded_peers"],
+                payload["expanded_states"],
                 None if witness_payload is None else ComputationalFabricRouteWitness.from_dict(witness_payload),
                 tuple(ComputationalFabricBlocker.from_dict(item) for item in payload["blockers"]),
             )
