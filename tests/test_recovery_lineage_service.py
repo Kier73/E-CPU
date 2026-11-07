@@ -328,7 +328,7 @@ def test_tls_authorities_fail_closed_below_quorum_then_rejoin_and_rebind(tmp_pat
 
 
 @pytest.mark.skipif(shutil.which("openssl") is None, reason="OpenSSL CLI is required to create ephemeral test certificates")
-def test_tls_rejects_wrong_member_dns_identity_without_killing_authority_service(
+def test_tls_rejects_wrong_dns_identity_in_either_peer_without_killing_service(
     tmp_path: Path,
 ) -> None:
     """Mathematics: an owner that expects member C's SAN cannot bind member B's certificate, while B remains serviceable."""
@@ -347,6 +347,34 @@ def test_tls_rejects_wrong_member_dns_identity_without_killing_authority_service
                 server_hostname="member-c.mailcpu.test",
             )
         assert process_b.poll() is None
+
+        # A certificate trusted by the CA is not sufficient: the service must
+        # also verify that the connecting client is the configured owner A.
+        wrong_owner_context = ssl.create_default_context(
+            ssl.Purpose.SERVER_AUTH,
+            cafile=str(certificates["ca"]),
+        )
+        wrong_owner_context.minimum_version = ssl.TLSVersion.TLSv1_2
+        wrong_owner_context.load_cert_chain(
+            str(certificates["C_cert"]),
+            str(certificates["C_key"]),
+        )
+        with pytest.raises(RecoveryLineageTransportError):
+            wrong_owner_peer = RecoveryLineagePeerClient.connect_mutual_tls(
+                membership,
+                "B",
+                ready_b["host"],
+                int(ready_b["port"]),
+                wrong_owner_context,
+                server_hostname="member-b.mailcpu.test",
+                timeout=0.8,
+                handshake_timeout=0.8,
+            )
+            try:
+                wrong_owner_peer.committed_state()
+            finally:
+                wrong_owner_peer.close()
+
         good_peer = _reconnect_peer(membership, certificates, "B", ready_b)
         assert good_peer.committed_state() is None
         assert process_b.poll() is None
