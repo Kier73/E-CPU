@@ -1275,4 +1275,10 @@ __all__ = [
     "EvidenceStrength",
     "RouteMetric",
     "RouteMetricKey",
+    "VGIHostError",
+    "VGI_SIGNAL8_INPUT_SCHEMA",
+    "VGI_SIGNAL8_OPERATOR_ID",
+    "execute_vgi_signal8",
+    "make_vgi_signal8_operator",
+    "register_vgi_signal8_operator",
 ]
