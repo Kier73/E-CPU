@@ -276,9 +276,12 @@ class EGPUHost:
             active = nxt
         if len(trace) > budget:
             raise EGPUError("tree reduction exceeds its requested level budget")
-        state = {"sum": active[0], "levels": len(trace), "work_units": len(active if not trace else [])}
-        state["work_units"] = sum(item["pair_count"] for item in trace)
-        state["trace"] = trace
+        state = {
+            "sum": active[0],
+            "levels": len(trace),
+            "work_units": sum(item["pair_count"] for item in trace),
+            "trace": trace,
+        }
         return {**state, "state_digest": _digest(state)}
 
     def _verify_result(self, method: str, payload: Mapping[str, Any], result: Mapping[str, Any]) -> None:
