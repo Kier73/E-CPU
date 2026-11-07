@@ -635,6 +635,13 @@ from .evidence_path_resolver import (
     RouteMetricKey,
 )
 
+from .computational_execution import (
+    ComputationalExecutionAdmissionCoordinator,
+    ComputationalExecutionAdmissionError,
+    ComputationalExecutionResult,
+    ComputationalExecutionStatus,
+)
+
 from .computational_resolver import (
     ComputationalAddress,
     ComputationalAddressResolver,
@@ -646,6 +653,24 @@ from .computational_resolver import (
     ComputationalResolutionResult,
     ComputationalResolutionStatus,
     ComputationalRouteWitness,
+)
+
+from .computational_fabric import (
+    ComputationalFabricAuthority,
+    ComputationalFabricBlocker,
+    ComputationalFabricBlockerCode,
+    ComputationalFabricDirectory,
+    ComputationalFabricError,
+    ComputationalFabricPeerClient,
+    ComputationalFabricPeerServer,
+    ComputationalFabricResolutionResult,
+    ComputationalFabricResolver,
+    ComputationalFabricRouteWitness,
+    ComputationalFabricStatus,
+    ComputationalHostAdvertisement,
+    ComputationalNetworkLink,
+    ComputationalPeerEndpoint,
+    ComputationalPeerSnapshot,
 )
 
 from .navigation_admission import (
@@ -1279,6 +1304,10 @@ __all__ = [
     "CommittedComputationResult",
     "NavigableComputationDAG",
     "ComputationalAddress",
+    "ComputationalExecutionAdmissionCoordinator",
+    "ComputationalExecutionAdmissionError",
+    "ComputationalExecutionResult",
+    "ComputationalExecutionStatus",
     "ComputationalAddressResolver",
     "ComputationalBlockerCode",
     "ComputationalHostCatalogue",
@@ -1288,6 +1317,21 @@ __all__ = [
     "ComputationalResolutionResult",
     "ComputationalResolutionStatus",
     "ComputationalRouteWitness",
+    "ComputationalFabricAuthority",
+    "ComputationalFabricBlocker",
+    "ComputationalFabricBlockerCode",
+    "ComputationalFabricDirectory",
+    "ComputationalFabricError",
+    "ComputationalFabricPeerClient",
+    "ComputationalFabricPeerServer",
+    "ComputationalFabricResolutionResult",
+    "ComputationalFabricResolver",
+    "ComputationalFabricRouteWitness",
+    "ComputationalFabricStatus",
+    "ComputationalHostAdvertisement",
+    "ComputationalNetworkLink",
+    "ComputationalPeerEndpoint",
+    "ComputationalPeerSnapshot",
     "EvidencePathBlocker",
     "EvidencePathBlockerCode",
     "EvidencePathCatalogue",

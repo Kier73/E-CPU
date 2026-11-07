@@ -211,6 +211,8 @@ def _expected_symbol(establishes: str) -> str | None:
         "recovery_deployment": "RecoveryLineageDeployment",
         "egpu": "EGPUHost",
         "computational_resolver": "ComputationalAddressResolver",
+        "computational_execution": "ComputationalExecutionAdmissionCoordinator",
+        "computational_fabric": "ComputationalFabricResolver",
         "transit_simt": "TransitSIMTHost",
         "seed_commit_quorum": "DurableSeedCommitLedger",
     }

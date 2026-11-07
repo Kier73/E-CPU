@@ -60,7 +60,7 @@ def _fsync_directory(path: Path) -> None:
 
 
 def _backend_manifest_bytes(receiver_checkpoint: bytes) -> bytes:
-    """Extract the canonical backend dispatch and implementation identity from a Transit checkpoint."""
+    """Mathematics: Extract the canonical backend dispatch and implementation identity from a Transit checkpoint."""
 
     try:
         envelope = json.loads(receiver_checkpoint.decode("utf-8"))

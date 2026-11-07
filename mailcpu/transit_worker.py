@@ -174,7 +174,7 @@ class TransitComputeWorker:
         cls,
         host: TransitComputeHost,
     ) -> tuple[tuple[str, str, str | None], ...]:
-        """Bind dispatch keys to declared source fingerprints when a backend provides one."""
+        """Mathematics: Bind dispatch keys to declared source fingerprints when a backend provides one."""
 
         registered = getattr(host, "registered_backend_implementations", None)
         if callable(registered):
