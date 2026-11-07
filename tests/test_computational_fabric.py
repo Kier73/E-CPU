@@ -309,6 +309,25 @@ def test_peer_snapshot_round_trip_binds_only_peer_owned_hosts_and_outgoing_links
         )
 
 
+def test_peer_authority_snapshot_restores_revisioned_advertisements() -> None:
+    endpoint = _endpoint("peer-b")
+    authority = ComputationalFabricAuthority(endpoint, lease_seconds=45)
+    advertisement = ComputationalHostAdvertisement.from_locus(_locus(), "peer-b")
+    authority.register_host(advertisement)
+    authority.register_link(_link("peer-b", "peer-c", 7))
+    original = authority.snapshot()
+
+    restored = ComputationalFabricAuthority.from_snapshot(
+        ComputationalPeerSnapshot.from_dict(original.to_dict())
+    )
+
+    assert restored.snapshot() == original
+    assert restored.snapshot().digest == original.digest
+    assert restored.revision == original.revision
+    assert restored.register_host(advertisement) == advertisement.digest
+    assert restored.revision == original.revision
+
+
 def test_directory_requires_direct_peer_identity_and_monotonic_revisions() -> None:
     first = _snapshot("peer-b")
     directory = ComputationalFabricDirectory(
