@@ -14,6 +14,8 @@ import pytest
 from mailcpu import (
     Capability,
     ComputationalAddress,
+    ComputationalAddressResolver,
+    ComputationalExecutionAdmissionCoordinator,
     ComputationalFabricAuthority,
     ComputationalFabricDirectory,
     ComputationalFabricPeerClient,
@@ -21,6 +23,7 @@ from mailcpu import (
     ComputationalFabricResolver,
     ComputationalFabricStatus,
     ComputationalHostAdvertisement,
+    ComputationalHostCatalogue,
     ComputationalHostLocus,
     ComputationalNetworkLink,
     ComputationalPeerEndpoint,
@@ -80,7 +83,11 @@ def _make_test_certificates(tmp_path: Path) -> dict[str, Path]:
         "-addext", "keyUsage=critical,keyCertSign,cRLSign",
     )
     files: dict[str, Path] = {"ca": ca_cert}
-    for role, dns_name in (("server", "peer-b.fabric.test"), ("client", "peer-a.fabric.test")):
+    for role, dns_name in (
+        ("server", "peer-b.fabric.test"),
+        ("server_c", "peer-c.fabric.test"),
+        ("client", "peer-a.fabric.test"),
+    ):
         key = tmp_path / f"{role}.key"
         csr = tmp_path / f"{role}.csr"
         certificate = tmp_path / f"{role}.pem"
@@ -117,6 +124,16 @@ def _server_context(certificates: dict[str, Path]) -> ssl.SSLContext:
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.minimum_version = ssl.TLSVersion.TLSv1_2
     context.load_cert_chain(str(certificates["server_cert"]), str(certificates["server_key"]))
+    context.load_verify_locations(cafile=str(certificates["ca"]))
+    context.verify_mode = ssl.CERT_REQUIRED
+    return context
+
+
+def _server_context_c(certificates: dict[str, Path]) -> ssl.SSLContext:
+    """Mathematics: Build the peer-C TLS server context with a distinct authenticated DNS identity."""
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    context.load_cert_chain(str(certificates["server_c_cert"]), str(certificates["server_c_key"]))
     context.load_verify_locations(cafile=str(certificates["ca"]))
     context.verify_mode = ssl.CERT_REQUIRED
     return context
@@ -960,3 +977,268 @@ def test_mutual_tls_peer_client_discovers_and_merges_remote_host_snapshot(tmp_pa
         thread.join(timeout=3.0)
     assert not thread.is_alive()
     assert not server_errors, repr(server_errors)
+
+
+@pytest.mark.skipif(shutil.which("openssl") is None, reason="OpenSSL CLI is required for ephemeral mutual-TLS certificates")
+def test_three_peer_federation_discovers_directly_and_routes_over_two_authenticated_hops(tmp_path) -> None:
+    """A preferred remote host fails over to an active peer and returns after its lease is refreshed."""
+    certificates = _make_test_certificates(tmp_path)
+    client_context = _client_context(certificates)
+    listeners = {
+        "peer-b": SocketTransport.listen("127.0.0.1", 0),
+        "peer-c": SocketTransport.listen("127.0.0.1", 0),
+    }
+    endpoints = {
+        peer_id: ComputationalPeerEndpoint(
+            peer_id,
+            f"{peer_id}.fabric.test",
+            "127.0.0.1",
+            listener.getsockname()[1],
+        )
+        for peer_id, listener in listeners.items()
+    }
+    authority_b = ComputationalFabricAuthority(endpoints["peer-b"], lease_seconds=10)
+    authority_b.register_link(_link("peer-b", "peer-c", 3))
+    fallback_locus = replace(
+        _locus("peer-b", "logical-host-b"),
+        costs=_host_costs(50),
+    )
+    authority_b.register_host(
+        ComputationalHostAdvertisement.from_locus(fallback_locus, "peer-b")
+    )
+    authority_c = ComputationalFabricAuthority(endpoints["peer-c"], lease_seconds=5)
+    authority_c.register_host(
+        ComputationalHostAdvertisement.from_locus(
+            _locus("peer-c", "logical-host-c"),
+            "peer-c",
+        )
+    )
+    contexts = {
+        "peer-b": _server_context(certificates),
+        "peer-c": _server_context_c(certificates),
+    }
+    authorities = {"peer-b": authority_b, "peer-c": authority_c}
+    server_errors: list[BaseException] = []
+    stop = threading.Event()
+    servers: dict[str, ComputationalFabricPeerServer] = {}
+
+    def serve(peer_id: str) -> None:
+        """Mathematics: Accept one configured peer-A client and service its reliable snapshot requests."""
+        try:
+            transport = accept_mutual_tls(
+                listeners[peer_id],
+                peer_id,
+                "peer-a",
+                contexts[peer_id],
+                expected_peer_dns="peer-a.fabric.test",
+            )
+            server = ComputationalFabricPeerServer(
+                authorities[peer_id],
+                transport,
+                "peer-a",
+                expected_client_dns="peer-a.fabric.test",
+            )
+            servers[peer_id] = server
+            server.serve_forever(stop)
+        except BaseException as exc:
+            server_errors.append(exc)
+
+    threads = [
+        threading.Thread(target=serve, args=(peer_id,), daemon=True)
+        for peer_id in ("peer-b", "peer-c")
+    ]
+    for thread in threads:
+        thread.start()
+
+    clock = [100.0]
+    directory = ComputationalFabricDirectory(
+        "peer-a",
+        {
+            "peer-b": "peer-b.fabric.test",
+            "peer-c": "peer-c.fabric.test",
+        },
+        monotonic=lambda: clock[0],
+    )
+    directory.register_local_snapshot(
+        _snapshot("peer-a", links=(_link("peer-a", "peer-b", 2),))
+    )
+    clients: dict[str, ComputationalFabricPeerClient] = {}
+    try:
+        for peer_id in ("peer-b", "peer-c"):
+            clients[peer_id] = ComputationalFabricPeerClient.connect_mutual_tls(
+                "peer-a",
+                endpoints[peer_id],
+                client_context,
+                timeout=3.0,
+            )
+            assert clients[peer_id].refresh(directory)
+
+        active_ids = tuple(item.peer_id for item in directory.active_snapshots)
+        assert active_ids == ("peer-a", "peer-b", "peer-c")
+        first = ComputationalFabricResolver().resolve(
+            _address(max_hops=3),
+            directory,
+            origin_peer_id="peer-a",
+        )
+        assert first.status is ComputationalFabricStatus.FOUND
+        assert first.witness is not None
+        assert first.witness.peer_path == ("peer-a", "peer-b", "peer-c")
+        assert first.witness.target_host.host_id == "logical-host-c"
+        assert tuple(item.amount for item in first.witness.network_costs if item.name == "latency") == (5,)
+
+        # The preferred host on C expires first. B remains live and has a
+        # compatible but more expensive host, so the planner must fail over
+        # to B rather than declaring the entire operator unreachable.
+        clock[0] = 105.0
+        assert tuple(item.peer_id for item in directory.active_snapshots) == ("peer-a", "peer-b")
+        fallback = ComputationalFabricResolver().resolve(
+            _address(max_hops=3),
+            directory,
+            origin_peer_id="peer-a",
+        )
+        assert fallback.status is ComputationalFabricStatus.FOUND
+        assert fallback.witness is not None
+        assert fallback.witness.peer_path == ("peer-a", "peer-b")
+        assert fallback.witness.target_host.host_id == "logical-host-b"
+        assert tuple(item.amount for item in fallback.witness.total_costs if item.name == "latency") == (52,)
+
+        # Re-observing C's unchanged snapshot over the still-authenticated
+        # direct channel renews its receiver-local lease. The planner should
+        # return to C because its network+host objective is now lower.
+        assert not clients["peer-c"].refresh(directory)
+        refreshed = ComputationalFabricResolver().resolve(
+            _address(max_hops=3),
+            directory,
+            origin_peer_id="peer-a",
+        )
+        assert refreshed.status is ComputationalFabricStatus.FOUND
+        assert refreshed.witness is not None
+        assert refreshed.witness.peer_path == ("peer-a", "peer-b", "peer-c")
+        assert refreshed.witness.target_host.host_id == "logical-host-c"
+        assert tuple(item.amount for item in refreshed.witness.total_costs if item.name == "latency") == (8,)
+        assert not server_errors
+    finally:
+        for client in clients.values():
+            client.close()
+        stop.set()
+        for listener in listeners.values():
+            listener.close()
+        for thread in threads:
+            thread.join(timeout=3.0)
+    assert all(not thread.is_alive() for thread in threads)
+    assert not server_errors, repr(server_errors)
+
+
+def test_fabric_route_terminates_in_fresh_local_resolution_and_hypervisor_execution() -> None:
+    """A non-authoritative remote route locates the destination; only a fresh local witness can enter Hypervisor execution."""
+    destination_os = HeadlessOS()
+    system_identity = SystemIdentity("federated-execution-system", 1)
+    seed = SystemSeed.from_system(destination_os)
+    envelope = SystemSeedEnvelope(
+        system_identity,
+        "federated-execution",
+        "federated-execution",
+        seed,
+    )
+    assert destination_os.seed_admission.admit(envelope).accepted
+    system_ground = VirtualGroundRef.from_envelope(envelope)
+
+    calls: list[str] = []
+    registry = OperatorRegistry()
+    spec = _spec()
+
+    def execute(value, workload):
+        """Mathematics: Execute the pure sum only after receiver-local Hypervisor admission."""
+        calls.append(workload.workload_id)
+        return value["left"] + value["right"]
+
+    registry.register(spec, execute)
+    runtime = VirtualLayerRuntime(registry, "node-b", frozenset({"cpu"}))
+    pid = destination_os.environment.kernel.spawn(
+        "federated-compute-host",
+        capabilities=(Capability("/virtual-layer/operators", frozenset({"compute"})),),
+        parent_pid=destination_os.environment.init_pid,
+    )
+    locus = ComputationalHostLocus.from_runtime(
+        host_id="logical-host-c",
+        runtime=runtime,
+        authority_pid=pid,
+        operator_id="core.sum_pair",
+        computational_ground_fingerprints=(GROUND_FP,),
+        program_fingerprints=(PROGRAM_FP,),
+        costs=_host_costs(3),
+        implementation_fingerprint=IMPLEMENTATION_FP,
+    )
+    catalogue = ComputationalHostCatalogue((locus,))
+
+    workload = VirtualLayerWorkload(
+        workload_id="federated-sum-workload",
+        system=system_identity,
+        ground=system_ground,
+        intention={"goal": {"kind": "sum", "expected": 9}},
+        operators=(VirtualOperatorRef("core.sum_pair", 1, "cpu"),),
+        input_value={"left": 4, "right": 5},
+        budget=VirtualBudget(10_000, 10_000, 10_000),
+        logical_time=13,
+        eligible_nodes=("node-b",),
+        max_hops=3,
+    )
+    address = ComputationalAddress.from_workload(
+        workload,
+        "core.sum_pair",
+        spec,
+        GROUND_FP,
+        program_fingerprint=PROGRAM_FP,
+        metric_order=METRICS,
+    )
+
+    advertisement = ComputationalHostAdvertisement.from_locus(locus, "peer-c")
+    directory = _directory(
+        _snapshot("peer-a", links=(_link("peer-a", "peer-b", 2),)),
+        _snapshot("peer-b", links=(_link("peer-b", "peer-c", 3),)),
+        _snapshot("peer-c", hosts=(advertisement,)),
+    )
+    fabric_result = ComputationalFabricResolver().resolve(
+        address,
+        directory,
+        origin_peer_id="peer-a",
+    )
+
+    assert fabric_result.status is ComputationalFabricStatus.FOUND
+    assert fabric_result.witness is not None
+    assert fabric_result.authoritative is False
+    assert fabric_result.witness.peer_path == ("peer-a", "peer-b", "peer-c")
+    assert fabric_result.witness.target_host.digest == advertisement.digest
+    assert "authority_pid" not in fabric_result.witness.target_host.to_dict()
+    assert "runtime_binding" not in fabric_result.witness.target_host.to_dict()
+    assert "handler_binding" not in fabric_result.witness.target_host.to_dict()
+    assert calls == []
+
+    # The terminal peer does not consume the fabric witness as an execution
+    # grant. It resolves the original address against its own live catalogue,
+    # current System Ground, process rights, runtime object and handler.
+    local_resolution = ComputationalAddressResolver().resolve(
+        address,
+        catalogue,
+        destination_os,
+    )
+    assert local_resolution.status.value == "found"
+    assert local_resolution.witness is not None
+    assert local_resolution.authoritative is False
+
+    execution = ComputationalExecutionAdmissionCoordinator(destination_os).execute(
+        address,
+        local_resolution.witness,
+        catalogue,
+        runtime,
+        source="federated-requester",
+        channel="federated.execution",
+        sequence=1,
+    )
+    assert execution.status.value == "executed"
+    assert execution.executed
+    assert execution.accepted
+    assert execution.execution is not None
+    assert execution.execution.action.value == "allow"
+    assert execution.execution.effect["result"] == 9
+    assert calls == ["federated-sum-workload"]

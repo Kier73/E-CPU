@@ -155,6 +155,7 @@ from .recovery_lineage import (
     RecoveryLineageCoordinator,
     RecoveryLineageError,
     RecoveryLineageProof,
+    RecoveryStateManifest,
 )
 from .recovery_lineage_transport import (
     DistributedRecoveryLineageCoordinator,
@@ -673,6 +674,12 @@ from .computational_fabric import (
     ComputationalPeerSnapshot,
 )
 
+from .computational_fabric_recovery import (
+    ComputationalFabricRecoveryError,
+    ComputationalFabricRecoveryStore,
+    VerifiedComputationalFabricCheckpoint,
+)
+
 from .navigation_admission import (
     HypervisorNavigationAdmissionCoordinator,
     NavigationAdmissionError,
@@ -847,6 +854,7 @@ __all__ = [
     "SeedCommitTransitionArtifact",
     "SeedPrepareVote",
     "RecoveryCheckpointManifest",
+    "RecoveryStateManifest",
     "RecoveryCheckpointBundleError",
     "RecoveryCheckpointBundleStore",
     "VerifiedRecoveryCheckpointBundle",
@@ -1328,6 +1336,9 @@ __all__ = [
     "ComputationalFabricResolver",
     "ComputationalFabricRouteWitness",
     "ComputationalFabricStatus",
+    "ComputationalFabricRecoveryError",
+    "ComputationalFabricRecoveryStore",
+    "VerifiedComputationalFabricCheckpoint",
     "ComputationalHostAdvertisement",
     "ComputationalNetworkLink",
     "ComputationalPeerEndpoint",
