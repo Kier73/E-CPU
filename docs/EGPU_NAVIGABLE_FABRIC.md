@@ -31,7 +31,7 @@ These are logical host identities, not machine or placement-node names. Each met
 
 ## Request contract
 
-The external request uses operation execute navigable E-GPU method, resource /gpu/egpu, exact required/granted rights {execute}, and destructive=false. The receiver hypervisor must reconstruct execute authority from local kernel capabilities. Internal graph capabilities select a method locus; they do not grant OS or kernel privileges.
+The external request uses operation execute deterministic CPU E-GPU method, resource /gpu/egpu, exact required/granted rights {execute}, and destructive=false. The receiver hypervisor must reconstruct execute authority from local kernel capabilities. Internal graph capabilities select a method locus; they do not grant OS or kernel privileges.
 
 Exact payload shapes:
 
