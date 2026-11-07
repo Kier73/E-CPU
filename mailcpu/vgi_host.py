@@ -27,7 +27,7 @@ class VGIHostError(VirtualLayerError):
 
 
 def _canonical_digest(value: Any) -> str:
-    """Return a stable SHA-256 digest for a finite JSON-compatible value."""
+    """Mathematics: Return the stable SHA-256 digest of a finite canonical JSON value."""
     encoded = json.dumps(
         value,
         sort_keys=True,
@@ -39,7 +39,7 @@ def _canonical_digest(value: Any) -> str:
 
 
 def _positive_integer(value: Any, name: str, maximum: int) -> int:
-    """Validate a positive, bounded integer without accepting booleans."""
+    """Mathematics: Admit exactly the positive integers bounded above by the supplied maximum."""
     if (
         isinstance(value, bool)
         or not isinstance(value, int)
@@ -51,7 +51,7 @@ def _positive_integer(value: Any, name: str, maximum: int) -> int:
 
 
 def _signal_value(raw: Any, address: str, signal_value_type: type[Any]) -> Any:
-    """Build one signal value from its exact finite wire representation."""
+    """Mathematics: Decode the typed wire tuple into a validated VGI signal state without semantic integer observation."""
     required = {"real", "imag", "observer", "phase_error_bound"}
     if not isinstance(raw, Mapping) or set(raw) != required:
         raise VGIHostError(
@@ -84,7 +84,7 @@ def execute_vgi_signal8(
     *,
     max_configured_steps: int = 10_000,
 ) -> dict[str, object]:
-    """Compile, execute, and checkpoint one typed VGI Signal8 task."""
+    """Mathematics: Map a typed Signal8 task and initial signal store to a bounded terminal state, trace, and checkpoint."""
     if not isinstance(workload, VirtualLayerWorkload):
         raise VGIHostError("VGI execution requires a typed VirtualLayerWorkload")
     if not isinstance(input_value, Mapping):
@@ -194,7 +194,7 @@ def make_vgi_signal8_operator(
     *,
     max_steps: int = 10_000,
 ) -> tuple[OperatorSpec, Callable[[Any, VirtualLayerWorkload], Any]]:
-    """Create the declarative Signal8 operator and its node-local implementation."""
+    """Mathematics: Construct the pure operator contract and its receiver-local implementation for the bounded Signal8 transition relation."""
     _positive_integer(max_steps, "max_steps", 10_000_000)
     spec = OperatorSpec(
         operator_id=VGI_SIGNAL8_OPERATOR_ID,
@@ -216,7 +216,7 @@ def make_vgi_signal8_operator(
     )
 
     def handle(input_value: Any, workload: VirtualLayerWorkload) -> dict[str, object]:
-        """Run the bounded VGI computation after Virtual Layer admission."""
+        """Mathematics: Evaluate the VGI transition relation for the validated task within the configured instruction budget."""
         return execute_vgi_signal8(
             input_value,
             workload,
@@ -231,7 +231,7 @@ def register_vgi_signal8_operator(
     *,
     max_steps: int = 10_000,
 ) -> OperatorSpec:
-    """Register the VGI Signal8 contract and trusted handler on one local node."""
+    """Mathematics: Extend the node-local operator relation with one exact versioned Signal8 contract and handler."""
     if not isinstance(registry, OperatorRegistry):
         raise TypeError("registry must be an OperatorRegistry")
     spec, handler = make_vgi_signal8_operator(max_steps=max_steps)
