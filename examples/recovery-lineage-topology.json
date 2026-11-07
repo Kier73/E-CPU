@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "membership": {
+    "system_id": "mailcpu-recovery-example",
+    "incarnation": 1,
+    "member_ids": [
+      "A",
+      "B",
+      "C"
+    ],
+    "owner_id": "A",
+    "owner_term": 1,
+    "genesis_state_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+    "quorum": 2
+  },
+  "members": [
+    {
+      "member_id": "A",
+      "role": "owner",
+      "dns_name": "owner-a.mailcpu.test",
+      "host_id": "node-a",
+      "failure_domain": "region-1/zone-a/node-a",
+      "endpoint_host": null,
+      "port": null,
+      "journal_path": "/var/lib/mailcpu/recovery/A.jsonl",
+      "certificate_path": "/etc/mailcpu/tls/owner-a.pem",
+      "private_key_path": "/etc/mailcpu/tls/owner-a.key",
+      "trust_bundle_path": "/etc/mailcpu/tls/authority-ca.pem"
+    },
+    {
+      "member_id": "B",
+      "role": "authority",
+      "dns_name": "authority-b.mailcpu.test",
+      "host_id": "node-b",
+      "failure_domain": "region-1/zone-b/node-b",
+      "endpoint_host": "192.0.2.11",
+      "port": 7443,
+      "journal_path": "/var/lib/mailcpu/recovery/B.jsonl",
+      "certificate_path": "/etc/mailcpu/tls/authority-b.pem",
+      "private_key_path": "/etc/mailcpu/tls/authority-b.key",
+      "trust_bundle_path": "/etc/mailcpu/tls/owner-ca.pem"
+    },
+    {
+      "member_id": "C",
+      "role": "authority",
+      "dns_name": "authority-c.mailcpu.test",
+      "host_id": "node-c",
+      "failure_domain": "region-1/zone-c/node-c",
+      "endpoint_host": "192.0.2.12",
+      "port": 7443,
+      "journal_path": "/var/lib/mailcpu/recovery/C.jsonl",
+      "certificate_path": "/etc/mailcpu/tls/authority-c.pem",
+      "private_key_path": "/etc/mailcpu/tls/authority-c.key",
+      "trust_bundle_path": "/etc/mailcpu/tls/owner-ca.pem"
+    }
+  ]
+}
