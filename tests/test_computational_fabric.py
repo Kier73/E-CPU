@@ -599,7 +599,7 @@ def test_fabric_resolver_enforces_hop_frame_budget_and_implementation_pins() -> 
         tiny_link_directory,
         origin_peer_id="peer-a",
     )
-    assert tiny.status is ComputationalFabricStatus.UNREACHABLE
+    assert tiny.status is ComputationalFabricStatus.BUDGET_EXHAUSTED
     assert any(item.code.value == "resource_limit" for item in tiny.blockers)
 
 
