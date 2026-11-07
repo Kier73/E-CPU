@@ -709,11 +709,21 @@ class ComputationalFabricDirectory:
         self._snapshots: dict[str, ComputationalPeerSnapshot] = {}
         self._deadlines: dict[str, float] = {}
         self._local_snapshot: ComputationalPeerSnapshot | None = None
+        self._revision_high_water: dict[str, tuple[int, str]] = {}
 
     @property
     def trusted_peers(self) -> dict[str, str]:
         """Mathematics: Return a detached view of the immutable peer→TLS-DNS bootstrap trust mapping."""
         return dict(self._trusted_peers)
+
+    @property
+    def peer_revision_high_water(self) -> tuple[tuple[str, int, str], ...]:
+        """Mathematics: Expose retained per-peer revision/digest high-water marks, including peers whose leases were purged."""
+        with self._lock:
+            return tuple(
+                (peer_id, revision, digest)
+                for peer_id, (revision, digest) in sorted(self._revision_high_water.items())
+            )
 
     @property
     def peer_snapshots(self) -> tuple[ComputationalPeerSnapshot, ...]:
@@ -784,6 +794,7 @@ class ComputationalFabricDirectory:
                     return False
             self._validate_capacity(snapshot, replacing_peer=self.local_peer_id)
             self._local_snapshot = snapshot
+            self._revision_high_water[self.local_peer_id] = (snapshot.revision, snapshot.digest)
             return True
 
     def merge_authenticated_snapshot(
@@ -833,14 +844,17 @@ class ComputationalFabricDirectory:
             if server_name != expected_dns or snapshot.endpoint.tls_server_name != expected_dns:
                 raise ComputationalFabricError("authenticated TLS DNS identity differs from configured peer trust")
             previous = self._snapshots.get(peer_id)
-            if previous is not None:
-                if snapshot.revision < previous.revision:
+            high_water = self._revision_high_water.get(peer_id)
+            if high_water is not None:
+                previous_revision, previous_digest = high_water
+                if snapshot.revision < previous_revision:
                     raise ComputationalFabricError("peer snapshot revision rollback detected")
-                if snapshot.revision == previous.revision and snapshot.digest != previous.digest:
+                if snapshot.revision == previous_revision and snapshot.digest != previous_digest:
                     raise ComputationalFabricError("peer equivocated at an existing snapshot revision")
             self._validate_capacity(snapshot, replacing_peer=peer_id)
             changed = previous is None or previous.digest != snapshot.digest
             self._snapshots[peer_id] = snapshot
+            self._revision_high_water[peer_id] = (snapshot.revision, snapshot.digest)
             self._deadlines[peer_id] = self._monotonic() + min(
                 snapshot.lease_seconds,
                 self.max_peer_lease_seconds,
