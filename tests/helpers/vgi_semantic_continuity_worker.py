@@ -310,6 +310,8 @@ def restore(root: Path, result_path: Path) -> None:
     result_marker = {
         "stage": "replayed",
         "pid": os.getpid(),
+        "bundle_generation": bundle.generation,
+        "bundle_manifest_digest": bundle.manifest.digest,
         "replayed": replay.replayed,
         "backend_calls_after_restart": hosts[0].calls,
         "effect_digest": hashlib.sha256(json.dumps(
