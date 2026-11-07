@@ -347,6 +347,7 @@ class ComputationalHostLocus:
         *,
         program_fingerprints: Sequence[str] = (),
         supports_ground_program_compilation: bool = False,
+        version: int = 1,
         supports_structural_memory: bool = False,
         implementation_fingerprint: str | None = None,
     ) -> "ComputationalHostLocus":
@@ -354,7 +355,7 @@ class ComputationalHostLocus:
         if not isinstance(runtime, VirtualLayerRuntime):
             raise ComputationalResolutionError("host-locus registration requires a VirtualLayerRuntime")
         try:
-            spec = runtime.registry.contract(operator_id)
+            spec = runtime.registry.contract(operator_id, version)
         except VirtualLayerError as exc:
             raise ComputationalResolutionError(str(exc)) from exc
         return cls(
