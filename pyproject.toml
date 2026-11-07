@@ -42,6 +42,7 @@ Issues = "https://github.com/Kier73/E-CPU/issues"
 
 [project.scripts]
 mailcpu = "mailcpu.cli:main"
+mailcpu-recovery-authority = "mailcpu.recovery_lineage_service:main"
 
 [tool.setuptools]
 packages = ["mailcpu"]
