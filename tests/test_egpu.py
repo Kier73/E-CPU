@@ -441,3 +441,34 @@ def test_egpu_shared_workgroup_survives_transit_checkpoint_and_semantic_replay(t
         ):
             if transport is not None and not transport.closed:
                 transport.close()
+
+
+def test_shared_memory_refuses_halt_with_unpublished_writes() -> None:
+    """Mathematics: a workgroup cannot terminate while its pending shared-memory write set is non-empty."""
+
+    event = HypervisorArbitrationEvent(
+        "client",
+        "simt",
+        3,
+        102,
+        HypervisorRequest(
+            TransitSIMTHost.operation_name,
+            TransitSIMTHost.resource_name,
+            {
+                "lanes": 1,
+                "inputs": {"x": [17]},
+                "shared_buffers": {"scratch": 1},
+                "program": [
+                    ["const", "zero", 0],
+                    ["load", "value", "x"],
+                    ["shared_store", "scratch", "zero", "value"],
+                    ["halt"],
+                ],
+                "max_steps": 8,
+            },
+            frozenset({"execute"}),
+            frozenset({"execute"}),
+        ),
+    )
+    with pytest.raises(TransitSIMTError, match="HALT requires a barrier"):
+        TransitSIMTHost().handle(event)
