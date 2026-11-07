@@ -51,7 +51,7 @@ At that cut, the receiver:
 - obtains the fixed-membership recovery-lineage proof; and
 - publishes a marker so the test process can terminate the receiver without graceful shutdown.
 
-A new Python interpreter then loads the bundle through the quorum-gated restore path, reconstructs the receiver, rebinds the same backend relation, and receives the same requester frame again.
+A new Python interpreter then loads the bundle through the quorum-gated restore path, reconstructs the receiver, and rebinds the same backend relation. The receiver's TCP transport is a newly attached connection: the old socket's unread bytes are not treated as durable checkpoint state. The requester retains its reliable sender frame and retransmits that exact frame after reconnecting. Until that retry reaches the new socket, the restored receiver may correctly report an idle request channel; it then applies the persisted receive cursor and execution ledger to the incoming retry.
 
 The expected recovery relation is:
 
