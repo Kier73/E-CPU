@@ -166,10 +166,6 @@ identities, unique authority endpoints, and node-local journal/TLS resource path
 The validator can export the normalized membership file consumed by each
 authority service; its placement declarations remain operator assertions, not
 physical-host attestation. See
-[docs/RECOVERY_LINEAGE_DEPLOYMENT.md](docs/RECOVERY_LINEAGE_DEPLOYMENT.md).
-The validator can export the normalized membership file consumed by each
-authority service; its placement declarations remain operator assertions, not
-physical-host attestation. See
 [`docs/RECOVERY_LINEAGE_DEPLOYMENT.md`](docs/RECOVERY_LINEAGE_DEPLOYMENT.md).
 See [`docs/RECOVERY_LINEAGE_PROCESSES.md`](docs/RECOVERY_LINEAGE_PROCESSES.md)
 and [`docs/RECOVERY_LINEAGE_SERVICE.md`](docs/RECOVERY_LINEAGE_SERVICE.md)
