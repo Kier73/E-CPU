@@ -204,6 +204,7 @@ class ComputationalPeerEndpoint:
     port: int
 
     def __post_init__(self) -> None:
+        """Mathematics: Validate peer identity, DNS certificate name, endpoint and finite TCP port."""
         _peer_id(self.peer_id)
         object.__setattr__(self, "tls_server_name", _dns_name(self.tls_server_name, "tls_server_name"))
         _label(self.endpoint_host, "endpoint_host", 253)
@@ -254,6 +255,7 @@ class ComputationalHostAdvertisement:
     max_virtual_ticks: int
 
     def __post_init__(self) -> None:
+        """Mathematics: Validate portable host identity, operator contract, admitted capabilities, costs and resource bounds."""
         if not isinstance(self.host_id, str) or _PEER_ID.fullmatch(self.host_id) is None:
             raise ComputationalFabricError("host_id is not a valid logical host identity")
         _label(self.node_id, "node_id", 128)
@@ -404,6 +406,7 @@ class ComputationalNetworkLink:
     max_frame_bytes: int = 1_048_576
 
     def __post_init__(self) -> None:
+        """Mathematics: Validate directed peer identity, finite typed link costs, status and frame-size ceiling."""
         _peer_id(self.source_peer_id, "source_peer_id")
         _peer_id(self.target_peer_id, "target_peer_id")
         if self.source_peer_id == self.target_peer_id:
@@ -459,6 +462,7 @@ class ComputationalPeerSnapshot:
     links: tuple[ComputationalNetworkLink, ...]
 
     def __post_init__(self) -> None:
+        """Mathematics: Require a peer-owned finite snapshot with unique host/operator and outgoing-link identities."""
         if not isinstance(self.endpoint, ComputationalPeerEndpoint):
             raise ComputationalFabricError("peer snapshot requires a typed endpoint")
         _positive(self.revision, "peer revision", minimum=0)
@@ -630,6 +634,30 @@ class ComputationalFabricAuthority:
             tuple(self._hosts.values()),
             tuple(self._links.values()),
         )
+
+    @classmethod
+    def from_snapshot(
+        cls,
+        snapshot: ComputationalPeerSnapshot,
+    ) -> "ComputationalFabricAuthority":
+        """Mathematics: Restore a peer-owned advertisement revision without importing receiver process authority."""
+        if not isinstance(snapshot, ComputationalPeerSnapshot):
+            raise ComputationalFabricError("authority restoration requires a ComputationalPeerSnapshot")
+        authority = cls(
+            snapshot.endpoint,
+            lease_seconds=snapshot.lease_seconds,
+        )
+        authority._revision = snapshot.revision
+        authority._hosts = {
+            (
+                item.host_id,
+                item.operator_spec.operator_id,
+                item.operator_spec.version,
+            ): item
+            for item in snapshot.hosts
+        }
+        authority._links = {item.link_id: item for item in snapshot.links}
+        return authority
 
 
 class ComputationalFabricDirectory:
@@ -935,9 +963,13 @@ class ComputationalFabricPeerServer:
     def service_once(self) -> bool:
         """Mathematics: Commit one snapshot request into the reliable response channel before acknowledging its inbound sequence."""
         self.outbound.process_ack()
+        if self.outbound.available_window < 1:
+            self.outbound.tick()
+            return False
         handled = False
 
         def apply(_sequence: int, payload: Any) -> None:
+            """Mathematics: Encode one validated snapshot request into a reliable response before inbound acknowledgement."""
             nonlocal handled
             handled = True
             if not isinstance(payload, Mapping) or set(payload) != {"kind", "request_id"}:
@@ -1154,6 +1186,7 @@ class ComputationalFabricBlocker:
     detail: str = ""
 
     def __post_init__(self) -> None:
+        """Mathematics: Validate one stable subject identity, typed blocker code and textual explanation."""
         _label(self.subject_id, "blocker subject_id", 256)
         if not isinstance(self.code, ComputationalFabricBlockerCode):
             object.__setattr__(self, "code", ComputationalFabricBlockerCode(self.code))
@@ -1197,6 +1230,7 @@ class ComputationalFabricRouteWitness:
     total_costs: tuple[RouteMetric, ...]
 
     def __post_init__(self) -> None:
+        """Mathematics: Validate digests, cycle-free peer path, endpoint order, target ownership, and additive cost identity."""
         for name in ("address_digest", "directory_digest", "topology_digest"):
             _digest(getattr(self, name), name)
         _peer_id(self.origin_peer_id, "origin_peer_id")
@@ -1327,6 +1361,7 @@ class ComputationalFabricResolutionResult:
     blockers: tuple[ComputationalFabricBlocker, ...] = ()
 
     def __post_init__(self) -> None:
+        """Mathematics: Enforce result status/witness consistency, typed digests, finite counts and canonical blockers."""
         if not isinstance(self.status, ComputationalFabricStatus):
             object.__setattr__(self, "status", ComputationalFabricStatus(self.status))
         for name in ("address_digest", "directory_digest", "topology_digest"):
