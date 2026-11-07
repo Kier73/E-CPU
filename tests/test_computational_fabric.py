@@ -1221,8 +1221,10 @@ def test_fabric_route_terminates_in_fresh_local_resolution_and_hypervisor_execut
         channel="federated.execution",
         sequence=1,
     )
+    assert execution.status.value == "executed"
     assert execution.executed
-    assert execution.hypervisor_result is not None
-    assert execution.hypervisor_result.action.value == "allow"
-    assert execution.hypervisor_result.value["result"] == 9
+    assert execution.accepted
+    assert execution.execution is not None
+    assert execution.execution.action.value == "allow"
+    assert execution.execution.effect["result"] == 9
     assert calls == ["federated-sum-workload"]
