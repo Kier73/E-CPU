@@ -152,13 +152,19 @@ For persistent Transit paths, the callable surface includes
 `TransitComputeSession.from_checkpoint()`. For jointly persisted requester
 and receiver state, `RecoveryCheckpointBundleStore.seal()` and
 `load_latest()` add an independent quorum admission step before restore.
-The fixed-membership recovery authority can also run across independent
-processes using `RecoveryLineageProcessParticipant`,
-`RecoveryLineagePeerClient`, and
-`DistributedRecoveryLineageCoordinator`; the owner process coordinates
-remote journals over the seed-commit reliable-channel substrate.
-See [`docs/RECOVERY_BUNDLE.md`](docs/RECOVERY_BUNDLE.md) for the complete
-capture/restore protocol and its failure semantics.
+The fixed-membership recovery authority can run across independent processes
+using `RecoveryLineageProcessParticipant`, `RecoveryLineagePeerClient`, and
+`DistributedRecoveryLineageCoordinator`. `RecoveryLineageAuthorityService`
+adds a reconnectable remote service protected by mutual TLS, and the
+`mailcpu-recovery-authority` command runs one non-owner member under an
+external process supervisor. The owner can connect with
+`RecoveryLineagePeerClient.connect_mutual_tls()`; both certificate-chain and
+DNS-SAN identities are verified before the reliable channels are opened.
+See [`docs/RECOVERY_LINEAGE_PROCESSES.md`](docs/RECOVERY_LINEAGE_PROCESSES.md)
+and [`docs/RECOVERY_LINEAGE_SERVICE.md`](docs/RECOVERY_LINEAGE_SERVICE.md)
+for the process protocol, deployment procedure, failure semantics, and proof
+boundary. The complete checkpoint capture/restore protocol remains in
+[`docs/RECOVERY_BUNDLE.md`](docs/RECOVERY_BUNDLE.md).
 
 The public API is intentionally broader than the CLI command set. Most
 subsystems are configured objects rather than standalone shell commands:
