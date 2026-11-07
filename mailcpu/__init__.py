@@ -298,7 +298,7 @@ from .navigable_computation_checkpoint import (
     NavigableComputationCheckpointError,
     RestoredNavigableComputation,
 )
-from .transit_simt import TransitSIMTError, TransitSIMTHost
+from .transit_simt import TransitSIMTError, TransitSIMTHost, TransitSIMTSharedMemoryHost
 from .egpu import EGPUError, EGPUHost, EGPUOperationalLocus
 from .transit_worker import TransitComputeWorker
 from .transit_orbit import (
@@ -1000,6 +1000,7 @@ __all__ = [
     "RestoredNavigableComputation",
     "TransitSIMTError",
     "TransitSIMTHost",
+    "TransitSIMTSharedMemoryHost",
     "EGPUError",
     "EGPUHost",
     "EGPUOperationalLocus",
