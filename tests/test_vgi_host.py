@@ -27,6 +27,7 @@ from mailcpu.vgi_host import (
     VGI_SIGNAL8_OPERATOR_ID,
     make_vgi_signal8_operator,
     register_vgi_signal8_operator,
+    vgi_signal8_implementation_fingerprint,
 )
 
 vgi = pytest.importorskip("vgi")
@@ -156,6 +157,10 @@ def test_vgi_host_execution_preserves_both_ground_identities(monkeypatch) -> Non
     assert receipt["computation_ground"]["ground_id"] == SIGNAL8_GROUND.ground_id
     assert receipt["computation_ground"]["fingerprint"] == SIGNAL8_GROUND.fingerprint
     assert receipt["program"]["fingerprint"]
+    assert receipt["implementation"]["source_fingerprint"] == (
+        vgi_signal8_implementation_fingerprint()
+    )
+    assert len(receipt["implementation"]["source_fingerprint"]) == 64
     assert receipt["execution"]["halted"] is True
     assert receipt["execution"]["step_count"] == len(receipt["execution"]["trace"])
     assert any(
