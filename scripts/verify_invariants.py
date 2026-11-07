@@ -208,6 +208,7 @@ def _expected_symbol(establishes: str) -> str | None:
         "recovery_bundle": "RecoveryCheckpointBundleStore",
         "recovery_lineage_transport": "RecoveryLineageProcessParticipant",
         "recovery_lineage_service": "RecoveryLineageAuthorityService",
+        "recovery_deployment": "RecoveryLineageDeployment",
         "seed_commit_quorum": "DurableSeedCommitLedger",
     }
     return mapping.get(stem)
