@@ -44,6 +44,8 @@ def _canonical_digest(value: Any) -> str:
 @lru_cache(maxsize=32)
 def vgi_signal8_implementation_fingerprint(
     implementation_type: type[Any] | None = None,
+    *,
+    max_configured_steps: int | None = None,
 ) -> str:
     """Fingerprint the installed E-CPU/VGI Python source and optional concrete host class.
 
@@ -118,10 +120,14 @@ def vgi_signal8_implementation_fingerprint(
             "sha256": hashlib.sha256(source_bytes).hexdigest(),
         })
 
+    if max_configured_steps is not None:
+        _positive_integer(max_configured_steps, "max_configured_steps", 10_000_000)
+
     return _canonical_digest({
         "schema": "vgi.signal8.implementation-source.v1",
         "vgi_version": getattr(vgi, "__version__", None),
         "implementation_type": implementation_name,
+        "configuration": {"max_configured_steps": max_configured_steps},
         "files": file_manifest,
     })
 
