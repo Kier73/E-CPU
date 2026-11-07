@@ -646,6 +646,88 @@ class OperatorRegistry:
         return registry
 
 
+
+def _validate_computational_admission_context(
+    context: Mapping[str, Any],
+    runtime: VirtualLayerRuntime,
+    workload: VirtualLayerWorkload,
+    reference: VirtualOperatorRef,
+    spec: OperatorSpec,
+    input_value: Any,
+    logical_time: int,
+) -> dict[str, Any]:
+    """Mathematics: Verify the route context against the exact workload, operator, node, and selected substrate."""
+    expected_fields = {
+        "schema", "admission_digest", "address_digest", "witness_digest",
+        "catalogue_digest", "authority_digest", "system_ground_digest",
+        "computational_ground_fingerprint", "program_fingerprint",
+        "implementation_fingerprint", "host_id", "node_id", "operator_id",
+        "operator_version", "operator_contract_digest", "input_digest",
+        "state_digest", "logical_time", "observation_kind", "substrate",
+    }
+    if not isinstance(context, Mapping) or set(context) != expected_fields:
+        raise VirtualLayerError("computational admission context fields are invalid")
+    detached = _copy_json(dict(context), "computational admission context")
+    if detached.get("schema") != "mailcpu.computational-execution-admission.v1":
+        raise VirtualLayerError("computational admission context schema is invalid")
+    for name in (
+        "admission_digest", "address_digest", "witness_digest", "catalogue_digest",
+        "authority_digest", "system_ground_digest", "computational_ground_fingerprint",
+        "operator_contract_digest", "input_digest", "state_digest",
+    ):
+        value = detached.get(name)
+        if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
+            raise VirtualLayerError(f"computational admission {name} is not a SHA-256 digest")
+    for name in ("program_fingerprint", "implementation_fingerprint"):
+        value = detached.get(name)
+        if value is not None and (
+            not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None
+        ):
+            raise VirtualLayerError(f"computational admission {name} is invalid")
+    for name in ("host_id", "node_id", "operator_id", "observation_kind", "substrate"):
+        value = detached.get(name)
+        if not isinstance(value, str) or not value or value.strip() != value:
+            raise VirtualLayerError(f"computational admission {name} must be non-empty trimmed text")
+    if detached["node_id"] != runtime.node_id:
+        raise VirtualLayerError("computational admission placement differs from this execution node")
+    if (
+        detached["operator_id"] != spec.operator_id
+        or type(detached["operator_version"]) is not int
+        or detached["operator_version"] != spec.version
+        or detached["operator_contract_digest"] != spec.digest
+    ):
+        raise VirtualLayerError("computational admission operator identity differs from the local contract")
+    if logical_time != workload.logical_time or detached["logical_time"] != logical_time:
+        raise VirtualLayerError("computational admission logical time differs from the workload")
+    if detached["observation_kind"] != spec.output_kind:
+        raise VirtualLayerError("computational admission observation kind differs from the operator output")
+    input_digest = _digest(input_value, "operator input")
+    if detached["input_digest"] != input_digest:
+        raise VirtualLayerError("computational admission input digest differs from the workload")
+    state_digest = _digest({
+        "input_digest": input_digest,
+        "structural_memory": [item.to_dict() for item in reference.structural_memory],
+    }, "computational state")
+    if detached["state_digest"] != state_digest:
+        raise VirtualLayerError("computational admission state digest differs from the workload")
+    if detached["system_ground_digest"] != _digest(workload.ground.to_dict(), "system Ground"):
+        raise VirtualLayerError("computational admission System Ground differs from the workload")
+    if reference.preferred_substrate is not None:
+        expected_substrate = reference.preferred_substrate
+    else:
+        expected_substrate = next(
+            (item for item in spec.substrates if item in runtime.substrates),
+            None,
+        )
+    if expected_substrate is None or detached["substrate"] != expected_substrate:
+        raise VirtualLayerError("computational admission substrate differs from local execution selection")
+    admission_payload = dict(detached)
+    admission_digest = admission_payload.pop("admission_digest")
+    if _digest(admission_payload, "computational admission payload") != admission_digest:
+        raise VirtualLayerError("computational admission digest does not match its contents")
+    return detached
+
+
 @dataclass(frozen=True)
 class VirtualLayerRuntime:
     """Mathematics: Adapter that executes pure operators through MailCPU's existing hypervisor and reliable operation channel."""
@@ -781,26 +863,52 @@ class VirtualLayerRuntime:
         }
         return resolved, receipts
 
-    def build_event(self, source: str, channel: str, sequence: int, logical_time: int, workload: VirtualLayerWorkload, operator_id: str) -> HypervisorArbitrationEvent:
-        """Mathematics: Build a typed operation event; it contains operator references, never executable code or authority."""
+    def build_event(
+        self,
+        source: str,
+        channel: str,
+        sequence: int,
+        logical_time: int,
+        workload: VirtualLayerWorkload,
+        operator_id: str,
+        *,
+        computational_admission: Mapping[str, Any] | None = None,
+    ) -> HypervisorArbitrationEvent:
+        """Mathematics: Build a typed operation event, optionally binding route evidence without granting authority."""
         if not isinstance(workload, VirtualLayerWorkload):
             raise VirtualLayerError("event construction requires a VirtualLayerWorkload")
         if logical_time != workload.logical_time:
             raise VirtualLayerError("event logical time must match workload logical time")
-        reference, spec, _, input_value, input_bytes, energy, ticks = self._resolve_operator(workload, operator_id, enforce_placement=False, require_handler=False)
-        operation = VIRTUAL_LAYER_OPERATOR_OPERATION
-        resource = virtual_layer_operator_resource(spec.operator_id, spec.version)
+        reference, spec, _, input_value, input_bytes, energy, ticks = self._resolve_operator(
+            workload, operator_id, enforce_placement=False, require_handler=False
+        )
+        payload: dict[str, Any] = {
+            "workload": workload.to_dict(), "workload_digest": workload.digest,
+            "operator_id": spec.operator_id, "operator_version": spec.version,
+            "operator_contract_digest": spec.digest, "input_digest": _digest(input_value, "operator input"),
+            "structural_memory_digest": _digest(
+                [item.to_dict() for item in reference.structural_memory],
+                "structural-memory references",
+            ),
+            "estimated_energy": energy, "estimated_virtual_ticks": ticks, "input_bytes": input_bytes,
+        }
+        if computational_admission is not None:
+            payload["computational_admission"] = _validate_computational_admission_context(
+                computational_admission,
+                self,
+                workload,
+                reference,
+                spec,
+                input_value,
+                logical_time,
+            )
         request = HypervisorRequest(
-            operation=operation,
-            resource=resource,
-            payload={
-                "workload": workload.to_dict(), "workload_digest": workload.digest,
-                "operator_id": spec.operator_id, "operator_version": spec.version,
-                "operator_contract_digest": spec.digest, "input_digest": _digest(input_value, "operator input"),
-                "structural_memory_digest": _digest([item.to_dict() for item in reference.structural_memory], "structural-memory references"),
-                "estimated_energy": energy, "estimated_virtual_ticks": ticks, "input_bytes": input_bytes,
-            },
-            required_rights=spec.required_rights, granted_rights=frozenset(), destructive=False,
+            operation=VIRTUAL_LAYER_OPERATOR_OPERATION,
+            resource=virtual_layer_operator_resource(spec.operator_id, spec.version),
+            payload=payload,
+            required_rights=spec.required_rights,
+            granted_rights=frozenset(),
+            destructive=False,
         )
         return HypervisorArbitrationEvent(source, channel, sequence, logical_time, request)
 
@@ -826,6 +934,16 @@ class VirtualLayerRuntime:
         reference, spec, handler, input_value, input_bytes, energy, ticks = self._resolve_operator(workload, operator_id)
         if payload.get("operator_contract_digest") != spec.digest:
             raise VirtualLayerError("operator contract does not match this execution node")
+        if "computational_admission" in payload:
+            _validate_computational_admission_context(
+                payload["computational_admission"],
+                self,
+                workload,
+                reference,
+                spec,
+                input_value,
+                event.logical_time,
+            )
         if handler is None or reference.version != version:
             raise VirtualLayerError("operator implementation or version is unavailable")
         if request.resource != virtual_layer_operator_resource(spec.operator_id, spec.version) or request.required_rights != spec.required_rights:
@@ -896,9 +1014,29 @@ class VirtualLayerRuntime:
             raise VirtualLayerError("local operator preparation changed receiver capability projection")
         return invoke()
 
-    def execute_operator(self, operating_system: Any, pid: int, source: str, channel: str, sequence: int, logical_time: int, workload: VirtualLayerWorkload, operator_id: str) -> HypervisorExecutionResult:
-        """Mathematics: Execute one local pure operator through the existing hypervisor decision and effect ledgers."""
-        event = self.build_event(source, channel, sequence, logical_time, workload, operator_id)
+    def execute_operator(
+        self,
+        operating_system: Any,
+        pid: int,
+        source: str,
+        channel: str,
+        sequence: int,
+        logical_time: int,
+        workload: VirtualLayerWorkload,
+        operator_id: str,
+        *,
+        computational_admission: Mapping[str, Any] | None = None,
+    ) -> HypervisorExecutionResult:
+        """Mathematics: Execute a pure operator through the Hypervisor, optionally binding revalidated route evidence."""
+        event = self.build_event(
+            source,
+            channel,
+            sequence,
+            logical_time,
+            workload,
+            operator_id,
+            computational_admission=computational_admission,
+        )
         authorized, invoke = self._prepare_event(operating_system, pid, event)
         return operating_system.hypervisor_arbitration.execute(authorized, {HypervisorDomain.CPU: invoke})
 

@@ -262,9 +262,36 @@ The resulting `ComputationalRouteWitness` binds the address/catalogue digests, l
 
 For this first slice, **Locate** means that inline workload input is already materialized, or that every pinned Structural Memory reference can be resolved under the selected host's local read capability. Arbitrary intermediate-machine-state lookup, general checkpoint catalogues, and remote host discovery are not claimed. Advertised route costs are caller-supplied estimates, not measured latency/energy guarantees. The existing evidence-path resolver remains responsible for a different problem: chaining verified representation translations with evidence and cost constraints.
 
-## 9. What exists now and what remains proposed
+## 9. Executable second slice: witness revalidation and execution handoff
 
-**Already present in E-CPU:** typed Virtual Layer workloads; separate System and Computational Grounds; versioned operator contracts; local capability reconstruction; exact Transit dispatch; reliable message channels; causal sequence/frontier data; execution commit/replay ledgers; Structural Memory references; checkpoints; quorum-verified recovery bundles; backend dispatch manifests; VGI source-implementation fingerprint checks during restoration; and the first receiver-local semantic-address resolver with non-authoritative route witnesses.
+The next executable layer is implemented in \`mailcpu/computational_execution.py\`. It accepts the existing non-authoritative route witness, resolves the address again against the current receiver-local catalogue and live OS state, requires the exact witness digest to be reproduced, verifies that the concrete runtime still matches the selected locus, and then invokes the existing Virtual Layer execution method.
+
+\`\`\`python
+admission = ComputationalExecutionAdmissionCoordinator(receiver_os)
+outcome = admission.execute(
+    address,
+    resolution.witness,
+    catalogue,
+    selected_runtime,
+    source="semantic-client",
+    channel="computational.execution",
+    sequence=1,
+)
+\`\`\`
+
+The coordinator does not issue a capability grant or execute an operator directly. It verifies the current catalogue, System Ground/frontier, process state and rights, operator contract, route costs, and selected host identity. It separately checks the supplied runtime's node, exact receiver-local runtime object and handler binding, operator contract, substrate selection, and resource profile against that host locus. Execution requires an explicit host implementation fingerprint that matches the witness; the fingerprint is a trusted source/profile declaration, not independent attestation. A stale witness, changed catalogue, changed authority snapshot, unavailable host, missing implementation pin, or runtime mismatch fails closed before dispatch.
+
+For an accepted handoff, the coordinator derives a deterministic computational-admission context from the address and witness. \`VirtualLayerRuntime.build_event()\` and \`execute_operator()\` now accept this optional context. The runtime validates its digest and checks that its node, operator/version/contract, workload time, input/state digests, System Ground digest, observation kind, and selected substrate match the actual event. The context is included in the event payload; consequently the ordinary Hypervisor execution fingerprint and effect/replay ledger bind the route witness and its admission context to the operation identity.
+
+Execution still follows the existing path: the runtime reconstructs receiver-local capabilities, checks the current System Ground and exact local operator implementation, and delegates to the Hypervisor's CPU execution/effect ledger. Structural Memory values are read only inside the normal post-ALLOW operator handler. An exact retry with the same source/channel/sequence and the same address, witness, and context replays the committed effect without re-entering the handler. Reusing that event identity for a changed address or witness changes the event fingerprint and is rejected by the existing replay-conflict rule.
+
+The wrapper returns a typed result distinguishing executed, replayed, Hypervisor-refused, stale-witness, host-mismatch, and execution-failure outcomes. Its journal receipt correlates revalidation and the actual Hypervisor result. A receipt or route witness is not a reusable grant: every call resolves again, and the ordinary Virtual Layer/Hypervisor checks remain mandatory.
+
+The slice remains receiver-local. An implementation fingerprint in a locus is still trusted advertised source/profile identity, not independent runtime or hardware attestation. The optional program fingerprint is likewise a host-advertised exact identity; this layer does not load arbitrary program bytes or prove hardware refinement. Global discovery and multi-hop routing remain future work.
+
+## 10. What exists now and what remains proposed
+
+**Already present in E-CPU:** typed Virtual Layer workloads; separate System and Computational Grounds; versioned operator contracts; local capability reconstruction; exact Transit dispatch; reliable message channels; causal sequence/frontier data; execution commit/replay ledgers; Structural Memory references; checkpoints; quorum-verified recovery bundles; backend dispatch manifests; VGI source-implementation fingerprint checks during restoration; the first receiver-local semantic-address resolver with non-authoritative route witnesses, and the second-slice witness revalidation/Virtual Layer execution handoff.
 
 **Not yet a general capability:** global semantic address discovery across remote hosts; an index for locating any arbitrary intermediate state or checkpoint; automatic multi-hop cost-optimized path construction over a network-wide host graph; transparent migration of arbitrary live processes between CPU/GPU/FPGA substrates; or general proofs that any replacement implementation refines any Ground.
 

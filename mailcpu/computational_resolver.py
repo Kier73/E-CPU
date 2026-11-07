@@ -9,7 +9,7 @@ witness. It never grants authority or executes an operator.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 import hashlib
 import json
@@ -291,6 +291,8 @@ class ComputationalHostLocus:
     max_energy: int
     max_bytes: int
     max_virtual_ticks: int
+    runtime_binding: VirtualLayerRuntime | None = field(default=None, repr=False, compare=False)
+    handler_binding: Any = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if not isinstance(self.host_id, str) or _HOST_ID.fullmatch(self.host_id) is None:
@@ -300,6 +302,10 @@ class ComputationalHostLocus:
             raise ComputationalResolutionError("authority_pid must be a positive strict integer")
         if not isinstance(self.operator_spec, OperatorSpec):
             raise ComputationalResolutionError("host locus requires an OperatorSpec")
+        if self.runtime_binding is not None and not isinstance(self.runtime_binding, VirtualLayerRuntime):
+            raise ComputationalResolutionError("runtime_binding must be a local VirtualLayerRuntime or None")
+        if self.handler_binding is not None and not callable(self.handler_binding):
+            raise ComputationalResolutionError("handler_binding must be a local callable or None")
         substrates = tuple(self.substrates)
         if not substrates or any(item not in self.operator_spec.substrates for item in substrates):
             raise ComputationalResolutionError("host substrates must be supported by the operator contract")
@@ -355,7 +361,7 @@ class ComputationalHostLocus:
         if not isinstance(runtime, VirtualLayerRuntime):
             raise ComputationalResolutionError("host-locus registration requires a VirtualLayerRuntime")
         try:
-            spec = runtime.registry.contract(operator_id, version)
+            spec, handler = runtime.registry.resolve(operator_id, version)
         except VirtualLayerError as exc:
             raise ComputationalResolutionError(str(exc)) from exc
         return cls(
@@ -374,6 +380,8 @@ class ComputationalHostLocus:
             max_energy=runtime.max_energy,
             max_bytes=runtime.max_bytes,
             max_virtual_ticks=runtime.max_virtual_ticks,
+            runtime_binding=runtime,
+            handler_binding=handler,
         )
 
     @property
@@ -863,7 +871,7 @@ class ComputationalAddressResolver:
             substrate = (
                 reference.preferred_substrate
                 if reference.preferred_substrate is not None
-                else sorted(set(locus.substrates) & set(spec.substrates))[0]
+                else next(item for item in spec.substrates if item in locus.substrates)
             )
             state_sources = tuple(
                 f"structural-memory:{item.memory_id}@{item.revision}:{item.coordinate}"
