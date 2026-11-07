@@ -78,3 +78,14 @@ The current proof also has explicit limits:
 2. Add negative recovery cases for altered input under the same operation identity, mismatched System Ground, changed VGI Ground/program, corrupted VGI checkpoint, and changed backend manifest.
 3. Formalize Ground-to-Operator refinement so multiple concrete backend steps may implement one abstract VGI transition while preserving declared observations and numerical tolerances.
 4. Bind a stable implementation fingerprint to the operator identity and compare it during backend reattachment.
+
+## Negative continuity tests
+
+The VGI-specific rejection suite checks the other direction of the continuity relation: state is preserved only when every identity factor still matches.
+
+- **Operation identity conflict:** after a VGI effect commits, a different input/workload presented under the same `(source, channel, sequence)` is refused as a conflicting execution retransmission. The interpreter call count remains one; the journal retains one commit and one conflict record.
+- **System Ground mismatch:** a workload carrying a stale admitted-system state or causal frontier is rejected before the VGI operator runs, even when its Signal8 computational Ground and program are otherwise valid.
+- **Checkpoint integrity:** a VGI machine snapshot with an altered state digest is refused.
+- **Program identity:** a valid VGI machine snapshot is refused when restored under a different compiled program fingerprint.
+
+The generic Transit suite separately covers a changed backend manifest on restore, modified recovery-bundle artifacts, stale bundle generations after a newer quorum commit, and a locally durable but unanchored bundle. These generic checks complement rather than replace the VGI-specific tests above.
