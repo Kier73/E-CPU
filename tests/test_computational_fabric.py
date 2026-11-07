@@ -248,6 +248,20 @@ def _address() -> ComputationalAddress:
     )
 
 
+def _merge_test_snapshot(
+    directory: ComputationalFabricDirectory,
+    snapshot: ComputationalPeerSnapshot,
+    peer_id: str,
+    server_name: str,
+) -> bool:
+    """Mathematics: Exercise revision/lease merge logic with a test-supplied already-authenticated peer identity."""
+    return directory._merge_verified_peer_snapshot(
+        snapshot,
+        authenticated_peer_id=peer_id,
+        authenticated_server_name=server_name,
+    )
+
+
 def _directory(*snapshots: ComputationalPeerSnapshot, local_peer_id: str = "peer-a"):
     """Mathematics: Admit one local snapshot and direct authenticated test observations for all remote peer revisions."""
     trusted = {
@@ -260,7 +274,7 @@ def _directory(*snapshots: ComputationalPeerSnapshot, local_peer_id: str = "peer
         if snapshot.peer_id == local_peer_id:
             directory.register_local_snapshot(snapshot)
         else:
-            directory.merge_authenticated_snapshot(
+            directory._merge_verified_peer_snapshot(
                 snapshot,
                 authenticated_peer_id=snapshot.peer_id,
                 authenticated_server_name=snapshot.endpoint.tls_server_name,
@@ -335,36 +349,36 @@ def test_directory_requires_direct_peer_identity_and_monotonic_revisions() -> No
         {"peer-b": "peer-b.fabric.test"},
     )
     with pytest.raises(ComputationalFabricError, match="not an explicitly trusted"):
-        directory.merge_authenticated_snapshot(
+        directory._merge_verified_peer_snapshot(
             first,
             authenticated_peer_id="peer-c",
             authenticated_server_name="peer-c.fabric.test",
         )
     with pytest.raises(ComputationalFabricError, match="DNS identity"):
-        directory.merge_authenticated_snapshot(
+        directory._merge_verified_peer_snapshot(
             first,
             authenticated_peer_id="peer-b",
             authenticated_server_name="impostor.fabric.test",
         )
 
-    assert directory.merge_authenticated_snapshot(
+    assert directory._merge_verified_peer_snapshot(
         first,
         authenticated_peer_id="peer-b",
         authenticated_server_name="peer-b.fabric.test",
     )
-    assert not directory.merge_authenticated_snapshot(
+    assert not directory._merge_verified_peer_snapshot(
         first,
         authenticated_peer_id="peer-b",
         authenticated_server_name="peer-b.fabric.test",
     )
     with pytest.raises(ComputationalFabricError, match="rollback"):
-        directory.merge_authenticated_snapshot(
+        directory._merge_verified_peer_snapshot(
             _snapshot("peer-b", revision=0),
             authenticated_peer_id="peer-b",
             authenticated_server_name="peer-b.fabric.test",
         )
     with pytest.raises(ComputationalFabricError, match="equivocated"):
-        directory.merge_authenticated_snapshot(
+        directory._merge_verified_peer_snapshot(
             _snapshot("peer-b", revision=1, lease=45),
             authenticated_peer_id="peer-b",
             authenticated_server_name="peer-b.fabric.test",
@@ -380,7 +394,7 @@ def test_directory_trust_map_is_detached_from_caller_mutation() -> None:
 
     snapshot = _snapshot("peer-b")
     assert directory.trusted_peers == {"peer-b": "peer-b.fabric.test"}
-    assert directory.merge_authenticated_snapshot(
+    assert directory._merge_verified_peer_snapshot(
         snapshot,
         authenticated_peer_id="peer-b",
         authenticated_server_name="peer-b.fabric.test",
@@ -405,7 +419,7 @@ def test_fabric_resolver_uses_one_lease_validated_directory_view() -> None:
     directory.register_local_snapshot(
         _snapshot("peer-a", links=(_link("peer-a", "peer-b", 1),))
     )
-    directory.merge_authenticated_snapshot(
+    directory._merge_verified_peer_snapshot(
         _snapshot("peer-b", hosts=(advertisement,), lease=10),
         authenticated_peer_id="peer-b",
         authenticated_server_name="peer-b.fabric.test",
@@ -432,7 +446,7 @@ def test_directory_leases_expire_on_receiver_monotonic_time() -> None:
         {"peer-b": "peer-b.fabric.test"},
         monotonic=lambda: clock[0],
     )
-    directory.merge_authenticated_snapshot(
+    directory._merge_verified_peer_snapshot(
         snapshot,
         authenticated_peer_id="peer-b",
         authenticated_server_name="peer-b.fabric.test",
