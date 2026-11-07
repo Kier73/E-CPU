@@ -393,6 +393,7 @@ def test_egpu_shared_workgroup_survives_transit_checkpoint_and_semantic_replay(t
             compute_host_factory=build_router,
         )
         assert restored_session.state()["phase"] == "idle"
+        assert restored_session.worker.compute_host.registered_backends() == router.registered_backends()
         assert restored_session.worker.operating_system.environment.kernel.journal.verify()
         assert checkpoint_digest
 
@@ -476,3 +477,66 @@ def test_shared_memory_refuses_halt_with_unpublished_writes() -> None:
     )
     with pytest.raises(TransitSIMTError, match="HALT requires a barrier"):
         TransitSIMTHost().handle(event)
+
+
+def test_shared_memory_is_scoped_to_one_workgroup_invocation() -> None:
+    """Mathematics: a fresh kernel invocation receives an uninitialized shared-memory host even when the same SIMT interpreter instance is reused."""
+
+    host = TransitSIMTHost()
+    first = {
+        "lanes": 1,
+        "inputs": {"x": [31]},
+        "shared_buffers": {"scratch": 1},
+        "program": [
+            ["const", "zero", 0],
+            ["load", "value", "x"],
+            ["shared_store", "scratch", "zero", "value"],
+            ["barrier"],
+            ["shared_load", "loaded", "scratch", "zero"],
+            ["store", "out", "loaded"],
+            ["halt"],
+        ],
+        "max_steps": 12,
+    }
+    first_event = HypervisorArbitrationEvent(
+        "client",
+        "simt",
+        10,
+        110,
+        HypervisorRequest(
+            TransitSIMTHost.operation_name,
+            TransitSIMTHost.resource_name,
+            first,
+            frozenset({"execute"}),
+            frozenset({"execute"}),
+        ),
+    )
+    assert host.handle(first_event)["outputs"]["out"] == [31]
+
+    second = {
+        "lanes": 1,
+        "inputs": {"x": [0]},
+        "shared_buffers": {"scratch": 1},
+        "program": [
+            ["const", "zero", 0],
+            ["shared_load", "loaded", "scratch", "zero"],
+            ["store", "out", "loaded"],
+            ["halt"],
+        ],
+        "max_steps": 8,
+    }
+    second_event = HypervisorArbitrationEvent(
+        "client",
+        "simt",
+        11,
+        111,
+        HypervisorRequest(
+            TransitSIMTHost.operation_name,
+            TransitSIMTHost.resource_name,
+            second,
+            frozenset({"execute"}),
+            frozenset({"execute"}),
+        ),
+    )
+    with pytest.raises(TransitSIMTError, match="has not been initialized"):
+        host.handle(second_event)
