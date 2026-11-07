@@ -13,10 +13,13 @@ from typing import Any
 
 import pytest
 
+HELPERS_DIR = str(Path(__file__).resolve().parent / "helpers")
+if HELPERS_DIR not in sys.path:
+    sys.path.insert(0, HELPERS_DIR)
+
 pytest.importorskip("vgi")
 
 from mailcpu import (  # noqa: E402
-    HypervisorArbitrationEvent,
     HypervisorOperationChannel,
     HypervisorOperationResultChannel,
     RecoveryCheckpointBundleStore,
