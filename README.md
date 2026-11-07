@@ -222,3 +222,6 @@ scripts/     golden-trace recorder and repository verifiers
 examples/    assembly source fixtures
 docs/        specifications, architecture, invariants, glossary
 ```
+
+
+The E-GPU is a composite logical host for navigable lane-wise methods. It routes vector addition and multiplication through the existing bounded SIMT reference interpreter, exposes a deterministic tree-reduction method, and returns a route and verification receipt. Register EGPUHost as an exact TransitBackendRouter backend; the receiver still authorizes /gpu/egpu through its local kernel capabilities. This is a reference operational structure, not physical GPU support or a speedup claim. See [COMMUNICATION_HOST_MODEL.md](docs/COMMUNICATION_HOST_MODEL.md) and [EGPU_NAVIGABLE_FABRIC.md](docs/EGPU_NAVIGABLE_FABRIC.md).
