@@ -193,7 +193,15 @@ Raw bytes unread in a particular TCP connection are not durable state. A termina
 
 ## 7. Implementation identity and semantic refinement
 
-A host is an operational execution locus, not the computational Ground and not the operator. Its process ID and in-memory objects may disappear. A replacement host is admissible only if it can reconstruct the required authority and rebind an implementation satisfying the saved contract.
+A host follows the normative definition in [COMMUNICATION_HOST_MODEL.md](COMMUNICATION_HOST_MODEL.md):
+
+\[
+H=(I,C,S,T,K,L)
+\]
+
+It is an identifiable operational locus with logical identity \(I\), communication interfaces/adjacency \(C\), operational state \(S\) (which may be empty for a stateless transform), transition relation \(T\), permitted capabilities \(K\), and operational lineage \(L\). A host is therefore not synonymous with a server, process, CPU, or placement node. A passive network link is a substrate edge; a queue, router, filter, or scheduler becomes a host only when it owns a defined operational transition and capability. A logical host may be realized by different resources over time, provided its identity and lineage continuity obligations are preserved.
+
+For this address model, the **host** is the locus that owns or exposes the requested operation; the **implementation** is the concrete source/profile used to realize its transition; and **placement** is the current physical or virtual realization. A process ID and in-memory objects may disappear. A replacement host is admissible only if it reconstructs the required authority and rebinds an implementation satisfying the saved contract and continuity conditions. The source fingerprint below identifies implementation, not the logical host itself.
 
 Keep these identities separate:
 
