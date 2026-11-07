@@ -80,7 +80,11 @@ def _make_test_certificates(tmp_path: Path) -> dict[str, Path]:
         "-addext", "keyUsage=critical,keyCertSign,cRLSign",
     )
     files: dict[str, Path] = {"ca": ca_cert}
-    for role, dns_name in (("server", "peer-b.fabric.test"), ("client", "peer-a.fabric.test")):
+    for role, dns_name in (
+        ("server", "peer-b.fabric.test"),
+        ("server_c", "peer-c.fabric.test"),
+        ("client", "peer-a.fabric.test"),
+    ):
         key = tmp_path / f"{role}.key"
         csr = tmp_path / f"{role}.csr"
         certificate = tmp_path / f"{role}.pem"
@@ -117,6 +121,16 @@ def _server_context(certificates: dict[str, Path]) -> ssl.SSLContext:
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.minimum_version = ssl.TLSVersion.TLSv1_2
     context.load_cert_chain(str(certificates["server_cert"]), str(certificates["server_key"]))
+    context.load_verify_locations(cafile=str(certificates["ca"]))
+    context.verify_mode = ssl.CERT_REQUIRED
+    return context
+
+
+def _server_context_c(certificates: dict[str, Path]) -> ssl.SSLContext:
+    """Mathematics: Build the peer-C TLS server context with a distinct authenticated DNS identity."""
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    context.load_cert_chain(str(certificates["server_c_cert"]), str(certificates["server_c_key"]))
     context.load_verify_locations(cafile=str(certificates["ca"]))
     context.verify_mode = ssl.CERT_REQUIRED
     return context
@@ -959,4 +973,140 @@ def test_mutual_tls_peer_client_discovers_and_merges_remote_host_snapshot(tmp_pa
         listener.close()
         thread.join(timeout=3.0)
     assert not thread.is_alive()
+    assert not server_errors, repr(server_errors)
+
+
+@pytest.mark.skipif(shutil.which("openssl") is None, reason="OpenSSL CLI is required for ephemeral mutual-TLS certificates")
+def test_three_peer_federation_discovers_directly_and_routes_over_two_authenticated_hops(tmp_path) -> None:
+    """Two direct mutual-TLS observations compose into a live two-hop route and recover after lease expiry."""
+    certificates = _make_test_certificates(tmp_path)
+    client_context = _client_context(certificates)
+    listeners = {
+        "peer-b": SocketTransport.listen("127.0.0.1", 0),
+        "peer-c": SocketTransport.listen("127.0.0.1", 0),
+    }
+    endpoints = {
+        peer_id: ComputationalPeerEndpoint(
+            peer_id,
+            f"{peer_id}.fabric.test",
+            "127.0.0.1",
+            listener.getsockname()[1],
+        )
+        for peer_id, listener in listeners.items()
+    }
+    authority_b = ComputationalFabricAuthority(endpoints["peer-b"], lease_seconds=5)
+    authority_b.register_link(_link("peer-b", "peer-c", 3))
+    authority_c = ComputationalFabricAuthority(endpoints["peer-c"], lease_seconds=5)
+    authority_c.register_host(
+        ComputationalHostAdvertisement.from_locus(
+            _locus("peer-c", "logical-host-c"),
+            "peer-c",
+        )
+    )
+    contexts = {
+        "peer-b": _server_context(certificates),
+        "peer-c": _server_context_c(certificates),
+    }
+    authorities = {"peer-b": authority_b, "peer-c": authority_c}
+    server_errors: list[BaseException] = []
+    stop = threading.Event()
+    servers: dict[str, ComputationalFabricPeerServer] = {}
+
+    def serve(peer_id: str) -> None:
+        """Mathematics: Accept one configured peer-A client and service its reliable snapshot requests."""
+        try:
+            transport = accept_mutual_tls(
+                listeners[peer_id],
+                peer_id,
+                "peer-a",
+                contexts[peer_id],
+                expected_peer_dns="peer-a.fabric.test",
+            )
+            server = ComputationalFabricPeerServer(
+                authorities[peer_id],
+                transport,
+                "peer-a",
+                expected_client_dns="peer-a.fabric.test",
+            )
+            servers[peer_id] = server
+            server.serve_forever(stop)
+        except BaseException as exc:
+            server_errors.append(exc)
+
+    threads = [
+        threading.Thread(target=serve, args=(peer_id,), daemon=True)
+        for peer_id in ("peer-b", "peer-c")
+    ]
+    for thread in threads:
+        thread.start()
+
+    clock = [100.0]
+    directory = ComputationalFabricDirectory(
+        "peer-a",
+        {
+            "peer-b": "peer-b.fabric.test",
+            "peer-c": "peer-c.fabric.test",
+        },
+        monotonic=lambda: clock[0],
+    )
+    directory.register_local_snapshot(
+        _snapshot("peer-a", links=(_link("peer-a", "peer-b", 2),))
+    )
+    clients: dict[str, ComputationalFabricPeerClient] = {}
+    try:
+        for peer_id in ("peer-b", "peer-c"):
+            clients[peer_id] = ComputationalFabricPeerClient.connect_mutual_tls(
+                "peer-a",
+                endpoints[peer_id],
+                client_context,
+                timeout=3.0,
+            )
+            assert clients[peer_id].refresh(directory)
+
+        active_ids = tuple(item.peer_id for item in directory.active_snapshots)
+        assert active_ids == ("peer-a", "peer-b", "peer-c")
+        first = ComputationalFabricResolver().resolve(
+            _address(max_hops=3),
+            directory,
+            origin_peer_id="peer-a",
+        )
+        assert first.status is ComputationalFabricStatus.FOUND
+        assert first.witness is not None
+        assert first.witness.peer_path == ("peer-a", "peer-b", "peer-c")
+        assert first.witness.target_host.host_id == "logical-host-c"
+        assert tuple(item.amount for item in first.witness.network_costs if item.name == "latency") == (5,)
+
+        # A receiver-local lease is not extended by the remote peer's clock
+        # or by retaining the old snapshot as diagnostic metadata.
+        clock[0] = 105.0
+        assert tuple(item.peer_id for item in directory.active_snapshots) == ("peer-a",)
+        expired = ComputationalFabricResolver().resolve(
+            _address(max_hops=3),
+            directory,
+            origin_peer_id="peer-a",
+        )
+        assert expired.status is ComputationalFabricStatus.UNREACHABLE
+
+        # Re-observing an unchanged snapshot over the still-authenticated
+        # direct channels refreshes each receiver-local lease.
+        assert not clients["peer-b"].refresh(directory)
+        assert not clients["peer-c"].refresh(directory)
+        refreshed = ComputationalFabricResolver().resolve(
+            _address(max_hops=3),
+            directory,
+            origin_peer_id="peer-a",
+        )
+        assert refreshed.status is ComputationalFabricStatus.FOUND
+        assert refreshed.witness is not None
+        assert refreshed.witness.peer_path == ("peer-a", "peer-b", "peer-c")
+        assert not server_errors
+    finally:
+        for client in clients.values():
+            client.close()
+        stop.set()
+        for listener in listeners.values():
+            listener.close()
+        for thread in threads:
+            thread.join(timeout=3.0)
+    assert all(not thread.is_alive() for thread in threads)
     assert not server_errors, repr(server_errors)
