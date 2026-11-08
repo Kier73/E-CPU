@@ -2069,7 +2069,7 @@ class HeadlessOS:
             HostServiceAction.STOP: frozenset({"control"}),
             HostServiceAction.INSPECT: frozenset({"read"}),
         }[command.action]
-        operation = f"{command.action.value} service supervisor daemon lifecycle"
+        operation = f"{command.action.value} service daemon supervisor lifecycle"
         resource = f"/host-service/{command.service}"
         return self.hypervisor_dispatch_event(
             pid,
