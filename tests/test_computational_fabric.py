@@ -18,6 +18,8 @@ from mailcpu import (
     ComputationalExecutionAdmissionCoordinator,
     ComputationalFabricAuthority,
     ComputationalFabricDirectory,
+    ComputationalFabricDiscoveryError,
+    ComputationalFabricDiscoveryService,
     ComputationalFabricPeerClient,
     ComputationalFabricPeerServer,
     ComputationalFabricResolver,
@@ -1802,3 +1804,168 @@ def test_federated_workload_forwards_over_two_authenticated_hops_and_replays_onc
         for thread in (thread_b, thread_c, thread_accept_b, thread_accept_c):
             if thread is not None:
                 thread.join(timeout=3.0)
+
+
+@pytest.mark.skipif(shutil.which("openssl") is None, reason="OpenSSL CLI is required for ephemeral mutual-TLS certificates")
+def test_discovery_service_reauthenticates_after_transport_loss_and_directory_restart(tmp_path) -> None:
+    """A restored directory reacquires only directly authenticated peer leases over new TLS sessions."""
+    certificates = _make_test_certificates(tmp_path)
+    server_context = _server_context(certificates)
+    client_context = _client_context(certificates)
+    listener = SocketTransport.listen("127.0.0.1", 0)
+    listener.settimeout(0.1)
+    endpoint = ComputationalPeerEndpoint(
+        "peer-b",
+        "peer-b.fabric.test",
+        "127.0.0.1",
+        listener.getsockname()[1],
+    )
+    authority = ComputationalFabricAuthority(endpoint, lease_seconds=30)
+    authority.register_host(ComputationalHostAdvertisement.from_locus(_locus(), "peer-b"))
+
+    stop = threading.Event()
+    accepted_sessions: list[SocketTransport] = []
+    server_errors: list[BaseException] = []
+
+    def serve_reconnectable_peer() -> None:
+        """Accept a fresh direct authenticated stream for each discovery-service incarnation."""
+        while not stop.is_set():
+            try:
+                transport = accept_mutual_tls(
+                    listener,
+                    "peer-b",
+                    "peer-a",
+                    server_context,
+                    expected_peer_dns="peer-a.fabric.test",
+                    handshake_timeout=2.0,
+                )
+            except Exception as exc:
+                if stop.is_set():
+                    return
+                # Listener timeouts and rejected/aborted handshakes are not
+                # directory observations and do not terminate the peer.
+                if listener.fileno() < 0:
+                    return
+                continue
+            accepted_sessions.append(transport)
+            server = ComputationalFabricPeerServer(
+                authority,
+                transport,
+                "peer-a",
+                expected_client_dns="peer-a.fabric.test",
+            )
+            try:
+                while not stop.is_set() and not transport.closed:
+                    try:
+                        if not server.service_once():
+                            time.sleep(0.002)
+                    except Exception as exc:
+                        if not stop.is_set():
+                            server_errors.append(exc)
+                        break
+            finally:
+                server.close()
+
+    server_thread = threading.Thread(target=serve_reconnectable_peer, daemon=True)
+    server_thread.start()
+
+    directory = ComputationalFabricDirectory(
+        "peer-a",
+        {"peer-b": "peer-b.fabric.test"},
+    )
+    directory.register_local_snapshot(
+        _snapshot("peer-a", links=(_link("peer-a", "peer-b", 2),))
+    )
+    service = ComputationalFabricDiscoveryService(
+        directory,
+        {"peer-b": endpoint},
+        client_context,
+        timeout=3.0,
+        refresh_interval=0.05,
+    )
+    restored_service = None
+    try:
+        first = service.refresh_all()
+        assert len(first) == 1
+        assert first[0].connected and first[0].refreshed and first[0].changed
+        assert first[0].active is True
+        assert first[0].revision == authority.revision
+        assert directory.hosts[0].host_id == "logical-host-b"
+        assert service.connected_peer_ids == ("peer-b",)
+        assert len(accepted_sessions) == 1
+
+        # The remote endpoint drops the existing TCP/TLS stream. The client
+        # manager discards the failed session, then establishes a new one.
+        accepted_sessions[-1].close()
+        failed = service.refresh_peer("peer-b")
+        assert failed.connected is False
+        assert failed.refreshed is False
+        assert failed.active is True  # last authenticated observation remains leased
+        assert failed.error is not None
+        assert service.connected_peer_ids == ()
+
+        reconnected = service.refresh_peer("peer-b")
+        assert reconnected.connected and reconnected.refreshed
+        assert reconnected.active is True
+        assert len(accepted_sessions) == 2
+        assert service.connected_peer_ids == ("peer-b",)
+
+        # A changed peer-owned advertisement is observed as a new revision.
+        authority.register_link(_link("peer-b", "peer-c", 4))
+        updated = service.refresh_peer("peer-b")
+        assert updated.connected and updated.refreshed and updated.changed
+        assert updated.revision == authority.revision
+        assert updated.snapshot_digest is not None
+
+        # Simulate a local process restart: persist directory anti-rollback
+        # state and discovery bootstrap, then discard all live peer streams.
+        directory_checkpoint = directory.checkpoint()
+        bootstrap = service.bootstrap_snapshot()
+        service.close()
+        assert service.connected_peer_ids == ()
+
+        restored_directory = ComputationalFabricDirectory.from_checkpoint(
+            directory_checkpoint
+        )
+        assert restored_directory.active_snapshots == ()
+        assert restored_directory.peer_revision_high_water == (
+            ("peer-b", authority.revision, updated.snapshot_digest),
+        )
+        restored_service = ComputationalFabricDiscoveryService.from_bootstrap_snapshot(
+            bootstrap,
+            restored_directory,
+            client_context,
+        )
+        assert restored_service.configured_peer_ids == ("peer-b",)
+        assert restored_service.connected_peer_ids == ()
+
+        after_restart = restored_service.refresh_all()
+        assert len(after_restart) == 1
+        assert after_restart[0].connected and after_restart[0].refreshed
+        assert after_restart[0].changed is False
+        assert after_restart[0].active is True
+        assert after_restart[0].revision == authority.revision
+        assert tuple(item.peer_id for item in restored_directory.active_snapshots) == (
+            "peer-a",
+            "peer-b",
+        )
+        assert len(accepted_sessions) == 3
+
+        tampered = dict(bootstrap)
+        tampered["refresh_interval"] = 99.0
+        with pytest.raises(ComputationalFabricDiscoveryError, match="digest"):
+            ComputationalFabricDiscoveryService.from_bootstrap_snapshot(
+                tampered,
+                restored_directory,
+                client_context,
+            )
+        assert not server_errors
+    finally:
+        if restored_service is not None:
+            restored_service.close()
+        else:
+            service.close()
+        stop.set()
+        listener.close()
+        server_thread.join(timeout=5.0)
+    assert not server_thread.is_alive()
