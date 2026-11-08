@@ -823,6 +823,22 @@ from .structural_memory import (
     VerificationClass,
 )
 
+from .observer_orbit import (
+    ContextualOrbitAddress,
+    ContextualOrbitNavigator,
+    ObserverAggregateReceipt,
+    ObserverComposition,
+    ObserverContract,
+    ObserverMemberReceipt,
+    ObserverOrbitError,
+    ObserverReceipt,
+    OrbitNavigationResult,
+    VirtualGroundProjection,
+    compose_observer_receipts,
+    contextual_orbit_context,
+    verify_observer_receipt,
+)
+
 __all__ = [
     "CoordinationDisposition",
     "ExecutionAdmissionRequest",
@@ -860,6 +876,19 @@ __all__ = [
     "StructuralMemoryVerifier",
     "StructuralNavigator",
     "VerificationClass",
+    "ContextualOrbitAddress",
+    "ContextualOrbitNavigator",
+    "ObserverAggregateReceipt",
+    "ObserverComposition",
+    "ObserverContract",
+    "ObserverMemberReceipt",
+    "ObserverOrbitError",
+    "ObserverReceipt",
+    "OrbitNavigationResult",
+    "VirtualGroundProjection",
+    "compose_observer_receipts",
+    "contextual_orbit_context",
+    "verify_observer_receipt",
     "AbstractNavigationCompiler",
     "CompiledNavigation",
     "NavigationCompilationError",
