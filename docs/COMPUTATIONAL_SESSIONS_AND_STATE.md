@@ -58,7 +58,7 @@ For each revision \(r\), the checkpoint binds:
 \[
 C_r=\operatorname{Canonical}
 \left(
-I_S,I_A,B_r,G_S,r,H(C_{r-1}),O_r,
+I_S,I_A,B_r,G_S,r,H(C_{r-1}),\rho_{r-1},O_r,
 q_r,op_r,h(x_r),t_r
 \right)
 \]
@@ -66,6 +66,7 @@ q_r,op_r,h(x_r),t_r
 where:
 
 - \(H(C_{r-1})\) is the previous checkpoint digest (the configured genesis digest for revision one);
+- \(\rho_{r-1}\) is the predecessor quorum-lineage root (the configured genesis digest for revision one);
 - \(O_r\) is the M1 manifest for this revision's state bytes;
 - \(q_r\) is the transition/request identity;
 - \(op_r\) is the domain operation identity;
@@ -127,7 +128,7 @@ The store admits the transition only when the current quorum-anchored session ha
 \end{cases}
 \]
 
-The successor checkpoint names both the prior checkpoint digest and prior recovery-lineage root. Competing writers may prepare different candidate state objects, but the fixed-membership one-vote-per-slot and strict-majority intersection permit at most one of those candidates to become the committed high-water under the same membership term. A losing or stale writer cannot overwrite the winner.
+The successor checkpoint names both the prior checkpoint digest and prior recovery-lineage root as separate fields, and the recovery manifest repeats that exact predecessor lineage root. Competing writers may prepare different candidate state objects, but the fixed-membership one-vote-per-slot and strict-majority intersection permit at most one of those candidates to become the committed high-water under the same membership term. A losing or stale writer cannot overwrite the winner.
 
 The caller-supplied transition identity, operation identity, input digest, logical time, and resulting state digest are also committed. An exact retry of the immediately preceding transition returns the same revision as a replay. Reusing a transition identity with different input or state bytes is refused.
 

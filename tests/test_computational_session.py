@@ -168,6 +168,7 @@ def test_state_transition_advances_both_checkpoint_and_lineage_predecessors(tmp_
     assert second.revision == 2
     assert second.state_bytes == b"state-1"
     assert second.checkpoint.predecessor_checkpoint_digest == first.checkpoint_digest
+    assert second.checkpoint.predecessor_lineage_digest == first.lineage_manifest.digest
     assert second.lineage_manifest.predecessor_digest == first.lineage_manifest.digest
     assert lineage.high_water() == (2, second.lineage_manifest.digest)
 
@@ -227,6 +228,41 @@ def test_exact_retry_returns_the_same_committed_revision_without_advancing(tmp_p
     assert replay.checkpoint_digest == committed.checkpoint_digest
     assert replay.revision == 2
     assert lineage.high_water() == (2, committed.lineage_manifest.digest)
+
+
+def test_exact_retry_after_backend_profile_change_is_not_assumed(tmp_path: Path) -> None:
+    """A transition executed by another backend profile requires a new domain decision, not an implicit replay."""
+    membership = _membership()
+    lineage = RecoveryLineageCoordinator(membership, _authorities(tmp_path, membership))
+    backing = MemoryPageBacking()
+    objects = _object_store(backing)
+    source = _store(tmp_path / "host-A", lineage, object_store=objects, backend=BACKEND_A)
+    first = _initialize(source)
+    source.commit_state(
+        b"committed-by-A",
+        expected_revision=first.revision,
+        expected_checkpoint_digest=first.checkpoint_digest,
+        transition_id="transition-backend-A",
+        operation_id="runtime.step",
+        input_digest=_input_digest(b"same input"),
+        logical_time=10,
+    )
+    target = _store(tmp_path / "host-B", lineage, object_store=objects, backend=BACKEND_B)
+    compatibility = lambda source_fp, target_fp, schema: (
+        source_fp == BACKEND_A and target_fp == BACKEND_B and schema == STATE_SCHEMA
+    )
+    target.restore_export(source.export_latest(), backend_compatibility=compatibility)
+    with pytest.raises(ComputationalSessionConflictError):
+        target.commit_state(
+            b"committed-by-A",
+            expected_revision=first.revision,
+            expected_checkpoint_digest=first.checkpoint_digest,
+            transition_id="transition-backend-A",
+            operation_id="runtime.step",
+            input_digest=_input_digest(b"same input"),
+            logical_time=10,
+            backend_compatibility=compatibility,
+        )
 
 
 def test_reusing_a_transition_identity_with_different_state_is_refused(tmp_path: Path) -> None:

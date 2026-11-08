@@ -111,6 +111,7 @@ class ComputationalSessionCheckpoint:
     state_schema_id: str
     revision: int
     predecessor_checkpoint_digest: str
+    predecessor_lineage_digest: str
     state_manifest: ComputationalObjectManifest
     transition_id: str
     operation_id: str
@@ -127,6 +128,7 @@ class ComputationalSessionCheckpoint:
         _require_label(self.state_schema_id, "state_schema_id")
         _require_positive_integer(self.revision, "revision")
         _require_digest(self.predecessor_checkpoint_digest, "predecessor_checkpoint_digest")
+        _require_digest(self.predecessor_lineage_digest, "predecessor_lineage_digest")
         if not isinstance(self.state_manifest, ComputationalObjectManifest):
             raise TypeError("state_manifest must be a ComputationalObjectManifest")
         _require_label(self.transition_id, "transition_id")
@@ -147,6 +149,7 @@ class ComputationalSessionCheckpoint:
             "state_schema_id": self.state_schema_id,
             "revision": self.revision,
             "predecessor_checkpoint_digest": self.predecessor_checkpoint_digest,
+            "predecessor_lineage_digest": self.predecessor_lineage_digest,
             "state_manifest": self.state_manifest.to_dict(),
             "transition_id": self.transition_id,
             "operation_id": self.operation_id,
@@ -184,6 +187,7 @@ class ComputationalSessionCheckpoint:
             "state_schema_id",
             "revision",
             "predecessor_checkpoint_digest",
+            "predecessor_lineage_digest",
             "state_manifest",
             "transition_id",
             "operation_id",
@@ -205,6 +209,7 @@ class ComputationalSessionCheckpoint:
                 state_schema_id=payload["state_schema_id"],
                 revision=payload["revision"],
                 predecessor_checkpoint_digest=payload["predecessor_checkpoint_digest"],
+                predecessor_lineage_digest=payload["predecessor_lineage_digest"],
                 state_manifest=ComputationalObjectManifest.from_dict(payload["state_manifest"]),
                 transition_id=payload["transition_id"],
                 operation_id=payload["operation_id"],
@@ -248,6 +253,7 @@ class ComputationalSessionSnapshot:
             self.lineage_manifest.generation != self.checkpoint.revision
             or self.lineage_manifest.machine_id != self.checkpoint.session_id
             or self.lineage_manifest.state_digest != _sha256(self.checkpoint.canonical_bytes())
+            or self.lineage_manifest.predecessor_digest != self.checkpoint.predecessor_lineage_digest
             or self.proof.proposal.result_state_digest != self.lineage_manifest.digest
         ):
             raise ComputationalSessionIntegrityError("session snapshot checkpoint and lineage coordinates differ")
@@ -378,6 +384,7 @@ class ComputationalSessionStore:
                 state_schema_id=self.state_schema_id,
                 revision=1,
                 predecessor_checkpoint_digest=self.membership.genesis_state_digest,
+                predecessor_lineage_digest=self.membership.genesis_state_digest,
                 state_manifest=state_manifest,
                 transition_id=transition_id,
                 operation_id=operation_id,
@@ -450,6 +457,7 @@ class ComputationalSessionStore:
                 state_schema_id=self.state_schema_id,
                 revision=next_generation,
                 predecessor_checkpoint_digest=current.checkpoint_digest,
+                predecessor_lineage_digest=current.lineage_manifest.digest,
                 state_manifest=state_manifest,
                 transition_id=transition_id,
                 operation_id=operation_id,
@@ -490,6 +498,7 @@ class ComputationalSessionStore:
                 or recovery_manifest.owner_term != self.membership.owner_term
                 or recovery_manifest.membership_digest != self.membership.digest
                 or checkpoint.revision != recovery_manifest.generation
+                or checkpoint.predecessor_lineage_digest != recovery_manifest.predecessor_digest
             ):
                 raise ComputationalSessionIntegrityError("checkpoint and fixed recovery membership coordinates differ")
             try:
@@ -525,7 +534,7 @@ class ComputationalSessionStore:
             proposal = self._pending_proposal(next_generation)
             if proposal is None:
                 raise ComputationalSessionError("no prepared session checkpoint is pending")
-            if proposal.predecessor_digest != predecessor:
+            if proposal.predecessor_state_digest != predecessor:
                 raise ComputationalSessionIntegrityError("pending checkpoint does not extend the current quorum high-water")
             path = self._record_path(next_generation, proposal.result_state_digest)
             record = self._read_record(path)
@@ -539,6 +548,8 @@ class ComputationalSessionStore:
                 raise ComputationalSessionIntegrityError("pending checkpoint does not match its prepared quorum proposal")
             self._validate_checkpoint_scope(checkpoint, backend_compatibility)
             recovery_manifest.verify_payload(checkpoint.canonical_bytes())
+            if checkpoint.predecessor_lineage_digest != recovery_manifest.predecessor_digest:
+                raise ComputationalSessionIntegrityError("pending checkpoint lineage predecessor differs from its quorum manifest")
             try:
                 self.object_store.verify(checkpoint.state_manifest)
             except Exception as exc:
@@ -578,13 +589,14 @@ class ComputationalSessionStore:
                 recovery_manifest.generation != checkpoint.revision
                 or recovery_manifest.machine_id != checkpoint.session_id
                 or recovery_manifest.state_digest != _sha256(checkpoint.canonical_bytes())
+                or recovery_manifest.predecessor_digest != checkpoint.predecessor_lineage_digest
             ):
                 raise ComputationalSessionIntegrityError("exported checkpoint and recovery manifest disagree")
             recovery_manifest.verify_payload(checkpoint.canonical_bytes())
             try:
                 verified_proof = self.lineage.verify_state(recovery_manifest)
             except RecoveryLineageError as exc:
-                raise ComputationalSessionIntegrityError(f"exported checkpoint is not the current quorum state: {exc}") from exc
+                raise ComputationalSessionIntegrityError(f"exported checkpoint is not the latest quorum-anchored state: {exc}") from exc
             if (
                 exported_proof.proposal.digest != verified_proof.proposal.digest
                 or exported_proof.certificate.snapshot() != verified_proof.certificate.snapshot()
@@ -634,6 +646,8 @@ class ComputationalSessionStore:
         predecessor_digest: str,
     ) -> RecoveryStateManifest:
         """Mathematics: Bind the canonical checkpoint bytes into the existing single-state recovery manifest."""
+        if checkpoint.predecessor_lineage_digest != predecessor_digest:
+            raise ComputationalSessionIntegrityError("checkpoint predecessor lineage does not match the current recovery root")
         return RecoveryStateManifest(
             machine_id=self.session_id,
             incarnation=self.membership.incarnation,
@@ -785,8 +799,8 @@ class ComputationalSessionStore:
                 raise
             raise ComputationalSessionIntegrityError("session checkpoint envelope contains malformed manifests") from exc
 
-    @staticmethod
     def _is_exact_retry(
+        self,
         current: ComputationalSessionSnapshot,
         *,
         expected_revision: int,
@@ -802,6 +816,7 @@ class ComputationalSessionStore:
         return (
             checkpoint.revision == expected_revision + 1
             and checkpoint.predecessor_checkpoint_digest == expected_checkpoint_digest
+            and checkpoint.backend_fingerprint == self.backend_fingerprint
             and checkpoint.transition_id == transition_id
             and checkpoint.operation_id == operation_id
             and checkpoint.input_digest == input_digest
