@@ -8,6 +8,7 @@ from mailcpu import (
     ConditionOperator,
     ContextualOrbitAddress,
     ContextualOrbitNavigator,
+    FiniteGraphInverseIndex,
     NavigationError,
     ProcessContext,
     ProcessDescriptor,
@@ -122,6 +123,9 @@ def test_finite_graph_inverse_uses_first_occurrence_in_preperiod_and_cycle():
     )
 
     assert find_coordinate_fgraph(law.params["orbit"], 8) == 1
+    compiled = FiniteGraphInverseIndex(tuple(law.params["orbit"]))
+    assert compiled.find(8) == 1
+    assert compiled.orbit_size == 5
     assert find_coordinate_fgraph(law.params["orbit"], 5) == 4
     assert find_coordinate_fgraph(law.params["orbit"], 99) is None
     assert law.find(3) == 3
@@ -211,6 +215,8 @@ def test_process_path_index_directly_locates_state_in_verified_history():
     assert verify_navigation_witness(descriptor, address, context, result)
     restored = ProcessPathIndex.from_dict(index.to_dict())
     assert restored.digest == index.digest
+    with pytest.raises(ProcessPathIndexError, match="must be verified"):
+        restored.coordinate_of({"count": 3})
     with pytest.raises(ProcessPathIndexError, match="must be verified"):
         restored.locate_state(descriptor, address, context, {"count": 3})
     assert restored.verify(descriptor, context)
