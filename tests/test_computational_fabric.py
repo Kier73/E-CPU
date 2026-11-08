@@ -5,6 +5,7 @@ import shutil
 import socket
 import ssl
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -17,6 +18,8 @@ from mailcpu import (
     ComputationalAddressResolver,
     ComputationalExecutionAdmissionCoordinator,
     ComputationalFabricAuthority,
+    ComputationalFabricAuthorityStore,
+    ComputationalFabricAuthorityStoreError,
     ComputationalFabricDirectory,
     ComputationalFabricDiscoveryError,
     ComputationalFabricDiscoveryService,
@@ -36,6 +39,9 @@ from mailcpu import (
     OperatorSpec,
     RouteMetric,
     RouteMetricKey,
+    RestartPolicy,
+    SubprocessServiceSpec,
+    SubprocessServiceSupervisor,
     SystemIdentity,
     SystemSeed,
     SystemSeedEnvelope,
@@ -1980,3 +1986,163 @@ def test_discovery_service_reauthenticates_after_transport_loss_and_directory_re
         peer_listener.close()
         server_thread.join(timeout=5.0)
     assert not server_thread.is_alive()
+
+
+
+@pytest.mark.skipif(shutil.which("openssl") is None, reason="OpenSSL CLI is required for ephemeral mutual-TLS certificates")
+def test_supervised_peer_process_restarts_from_durable_authority_and_reacquires_lease(
+    tmp_path: Path,
+) -> None:
+    """Hard-kill a real fabric peer process; its replacement must reload the same revision and re-authenticate."""
+
+    certificates = _make_test_certificates(tmp_path)
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        probe.bind(("127.0.0.1", 0))
+        port = int(probe.getsockname()[1])
+
+    endpoint = _endpoint("peer-b", port=port)
+    store = ComputationalFabricAuthorityStore(tmp_path / "peer-b" / "authority.json")
+    authority = store.open_authority(endpoint, lease_seconds=30)
+    authority.register_host(_locus())
+    durable_snapshot = store.load(expected_peer_id="peer-b")
+    assert durable_snapshot.revision == 1
+    assert durable_snapshot.digest == authority.snapshot().digest
+
+    command = (
+        sys.executable,
+        "-m",
+        "mailcpu.computational_fabric_service",
+        "--snapshot-store",
+        str(store.path),
+        "--peer-id",
+        "peer-b",
+        "--bind-host",
+        "127.0.0.1",
+        "--listen-port",
+        str(port),
+        "--client-peer-id",
+        "peer-a",
+        "--expected-client-dns",
+        "peer-a.fabric.test",
+        "--certificate",
+        str(certificates["server_cert"]),
+        "--private-key",
+        str(certificates["server_key"]),
+        "--client-ca",
+        str(certificates["ca"]),
+    )
+    supervisor = SubprocessServiceSupervisor()
+    supervisor.register(
+        SubprocessServiceSpec(
+            name="peer-b",
+            command=command,
+            readiness_directory=tmp_path / "readiness",
+            restart=RestartPolicy.ON_FAILURE,
+            max_restarts=1,
+            readiness_timeout=10.0,
+            restart_delay=0.02,
+            shutdown_timeout=3.0,
+            cwd=Path(__file__).resolve().parents[1],
+            log_path=tmp_path / "peer-b-service.log",
+        )
+    )
+
+    directory = ComputationalFabricDirectory(
+        "peer-a",
+        {"peer-b": "peer-b.fabric.test"},
+    )
+    directory.register_local_snapshot(
+        _snapshot("peer-a", links=(_link("peer-a", "peer-b", 2),))
+    )
+    discovery = ComputationalFabricDiscoveryService(
+        directory,
+        {"peer-b": endpoint},
+        _client_context(certificates),
+        timeout=2.0,
+        refresh_interval=0.05,
+    )
+    try:
+        first_process = supervisor.start("peer-b")
+        assert first_process.state == "running"
+        assert first_process.pid is not None
+        assert first_process.ready is not None
+        assert first_process.ready["peer_id"] == "peer-b"
+        assert first_process.ready["revision"] == durable_snapshot.revision
+        first_pid = first_process.pid
+
+        first = discovery.refresh_peer("peer-b")
+        assert first.connected and first.refreshed and first.active
+        assert first.revision == durable_snapshot.revision
+        assert first.snapshot_digest == durable_snapshot.digest
+        assert first.changed is True
+        assert directory.hosts[0].host_id == "logical-host-b"
+
+        # Kill the actual listener process. The receiver retains its previous
+        # observation only under the original, still-live local lease.
+        supervisor.kill("peer-b")
+        failed = discovery.refresh_peer("peer-b")
+        assert failed.connected is False
+        assert failed.refreshed is False
+        assert failed.active is True
+        assert failed.error is not None
+
+        restarted = supervisor.reconcile()[0]
+        assert restarted.state == "running"
+        assert restarted.pid is not None and restarted.pid != first_pid
+        assert restarted.restart_count == 1
+        assert restarted.ready is not None
+        assert restarted.ready["revision"] == durable_snapshot.revision
+        assert restarted.ready["snapshot_digest"] == durable_snapshot.digest
+
+        # The new process has no old socket or TLS session. Discovery must
+        # establish a fresh mutual-TLS stream before renewing peer-b's lease.
+        reconnected = discovery.refresh_peer("peer-b")
+        assert reconnected.connected and reconnected.refreshed and reconnected.active
+        assert reconnected.changed is False
+        assert reconnected.revision == durable_snapshot.revision
+        assert reconnected.snapshot_digest == durable_snapshot.digest
+        assert "peer-b" in {
+            snapshot.peer_id for snapshot in directory.active_snapshots
+        }
+        assert store.load(expected_peer_id="peer-b").digest == durable_snapshot.digest
+    finally:
+        discovery.close()
+        supervisor.close()
+
+
+def test_authority_store_detects_tampering_and_authority_mutations_roll_back_on_persist_failure(
+    tmp_path: Path,
+) -> None:
+    """Persisted revision advances are atomic with the durable snapshot write."""
+
+    endpoint = _endpoint("peer-b", port=7443)
+    store = ComputationalFabricAuthorityStore(tmp_path / "authority.json")
+    authority = store.open_authority(endpoint)
+    authority.register_host(_locus())
+    committed = store.load(expected_peer_id="peer-b")
+    assert committed.revision == 1
+
+    corrupted = {
+        "schema": store.SCHEMA,
+        "snapshot": committed.to_dict(),
+    }
+    corrupted["snapshot"]["revision"] = 99
+    corrupted["digest"] = store._canonical_digest(
+        {"schema": corrupted["schema"], "snapshot": committed.to_dict()}
+    )
+    store.path.write_text(
+        __import__("json").dumps(corrupted, sort_keys=True, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    with pytest.raises(ComputationalFabricAuthorityStoreError, match="digest"):
+        store.load(expected_peer_id="peer-b")
+
+    def fail_write(_snapshot) -> None:
+        raise OSError("simulated durable-store failure")
+
+    failing = ComputationalFabricAuthority(endpoint, on_snapshot=fail_write)
+    with pytest.raises(OSError, match="simulated"):
+        failing.register_host(_locus())
+    assert failing.revision == 0
+    assert failing.snapshot().hosts == ()
