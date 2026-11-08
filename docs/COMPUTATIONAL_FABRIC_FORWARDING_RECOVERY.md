@@ -70,27 +70,24 @@ The caller then:
 
 Restore checks the exact downstream-peer transport set and verifies that every reliable channel's source, destination, peer, and operation channel match the captured identities. A caller-supplied OS object is accepted only when its full snapshot equals the checkpointed OS state. The terminal catalogue/runtime is deliberately rebuilt by local code; no callable or grant is deserialized.
 
-## What the current integration proves
+## Process-level recovery experiments
 
-The A→B→C test now:
+The process experiments in [FEDERATED_FORWARDING_PROCESS_RECOVERY.md](FEDERATED_FORWARDING_PROCESS_RECOVERY.md) cover two different failure boundaries:
 
-- executes a federated workload across two distinct mutually authenticated TLS streams;
-- captures A's requester channel pair plus B's relay and C's terminal peer state;
-- closes the original streams;
-- restores B and C from their peer snapshots and restores A's channels over fresh TLS connections;
-- retransmits the exact semantic operation identity;
-- receives the same digest-linked receipt;
-- verifies that the terminal operator's invocation count remains one.
+- **Relay B crash:** B is killed and restarted at each of its four forwarding cuts. A's saved sender state and C's independently captured terminal image provide the adjacent state needed to reconstruct the route. B reopens its local owner journal, reconnects to two independent recovery authorities, authenticates fresh A/B and B/C streams, and restores its own Hypervisor and downstream channel ledgers.
+- **Terminal C crash:** C is killed and restarted at each of its four terminal cuts while B remains alive. C owns a separate peer-scoped checkpoint lineage and two independent recovery authorities. B opens a new mutual-TLS stream and calls `rebind_next_hop_transport` to preserve its downstream channel state. If the old request remains pending, `send_or_retransmit` sends the exact pending frame; if C already ACKed it, B can send a new transport frame carrying the same semantic operation identity. C's restored Hypervisor ledger supplies the committed effect without re-entering the operator.
 
-Separate recovery-store tests verify quorum anchoring, reopening with the same durable authority journals, modified-artifact refusal, older-generation refusal, and rejection of unknown transaction cuts.
+A separate TCP transport test checks that pending semantic retransmission reuses the original sequence and refuses a changed fingerprint. The terminal-process test also issues a second distinct operation after recovery to prove the replacement path can continue doing useful work.
+
+These are test implementations, not a claim of universal fault tolerance. CI status for the exact branch head must be checked before treating the new terminal-process experiment as verified.
 
 ## Explicit proof boundary
 
-The in-process A→B→C rebind test remains useful for isolating the recovery adapter, but it does not itself prove OS-process recovery. A dedicated hard-relay-process-kill experiment is now added in [FEDERATED_FORWARDING_PROCESS_RECOVERY.md](FEDERATED_FORWARDING_PROCESS_RECOVERY.md): it launches B and two independent quorum anchors as separate child processes, kills B at all four named cuts, restarts B from its disk image, reconnects A and C over fresh mutual-TLS streams, and checks replay/receipt behavior. That experiment is pending CI validation on the new branch; until its exact head passes, it should be treated as an implementation and test proposal rather than a verified result.
+The earlier in-process A→B→C rebind test remains useful for isolating the recovery adapter, but it is not a process-kill proof. The B and C subprocess tests are separate runs; they do not yet demonstrate both peers crashing in sequence during one continuous operation history. The test supervisor owns A, and directory observations are supplied by fixtures rather than learned from a production peer-discovery service. Recovery-authority streams use peer-identified loopback `SocketTransport`; forwarding adjacencies use mutual TLS.
 
-The per-peer checkpoint does not make a multi-peer snapshot globally atomic. Each peer has its own quorum-anchored generation and channel state; recovery must reconcile those states by retransmitting the same immutable operation identity through the existing Hypervisor ledgers.
+The per-peer checkpoint does not make a multi-peer snapshot globally atomic. Each peer has its own quorum-anchored generation and channel state; recovery reconciles those states through stable semantic operation identity and the existing Hypervisor ledgers. The tests exercise deterministic pure computation, not arbitrary external side effects. Exactly-once behavior for such side effects requires durable idempotency or an effect journal at the actual side-effect owner.
 
-The digest is an integrity binding and the RecoveryLineage quorum supplies the rollback-resistant high-water decision. This is not hardware attestation or a signature over each hop receipt. Immediate neighbors authenticate through mutual TLS; origin trust remains transitive through configured relays. The workload tested so far uses deterministic pure computation. Exactly-once behavior for arbitrary external side effects still requires durable idempotency or an effect journal at the actual side-effect owner.
+The digest is an integrity binding and the RecoveryLineage quorum supplies the rollback-resistant high-water decision. This is not hardware attestation or a signature over each hop receipt. Immediate neighbors authenticate through mutual TLS; origin trust remains transitive through configured relays.
 
 ## Tests
 
