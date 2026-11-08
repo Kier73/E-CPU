@@ -77,7 +77,16 @@ def _validate_snapshot(value: Any, capture_cut: str | None = None) -> dict[str, 
         raise ComputationalFabricForwardingRecoveryError(
             "forwarding checkpoint root must be an object"
         )
-    snapshot = dict(value)
+    try:
+        snapshot = json.loads(_canonical_json(dict(value)).decode("utf-8"))
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise ComputationalFabricForwardingRecoveryError(
+            "forwarding checkpoint cannot be detached into canonical JSON"
+        ) from exc
+    if not isinstance(snapshot, dict):
+        raise ComputationalFabricForwardingRecoveryError(
+            "forwarding checkpoint root must be a JSON object"
+        )
     if (
         snapshot.get("schema") != "mailcpu.computational-fabric-forwarding-server.v1"
         or type(snapshot.get("version")) is not int
@@ -169,7 +178,7 @@ class VerifiedComputationalFabricForwardingCheckpoint:
             self.manifest.verify_payload(self.snapshot_bytes)
         except RecoveryLineageError as exc:
             raise ComputationalFabricForwardingRecoveryError(str(exc)) from exc
-        snapshot = _validate_snapshot(self.snapshot)
+        snapshot = _validate_snapshot(self.snapshot, self.manifest.capture_cut)
         if _canonical_json(snapshot) + b"\n" != self.snapshot_bytes:
             raise ComputationalFabricForwardingRecoveryError(
                 "forwarding snapshot bytes are not the canonical persisted projection"
@@ -187,6 +196,25 @@ class VerifiedComputationalFabricForwardingCheckpoint:
             )
         object.__setattr__(self, "snapshot", snapshot)
 
+    def _verified_snapshot(self) -> dict[str, Any]:
+        """Mathematics: Revalidate the current in-memory projection against its immutable quorum-bound payload digest."""
+        snapshot = _validate_snapshot(self.snapshot, self.manifest.capture_cut)
+        payload = _canonical_json(snapshot) + b"\\n"
+        try:
+            self.manifest.verify_payload(payload)
+        except RecoveryLineageError as exc:
+            raise ComputationalFabricForwardingRecoveryError(
+                f"verified forwarding checkpoint was modified in memory: {exc}"
+            ) from exc
+        if (
+            self.proof.proposal.slot != self.manifest.generation
+            or self.proof.proposal.result_state_digest != self.manifest.digest
+        ):
+            raise ComputationalFabricForwardingRecoveryError(
+                "forwarding checkpoint proof no longer matches its manifest"
+            )
+        return snapshot
+
     @property
     def generation(self) -> int:
         """Mathematics: Return the monotonic recovery generation sealed by the quorum proof."""
@@ -198,9 +226,10 @@ class VerifiedComputationalFabricForwardingCheckpoint:
         structural_memory_admission_policy: Callable[[Any], bool] | None = None,
     ) -> HeadlessOS:
         """Mathematics: Restore the local VM, capabilities, Hypervisor decision/effect ledger, and journal state."""
+        snapshot = self._verified_snapshot()
         try:
             return HeadlessOS.from_snapshot(
-                dict(self.snapshot["operating_system"]),
+                dict(snapshot["operating_system"]),
                 structural_memory_admission_policy=structural_memory_admission_policy,
             )
         except Exception as exc:
@@ -223,13 +252,20 @@ class VerifiedComputationalFabricForwardingCheckpoint:
             raise ComputationalFabricForwardingRecoveryError(
                 "supply either a catalogue or a catalogue_factory, not both"
             )
-        restored_os = self.restore_operating_system(
-            structural_memory_admission_policy=structural_memory_admission_policy
-        )
+        snapshot = self._verified_snapshot()
+        try:
+            restored_os = HeadlessOS.from_snapshot(
+                dict(snapshot["operating_system"]),
+                structural_memory_admission_policy=structural_memory_admission_policy,
+            )
+        except Exception as exc:
+            raise ComputationalFabricForwardingRecoveryError(
+                f"cannot reconstruct receiver-local HeadlessOS state: {exc}"
+            ) from exc
         restored_catalogue = catalogue if catalogue_factory is None else catalogue_factory(restored_os)
         try:
             return ComputationalFabricForwardingServer.from_snapshot(
-                self.snapshot,
+                snapshot,
                 transport,
                 directory,
                 next_hop_transports=next_hop_transports,
