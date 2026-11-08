@@ -353,15 +353,27 @@ def main(arguments: list[str]) -> int:
             "peer_a_discovery_port_b",
             "peer_c_discovery_port_b",
         }.issubset(config)
+        discovery_port_a: int | None = None
+        discovery_port_c: int | None = None
         if discovery_enabled:
             # These peer-pinned control listeners are distinct from B's
             # forwarding listener and return the same local authority snapshot.
-            discovery_listeners.append(_start_directory_listener(
-                authority, "peer-a", "peer-a.fabric.test", server_context
-            ))
-            discovery_listeners.append(_start_directory_listener(
+            # A deployment may run the A-facing listener as an independent
+            # supervised sidecar; in that case this relay does not create a
+            # second listener for the same peer identity.
+            if "peer_a_discovery_port_b_advertised" in config:
+                discovery_port_a = int(config["peer_a_discovery_port_b_advertised"])
+            else:
+                listener_a = _start_directory_listener(
+                    authority, "peer-a", "peer-a.fabric.test", server_context
+                )
+                discovery_listeners.append(listener_a)
+                discovery_port_a = listener_a[3]
+            listener_c = _start_directory_listener(
                 authority, "peer-c", "peer-c.fabric.test", server_context
-            ))
+            )
+            discovery_listeners.append(listener_c)
+            discovery_port_c = listener_c[3]
             control_endpoints = {
                 "peer-a": ComputationalPeerEndpoint(
                     "peer-a", "peer-a.fabric.test", "127.0.0.1",
@@ -398,8 +410,8 @@ def main(arguments: list[str]) -> int:
             "peer": "peer-b",
             "port": int(config["peer_b_port"]),
             "control_port": None if control_listener is None else control_listener.getsockname()[1],
-            "discovery_port_a": None if not discovery_listeners else discovery_listeners[0][3],
-            "discovery_port_c": None if not discovery_listeners else discovery_listeners[1][3],
+            "discovery_port_a": discovery_port_a,
+            "discovery_port_c": discovery_port_c,
             "directory_peers": [item.peer_id for item in directory.active_snapshots],
             "mode": mode,
         }, sort_keys=True), flush=True)
@@ -504,6 +516,9 @@ def main(arguments: list[str]) -> int:
                 while True:
                     time.sleep(60)
 
+            expected_live_operations = config.get("live_expected_operations", 2)
+            if type(expected_live_operations) is not int or expected_live_operations < 1:
+                raise ValueError("live_expected_operations must be a positive integer")
             completed: list[dict[str, Any]] = []
             deadline = time.monotonic() + 90.0
             while time.monotonic() < deadline:
@@ -533,7 +548,7 @@ def main(arguments: list[str]) -> int:
                     and not server.outbound.channel.pending_sequences()
                     and not downstream_client.request.channel.pending_sequences()
                     and not downstream_client.response.channel.pending_sequences()
-                    and len(completed) >= 2
+                    and len(completed) >= expected_live_operations
                 ):
                     _write_json_durable(Path(marker_or_result), {
                         "stage": "live_complete",

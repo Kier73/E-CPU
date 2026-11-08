@@ -20,6 +20,7 @@ from mailcpu import (
     Capability,
     ComputationalAddress,
     ComputationalFabricAuthority,
+    ComputationalFabricAuthorityStore,
     ComputationalFabricDirectory,
     ComputationalFabricDiscoveryService,
     ComputationalFabricForwardingClient,
@@ -45,7 +46,10 @@ from mailcpu import (
     OperatorSpec,
     RouteMetric,
     RouteMetricKey,
+    RestartPolicy,
     SeedCommitMembership,
+    SubprocessServiceSpec,
+    SubprocessServiceSupervisor,
     SystemIdentity,
     SystemSeed,
     SystemSeedEnvelope,
@@ -998,6 +1002,405 @@ def _send_federated_operation(
         request,
     )
     return client.request.send(event)
+
+
+def test_federated_forwarding_continues_through_discovery_sidecar_loss_and_replays(
+    tmp_path: Path,
+) -> None:
+    """A relay keeps serving over live data-plane adjacencies while its A-facing discovery sidecar is replaced."""
+
+    root = Path(__file__).resolve().parents[1]
+    worker = root / "tests" / "helpers" / "federated_forwarding_relay_worker.py"
+    certificates = _certificates(tmp_path)
+
+    peer_a_port = _free_port()
+    peer_b_port = _free_port()
+    peer_c_port = _free_port()
+    sidecar_port = _free_port()
+    assert len({peer_a_port, peer_b_port, peer_c_port, sidecar_port}) == 4
+
+    endpoint_a = ComputationalPeerEndpoint(
+        "peer-a", "peer-a.fabric.test", "127.0.0.1", peer_a_port
+    )
+    endpoint_b = ComputationalPeerEndpoint(
+        "peer-b", "peer-b.fabric.test", "127.0.0.1", peer_b_port
+    )
+    endpoint_c = ComputationalPeerEndpoint(
+        "peer-c", "peer-c.fabric.test", "127.0.0.1", peer_c_port
+    )
+    link_ab = _link("peer-a", "peer-b", 2)
+    link_bc = _link("peer-b", "peer-c", 3)
+
+    operating_system = HeadlessOS()
+    address, catalogue, calls, execute_pid = _make_workload(operating_system)
+    advertisement = ComputationalHostAdvertisement.from_locus(catalogue.loci[0], "peer-c")
+
+    # B has a shorter discovery lease than C so the test can isolate B's
+    # disappearance without accidentally expiring the destination snapshot.
+    lease_clock = [1_000.0]
+    snapshot_a = ComputationalPeerSnapshot(endpoint_a, 1, 120, (), (link_ab,))
+    snapshot_b = ComputationalPeerSnapshot(endpoint_b, 1, 30, (), (link_bc,))
+    snapshot_c = ComputationalPeerSnapshot(endpoint_c, 1, 120, (advertisement,), ())
+
+    directory_a = ComputationalFabricDirectory(
+        "peer-a",
+        {
+            "peer-b": endpoint_b.tls_server_name,
+            "peer-c": endpoint_c.tls_server_name,
+        },
+        monotonic=lambda: lease_clock[0],
+    )
+    directory_a.register_local_snapshot(snapshot_a)
+    directory_c = ComputationalFabricDirectory(
+        "peer-c",
+        {"peer-b": endpoint_b.tls_server_name},
+    )
+    directory_c.register_local_snapshot(snapshot_c)
+
+    authority_a = ComputationalFabricAuthority.from_snapshot(snapshot_a)
+    authority_c = ComputationalFabricAuthority.from_snapshot(snapshot_c)
+    discovery_a_for_b = _start_peer_directory_listener(
+        authority_a, "peer-b", certificates
+    )
+    discovery_c_for_a = _start_peer_directory_listener(
+        authority_c, "peer-a", certificates
+    )
+    discovery_c_for_b = _start_peer_directory_listener(
+        authority_c, "peer-b", certificates
+    )
+
+    # The independently supervised A-facing control listener reads the same
+    # durable authority snapshot as the relay process, but owns no forwarding
+    # socket or forwarding process state.
+    authority_store = ComputationalFabricAuthorityStore(
+        tmp_path / "peer-b" / "authority.json"
+    )
+    authority_b = authority_store.open_authority(
+        endpoint_b,
+        lease_seconds=30,
+    )
+    authority_b.register_link(link_bc)
+    assert authority_b.snapshot().to_dict() == snapshot_b.to_dict()
+
+    sidecar_command = (
+        sys.executable,
+        "-m",
+        "mailcpu.computational_fabric_service",
+        "--snapshot-store",
+        str(authority_store.path),
+        "--peer-id",
+        "peer-b",
+        "--bind-host",
+        "127.0.0.1",
+        "--listen-port",
+        str(sidecar_port),
+        "--client-peer-id",
+        "peer-a",
+        "--expected-client-dns",
+        "peer-a.fabric.test",
+        "--certificate",
+        str(certificates["peer-b_cert"]),
+        "--private-key",
+        str(certificates["peer-b_key"]),
+        "--client-ca",
+        str(certificates["ca"]),
+    )
+    sidecar_supervisor = SubprocessServiceSupervisor()
+    sidecar_supervisor.register(
+        SubprocessServiceSpec(
+            name="peer-b-discovery-a",
+            command=sidecar_command,
+            readiness_directory=tmp_path / "sidecar-readiness",
+            restart=RestartPolicy.ON_FAILURE,
+            max_restarts=1,
+            readiness_timeout=10.0,
+            restart_delay=0.02,
+            shutdown_timeout=3.0,
+            cwd=root,
+            log_path=tmp_path / "peer-b-discovery-a.log",
+        )
+    )
+
+    config = {
+        "peer_b_port": peer_b_port,
+        "peer_b_cert": str(certificates["peer-b_cert"]),
+        "peer_b_key": str(certificates["peer-b_key"]),
+        "ca_cert": str(certificates["ca"]),
+        "peer_snapshots": {
+            item.peer_id: item.to_dict()
+            for item in (snapshot_a, snapshot_b, snapshot_c)
+        },
+        "peer_a_discovery_port_b": discovery_a_for_b[3],
+        "peer_c_discovery_port_b": discovery_c_for_b[3],
+        "peer_a_discovery_port_b_advertised": sidecar_port,
+        "live_expected_operations": 3,
+    }
+    config_path = tmp_path / "continuity-relay-config.json"
+    config_path.write_text(
+        json.dumps(config, sort_keys=True, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    result_path = tmp_path / "continuity-relay-result.json"
+
+    terminal_listener = SocketTransport.listen("127.0.0.1", peer_c_port)
+    terminal_thread: threading.Thread | None = None
+    terminal_stop: threading.Event | None = None
+    terminal_holder: dict[str, Any] = {}
+    terminal_failures: list[BaseException] = []
+    relay: subprocess.Popen[str] | None = None
+    client_a: ComputationalFabricForwardingClient | None = None
+    discovery: ComputationalFabricDiscoveryService | None = None
+
+    try:
+        sidecar_ready = sidecar_supervisor.start("peer-b-discovery-a")
+        assert sidecar_ready.state == "running"
+        assert sidecar_ready.pid is not None
+        assert sidecar_ready.ready is not None
+        assert sidecar_ready.ready["peer_id"] == "peer-b"
+        assert sidecar_ready.ready["control_port"] == sidecar_port
+        assert sidecar_ready.ready["forwarding_port"] == peer_b_port
+        first_sidecar_pid = sidecar_ready.pid
+
+        terminal_thread, terminal_stop, terminal_holder, terminal_failures = _start_terminal_service(
+            terminal_listener,
+            directory_c,
+            operating_system,
+            execute_pid,
+            catalogue,
+            certificates,
+        )
+        relay = subprocess.Popen(
+            [
+                sys.executable,
+                str(worker),
+                "live",
+                str(config_path),
+                "none",
+                str(result_path),
+                str(tmp_path / "unused-checkpoints"),
+            ],
+            cwd=root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+        relay_ready = _wait_ready(relay)
+        assert relay_ready["peer"] == "peer-b"
+        assert relay_ready["directory_peers"] == ["peer-a", "peer-b", "peer-c"]
+        assert relay_ready["discovery_port_a"] == sidecar_port
+        assert relay_ready["discovery_port_c"] != peer_b_port
+        assert relay_ready["port"] == peer_b_port
+        relay_pid = relay.pid
+
+        # C independently learns B through the B→C-pinned listener. A then
+        # learns B through the supervised A-facing sidecar and C directly.
+        _refresh_peer_directory(
+            directory_c,
+            "peer-c",
+            {"peer-b": int(relay_ready["discovery_port_c"])},
+            certificates,
+        )
+        discovery = ComputationalFabricDiscoveryService(
+            directory_a,
+            {
+                "peer-b": ComputationalPeerEndpoint(
+                    "peer-b",
+                    "peer-b.fabric.test",
+                    "127.0.0.1",
+                    sidecar_port,
+                ),
+                "peer-c": ComputationalPeerEndpoint(
+                    "peer-c",
+                    "peer-c.fabric.test",
+                    "127.0.0.1",
+                    discovery_c_for_a[3],
+                ),
+            },
+            _client_context(certificates, "peer-a"),
+            timeout=5.0,
+            refresh_interval=10.0,
+        )
+        initial_reports = discovery.refresh_all()
+        assert len(initial_reports) == 2
+        assert all(item.connected and item.refreshed and item.active for item in initial_reports)
+        active = {item.peer_id: item for item in directory_a.active_snapshots}
+        assert active["peer-b"].endpoint == endpoint_b
+        assert active["peer-c"].endpoint == endpoint_c
+        assert {
+            item.peer_id for item in directory_c.active_snapshots
+        } >= {"peer-b", "peer-c"}
+
+        resolved = ComputationalFabricResolver().resolve(
+            address,
+            directory_a,
+            origin_peer_id="peer-a",
+        )
+        assert resolved.status is ComputationalFabricStatus.FOUND
+        assert resolved.witness is not None
+        assert resolved.witness.peer_path == ("peer-a", "peer-b", "peer-c")
+        envelope_first = ComputationalFabricForwardingEnvelope.begin(
+            address,
+            resolved.witness,
+            origin_channel="application.batch",
+            origin_sequence=7,
+        )
+        discovered_b = active["peer-b"].endpoint
+        client_a = ComputationalFabricForwardingClient.connect_mutual_tls(
+            "peer-a",
+            discovered_b,
+            _client_context(certificates, "peer-a"),
+            origin_peer_id="peer-a",
+            origin_channel="application.batch",
+            timeout=8.0,
+        )
+
+        # Remove only discovery. The A→B forwarding stream and B→C stream
+        # remain owned by the still-running relay and terminal services.
+        sidecar_supervisor.kill("peer-b-discovery-a")
+        failed_refresh = discovery.refresh_peer("peer-b")
+        assert failed_refresh.connected is False
+        assert failed_refresh.refreshed is False
+        assert failed_refresh.active is True
+        assert discovery.connected_peer_ids == ("peer-c",)
+        assert relay.poll() is None
+        assert client_a.transport.closed is False
+
+        # The last authenticated B observation is still valid until its
+        # receiver-local deadline, so a new operation may traverse the live path.
+        degraded_resolution = ComputationalFabricResolver().resolve(
+            address,
+            directory_a,
+            origin_peer_id="peer-a",
+        )
+        assert degraded_resolution.status is ComputationalFabricStatus.FOUND
+        assert degraded_resolution.witness is not None
+        assert _send_federated_operation(client_a, envelope_first) == 1
+        first_result = _read_forward_results(client_a, 1, relay)
+        assert first_result[0].action.value == "allow"
+        assert first_result[0].executed is True
+        assert first_result[0].replayed is False
+        assert calls == ["federated-process-recovery-sum"]
+
+        # Once the receiver-local lease expires, cached endpoint knowledge and
+        # the still-open forwarding stream do not authorize a newly planned route.
+        lease_clock[0] += 31.0
+        assert directory_a.purge_expired() == ("peer-b",)
+        assert "peer-b" not in {
+            item.peer_id for item in directory_a.active_snapshots
+        }
+        assert "peer-c" in {
+            item.peer_id for item in directory_a.active_snapshots
+        }
+        unavailable = ComputationalFabricResolver().resolve(
+            address,
+            directory_a,
+            origin_peer_id="peer-a",
+        )
+        assert unavailable.status is not ComputationalFabricStatus.FOUND
+        assert unavailable.witness is None
+        assert relay.poll() is None
+        assert client_a.transport.closed is False
+
+        # The external supervisor replaces only the A-facing discovery process.
+        # The same peer authority revision and endpoint are observed on a new
+        # TLS stream; B and its existing data-plane channels are untouched.
+        restarted = sidecar_supervisor.reconcile()[0]
+        assert restarted.state == "running"
+        assert restarted.pid is not None and restarted.pid != first_sidecar_pid
+        assert restarted.restart_count == 1
+        assert restarted.ready is not None
+        assert restarted.ready["revision"] == snapshot_b.revision
+        assert restarted.ready["snapshot_digest"] == snapshot_b.digest
+        assert restarted.ready["control_port"] == sidecar_port
+        assert restarted.ready["forwarding_port"] == peer_b_port
+
+        refreshed = discovery.refresh_peer("peer-b")
+        assert refreshed.connected and refreshed.refreshed and refreshed.active
+        assert refreshed.changed is False
+        assert refreshed.revision == snapshot_b.revision
+        assert refreshed.snapshot_digest == snapshot_b.digest
+        assert discovery.connected_peer_ids == ("peer-b", "peer-c")
+
+        restored_resolution = ComputationalFabricResolver().resolve(
+            address,
+            directory_a,
+            origin_peer_id="peer-a",
+        )
+        assert restored_resolution.status is ComputationalFabricStatus.FOUND
+        assert restored_resolution.witness is not None
+        assert restored_resolution.witness.peer_path == ("peer-a", "peer-b", "peer-c")
+
+        # A distinct operation and an exact semantic replay both use the
+        # original A→B stream after the sidecar has been replaced.
+        envelope_second = ComputationalFabricForwardingEnvelope.begin(
+            address,
+            restored_resolution.witness,
+            origin_channel="application.batch",
+            origin_sequence=8,
+        )
+        assert _send_federated_operation(client_a, envelope_second) == 2
+        second_result = _read_forward_results(client_a, 1, relay)
+        assert second_result[0].action.value == "allow"
+        assert second_result[0].executed is True
+        assert second_result[0].replayed is False
+        assert calls == [
+            "federated-process-recovery-sum",
+            "federated-process-recovery-sum",
+        ]
+
+        assert _send_federated_operation(client_a, envelope_first) == 3
+        replay_result = _read_forward_results(client_a, 1, relay)
+        assert replay_result[0].action.value == "allow"
+        assert replay_result[0].replayed is True
+        assert calls == [
+            "federated-process-recovery-sum",
+            "federated-process-recovery-sum",
+        ]
+
+        relay_result = _wait_json(result_path, relay)
+        assert relay_result["stage"] == "live_complete"
+        assert relay_result["pid"] == relay_pid
+        assert relay_result["execution_count"] == 2
+        assert relay_result["request_receive_cursor"] == 4
+        assert relay_result["response_pending"] == []
+        assert relay_result["downstream_request_pending"] == []
+        assert relay_result["journal_valid"] is True
+        assert [item["replayed"] for item in relay_result["results"]] == [
+            False,
+            False,
+            True,
+        ]
+        assert len(terminal_holder["server"].operating_system.hypervisor_arbitration.snapshot()["executions"]) == 2
+        assert not terminal_failures
+
+        stdout, stderr = relay.communicate(timeout=15)
+        assert relay.returncode == 0, (
+            f"live relay exited with {relay.returncode}\nstdout:\n{stdout}\nstderr:\n{stderr}"
+        )
+        assert sidecar_supervisor.status("peer-b-discovery-a").restart_count == 1
+    finally:
+        if client_a is not None:
+            client_a.close()
+        if discovery is not None:
+            discovery.close()
+        sidecar_supervisor.close()
+        if relay is not None and relay.poll() is None:
+            relay.kill()
+            relay.communicate(timeout=10)
+        if terminal_stop is not None:
+            terminal_stop.set()
+        if terminal_thread is not None:
+            terminal_thread.join(timeout=5.0)
+        for server in terminal_holder.values():
+            server.close()
+        terminal_listener.close()
+        for discovery_listener in (
+            discovery_a_for_b,
+            discovery_c_for_a,
+            discovery_c_for_b,
+        ):
+            _stop_peer_directory_listener(discovery_listener)
 
 
 def _rebind_live_relay(
