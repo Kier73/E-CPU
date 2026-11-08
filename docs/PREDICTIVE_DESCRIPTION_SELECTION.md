@@ -68,7 +68,6 @@ The evaluator records:
 | Distinct component states | Number of unique observed, predicted, and exactly matched component-value tuples in the sample partition. |
 | Component-state-space coverage | Matched distinct observed tuples divided by all distinct observed tuples. This is coverage of the sampled support, not an enumeration or estimate of the globally reachable state space. |
 | Navigation evidence digest | Digest of each sample's target coordinate, composed projection/state identity, component read-receipt digest, or guarded refusal. |
-| Navigation evidence digest | Hash of each sample's target coordinate, composed projection/state identity, component read-evidence digest, or guarded refusal. |
 
 Coverage and conditional accuracy are separate by design. A candidate that predicts very accurately only for a small fraction of the observed coordinates cannot hide its refusal rate inside a high accuracy score. Predictive yield makes that trade-off explicit.
 
