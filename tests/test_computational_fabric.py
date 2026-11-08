@@ -2320,6 +2320,21 @@ def test_persistent_vgi_session_transfers_through_fabric_and_replays_once(tmp_pa
     export_ms = (time.perf_counter() - export_started) * 1000.0
     assert source_store.object_store.verify(source_base.session.checkpoint.state_manifest)
 
+    transition_contexts: list[dict[str, object]] = []
+    original_transition_backend = target_session.transition_adapter.backend
+
+    class RecordingTransitionBackend:
+        """Mathematics: Observe the exact verified M3 context presented to C's local pure transition."""
+
+        @property
+        def backend_fingerprint(self) -> str:
+            return original_transition_backend.backend_fingerprint
+
+        def transition(self, state_bytes: bytes, input_bytes: bytes, context: Any) -> bytes:
+            transition_contexts.append(context.to_dict())
+            return original_transition_backend.transition(state_bytes, input_bytes, context)
+
+    target_session.transition_adapter.backend = RecordingTransitionBackend()
     binding = VGIFabricSessionOperator(target_session)
     registry = OperatorRegistry()
     binding.register(registry)
@@ -2596,6 +2611,24 @@ def test_persistent_vgi_session_transfers_through_fabric_and_replays_once(tmp_pa
         assert result["replayed"] is False
         assert result["measurement"]["transfer_bundle_bytes"] > 0
         assert result["measurement"]["state_bytes"] == len(source_base.session.state_bytes)
+
+        # Observe the exact context supplied to the receiver-local M4 pure
+        # backend: the transfer must continue the original M3 causal point.
+        assert len(transition_contexts) == 1
+        transition_context = transition_contexts[0]
+        assert transition_context["session_id"] == source_base.session.checkpoint.session_id
+        assert transition_context["revision"] == source_base.revision
+        assert transition_context["checkpoint_digest"] == source_base.checkpoint_digest
+        assert transition_context["lineage_digest"] == source_base.session.lineage_manifest.digest
+        assert transition_context["state_digest"] == source_base.session.checkpoint.state_digest
+        assert transition_context["artifact_manifest_digest"] == descriptor.artifact_manifest_digest
+        assert transition_context["state_schema_id"] == VGI_SESSION_STATE_SCHEMA
+        assert transition_context["backend_fingerprint"] == source_base.session.checkpoint.backend_fingerprint
+        assert transition_context["execution_backend_fingerprint"] == target_session.transition_adapter.contract.backend_fingerprint
+        assert transition_context["interpretation_fingerprint"] == descriptor.interpretation_fingerprint
+        assert transition_context["transition_contract_digest"] == target_session.transition_adapter.contract.digest
+        assert transition_context["operation_id"] == result["operation_id"]
+        assert transition_context["logical_time"] == source_base.session.checkpoint.logical_time + 1
 
         target_snapshot = target_session.load().session
         assert target_snapshot.revision == result["revision"]
