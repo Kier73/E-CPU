@@ -113,6 +113,12 @@ from .assembler import AssemblyError, assemble, disassemble
 from .bytecode import BytecodeError, BytecodeExecutable
 from .headless import HeadlessOS, ProcessReport
 from .service import RestartPolicy, ServiceReport, ServiceSpec, ServiceSupervisor
+from .subprocess_service import (
+    SubprocessServiceError,
+    SubprocessServiceReport,
+    SubprocessServiceSpec,
+    SubprocessServiceSupervisor,
+)
 from .checkpoint import CheckpointError, load_checkpoint, save_checkpoint
 from .seed import (
     SYSTEM_SEED_ENVELOPE_KIND,
@@ -680,6 +686,10 @@ from .computational_fabric_discovery import (
     ComputationalFabricPeerListener,
     ComputationalFabricPeerRefresh,
 )
+from .computational_fabric_service import (
+    ComputationalFabricAuthorityStore,
+    ComputationalFabricAuthorityStoreError,
+)
 from .computational_fabric_recovery import (
     ComputationalFabricRecoveryError,
     ComputationalFabricRecoveryStore,
@@ -1012,6 +1022,10 @@ __all__ = [
     "ServiceReport",
     "ServiceSpec",
     "ServiceSupervisor",
+    "SubprocessServiceError",
+    "SubprocessServiceReport",
+    "SubprocessServiceSpec",
+    "SubprocessServiceSupervisor",
     "StreamError",
     "StreamSegment",
     "StreamState",
@@ -1351,6 +1365,8 @@ __all__ = [
     "ComputationalResolutionResult",
     "ComputationalResolutionStatus",
     "ComputationalRouteWitness",
+    "ComputationalFabricAuthorityStore",
+    "ComputationalFabricAuthorityStoreError",
     "ComputationalFabricDiscoveryError",
     "ComputationalFabricDiscoveryService",
     "ComputationalFabricPeerListener",

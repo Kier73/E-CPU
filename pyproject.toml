@@ -46,6 +46,7 @@ Issues = "https://github.com/Kier73/E-CPU/issues"
 [project.scripts]
 mailcpu = "mailcpu.cli:main"
 mailcpu-recovery-authority = "mailcpu.recovery_lineage_service:main"
+mailcpu-computational-fabric-peer = "mailcpu.computational_fabric_service:main"
 mailcpu-recovery-topology = "mailcpu.recovery_deployment:main"
 
 [tool.setuptools]

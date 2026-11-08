@@ -550,6 +550,7 @@ class ComputationalFabricAuthority:
         endpoint: ComputationalPeerEndpoint,
         *,
         lease_seconds: int = 60,
+        on_snapshot: Callable[[ComputationalPeerSnapshot], None] | None = None,
     ) -> None:
         """Mathematics: Bind one peer identity to a monotonic revisioned advertisement set."""
         if not isinstance(endpoint, ComputationalPeerEndpoint):
@@ -563,6 +564,9 @@ class ComputationalFabricAuthority:
         self._revision = 0
         self._hosts: dict[tuple[str, str, int], ComputationalHostAdvertisement] = {}
         self._links: dict[str, ComputationalNetworkLink] = {}
+        if on_snapshot is not None and not callable(on_snapshot):
+            raise ComputationalFabricError("on_snapshot must be callable")
+        self._on_snapshot = on_snapshot
         self._lock = threading.RLock()
 
     @property
@@ -575,7 +579,7 @@ class ComputationalFabricAuthority:
         self,
         advertisement: ComputationalHostAdvertisement | ComputationalHostLocus,
     ) -> str:
-        """Mathematics: Register one peer-owned portable host advertisement, stripping all local execution authority."""
+        """Persist one peer-owned portable host advertisement before acknowledging the revision."""
         if isinstance(advertisement, ComputationalHostLocus):
             advertisement = ComputationalHostAdvertisement.from_locus(
                 advertisement,
@@ -596,21 +600,39 @@ class ComputationalFabricAuthority:
                 return advertisement.digest
             if existing is None and len(self._hosts) >= _MAX_HOST_ADVERTISEMENTS:
                 raise ComputationalFabricError("peer host catalogue exceeds its advertisement bound")
+            previous_revision = self._revision
             self._hosts[key] = advertisement
             self._revision += 1
+            try:
+                self._persist_locked()
+            except Exception:
+                self._revision = previous_revision
+                if existing is None:
+                    self._hosts.pop(key, None)
+                else:
+                    self._hosts[key] = existing
+                raise
             return advertisement.digest
 
     def remove_host(self, host_id: str, operator_id: str, version: int = 1) -> bool:
-        """Mathematics: Remove one exact host/operator registration and advance the peer revision iff it existed."""
+        """Persist an exact host removal before exposing its next revision."""
         key = (_label(host_id, "host_id"), _label(operator_id, "operator_id"), _positive(version, "version"))
         with self._lock:
-            if self._hosts.pop(key, None) is None:
+            existing = self._hosts.pop(key, None)
+            if existing is None:
                 return False
+            previous_revision = self._revision
             self._revision += 1
+            try:
+                self._persist_locked()
+            except Exception:
+                self._revision = previous_revision
+                self._hosts[key] = existing
+                raise
             return True
 
     def register_link(self, link: ComputationalNetworkLink) -> str:
-        """Mathematics: Register one directed outgoing link whose source is this authenticated peer."""
+        """Persist one directed outgoing link before acknowledging its new revision."""
         if not isinstance(link, ComputationalNetworkLink):
             raise ComputationalFabricError("register_link requires a ComputationalNetworkLink")
         if link.source_peer_id != self.endpoint.peer_id:
@@ -623,40 +645,68 @@ class ComputationalFabricAuthority:
             if len(self._links) > _MAX_NETWORK_LINKS:
                 del self._links[link.link_id]
                 raise ComputationalFabricError("peer link catalogue exceeds its bound")
+            previous_revision = self._revision
             self._revision += 1
+            try:
+                self._persist_locked()
+            except Exception:
+                self._revision = previous_revision
+                if existing is None:
+                    self._links.pop(link.link_id, None)
+                else:
+                    self._links[link.link_id] = existing
+                raise
             return link.link_id
 
     def remove_link(self, link_id: str) -> bool:
-        """Mathematics: Remove one exact content-addressed link and revise the peer snapshot iff it existed."""
+        """Persist an exact content-addressed link removal before exposing its next revision."""
         _digest(link_id, "link_id")
         with self._lock:
-            if self._links.pop(link_id, None) is None:
+            existing = self._links.pop(link_id, None)
+            if existing is None:
                 return False
+            previous_revision = self._revision
             self._revision += 1
+            try:
+                self._persist_locked()
+            except Exception:
+                self._revision = previous_revision
+                self._links[link_id] = existing
+                raise
             return True
 
     def snapshot(self) -> ComputationalPeerSnapshot:
-        """Mathematics: Produce the exact current peer-owned host and topology revision."""
+        """Return the exact current peer-owned host and topology revision."""
         with self._lock:
-            return ComputationalPeerSnapshot(
-                self.endpoint,
-                self._revision,
-                self.lease_seconds,
-                tuple(self._hosts.values()),
-                tuple(self._links.values()),
-            )
+            return self._snapshot_locked()
+
+    def _snapshot_locked(self) -> ComputationalPeerSnapshot:
+        return ComputationalPeerSnapshot(
+            self.endpoint,
+            self._revision,
+            self.lease_seconds,
+            tuple(self._hosts.values()),
+            tuple(self._links.values()),
+        )
+
+    def _persist_locked(self) -> None:
+        if self._on_snapshot is not None:
+            self._on_snapshot(self._snapshot_locked())
 
     @classmethod
     def from_snapshot(
         cls,
         snapshot: ComputationalPeerSnapshot,
+        *,
+        on_snapshot: Callable[[ComputationalPeerSnapshot], None] | None = None,
     ) -> "ComputationalFabricAuthority":
-        """Mathematics: Restore a peer-owned advertisement revision without importing receiver process authority."""
+        """Restore peer-owned advertisements and bind an optional durable mutation sink."""
         if not isinstance(snapshot, ComputationalPeerSnapshot):
             raise ComputationalFabricError("authority restoration requires a ComputationalPeerSnapshot")
         authority = cls(
             snapshot.endpoint,
             lease_seconds=snapshot.lease_seconds,
+            on_snapshot=on_snapshot,
         )
         authority._revision = snapshot.revision
         authority._hosts = {
