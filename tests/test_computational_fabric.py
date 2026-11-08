@@ -2202,6 +2202,7 @@ def test_persistent_vgi_session_transfers_through_fabric_and_replays_once(tmp_pa
     import time
 
     from vgi import SIGNAL8_GROUND, Signal8Backend
+    from mailcpu.classifier import HypervisorPolicy
 
     from mailcpu.computational_fabric_forwarding import (
         ComputationalFabricForwardingClient,
@@ -2418,7 +2419,7 @@ def test_persistent_vgi_session_transfers_through_fabric_and_replays_once(tmp_pa
         origin_sequence=1,
     )
 
-    allow_policy = __import__("mailcpu.classifier", fromlist=["HypervisorPolicy"]).HypervisorPolicy(
+    allow_policy = HypervisorPolicy(
         review_confidence=0.0,
         automatic_confidence=0.0,
         destructive_confidence=0.0,
@@ -2455,6 +2456,7 @@ def test_persistent_vgi_session_transfers_through_fabric_and_replays_once(tmp_pa
     stop_c = threading.Event()
     client_ab: ComputationalFabricForwardingClient | None = None
     client_bc: ComputationalFabricForwardingClient | None = None
+    threads: list[threading.Thread] = []
 
     def accept_c() -> None:
         """Mathematics: Accept only peer B's pinned TLS identity and bind C's local VGI operator catalogue."""
@@ -2508,6 +2510,7 @@ def test_persistent_vgi_session_transfers_through_fabric_and_replays_once(tmp_pa
 
     try:
         accept_c_thread = threading.Thread(target=accept_c, daemon=True)
+        threads.append(accept_c_thread)
         accept_c_thread.start()
         client_bc = ComputationalFabricForwardingClient.connect_mutual_tls(
             "peer-b",
@@ -2522,6 +2525,7 @@ def test_persistent_vgi_session_transfers_through_fabric_and_replays_once(tmp_pa
         assert "server" in server_c_holder, repr(failures)
 
         accept_b_thread = threading.Thread(target=accept_b, daemon=True)
+        threads.append(accept_b_thread)
         accept_b_thread.start()
         client_ab = ComputationalFabricForwardingClient.connect_mutual_tls(
             "peer-a",
@@ -2539,6 +2543,7 @@ def test_persistent_vgi_session_transfers_through_fabric_and_replays_once(tmp_pa
         server_c = server_c_holder["server"]
         serve_c_thread = threading.Thread(target=serve, args=(server_c, stop_c), daemon=True)
         serve_b_thread = threading.Thread(target=serve, args=(server_b, stop_b), daemon=True)
+        threads.extend((serve_c_thread, serve_b_thread))
         serve_c_thread.start()
         serve_b_thread.start()
 
@@ -2560,6 +2565,10 @@ def test_persistent_vgi_session_transfers_through_fabric_and_replays_once(tmp_pa
         assert result["task_digest"] == descriptor.task_digest
         assert result["program_fingerprint"] == descriptor.program_fingerprint
         assert result["interpretation_fingerprint"] == descriptor.interpretation_fingerprint
+        assert result["logical_time"] == source_base.session.checkpoint.logical_time + 1
+        assert result["backend_fingerprint"] == source_base.session.checkpoint.backend_fingerprint
+        assert result["state_schema_id"] == VGI_SESSION_STATE_SCHEMA
+        assert result["artifact_manifest_digest"] == descriptor.artifact_manifest_digest
         assert result["revision"] == source_base.revision + 1
         assert result["predecessor_checkpoint_digest"] == source_base.checkpoint_digest
         assert result["total_steps"] == 4
@@ -2625,5 +2634,5 @@ def test_persistent_vgi_session_transfers_through_fabric_and_replays_once(tmp_pa
             server.close()
         listener_b.close()
         listener_c.close()
-        for thread in locals().get("serve_threads", ()):
+        for thread in threads:
             thread.join(timeout=5.0)
