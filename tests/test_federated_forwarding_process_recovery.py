@@ -913,8 +913,6 @@ def test_terminal_peer_c_hard_process_kill_recovers_while_relay_b_survives(
     calls_path = tmp_path / "terminal-operator-calls.jsonl"
     runtime_path = tmp_path / "terminal-runtime.json"
     config = {
-        "anchor_c_port": anchor_c_port,
-        "anchor_d_port": anchor_d_port,
         "membership_path_c": str(membership_c_path),
         "lineage_root_c": str(lineage_c),
         "anchor_e_port": anchor_e_port,
