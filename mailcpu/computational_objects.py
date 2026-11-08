@@ -32,7 +32,7 @@ class ComputationalObjectError(ValueError):
 
 
 def _strict_integer(value: Any, name: str, *, minimum: int = 0) -> int:
-    """Require a built-in integer without admitting Boolean values."""
+    """Mathematics: Require a built-in integer without admitting Boolean values."""
     if type(value) is not int or value < minimum:
         raise ComputationalObjectError(
             f"{name} must be an integer greater than or equal to {minimum}"
@@ -41,14 +41,14 @@ def _strict_integer(value: Any, name: str, *, minimum: int = 0) -> int:
 
 
 def _require_digest(value: Any, name: str) -> str:
-    """Require one lowercase SHA-256 hexadecimal digest."""
+    """Mathematics: Require one lowercase SHA-256 hexadecimal digest."""
     if not isinstance(value, str) or _HEX_DIGEST.fullmatch(value) is None:
         raise ComputationalObjectError(f"{name} must be a lowercase SHA-256 digest")
     return value
 
 
 def _canonical_bytes(value: Any) -> bytes:
-    """Encode a manifest projection using the repository's ordered JSON convention."""
+    """Mathematics: Encode a manifest projection using the repository's ordered JSON convention."""
     try:
         return json.dumps(
             value,
@@ -62,7 +62,7 @@ def _canonical_bytes(value: Any) -> bytes:
 
 
 def _sha256(data: bytes) -> str:
-    """Return the content identity of one immutable byte sequence."""
+    """Mathematics: Return the content identity of one immutable byte sequence."""
     return hashlib.sha256(data).hexdigest()
 
 
@@ -83,7 +83,7 @@ class ComputationalObjectChunk:
             raise ComputationalObjectError("chunk byte_length exceeds the maximum page size")
 
     def to_dict(self) -> dict[str, object]:
-        """Project this immutable chunk reference into its portable wire form."""
+        """Mathematics: Project this immutable chunk reference into its portable wire form."""
         return {
             "index": self.index,
             "page_digest": self.page_digest,
@@ -92,7 +92,7 @@ class ComputationalObjectChunk:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> ComputationalObjectChunk:
-        """Reconstruct a chunk reference while refusing missing or unknown fields."""
+        """Mathematics: Reconstruct a chunk reference while refusing missing or unknown fields."""
         if not isinstance(payload, Mapping) or set(payload) != {
             "index",
             "page_digest",
@@ -158,7 +158,7 @@ class ComputationalObjectManifest:
         object.__setattr__(self, "chunks", chunks)
 
     def _payload_dict(self) -> dict[str, object]:
-        """Return the canonical manifest body without its self-referential digest."""
+        """Mathematics: Return the canonical manifest body without its self-referential digest."""
         return {
             "kind": _COMPUTATIONAL_OBJECT_KIND,
             "schema_version": self.schema_version,
@@ -171,20 +171,20 @@ class ComputationalObjectManifest:
 
     @property
     def manifest_digest(self) -> str:
-        """Identify the complete descriptor, including media type and ordered chunk references."""
+        """Mathematics: Identify the complete descriptor, including media type and ordered chunk references."""
         return _sha256(_canonical_bytes(self._payload_dict()))
 
     def to_dict(self) -> dict[str, object]:
-        """Return the portable descriptor with its independently verifiable manifest identity."""
+        """Mathematics: Return the portable descriptor with its independently verifiable manifest identity."""
         return self._payload_dict() | {"manifest_digest": self.manifest_digest}
 
     def canonical_bytes(self) -> bytes:
-        """Return the canonical serialized manifest bytes."""
+        """Mathematics: Return the canonical serialized manifest bytes."""
         return _canonical_bytes(self.to_dict())
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> ComputationalObjectManifest:
-        """Decode a manifest only when its schema, geometry, and descriptor digest agree."""
+        """Mathematics: Decode a manifest only when its schema, geometry, and descriptor digest agree."""
         expected = {
             "kind",
             "schema_version",
@@ -266,7 +266,7 @@ class ComputationalObjectStore:
         *,
         media_type: str = "application/octet-stream",
     ) -> ComputationalObjectManifest:
-        """Publish one in-memory byte sequence and return its complete immutable manifest."""
+        """Mathematics: Publish one in-memory byte sequence and return its complete immutable manifest."""
         if not isinstance(data, bytes):
             raise TypeError("data must be bytes")
         return self.put_stream(io.BytesIO(data), len(data), media_type=media_type)
@@ -278,7 +278,7 @@ class ComputationalObjectStore:
         *,
         media_type: str = "application/octet-stream",
     ) -> ComputationalObjectManifest:
-        """Read exactly total_size bytes, persist every padded page, then publish the manifest."""
+        """Mathematics: Read exactly total_size bytes, persist every padded page, then publish the manifest."""
         if not callable(getattr(source, "read", None)):
             raise TypeError("source must expose read(size) returning bytes")
         _strict_integer(total_size, "total_size")
@@ -334,7 +334,7 @@ class ComputationalObjectStore:
         offset: int,
         length: int | None = None,
     ) -> bytes:
-        """Read a bounded byte range by resolving only the intersecting page references."""
+        """Mathematics: Read a bounded byte range by resolving only the intersecting page references."""
         descriptor = self._coerce_manifest(manifest)
         self._require_compatible_manifest(descriptor)
         _strict_integer(offset, "offset")
@@ -378,7 +378,7 @@ class ComputationalObjectStore:
         *,
         max_bytes: int | None = None,
     ) -> bytes:
-        """Read and verify the complete object, applying an optional stricter caller limit."""
+        """Mathematics: Read and verify the complete object, applying an optional stricter caller limit."""
         descriptor = self._coerce_manifest(manifest)
         effective_limit = self.max_object_bytes if max_bytes is None else _strict_integer(
             max_bytes, "max_bytes"
@@ -391,7 +391,7 @@ class ComputationalObjectStore:
         self,
         manifest: ComputationalObjectManifest | Mapping[str, Any],
     ) -> bool:
-        """Stream through every page and verify the complete logical content digest."""
+        """Mathematics: Stream through every page and verify the complete logical content digest."""
         descriptor = self._coerce_manifest(manifest)
         self._require_compatible_manifest(descriptor)
         content_hash = hashlib.sha256()
@@ -407,7 +407,7 @@ class ComputationalObjectStore:
 
     @staticmethod
     def _read_exactly(source: BinaryIO, length: int) -> bytes:
-        """Read a requested stream extent despite short non-terminal reads."""
+        """Mathematics: Read a requested stream extent despite short non-terminal reads."""
         parts: list[bytes] = []
         observed = 0
         while observed < length:
@@ -423,7 +423,7 @@ class ComputationalObjectStore:
         return b"".join(parts)
 
     def _read_page(self, chunk: ComputationalObjectChunk) -> bytes:
-        """Resolve one fixed-size page and verify its hash and zero-padding suffix."""
+        """Mathematics: Resolve one fixed-size page and verify its hash and zero-padding suffix."""
         try:
             page = self.page_backing.get_page(chunk.page_digest)
         except Exception as exc:
@@ -439,7 +439,7 @@ class ComputationalObjectStore:
         return page
 
     def _require_compatible_manifest(self, manifest: ComputationalObjectManifest) -> None:
-        """Require the manifest's page geometry to match this store's backing."""
+        """Mathematics: Require the manifest's page geometry to match this store's backing."""
         if manifest.chunk_size != self.chunk_size:
             raise ComputationalObjectError("manifest chunk size differs from this page backing")
 
@@ -447,7 +447,7 @@ class ComputationalObjectStore:
     def _coerce_manifest(
         manifest: ComputationalObjectManifest | Mapping[str, Any],
     ) -> ComputationalObjectManifest:
-        """Accept one typed manifest or validate its portable mapping representation."""
+        """Mathematics: Accept one typed manifest or validate its portable mapping representation."""
         if isinstance(manifest, ComputationalObjectManifest):
             return manifest
         if isinstance(manifest, Mapping):

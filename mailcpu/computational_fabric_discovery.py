@@ -27,7 +27,7 @@ class ComputationalFabricDiscoveryError(RuntimeError):
 
 
 def _canonical_digest(value: Mapping[str, Any]) -> str:
-    """Bind an immutable discovery bootstrap description to canonical JSON bytes."""
+    """Mathematics: Bind an immutable discovery bootstrap description to canonical JSON bytes."""
     encoded = json.dumps(
         dict(value),
         sort_keys=True,
@@ -39,7 +39,7 @@ def _canonical_digest(value: Mapping[str, Any]) -> str:
 
 
 def _positive_seconds(value: float, field: str, *, maximum: float = 3600.0) -> float:
-    """Validate a finite positive duration within the field-specific maximum."""
+    """Mathematics: Validate a finite positive duration within the field-specific maximum."""
     if (
         not isinstance(value, (int, float))
         or isinstance(value, bool)
@@ -67,7 +67,7 @@ class ComputationalFabricPeerRefresh:
     error: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        """Return a detached telemetry projection; monotonic lease deadlines remain local."""
+        """Mathematics: Return a detached telemetry projection; monotonic lease deadlines remain local."""
         return {
             "peer_id": self.peer_id,
             "connected": self.connected,
@@ -130,7 +130,7 @@ class ComputationalFabricPeerListener:
         on_session: Callable[[ComputationalFabricPeerServer], None] | None = None,
         on_error: Callable[[Exception], None] | None = None,
     ) -> None:
-        """Accept authenticated sessions serially and rebuild reliable channels for every new stream."""
+        """Mathematics: Accept authenticated sessions serially and rebuild reliable channels for every new stream."""
         if not isinstance(stop_event, threading.Event):
             raise ComputationalFabricDiscoveryError("stop_event must be a threading.Event")
         if on_session is not None and not callable(on_session):
@@ -201,7 +201,7 @@ class ComputationalFabricPeerListener:
                         self._active_server = None
 
     def close(self) -> None:
-        """Close the listener and any active authenticated session."""
+        """Mathematics: Close the listener and any active authenticated session."""
         with self._lock:
             if self._closed:
                 return
@@ -287,12 +287,12 @@ class ComputationalFabricDiscoveryService:
 
     @property
     def configured_peer_ids(self) -> tuple[str, ...]:
-        """Expose deterministic direct-peer bootstrap identities."""
+        """Mathematics: Expose deterministic direct-peer bootstrap identities."""
         return tuple(self._peer_endpoints)
 
     @property
     def connected_peer_ids(self) -> tuple[str, ...]:
-        """Expose peers with currently open local client transports."""
+        """Mathematics: Expose peers with currently open local client transports."""
         with self._lock:
             return tuple(
                 peer_id
@@ -301,7 +301,7 @@ class ComputationalFabricDiscoveryService:
             )
 
     def bootstrap_snapshot(self) -> dict[str, Any]:
-        """Persist restart inputs only; directory anti-rollback state is stored separately."""
+        """Mathematics: Persist restart inputs only; directory anti-rollback state is stored separately."""
         with self._lock:
             if self._closed:
                 raise ComputationalFabricDiscoveryError("discovery service is closed")
@@ -327,7 +327,7 @@ class ComputationalFabricDiscoveryService:
         *,
         policy: ReliabilityPolicy | None = None,
     ) -> "ComputationalFabricDiscoveryService":
-        """Rebuild the service from trusted bootstrap data without restoring old TLS streams."""
+        """Mathematics: Rebuild the service from trusted bootstrap data without restoring old TLS streams."""
         expected = {
             "schema",
             "local_peer_id",
@@ -379,14 +379,14 @@ class ComputationalFabricDiscoveryService:
         )
 
     def _last_known(self, peer_id: str) -> tuple[int | None, str | None]:
-        """Return the observed peer revision and digest, or absent markers."""
+        """Mathematics: Return the observed peer revision and digest, or absent markers."""
         for snapshot in self.directory.peer_snapshots:
             if snapshot.peer_id == peer_id:
                 return snapshot.revision, snapshot.digest
         return None, None
 
     def refresh_peer(self, peer_id: str) -> ComputationalFabricPeerRefresh:
-        """Connect or reuse a direct TLS peer, fetch its latest snapshot, then renew the local lease."""
+        """Mathematics: Connect or reuse a direct TLS peer, fetch its latest snapshot, then renew the local lease."""
         if not isinstance(peer_id, str) or peer_id not in self._peer_endpoints:
             raise ComputationalFabricDiscoveryError(
                 f"peer is not in the configured direct-peer set: {peer_id!r}"
@@ -444,7 +444,7 @@ class ComputationalFabricDiscoveryService:
                 )
 
     def refresh_all(self) -> tuple[ComputationalFabricPeerRefresh, ...]:
-        """Refresh configured peers in stable order and purge only leases already expired locally."""
+        """Mathematics: Refresh configured peers in stable order and purge only leases already expired locally."""
         with self._lock:
             if self._closed:
                 raise ComputationalFabricDiscoveryError("discovery service is closed")
@@ -468,7 +468,7 @@ class ComputationalFabricDiscoveryService:
         *,
         on_cycle: Callable[[tuple[ComputationalFabricPeerRefresh, ...]], None] | None = None,
     ) -> None:
-        """Refresh all direct peers at the configured cadence until stopped or closed."""
+        """Mathematics: Refresh all direct peers at the configured cadence until stopped or closed."""
         if not isinstance(stop_event, threading.Event):
             raise ComputationalFabricDiscoveryError("stop_event must be a threading.Event")
         if on_cycle is not None and not callable(on_cycle):
@@ -484,7 +484,7 @@ class ComputationalFabricDiscoveryService:
                 return
 
     def close(self) -> None:
-        """Drop every ephemeral authenticated stream; caller persists directory state separately."""
+        """Mathematics: Drop every ephemeral authenticated stream; caller persists directory state separately."""
         with self._lock:
             if self._closed:
                 return

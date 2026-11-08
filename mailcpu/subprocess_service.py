@@ -29,7 +29,7 @@ class SubprocessServiceError(RuntimeError):
 
 
 def _canonical_bytes(value: Mapping[str, Any]) -> bytes:
-    """Serialize a lifecycle projection into deterministic finite JSON bytes."""
+    """Mathematics: Serialize a lifecycle projection into deterministic finite JSON bytes."""
     try:
         return json.dumps(
             dict(value),
@@ -43,7 +43,7 @@ def _canonical_bytes(value: Mapping[str, Any]) -> bytes:
 
 
 def _atomic_write(path: Path, payload: bytes) -> None:
-    """Durably replace a file through a private sibling staging file."""
+    """Mathematics: Durably replace a file through a private sibling staging file."""
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     descriptor: int | None = None
@@ -78,7 +78,7 @@ def _atomic_write(path: Path, payload: bytes) -> None:
 
 
 def publish_service_ready(details: Mapping[str, Any]) -> None:
-    """Publish one startup-token-bound readiness record for a supervised child."""
+    """Mathematics: Publish one startup-token-bound readiness record for a supervised child."""
 
     if not isinstance(details, Mapping):
         raise SubprocessServiceError("readiness details must be a mapping")
@@ -175,7 +175,7 @@ class SubprocessServiceReport:
     last_error: str | None
 
     def to_dict(self) -> dict[str, Any]:
-        """Project the child lifecycle report into a detached mapping."""
+        """Mathematics: Project the child lifecycle report into a detached mapping."""
         return {
             "name": self.name,
             "state": self.state,
@@ -189,7 +189,7 @@ class SubprocessServiceReport:
 
 @dataclass
 class _ProcessRecord:
-    """Mutable supervisor-owned state for one declared child service."""
+    """Mathematics: Mutable supervisor-owned state for one declared child service."""
     spec: SubprocessServiceSpec
     desired: bool = False
     process: subprocess.Popen[bytes] | None = None
@@ -210,7 +210,7 @@ class SubprocessServiceSupervisor:
         self._closed = False
 
     def register(self, spec: SubprocessServiceSpec) -> None:
-        """Admit one unique service specification into this supervisor."""
+        """Mathematics: Admit one unique service specification into this supervisor."""
         if not isinstance(spec, SubprocessServiceSpec):
             raise SubprocessServiceError("register requires a SubprocessServiceSpec")
         with self._lock:
@@ -221,7 +221,7 @@ class SubprocessServiceSupervisor:
             self._records[spec.name] = _ProcessRecord(spec)
 
     def start(self, name: str) -> SubprocessServiceReport:
-        """Set desired state and launch or reuse the named child process."""
+        """Mathematics: Set desired state and launch or reuse the named child process."""
         with self._lock:
             record = self._record(name)
             if self._closed:
@@ -237,7 +237,7 @@ class SubprocessServiceSupervisor:
             return self._report(record)
 
     def stop(self, name: str) -> SubprocessServiceReport:
-        """Cancel desired state and terminate the child within its shutdown bound."""
+        """Mathematics: Cancel desired state and terminate the child within its shutdown bound."""
         with self._lock:
             record = self._record(name)
             record.desired = False
@@ -258,7 +258,7 @@ class SubprocessServiceSupervisor:
             return self._report(record)
 
     def kill(self, name: str) -> SubprocessServiceReport:
-        """Hard-kill a child while preserving desired state so reconcile can exercise crash recovery."""
+        """Mathematics: Hard-kill a child while preserving desired state so reconcile can exercise crash recovery."""
 
         with self._lock:
             record = self._record(name)
@@ -271,7 +271,7 @@ class SubprocessServiceSupervisor:
             return self._report(record)
 
     def reconcile(self) -> tuple[SubprocessServiceReport, ...]:
-        """Observe child termination and apply each service's bounded restart transition."""
+        """Mathematics: Observe child termination and apply each service's bounded restart transition."""
 
         with self._lock:
             if self._closed:
@@ -286,7 +286,7 @@ class SubprocessServiceSupervisor:
         *,
         poll_interval: float = 0.1,
     ) -> None:
-        """Poll and reconcile child lifetimes until the supplied stop event is set."""
+        """Mathematics: Poll and reconcile child lifetimes until the supplied stop event is set."""
         if not isinstance(stop_event, threading.Event):
             raise SubprocessServiceError("stop_event must be a threading.Event")
         if (
@@ -303,17 +303,17 @@ class SubprocessServiceSupervisor:
                 return
 
     def status(self, name: str) -> SubprocessServiceReport:
-        """Return the current lifecycle projection for one registered child."""
+        """Mathematics: Return the current lifecycle projection for one registered child."""
         with self._lock:
             return self._report(self._record(name))
 
     def statuses(self) -> tuple[SubprocessServiceReport, ...]:
-        """Return child lifecycle projections in deterministic service-name order."""
+        """Mathematics: Return child lifecycle projections in deterministic service-name order."""
         with self._lock:
             return tuple(self._report(self._records[name]) for name in sorted(self._records))
 
     def close(self) -> None:
-        """Stop registered children and close the supervisor to future launches."""
+        """Mathematics: Stop registered children and close the supervisor to future launches."""
         with self._lock:
             if self._closed:
                 return
@@ -323,7 +323,7 @@ class SubprocessServiceSupervisor:
             self.stop(name)
 
     def _reconcile_record(self, record: _ProcessRecord) -> None:
-        """Observe one child and apply its configured bounded restart transition."""
+        """Mathematics: Observe one child and apply its configured bounded restart transition."""
         process = record.process
         if process is None:
             if record.desired and record.state == "failed":
@@ -351,7 +351,7 @@ class SubprocessServiceSupervisor:
         self._restart(record)
 
     def _restart(self, record: _ProcessRecord) -> None:
-        """Attempt a restart only while desired state and policy permit it."""
+        """Mathematics: Attempt a restart only while desired state and policy permit it."""
         # A failed initial spawn has no Popen handle. Reconciliation may still
         # encounter it, but NEVER must remain a terminal policy in every path.
         if record.spec.restart is RestartPolicy.NEVER:
@@ -373,7 +373,7 @@ class SubprocessServiceSupervisor:
             return
 
     def _spawn(self, record: _ProcessRecord) -> None:
-        """Launch one child and admit it only after token- and PID-bound readiness."""
+        """Mathematics: Launch one child and admit it only after token- and PID-bound readiness."""
         spec = record.spec
         token = uuid.uuid4().hex
         name_key = hashlib.sha256(spec.name.encode("utf-8")).hexdigest()[:16]
@@ -468,7 +468,7 @@ class SubprocessServiceSupervisor:
                 pass
 
     def _release_process(self, record: _ProcessRecord) -> None:
-        """Release host resources retained for an exited or stopped child."""
+        """Mathematics: Release host resources retained for an exited or stopped child."""
         if record.log_stream is not None:
             try:
                 record.log_stream.close()
@@ -477,7 +477,7 @@ class SubprocessServiceSupervisor:
         record.process = None
 
     def _report(self, record: _ProcessRecord) -> SubprocessServiceReport:
-        """Build a detached typed lifecycle report from one supervisor record."""
+        """Mathematics: Build a detached typed lifecycle report from one supervisor record."""
         process = record.process
         return SubprocessServiceReport(
             record.spec.name,
@@ -490,7 +490,7 @@ class SubprocessServiceSupervisor:
         )
 
     def _record(self, name: str) -> _ProcessRecord:
-        """Resolve a registered service identity or raise for an unknown name."""
+        """Mathematics: Resolve a registered service identity or raise for an unknown name."""
         try:
             return self._records[name]
         except KeyError as exc:

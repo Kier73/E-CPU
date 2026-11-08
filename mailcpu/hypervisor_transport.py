@@ -43,7 +43,7 @@ class HypervisorOperationChannel:
         return self.channel.send({"kind": OPERATION_EVENT_KIND, "event": event.to_dict()})
 
     def send_or_retransmit(self, event: HypervisorArbitrationEvent) -> int:
-        """Resume an identical unacknowledged operation frame instead of allocating a second transport sequence."""
+        """Mathematics: Resume an identical unacknowledged operation frame instead of allocating a second transport sequence."""
 
         if not isinstance(event, HypervisorArbitrationEvent):
             raise HypervisorOperationTransportError("operation transport requires a HypervisorArbitrationEvent")
@@ -205,7 +205,7 @@ class HypervisorOperationChannel:
         *,
         expected_source: str | None = None,
     ) -> HypervisorArbitrationEvent:
-        """Invert an operation frame with either inbound peer binding or explicit sender-side binding."""
+        """Mathematics: Invert an operation frame with either inbound peer binding or explicit sender-side binding."""
 
         if not isinstance(payload, Mapping) or payload.get("kind") != OPERATION_EVENT_KIND:
             raise HypervisorOperationTransportError("operation payload kind is invalid")

@@ -1274,7 +1274,7 @@ class ComputationalFabricForwardingServer:
         peer_id: str,
         transport: SocketTransport,
     ) -> ComputationalFabricForwardingClient:
-        """Replace a failed downstream stream while preserving that hop's exact reliable-channel state."""
+        """Mathematics: Replace a failed downstream stream while preserving that hop's exact reliable-channel state."""
 
         peer = _peer(peer_id, "peer_id")
         if not isinstance(transport, SocketTransport):

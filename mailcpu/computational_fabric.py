@@ -579,7 +579,7 @@ class ComputationalFabricAuthority:
         self,
         advertisement: ComputationalHostAdvertisement | ComputationalHostLocus,
     ) -> str:
-        """Persist one peer-owned portable host advertisement before acknowledging the revision."""
+        """Mathematics: Persist one peer-owned portable host advertisement before acknowledging the revision."""
         if isinstance(advertisement, ComputationalHostLocus):
             advertisement = ComputationalHostAdvertisement.from_locus(
                 advertisement,
@@ -615,7 +615,7 @@ class ComputationalFabricAuthority:
             return advertisement.digest
 
     def remove_host(self, host_id: str, operator_id: str, version: int = 1) -> bool:
-        """Persist an exact host removal before exposing its next revision."""
+        """Mathematics: Persist an exact host removal before exposing its next revision."""
         key = (_label(host_id, "host_id"), _label(operator_id, "operator_id"), _positive(version, "version"))
         with self._lock:
             existing = self._hosts.pop(key, None)
@@ -632,7 +632,7 @@ class ComputationalFabricAuthority:
             return True
 
     def register_link(self, link: ComputationalNetworkLink) -> str:
-        """Persist one directed outgoing link before acknowledging its new revision."""
+        """Mathematics: Persist one directed outgoing link before acknowledging its new revision."""
         if not isinstance(link, ComputationalNetworkLink):
             raise ComputationalFabricError("register_link requires a ComputationalNetworkLink")
         if link.source_peer_id != self.endpoint.peer_id:
@@ -659,7 +659,7 @@ class ComputationalFabricAuthority:
             return link.link_id
 
     def remove_link(self, link_id: str) -> bool:
-        """Persist an exact content-addressed link removal before exposing its next revision."""
+        """Mathematics: Persist an exact content-addressed link removal before exposing its next revision."""
         _digest(link_id, "link_id")
         with self._lock:
             existing = self._links.pop(link_id, None)
@@ -676,12 +676,12 @@ class ComputationalFabricAuthority:
             return True
 
     def snapshot(self) -> ComputationalPeerSnapshot:
-        """Return the exact current peer-owned host and topology revision."""
+        """Mathematics: Return the exact current peer-owned host and topology revision."""
         with self._lock:
             return self._snapshot_locked()
 
     def _snapshot_locked(self) -> ComputationalPeerSnapshot:
-        """Project the current peer authority state while its lock is held."""
+        """Mathematics: Project the current peer authority state while its lock is held."""
         return ComputationalPeerSnapshot(
             self.endpoint,
             self._revision,
@@ -691,7 +691,7 @@ class ComputationalFabricAuthority:
         )
 
     def _persist_locked(self) -> None:
-        """Send the current locked snapshot to the configured persistence sink."""
+        """Mathematics: Send the current locked snapshot to the configured persistence sink."""
         if self._on_snapshot is not None:
             self._on_snapshot(self._snapshot_locked())
 
@@ -702,7 +702,7 @@ class ComputationalFabricAuthority:
         *,
         on_snapshot: Callable[[ComputationalPeerSnapshot], None] | None = None,
     ) -> "ComputationalFabricAuthority":
-        """Restore peer-owned advertisements and bind an optional durable mutation sink."""
+        """Mathematics: Restore peer-owned advertisements and bind an optional durable mutation sink."""
         if not isinstance(snapshot, ComputationalPeerSnapshot):
             raise ComputationalFabricError("authority restoration requires a ComputationalPeerSnapshot")
         authority = cls(
