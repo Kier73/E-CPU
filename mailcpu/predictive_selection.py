@@ -1251,7 +1251,8 @@ class PredictiveCandidatePoolBuilder:
             if (
                 current_version.spec.digest != current_ref.spec_digest
                 or current_version.certificate.digest != current_ref.certificate_digest
-                or current_version.spec.context != dict(current_ref.context)
+                or _canonical_json(current_version.spec.context, "admitted baseline context")
+                != _canonical_json(dict(current_ref.context), "pinned baseline context")
             ):
                 raise PredictiveSelectionError(
                     f"baseline component {component.component_id!r} no longer matches its admitted revision"
