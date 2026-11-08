@@ -1047,8 +1047,12 @@ class OrbitValueResult:
             raise ObserverOrbitError("inverse coordinate differs from the located projection")
         if self.navigation.projection.value != self.target_value:
             raise ObserverOrbitError("located projection does not match the requested target value")
-        if self.inverse_complexity_bound not in {"O(1)", "O(log m)"}:
-            raise ObserverOrbitError("unsupported inverse complexity declaration")
+        expected_inverse_bound = {
+            "int": "O(1)",
+            "lcg": "O(log m)",
+        }.get(self.navigation.generator_family)
+        if self.inverse_complexity_bound != expected_inverse_bound:
+            raise ObserverOrbitError("inverse complexity bound does not match the supported generator family")
         if type(self.expanded_states) is not int or self.expanded_states != 0:
             raise ObserverOrbitError("inverse navigation must not expand intermediate states")
 
@@ -1262,7 +1266,7 @@ class ContextualOrbitNavigator:
             step = params["step"]
             modulus = params.get("mod")
             origin = params["x0"]
-            if modulus is None:
+            if not modulus:
                 if step == 0:
                     candidate = 0 if target_value == origin else None
                 else:
