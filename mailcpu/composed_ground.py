@@ -265,6 +265,8 @@ class ComposedVirtualGroundAddress:
                 if left == right or left == right[:len(left)] or right == left[:len(right)]:
                     raise ComposedGroundError("component field paths must be disjoint and non-overlapping")
         offset = self.coordinate.tick - self.base_ground.coordinate
+        if not isinstance(self.extensions, Mapping):
+            raise ComposedGroundError("composed address extensions must be an object")
         user_extensions = _clone_json(dict(self.extensions), "composed address extensions")
         if not isinstance(user_extensions, dict):
             raise ComposedGroundError("composed address extensions must be an object")
@@ -340,6 +342,10 @@ class ComposedVirtualGroundAddress:
             raise ComposedGroundError("composed Virtual Ground address fields are invalid")
         if payload["schema"] != "mailcpu.composed-virtual-ground-address.v1":
             raise ComposedGroundError("unsupported composed Virtual Ground address schema")
+        if not isinstance(payload["components"], list):
+            raise ComposedGroundError("composed components must be an array")
+        if not isinstance(payload["extensions"], Mapping):
+            raise ComposedGroundError("composed address extensions must be an object")
         coordinate = payload["coordinate"]
         if not isinstance(coordinate, Mapping) or set(coordinate) != {"scheduler_id", "tick"}:
             raise ComposedGroundError("composed scheduler coordinate fields are invalid")
