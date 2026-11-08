@@ -2056,7 +2056,7 @@ class HeadlessOS:
         command: HostServiceCommand,
         adapter: HostServiceLifecycleAdapter,
     ) -> HypervisorExecutionResult:
-        """Govern one allowlisted host-service action through the existing event/effect ledger.
+        """Mathematics: Govern one allowlisted host-service action through the existing event/effect ledger.
 
         Virtual-process capabilities are derived locally. The event can select a
         registered service and action, but cannot supply an executable command.

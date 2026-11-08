@@ -648,6 +648,13 @@ from .evidence_path_resolver import (
     RouteMetricKey,
 )
 
+from .computational_objects import (
+    ComputationalObjectChunk,
+    ComputationalObjectError,
+    ComputationalObjectManifest,
+    ComputationalObjectStore,
+)
+
 from .computational_execution import (
     ComputationalExecutionAdmissionCoordinator,
     ComputationalExecutionAdmissionError,
@@ -1358,6 +1365,10 @@ __all__ = [
     "CommittedComputationResult",
     "NavigableComputationDAG",
     "ComputationalAddress",
+    "ComputationalObjectChunk",
+    "ComputationalObjectError",
+    "ComputationalObjectManifest",
+    "ComputationalObjectStore",
     "ComputationalExecutionAdmissionCoordinator",
     "ComputationalExecutionAdmissionError",
     "ComputationalExecutionResult",

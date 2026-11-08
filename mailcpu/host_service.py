@@ -52,7 +52,7 @@ class HostServiceCommand:
             raise HostServiceLifecycleError("service must be a 1-128 character local service identifier")
 
     def to_dict(self) -> dict[str, str]:
-        """Return the finite event projection without command, path, or environment details."""
+        """Mathematics: Return the finite event projection without command, path, or environment details."""
 
         return {"action": self.action.value, "service": self.service}
 
@@ -79,7 +79,7 @@ class HostServiceLifecycleAdapter:
             self.register(spec)
 
     def register(self, spec: SubprocessServiceSpec) -> None:
-        """Register one trusted local specification; duplicate names cannot replace commands."""
+        """Mathematics: Register one trusted local specification; duplicate names cannot replace commands."""
 
         if not isinstance(spec, SubprocessServiceSpec):
             raise HostServiceLifecycleError("register requires a SubprocessServiceSpec")
@@ -93,7 +93,7 @@ class HostServiceLifecycleAdapter:
             self._specs[spec.name] = spec
 
     def validate(self, command: HostServiceCommand) -> None:
-        """Verify that a command targets a locally registered name before policy arbitration."""
+        """Mathematics: Verify that a command targets a locally registered name before policy arbitration."""
 
         if not isinstance(command, HostServiceCommand):
             raise HostServiceLifecycleError("host service dispatch requires a HostServiceCommand")
@@ -102,7 +102,7 @@ class HostServiceLifecycleAdapter:
                 raise HostServiceLifecycleError(f"host service is not registered: {command.service}")
 
     def execute(self, command: HostServiceCommand) -> dict[str, object]:
-        """Apply one idempotent desired-state or observation operation to the local supervisor."""
+        """Mathematics: Apply one idempotent desired-state or observation operation to the local supervisor."""
 
         self.validate(command)
         with self._lock:
@@ -119,12 +119,12 @@ class HostServiceLifecycleAdapter:
 
     @property
     def registered_services(self) -> tuple[str, ...]:
-        """Return deterministic service identifiers without exposing executable specifications."""
+        """Mathematics: Return deterministic service identifiers without exposing executable specifications."""
 
         with self._lock:
             return tuple(sorted(self._specs))
 
     def close(self) -> None:
-        """Stop every child owned by this adapter's supervisor."""
+        """Mathematics: Stop every child owned by this adapter's supervisor."""
 
         self.supervisor.close()
