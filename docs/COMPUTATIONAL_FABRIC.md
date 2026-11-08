@@ -144,6 +144,8 @@ The original origin identity is carried through the path and used by the termina
 
 ## 8. Per-peer forwarding recovery
 
+The detailed per-peer checkpoint schema, capture-cut state table, sender/receiver recovery ordering, and proof boundaries are specified in [COMPUTATIONAL_FABRIC_FORWARDING_RECOVERY.md](COMPUTATIONAL_FABRIC_FORWARDING_RECOVERY.md).
+
 `ComputationalFabricForwardingServer.snapshot()` captures one peer's local operational state under a service transition lock. The image contains:
 - the complete receiver-local `HeadlessOS` snapshot, including Hypervisor decisions, committed effects, replay identities and the event journal;
 - the inbound reliable request channel, including its receive cursor, delivered set, pending frames and retry state;
