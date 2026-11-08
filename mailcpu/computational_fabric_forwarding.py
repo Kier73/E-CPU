@@ -645,7 +645,7 @@ class ComputationalFabricForwardingClient:
         envelope: ComputationalFabricForwardingEnvelope,
         directory: ComputationalFabricDirectory,
     ) -> ComputationalFabricHopReceipt:
-        """Serialize one downstream request with capture so its channel cut is recoverable."""
+        """Mathematics: Serialize one downstream request with capture so its channel cut is recoverable."""
         with self._transition_lock:
             return self._forward(envelope, directory)
 
@@ -727,7 +727,7 @@ class ComputationalFabricForwardingClient:
         return receipt
 
     def snapshot(self) -> dict[str, Any]:
-        """Capture operation identity and both reliable channel ledgers for one adjacent TLS hop."""
+        """Mathematics: Capture operation identity and both reliable channel ledgers for one adjacent TLS hop."""
         with self._transition_lock:
             return {
                 "schema": "mailcpu.computational-fabric-forwarding-client.v1",
@@ -748,7 +748,7 @@ class ComputationalFabricForwardingClient:
         payload: Mapping[str, Any],
         transport: SocketTransport,
     ) -> "ComputationalFabricForwardingClient":
-        """Restore a client channel pair over a newly authenticated adjacent-peer transport."""
+        """Mathematics: Restore a client channel pair over a newly authenticated adjacent-peer transport."""
         expected = {
             "schema", "version", "local_peer_id", "remote_endpoint",
             "origin_peer_id", "origin_channel", "timeout", "max_payload_bytes",
@@ -1194,7 +1194,7 @@ class ComputationalFabricForwardingServer:
         *,
         fault_hook: Any = None,
     ) -> HypervisorExecutionResult | None:
-        """Serialize one hop transition with checkpoint capture and expose its exact commit/publication cuts."""
+        """Mathematics: Serialize one hop transition with checkpoint capture and expose its exact commit/publication cuts."""
         with self._transition_lock:
             return self._serve_once(fault_hook=fault_hook)
 
@@ -1251,7 +1251,7 @@ class ComputationalFabricForwardingServer:
         return result
 
     def snapshot(self, *, capture_cut: str = "idle") -> dict[str, Any]:
-        """Capture OS replay state and every hop-local reliable channel at one serialized boundary.
+        """Mathematics: Capture OS replay state and every hop-local reliable channel at one serialized boundary.
 
         Active remote leases and transport objects are intentionally omitted.
         The caller must authenticate fresh streams and refresh the directory
@@ -1300,7 +1300,7 @@ class ComputationalFabricForwardingServer:
         catalogue: ComputationalHostCatalogue | None = None,
         operating_system: HeadlessOS | None = None,
     ) -> "ComputationalFabricForwardingServer":
-        """Rebind one verified peer checkpoint to fresh streams and caller-reconstructed host runtimes."""
+        """Mathematics: Rebind one verified peer checkpoint to fresh streams and caller-reconstructed host runtimes."""
         expected = {
             "schema", "version", "capture_cut", "local_peer_id", "previous_peer_id",
             "origin_peer_id", "origin_channel", "authority_pid", "timeout",
