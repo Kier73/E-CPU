@@ -119,6 +119,8 @@ class ComputationalFabricPeerListener:
         )
         self.idle_sleep = _positive_seconds(idle_sleep, "idle_sleep", maximum=5.0)
         self._closed = False
+        self._lock = threading.RLock()
+        self._active_server: ComputationalFabricPeerServer | None = None
 
     def serve_forever(
         self,
@@ -144,6 +146,9 @@ class ComputationalFabricPeerListener:
                 f"peer listener cannot set a bounded accept timeout: {exc}"
             ) from exc
         while not stop_event.is_set():
+            with self._lock:
+                if self._closed:
+                    return
             try:
                 server = ComputationalFabricPeerServer.accept_mutual_tls(
                     self.authority,
@@ -155,16 +160,28 @@ class ComputationalFabricPeerListener:
                     handshake_timeout=self.handshake_timeout,
                 )
             except Exception:
-                if stop_event.is_set() or self._closed or self.listener.fileno() < 0:
+                with self._lock:
+                    closed = self._closed
+                if stop_event.is_set() or closed or self.listener.fileno() < 0:
                     return
                 # Rejected handshakes and bounded accept timeouts do not become
                 # directory observations; a later client may authenticate.
                 stop_event.wait(0.05)
                 continue
 
+            with self._lock:
+                if self._closed or stop_event.is_set():
+                    server.close()
+                    return
+                self._active_server = server
             try:
                 if on_session is not None:
-                    on_session(server)
+                    try:
+                        on_session(server)
+                    except Exception as exc:
+                        if on_error is not None and not stop_event.is_set():
+                            on_error(exc)
+                        continue
                 while not stop_event.is_set() and not server.transport.closed:
                     try:
                         serviced = server.service_once()
@@ -176,10 +193,23 @@ class ComputationalFabricPeerListener:
                         stop_event.wait(self.idle_sleep)
             finally:
                 server.close()
+                with self._lock:
+                    if self._active_server is server:
+                        self._active_server = None
 
     def close(self) -> None:
-        """Close the listener so an owning supervisor can terminate its accept loop."""
-        self._closed = True
+        """Close the listener and any active authenticated session."""
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            server = self._active_server
+            self._active_server = None
+        if server is not None:
+            try:
+                server.close()
+            except Exception:
+                pass
         try:
             self.listener.close()
         except OSError:
