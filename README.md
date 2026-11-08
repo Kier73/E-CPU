@@ -243,3 +243,19 @@ and [TRANSIT_BYTE_OBJECTS.md](docs/TRANSIT_BYTE_OBJECTS.md). The first
 implementation composes `ComputationalObjectStore` with existing local,
 structural-memory, or remote page backings; it does not yet provide a universal
 runtime, model-session transaction, or partitioned neural executor.
+
+
+## General computational hosting
+
+M2 adds a backend-neutral local computational host over the existing byte
+object substrate. Composite artifact manifests bind multiple component files,
+and backend profiles independently identify the trusted implementation,
+runtime declarations, device profile, configuration, substrates, and resource
+bounds. A local adapter exposes load, execute, and unload; the common core
+does not import any specific model or accelerator framework.
+
+Execution uses the existing Virtual Layer and Hypervisor authority path.
+Deterministic result receipts are distinct from process-local duration
+measurements and from durable Hypervisor commitment. See
+[COMPUTATIONAL_HOSTING.md](docs/COMPUTATIONAL_HOSTING.md) for the mathematics,
+adapter contract, tests, and current proof boundaries.
