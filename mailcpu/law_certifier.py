@@ -21,6 +21,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from math import gcd
+from types import MappingProxyType
 from typing import Any, Callable, Sequence
 
 
@@ -360,24 +361,29 @@ def find_coordinate_gf2_bit(
     return len(initial) if feedback_parity == 0 else None
 
 
+@dataclass(frozen=True)
 class FiniteGraphInverseIndex:
-    """Reusable earliest-coordinate index over a stored finite functional-graph orbit.
+    """Reusable immutable earliest-coordinate index over a finite functional-graph orbit.
 
     Mathematics: for O=(x_0,...,x_(N-1)), build I[x]=min{i | x_i=x} in O(N)
     time; subsequent dictionary lookups are expected O(1).
     """
 
-    def __init__(self, orbit: Sequence[int]) -> None:
-        """Mathematics: compile the finite orbit into an earliest-coordinate map in O(N)."""
-        if not isinstance(orbit, (tuple, list)):
+    orbit: tuple[int, ...]
+    _coordinates: Mapping[int, int] = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        """Mathematics: compile the immutable finite orbit into an O(1)-query earliest-coordinate index."""
+        if not isinstance(self.orbit, (tuple, list)):
             raise ValueError("finite functional-graph orbit must be a finite sequence")
-        normalized = tuple(orbit)
+        normalized = tuple(self.orbit)
         if any(type(value) is not int for value in normalized):
             raise ValueError("finite functional-graph orbit values must be integers")
-        self._orbit = normalized
-        self._coordinates: dict[int, int] = {}
+        coordinates: dict[int, int] = {}
         for coordinate, value in enumerate(normalized):
-            self._coordinates.setdefault(value, coordinate)
+            coordinates.setdefault(value, coordinate)
+        object.__setattr__(self, "orbit", normalized)
+        object.__setattr__(self, "_coordinates", MappingProxyType(coordinates))
 
     def find(self, target: int) -> int | None:
         """Mathematics: return the earliest stored coordinate for target in expected O(1)."""
@@ -388,7 +394,7 @@ class FiniteGraphInverseIndex:
     @property
     def orbit_size(self) -> int:
         """Mathematics: return the number N of stored preperiod and cycle coordinates."""
-        return len(self._orbit)
+        return len(self.orbit)
 
 
 def find_coordinate_fgraph(orbit: Sequence[int], target: int) -> int | None:
@@ -590,17 +596,19 @@ class Law:
         r"""Invert the law to find coordinate $t$ where $\mathcal{G}(t) = \text{target}$.
 
         Mathematics:
-        - `int`: $\mathcal{O}(1)$ modular division.
-        - `lcg`: $\mathcal{O}(\log m)$ 2-adic bit-lifting for $m = 2^r$, or $\mathcal{O}(\sqrt{m})$ BSGS.
-        - `fgraph`: $\mathcal{O}(N)$ one-time index construction, then expected $\mathcal{O}(1)$ lookup.
+        - `int`: exact modular progression inverse, $\\mathcal{O}(1)$.
+        - `lcg`: 2-adic bit lifting for eligible powers of two, or bounded BSGS otherwise.
+        - `gf2`: scalar output-bit inverse bounded by register order L, $\\mathcal{O}(L)$.
+        - `fgraph`: $\\mathcal{O}(N)$ index construction per direct call; retain a
+          `FiniteGraphInverseIndex` for repeated expected $\\mathcal{O}(1)$ lookups.
         Raises `Refused` for families without computable closed-form inverses.
 
         Args:
             target: Target state value.
-            max_order: Optional orbit exploration ceiling.
+            max_order: Optional orbit exploration ceiling for the LCG BSGS fallback.
 
         Returns:
-            Smallest coordinate $t \ge 0$, or None if target is unreachable.
+            Smallest coordinate $t \\ge 0$, or None if target is unreachable.
         """
         if not self.is_ground:
             raise Refused("a non-ground law cannot be inverted")
