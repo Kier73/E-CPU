@@ -1,8 +1,9 @@
 """Reusable inverse indexes for finite, path-dependent process trajectories.
 
 The index in this module does not discover an unknown state-space. It compiles
-an explicitly supplied, already observed transition path after validating every
-guard, update, invariant, and resource requirement. Exact state lookup is then
+an explicitly supplied declarative transition path after validating every
+guard, update, invariant, and resource requirement. The path may represent observed
+history, but this validation is not a physical-execution receipt. Exact state lookup is then
 expected O(1), and the returned prefix remains independently replay-verifiable.
 """
 
@@ -12,6 +13,7 @@ from dataclasses import dataclass, field
 import hashlib
 import json
 import re
+from types import MappingProxyType
 from typing import Any, Mapping, Sequence
 
 from .navigation import (
@@ -87,7 +89,7 @@ class ProcessPathIndex:
     transition_ids: tuple[str, ...]
     state_digests: tuple[str, ...]
     resource_envelopes: tuple[tuple[tuple[str, int], ...], ...]
-    _first_coordinates: dict[str, int] = field(init=False, repr=False, compare=False)
+    _first_coordinates: Mapping[str, int] = field(init=False, repr=False, compare=False)
     _verified: bool = field(init=False, repr=False, compare=False, default=False)
 
     def __post_init__(self) -> None:
@@ -118,7 +120,7 @@ class ProcessPathIndex:
         object.__setattr__(self, "transition_ids", transitions)
         object.__setattr__(self, "state_digests", states)
         object.__setattr__(self, "resource_envelopes", envelopes)
-        object.__setattr__(self, "_first_coordinates", first)
+        object.__setattr__(self, "_first_coordinates", MappingProxyType(first))
         object.__setattr__(self, "_verified", False)
 
     @classmethod
@@ -128,7 +130,7 @@ class ProcessPathIndex:
         context: ProcessContext,
         transition_ids: Sequence[str],
     ) -> "ProcessPathIndex":
-        """Compile a caller-supplied observed path after validating every declared transition.
+        """Compile a caller-supplied declarative path after validating every declared transition.
 
         Mathematics:
         Evaluates the exact path recurrence s_{i+1}=T_i(s_i) for the supplied
@@ -193,7 +195,9 @@ class ProcessPathIndex:
         return index
 
     def coordinate_of(self, state: Mapping[str, Any]) -> int | None:
-        """Mathematics: resolve the first indexed coordinate by exact state digest in expected O(1)."""
+        """Mathematics: resolve a state by exact digest in expected O(1), only after index verification."""
+        if not self._verified:
+            raise ProcessPathIndexError("portable path index must be verified against its descriptor and context before lookup")
         if not isinstance(state, Mapping):
             raise ProcessPathIndexError("target state must be an object")
         return self._first_coordinates.get(_state_digest(state))
