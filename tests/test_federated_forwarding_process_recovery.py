@@ -1109,3 +1109,383 @@ def test_terminal_peer_c_hard_process_kill_recovers_while_relay_b_survives(
             if process.poll() is None:
                 process.kill()
                 process.communicate(timeout=10)
+
+
+
+def test_terminal_then_relay_hard_kills_preserve_one_federated_operation_history(
+    tmp_path: Path,
+) -> None:
+    """C and then B die in separate generations while A retains one semantic operation history."""
+    root = Path(__file__).resolve().parents[1]
+    relay_worker = root / "tests" / "helpers" / "federated_forwarding_relay_worker.py"
+    terminal_worker = root / "tests" / "helpers" / "federated_forwarding_terminal_worker.py"
+    certificates = _certificates(tmp_path)
+
+    # B and C deliberately use distinct owner journals and fixed-membership
+    # quorums. Their authority processes remain alive across both peer kills.
+    lineage_b = tmp_path / "lineage-b"
+    authorities_b = lineage_b / "authorities"
+    authorities_b.mkdir(parents=True, exist_ok=True)
+    membership_b_path = tmp_path / "membership-b.json"
+    membership_b = SeedCommitMembership(
+        "federated-sequential-relay-peer-b",
+        1,
+        ("peer-b", "anchor-c", "anchor-d"),
+        "peer-b",
+        1,
+        hashlib.sha256(b"mailcpu-federated-sequential-peer-b-v1").hexdigest(),
+    )
+    membership_b_path.write_text(
+        json.dumps(membership_b.snapshot(), sort_keys=True, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    anchor_c, anchor_c_port = _start_anchor(root, "anchor-c", membership_b_path, authorities_b)
+    anchor_d, anchor_d_port = _start_anchor(root, "anchor-d", membership_b_path, authorities_b)
+
+    lineage_c = tmp_path / "lineage-c"
+    authorities_c = lineage_c / "authorities"
+    authorities_c.mkdir(parents=True, exist_ok=True)
+    membership_c_path = tmp_path / "membership-c.json"
+    membership_c = SeedCommitMembership(
+        "federated-sequential-terminal-peer-c",
+        1,
+        ("peer-c", "anchor-e", "anchor-f"),
+        "peer-c",
+        1,
+        hashlib.sha256(b"mailcpu-federated-sequential-peer-c-v1").hexdigest(),
+    )
+    membership_c_path.write_text(
+        json.dumps(membership_c.snapshot(), sort_keys=True, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    anchor_e, anchor_e_port = _start_anchor(root, "anchor-e", membership_c_path, authorities_c)
+    anchor_f, anchor_f_port = _start_anchor(root, "anchor-f", membership_c_path, authorities_c)
+
+    peer_a_port = _free_port()
+    peer_b_port = _free_port()
+    peer_c_port = _free_port()
+    endpoint_a = ComputationalPeerEndpoint(
+        "peer-a", "peer-a.fabric.test", "127.0.0.1", peer_a_port
+    )
+    endpoint_b = ComputationalPeerEndpoint(
+        "peer-b", "peer-b.fabric.test", "127.0.0.1", peer_b_port
+    )
+    endpoint_c = ComputationalPeerEndpoint(
+        "peer-c", "peer-c.fabric.test", "127.0.0.1", peer_c_port
+    )
+    link_ab = _link("peer-a", "peer-b", 2)
+    link_bc = _link("peer-b", "peer-c", 3)
+
+    address_os = HeadlessOS()
+    address, catalogue, _calls, _execute_pid = _make_workload(address_os)
+    advertisement = ComputationalHostAdvertisement.from_locus(catalogue.loci[0], "peer-c")
+    snapshots = (
+        ComputationalPeerSnapshot(endpoint_a, 1, 60, (), (link_ab,)),
+        ComputationalPeerSnapshot(endpoint_b, 1, 60, (), (link_bc,)),
+        ComputationalPeerSnapshot(endpoint_c, 1, 60, (advertisement,), ()),
+    )
+    directory_a = _directory(snapshots, "peer-a")
+    resolved = ComputationalFabricResolver().resolve(
+        address,
+        directory_a,
+        origin_peer_id="peer-a",
+    )
+    assert resolved.status is ComputationalFabricStatus.FOUND
+    assert resolved.witness is not None
+    assert resolved.witness.peer_path == ("peer-a", "peer-b", "peer-c")
+
+    calls_path = tmp_path / "terminal-operator-calls.jsonl"
+    runtime_path = tmp_path / "terminal-runtime.json"
+    terminal_checkpoint_dir = tmp_path / "peer-c-checkpoints"
+    relay_checkpoint_dir = tmp_path / "peer-b-checkpoints"
+    terminal_cut_marker = tmp_path / "peer-c-cut.json"
+    terminal_result = tmp_path / "peer-c-result.json"
+    terminal_post_recovery_marker = tmp_path / "peer-c-post-recovery-checkpoint.json"
+    relay_cut_marker = tmp_path / "peer-b-cut.json"
+    relay_result = tmp_path / "peer-b-result.json"
+
+    config = {
+        "membership_path": str(membership_b_path),
+        "lineage_root": str(lineage_b),
+        "anchor_c_port": anchor_c_port,
+        "anchor_d_port": anchor_d_port,
+        "membership_path_c": str(membership_c_path),
+        "lineage_root_c": str(lineage_c),
+        "anchor_e_port": anchor_e_port,
+        "anchor_f_port": anchor_f_port,
+        "peer_b_port": peer_b_port,
+        "peer_c_port": peer_c_port,
+        "peer_b_cert": str(certificates["peer-b_cert"]),
+        "peer_b_key": str(certificates["peer-b_key"]),
+        "peer_c_cert": str(certificates["peer-c_cert"]),
+        "peer_c_key": str(certificates["peer-c_key"]),
+        "ca_cert": str(certificates["ca"]),
+        "peer_snapshots": {item.peer_id: item.to_dict() for item in snapshots},
+        "calls_path": str(calls_path),
+        "runtime_path": str(runtime_path),
+        "enable_live_checkpoint": True,
+        "live_cut": "after_execution_commit",
+        "checkpoint_after_first_recovery": True,
+        "post_recovery_checkpoint_marker": str(terminal_post_recovery_marker),
+        "restore_operations": 2,
+    }
+    config_path = tmp_path / "sequential-recovery-config.json"
+    config_path.write_text(
+        json.dumps(config, sort_keys=True, separators=(",", ":")),
+        encoding="utf-8",
+    )
+
+    processes: list[subprocess.Popen[str]] = [
+        anchor_c, anchor_d, anchor_e, anchor_f
+    ]
+    client_a: ComputationalFabricForwardingClient | None = None
+    terminal_initial: subprocess.Popen[str] | None = None
+    terminal_after_c_recovery: subprocess.Popen[str] | None = None
+    terminal_final: subprocess.Popen[str] | None = None
+    relay_live: subprocess.Popen[str] | None = None
+    relay_final: subprocess.Popen[str] | None = None
+
+    try:
+        # Generation 0: C commits the terminal effect but dies before it can
+        # publish the response. B remains alive with its downstream frame.
+        terminal_initial = subprocess.Popen(
+            [
+                sys.executable, str(terminal_worker), "prepare", str(config_path),
+                "after_execution_commit", str(terminal_cut_marker), str(terminal_checkpoint_dir),
+            ],
+            cwd=root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+        processes.append(terminal_initial)
+        terminal_ready = _wait_ready(terminal_initial)
+        assert terminal_ready["peer"] == "peer-c"
+
+        relay_live = subprocess.Popen(
+            [
+                sys.executable, str(relay_worker), "live", str(config_path),
+                "live", str(relay_cut_marker), str(relay_checkpoint_dir),
+            ],
+            cwd=root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+        processes.append(relay_live)
+        relay_ready = _wait_ready(relay_live)
+        assert relay_ready["peer"] == "peer-b"
+        assert isinstance(relay_ready["control_port"], int)
+
+        client_a = ComputationalFabricForwardingClient.connect_mutual_tls(
+            "peer-a",
+            endpoint_b,
+            _client_context(certificates, "peer-a"),
+            origin_peer_id="peer-a",
+            origin_channel="application.batch",
+            timeout=8.0,
+        )
+        first_envelope = ComputationalFabricForwardingEnvelope.begin(
+            address,
+            resolved.witness,
+            origin_channel="application.batch",
+            origin_sequence=7,
+        )
+        assert _send_federated_operation(client_a, first_envelope) == 1
+        requester_snapshot = client_a.snapshot()
+
+        c_first_cut = _wait_json(terminal_cut_marker, terminal_initial)
+        assert c_first_cut["stage"] == "cut"
+        assert c_first_cut["pid"] == terminal_initial.pid
+        assert c_first_cut["cut"] == "after_execution_commit"
+        assert c_first_cut["generation"] == 1
+        assert c_first_cut["execution_count"] == 1
+        assert c_first_cut["request_receive_cursor"] == 1
+        assert c_first_cut["response_pending"] == []
+        assert c_first_cut["journal_valid"] is True
+        _kill(terminal_initial)
+
+        # C restores its committed effect and publishes the saved result.
+        # B then reaches its own commit boundary and seals an independent image.
+        terminal_after_c_recovery = subprocess.Popen(
+            [
+                sys.executable, str(terminal_worker), "restore", str(config_path),
+                "after_execution_commit", str(terminal_result), str(terminal_checkpoint_dir),
+            ],
+            cwd=root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+        processes.append(terminal_after_c_recovery)
+        c_recovered_ready = _wait_ready(terminal_after_c_recovery)
+        assert c_recovered_ready["peer"] == "peer-c"
+        assert c_recovered_ready["pid"] != terminal_initial.pid
+
+        rebound = _rebind_live_relay(int(relay_ready["control_port"]))
+        assert rebound["ok"] is True, rebound
+        assert rebound["pid"] == relay_live.pid
+        assert rebound["peer_id"] == "peer-c"
+
+        b_second_cut = _wait_json(relay_cut_marker, relay_live)
+        assert b_second_cut["stage"] == "cut"
+        assert b_second_cut["pid"] == relay_live.pid
+        assert b_second_cut["cut"] == "after_execution_commit"
+        assert b_second_cut["generation"] == 1
+        assert b_second_cut["execution_count"] == 1
+        assert b_second_cut["request_receive_cursor"] == 1
+        assert b_second_cut["response_pending"] == []
+        assert b_second_cut["downstream_seen"] == 1
+        assert b_second_cut["journal_valid"] is True
+
+        # Require C's post-recovery channel cursor to be durably advanced
+        # before B's process is destroyed. This is a second C generation, not
+        # a revival of the first C image or its old transport lease.
+        c_post_recovery = _wait_json(
+            terminal_post_recovery_marker,
+            terminal_after_c_recovery,
+        )
+        assert c_post_recovery["stage"] == "post_recovery_idle"
+        assert c_post_recovery["pid"] == terminal_after_c_recovery.pid
+        assert c_post_recovery["generation"] == 2
+        assert c_post_recovery["request_receive_cursor"] == 2
+        assert c_post_recovery["response_pending"] == []
+        assert c_post_recovery["execution_count"] == 1
+        assert c_post_recovery["journal_valid"] is True
+
+        _kill(relay_live)
+        client_a.close()
+        client_a = None
+
+        # The old C stream is no longer usable. Its replacement restores the
+        # post-recovery idle image, including the channel cursor consumed by B.
+        try:
+            terminal_after_c_recovery.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            _kill(terminal_after_c_recovery)
+
+        terminal_final = subprocess.Popen(
+            [
+                sys.executable, str(terminal_worker), "restore_latest", str(config_path),
+                "after_execution_commit", str(terminal_result), str(terminal_checkpoint_dir),
+            ],
+            cwd=root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+        processes.append(terminal_final)
+        c_final_ready = _wait_ready(terminal_final)
+        assert c_final_ready["peer"] == "peer-c"
+        assert c_final_ready["pid"] not in {
+            terminal_initial.pid,
+            terminal_after_c_recovery.pid,
+        }
+
+        relay_final = subprocess.Popen(
+            [
+                sys.executable, str(relay_worker), "restore", str(config_path),
+                "after_execution_commit", str(relay_result), str(relay_checkpoint_dir),
+            ],
+            cwd=root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+        processes.append(relay_final)
+        b_final_ready = _wait_ready(relay_final)
+        assert b_final_ready["peer"] == "peer-b"
+        assert b_final_ready["pid"] != relay_live.pid
+
+        client_a = ComputationalFabricForwardingClient.from_snapshot(
+            requester_snapshot,
+            connect_mutual_tls(
+                endpoint_b.endpoint_host,
+                endpoint_b.port,
+                "peer-a",
+                "peer-b",
+                _client_context(certificates, "peer-a"),
+                server_hostname=endpoint_b.tls_server_name,
+                timeout=8.0,
+                handshake_timeout=8.0,
+            ),
+        )
+        assert client_a.request.channel.pending_sequences() == (1,)
+        assert client_a.request.channel.retransmit(1) is True
+
+        first_result = _read_forward_results(client_a, 1, relay_final)[0]
+        assert first_result.action.value == "allow"
+        assert first_result.executed is True
+        assert first_result.replayed is True
+        first_receipt = ComputationalFabricHopReceipt.from_dict(
+            first_result.effect["receipt"]
+        )
+        assert first_receipt.peer_id == "peer-b"
+        assert first_receipt.downstream is not None
+        assert first_receipt.downstream.peer_id == "peer-c"
+        assert first_receipt.downstream.terminal_execution is not None
+        assert first_receipt.downstream.terminal_execution["execution"]["effect"]["result"] == 9
+
+        # A new operation after both process deaths proves the restored channel
+        # cursors and semantic ledgers can advance together, not merely replay.
+        second_envelope = ComputationalFabricForwardingEnvelope.begin(
+            address,
+            resolved.witness,
+            origin_channel="application.batch",
+            origin_sequence=8,
+        )
+        assert _send_federated_operation(client_a, second_envelope) == 2
+        second_result = _read_forward_results(client_a, 1, relay_final)[0]
+        assert second_result.action.value == "allow"
+        assert second_result.executed is True
+        assert second_result.replayed is False
+        second_receipt = ComputationalFabricHopReceipt.from_dict(
+            second_result.effect["receipt"]
+        )
+        assert second_receipt.downstream is not None
+        assert second_receipt.downstream.peer_id == "peer-c"
+        assert second_receipt.downstream.terminal_execution is not None
+        assert second_receipt.downstream.terminal_execution["execution"]["effect"]["result"] == 9
+
+        b_final_state = _wait_json(relay_result, relay_final)
+        c_final_state = _wait_json(terminal_result, terminal_final)
+        assert b_final_state["stage"] == "recovered"
+        assert b_final_state["pid"] == relay_final.pid
+        assert b_final_state["execution_count"] == 2
+        assert b_final_state["request_receive_cursor"] == 3
+        assert b_final_state["response_pending"] == []
+        assert b_final_state["downstream_seen"] == 2
+        assert b_final_state["journal_valid"] is True
+
+        assert c_final_state["stage"] == "restored_complete"
+        assert c_final_state["pid"] == terminal_final.pid
+        assert c_final_state["cut"] == "after_execution_commit"
+        assert c_final_state["execution_count"] == 2
+        assert c_final_state["request_receive_cursor"] == 3
+        assert c_final_state["response_pending"] == []
+        assert c_final_state["call_count"] == 2
+        assert c_final_state["journal_valid"] is True
+        assert len(calls_path.read_text(encoding="utf-8").splitlines()) == 2
+
+        relay_stdout, relay_stderr = relay_final.communicate(timeout=20)
+        assert relay_final.returncode == 0, (
+            f"restored B exited with {relay_final.returncode}\n"
+            f"stdout:\n{relay_stdout}\nstderr:\n{relay_stderr}"
+        )
+        terminal_stdout, terminal_stderr = terminal_final.communicate(timeout=20)
+        assert terminal_final.returncode == 0, (
+            f"restored C exited with {terminal_final.returncode}\n"
+            f"stdout:\n{terminal_stdout}\nstderr:\n{terminal_stderr}"
+        )
+    finally:
+        if client_a is not None:
+            client_a.close()
+        for process in processes:
+            if process.poll() is None:
+                process.kill()
+                process.communicate(timeout=10)
