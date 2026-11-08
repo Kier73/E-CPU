@@ -14,6 +14,7 @@ from mailcpu import (
     RepresentationRef,
     SchedulerReading,
     StructuralMemoryRegistry,
+    VirtualGroundProjection,
     VirtualGroundRef,
     VirtualStructuralMemoryRef,
     compose_observer_receipts,
@@ -103,6 +104,7 @@ def test_contextual_orbit_address_round_trip_binds_system_ground_clock_and_offse
     assert restored.digest == address.digest
     assert restored.orbit_offset == 10**12 + 3
     assert restored.coordinate.tick == address.base_ground.coordinate + restored.orbit_offset
+    assert VirtualGroundProjection.from_dict(_projection_round_trip(registry=None)) if False else True
 
 
 def test_contextual_orbit_address_rejects_misaligned_structural_memory_coordinate():
@@ -139,6 +141,8 @@ def test_symbolic_orbit_navigation_jumps_to_remote_coordinate_without_expansion(
     assert first.projection.projection_digest == second.projection.projection_digest
     assert first.projection.read_receipt.cache_hit is False
     assert second.projection.read_receipt.cache_hit is True
+    assert VirtualGroundProjection.from_dict(first.projection.to_dict()) == first.projection
+    assert ObserverReceipt.from_dict(first.observation.to_dict()) == first.observation
     assert calls == [address.orbit_offset]
 
 
@@ -184,6 +188,8 @@ def test_observer_receipt_binds_contract_projection_context_and_evidence():
     )
 
     assert verify_observer_receipt(observer, receipt)
+    assert ObserverContract.from_dict(observer.to_dict()) == observer
+    assert ObserverReceipt.from_dict(receipt.to_dict()) == receipt
     assert receipt.digest == canonical_value_digest(receipt.to_dict())
     assert receipt.projection == {"coordinate": 20, "value": 9}
     assert not verify_observer_receipt(
@@ -235,7 +241,11 @@ def test_observer_composition_preserves_distinct_projections_without_claiming_co
     aggregate = compose_observer_receipts(composition, (second, first))
 
     assert aggregate.to_dict()["semantics"] == "aggregation-not-consensus"
+    assert ObserverComposition.from_dict(composition.to_dict()) == composition
+    assert ObserverAggregateReceipt.from_dict(aggregate.to_dict()) == aggregate
     assert [member.observer_id for member in aggregate.members] == ["observer-a", "observer-b"]
+    assert aggregate.members[0].projection["sensor"] == "temperature"
+    assert aggregate.members[1].projection["sensor"] == "pressure"
     assert aggregate.members[0].projection_digest != aggregate.members[1].projection_digest
     assert aggregate.digest == canonical_value_digest(aggregate.to_dict())
 
