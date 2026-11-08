@@ -35,7 +35,6 @@ from .structural_memory import (
     StructuralMemoryError,
     StructuralMemoryReadReceipt,
     StructuralMemoryRegistry,
-    StructuralMemoryVersion,
 )
 from .temporal import CausalStamp, MonotonicReading, SchedulerReading, TemporalFrame, WallTimeReading
 from .virtual_layer import VirtualGroundRef, VirtualStructuralMemoryRef
@@ -539,6 +538,7 @@ class ObserverMemberReceipt:
         if not isinstance(payload, Mapping) or set(payload) != expected:
             raise ObserverOrbitError("observer member receipt fields are invalid")
         return cls(**dict(payload))
+
 
 @dataclass(frozen=True)
 class ObserverAggregateReceipt:
