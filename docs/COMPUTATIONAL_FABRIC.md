@@ -148,7 +148,7 @@ The detailed per-peer checkpoint schema, capture-cut state table, sender/receive
 
 `ComputationalFabricForwardingServer.snapshot()` captures one peer's local operational state under a service transition lock. The image contains:
 - the complete receiver-local `HeadlessOS` snapshot, including Hypervisor decisions, committed effects, replay identities and the event journal;
-- the inbound reliable request channel, including its receive cursor, delivered set, pending frames and retry state;
+- the inbound reliable request channel, including its receive cursor and delivered-frame history. At a pre-ACK cut, the unacknowledged request payload remains in the previous peer's outbound sender checkpoint until that peer observes the ACK;
 - the outbound `HypervisorOperationResultChannel`, including its reliable pending response frames and semantic result ledger;
 - each downstream `ComputationalFabricForwardingClient` request and response channel pair, including the downstream semantic-result `seen` ledger;
 - the operation's origin identity, peer adjacency identity, authority PID, and bounded service settings.
