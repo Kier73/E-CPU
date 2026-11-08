@@ -173,6 +173,16 @@ def _excluded(relative_path: str, exclusions: tuple[str, ...]) -> bool:
     """Mathematics: Decide whether a canonical relative path lies within an explicit excluded prefix."""
     return any(relative_path == item or relative_path.startswith(item + "/") for item in exclusions)
 
+def _normalize_exclusions(exclude_paths: Sequence[str]) -> tuple[str, ...]:
+    """Mathematics: Canonicalize excluded prefixes and remove descendants already covered by a parent prefix."""
+    if not isinstance(exclude_paths, (tuple, list)):
+        raise ComputationalArtifactError("exclude_paths must be a sequence of relative path prefixes")
+    normalized: list[str] = []
+    for path in sorted({_artifact_path(item) for item in exclude_paths}):
+        if not _excluded(path, tuple(normalized)):
+            normalized.append(path)
+    return tuple(normalized)
+
 
 def _artifact_files(
     root: Path,
@@ -275,6 +285,7 @@ class ComputationalArtifactManifest:
     artifact_kind: str
     components: tuple[ComputationalArtifactComponent, ...]
     total_size_bytes: int
+    excluded_paths: tuple[str, ...] = ()
     metadata: Mapping[str, Any] = field(default_factory=dict)
     schema_version: int = _ARTIFACT_SCHEMA_VERSION
 
@@ -292,6 +303,7 @@ class ComputationalArtifactManifest:
         components = tuple(self.components)
         if not components or any(not isinstance(item, ComputationalArtifactComponent) for item in components):
             raise ComputationalArtifactError("artifact manifest requires typed file components")
+        exclusions = _normalize_exclusions(self.excluded_paths)
         paths = [component.path for component in components]
         if paths != sorted(paths) or len(paths) != len(set(paths)):
             raise ComputationalArtifactError("artifact component paths must be unique and lexicographically ordered")
@@ -303,6 +315,7 @@ class ComputationalArtifactManifest:
         if not isinstance(frozen_metadata, Mapping):
             raise ComputationalArtifactError("artifact metadata must be a JSON object")
         object.__setattr__(self, "components", components)
+        object.__setattr__(self, "excluded_paths", exclusions)
         object.__setattr__(self, "metadata", frozen_metadata)
 
     def _payload_dict(self) -> dict[str, object]:
@@ -314,6 +327,7 @@ class ComputationalArtifactManifest:
             "artifact_kind": self.artifact_kind,
             "total_size_bytes": self.total_size_bytes,
             "components": [component.to_dict() for component in self.components],
+            "excluded_paths": list(self.excluded_paths),
             "metadata": _thaw_json(self.metadata),
         }
 
@@ -335,19 +349,20 @@ class ComputationalArtifactManifest:
         """Mathematics: Decode the exact supported manifest schema and verify its claimed composite digest."""
         expected = {
             "kind", "schema_version", "artifact_id", "artifact_kind",
-            "total_size_bytes", "components", "metadata", "manifest_digest",
+            "total_size_bytes", "components", "excluded_paths", "metadata", "manifest_digest",
         }
         if not isinstance(payload, Mapping) or set(payload) != expected:
             raise ComputationalArtifactError("computational artifact manifest fields are invalid")
         if payload["kind"] != _ARTIFACT_KIND:
             raise ComputationalArtifactError("unsupported computational artifact manifest kind")
-        if not isinstance(payload["components"], list):
-            raise ComputationalArtifactError("artifact components must be a list")
+        if not isinstance(payload["components"], list) or not isinstance(payload["excluded_paths"], list):
+            raise ComputationalArtifactError("artifact components and excluded_paths must be lists")
         manifest = cls(
             artifact_id=payload["artifact_id"],
             artifact_kind=payload["artifact_kind"],
             components=tuple(ComputationalArtifactComponent.from_dict(item) for item in payload["components"]),
             total_size_bytes=payload["total_size_bytes"],
+            excluded_paths=tuple(payload["excluded_paths"]),
             metadata=payload["metadata"],
             schema_version=payload["schema_version"],
         )
@@ -376,9 +391,7 @@ def admit_computational_artifact_directory(
         raise ComputationalArtifactError("max_total_size exceeds the supported artifact bound")
     if max_files > _DEFAULT_MAX_ARTIFACT_FILES:
         raise ComputationalArtifactError("max_files exceeds the supported artifact component count")
-    if not isinstance(exclude_paths, (tuple, list)):
-        raise ComputationalArtifactError("exclude_paths must be a sequence of relative path prefixes")
-    exclusions = tuple(sorted({_artifact_path(item) for item in exclude_paths}))
+    exclusions = _normalize_exclusions(exclude_paths)
     files = _artifact_files(root, exclusions, max_files=max_files)
     if not files:
         raise ComputationalArtifactError("artifact directory contains no admitted regular files")
@@ -438,6 +451,7 @@ def admit_computational_artifact_directory(
         artifact_kind=artifact_kind,
         components=tuple(components),
         total_size_bytes=total_size,
+        excluded_paths=exclusions,
         metadata=metadata if metadata is not None else {},
     )
 
@@ -448,7 +462,7 @@ def verify_computational_artifact_directory(
     *,
     object_store: ComputationalObjectStore | None = None,
     verify_storage: bool = False,
-    exclude_paths: Sequence[str] = (),
+    exclude_paths: Sequence[str] | None = None,
     strict_inventory: bool = True,
 ) -> bool:
     """Mathematics: Recompute component bytes and optionally every referenced M1 page before local backend loading."""
@@ -456,7 +470,9 @@ def verify_computational_artifact_directory(
         raise TypeError("manifest must be a ComputationalArtifactManifest")
     if not isinstance(strict_inventory, bool) or not isinstance(verify_storage, bool):
         raise TypeError("verification flags must be Boolean")
-    exclusions = tuple(sorted({_artifact_path(item) for item in exclude_paths}))
+    exclusions = manifest.excluded_paths if exclude_paths is None else _normalize_exclusions(exclude_paths)
+    if exclusions != manifest.excluded_paths:
+        raise ComputationalArtifactError("verification exclusions must match the artifact manifest")
     files = _artifact_files(Path(directory_path), exclusions)
     by_path = {relative: path for relative, path in files}
     expected_paths = {component.path for component in manifest.components}

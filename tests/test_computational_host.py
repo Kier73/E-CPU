@@ -198,6 +198,48 @@ def test_artifact_identity_binds_component_bytes_paths_and_metadata(tmp_path) ->
     assert original.manifest_digest != changed_metadata.manifest_digest
 
 
+def test_excluded_paths_are_bound_and_reused_by_host_loading(tmp_path) -> None:
+    """Excluded subtrees are identity-bound and applied consistently during verification and lazy loading."""
+    root = _artifact_directory(tmp_path)
+    ignored = root / ".staging"
+    ignored.mkdir()
+    (ignored / "temporary.bin").write_bytes(b"not part of the artifact")
+    normalized = admit_computational_artifact_directory(
+        root,
+        artifact_id="test/runtime@1",
+        artifact_kind="computational-runtime",
+        exclude_paths=(".staging", ".staging/nested"),
+    )
+    concise = admit_computational_artifact_directory(
+        root,
+        artifact_id="test/runtime@1",
+        artifact_kind="computational-runtime",
+        exclude_paths=(".staging",),
+    )
+    assert normalized.excluded_paths == (".staging",)
+    assert normalized.manifest_digest == concise.manifest_digest
+    assert verify_computational_artifact_directory(normalized, root)
+
+    changed_policy = admit_computational_artifact_directory(
+        root,
+        artifact_id="test/runtime@1",
+        artifact_kind="computational-runtime",
+    )
+    assert changed_policy.manifest_digest != normalized.manifest_digest
+    with pytest.raises(ComputationalArtifactError, match="must match"):
+        verify_computational_artifact_directory(normalized, root, exclude_paths=())
+
+    host = LocalComputationalHost(
+        host_id="host-excluded-paths",
+        manifest=normalized,
+        artifact_root=root,
+        profile=_profile(),
+        adapter=EchoAdapter(),
+    )
+    execution = host.execute(_request(normalized))
+    assert execution.receipt.artifact_manifest_digest == normalized.manifest_digest
+
+
 def test_artifact_verification_detects_tampering_and_unmanifested_files(tmp_path) -> None:
     """Verification refuses modified component bytes and an unexpected extra file by default."""
     root = _artifact_directory(tmp_path)

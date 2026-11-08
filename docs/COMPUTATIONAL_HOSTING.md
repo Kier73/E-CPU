@@ -72,7 +72,7 @@ The directory admission function:
 - optionally publishes each component through the existing M1 object store;
 - refuses publication if the M1 descriptor does not match the local file identity.
 
-Exclusions are explicit relative path prefixes supplied by the caller. The core does not silently discard files based on a particular framework's cache or naming conventions. Verification must be supplied the same exclusions used at admission.
+Exclusions are explicit relative path prefixes supplied by the caller. The normalized, non-redundant prefix set is stored in the artifact manifest and therefore participates in its digest. The core does not silently discard files based on a particular framework's cache or naming conventions. Verification and local host loading reuse the bound exclusion set; a caller cannot silently change it during verification.
 
 The directory verifier recomputes component digests and sizes. Strict inventory checking is enabled by default: an unmanifested extra file makes the directory differ from the admitted artifact. When requested, it can also resolve and verify every nested M1 page manifest.
 
