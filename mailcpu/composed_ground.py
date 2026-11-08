@@ -67,6 +67,40 @@ def _clone_json(value: Any, label: str) -> Any:
     return json.loads(_canonical_json(value, label))
 
 
+class _FrozenDict(dict):
+    """Mathematics: preserve JSON mapping semantics while rejecting post-admission mutation."""
+
+    def _immutable(self, *args: Any, **kwargs: Any) -> None:
+        raise TypeError("composed Ground context is immutable")
+
+    __setitem__ = _immutable
+    __delitem__ = _immutable
+    clear = _immutable
+    pop = _immutable
+    popitem = _immutable
+    setdefault = _immutable
+    update = _immutable
+    __ior__ = _immutable
+
+
+def _freeze_json(value: Any) -> Any:
+    """Mathematics: recursively freeze object and array structure after canonical validation."""
+    if isinstance(value, Mapping):
+        return _FrozenDict({key: _freeze_json(item) for key, item in value.items()})
+    if isinstance(value, (tuple, list)):
+        return tuple(_freeze_json(item) for item in value)
+    return value
+
+
+def _thaw_json(value: Any) -> Any:
+    """Mathematics: detach immutable JSON mappings and tuples into ordinary JSON dictionaries and lists."""
+    if isinstance(value, Mapping):
+        return {key: _thaw_json(item) for key, item in value.items()}
+    if isinstance(value, (tuple, list)):
+        return [_thaw_json(item) for item in value]
+    return value
+
+
 def _path(value: Sequence[str]) -> tuple[str, ...]:
     """Mathematics: normalize a non-empty sequence of JSON object-key coordinates."""
     if not isinstance(value, (tuple, list)) or not value:
@@ -208,6 +242,8 @@ class ComposedComponentAddress:
         expected = {"component_id", "field_path", "representation", "value_kind", "orbit_address"}
         if not isinstance(payload, Mapping) or set(payload) != expected:
             raise ComposedGroundError("composed component address fields are invalid")
+        if not isinstance(payload["field_path"], list):
+            raise ComposedGroundError("component field_path must be an array")
         return cls(
             component_id=payload["component_id"],
             field_path=tuple(payload["field_path"]),
@@ -298,7 +334,7 @@ class ComposedVirtualGroundAddress:
                 raise ComposedGroundError(f"component {component.component_id!r} Structural Memory context is not bound to this composition")
             _read_path(template, component.field_path)
         object.__setattr__(self, "components", components)
-        object.__setattr__(self, "extensions", user_extensions)
+        object.__setattr__(self, "extensions", _freeze_json(user_extensions))
 
     @property
     def template(self) -> dict[str, Any]:
@@ -326,7 +362,7 @@ class ComposedVirtualGroundAddress:
             "state_schema": self.state_schema.to_dict(),
             "template_json": self.template_json,
             "components": [item.to_dict() for item in self.components],
-            "extensions": _clone_json(self.extensions, "composed address extensions"),
+            "extensions": _thaw_json(self.extensions),
             "orbit_offset": self.orbit_offset,
         }
 
@@ -571,6 +607,8 @@ class ComposedVirtualGroundProjection:
             raise ComposedGroundError("composed projection fields are invalid")
         if payload["schema"] != "mailcpu.composed-virtual-ground-projection.v1":
             raise ComposedGroundError("unsupported composed projection schema")
+        if not isinstance(payload["components"], list) or not isinstance(payload["component_projections"], list):
+            raise ComposedGroundError("composed projection component fields must be arrays")
         if payload["scope"] != "composed-virtual-state-projection-not-headlessos-checkpoint":
             raise ComposedGroundError("unsupported composed projection scope")
         coordinate = payload["coordinate"]
@@ -672,6 +710,11 @@ class ComposedVirtualGroundNavigator:
         """
         if not isinstance(address, ComposedVirtualGroundAddress):
             raise ComposedGroundError("locate requires a ComposedVirtualGroundAddress")
+        if expected_state_digest is not None and (
+            not isinstance(expected_state_digest, str)
+            or re.fullmatch(r"[0-9a-f]{64}", expected_state_digest) is None
+        ):
+            raise ComposedGroundError("expected_state_digest must be a lowercase SHA-256 digest")
         state = address.template
         component_projections: list[ComposedComponentProjection] = []
         profiles: list[tuple[str, str, str]] = []
