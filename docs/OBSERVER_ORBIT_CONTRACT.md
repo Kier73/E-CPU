@@ -111,6 +111,21 @@ This is not a universal replacement for all iteration:
 
 The preferred resolution order for a future general resolver is therefore: select a verified direct generator or inverse; use a composed symbolic/structural representation when the state has separable components; use a bounded graph path when the problem is genuinely path-dependent; replay only when exact system transition semantics require it. A fallback must be explicit in the address/result and budgeted, never an invisible consequence of direct-navigation failure.
 
+### Target-state inversion without trajectory enumeration
+
+ContextualOrbitNavigator.locate_value accepts an address pinned at the base coordinate and a requested scalar state. It derives the first matching relative coordinate using only algebraically supported inverses:
+
+| Generator | Inverse used | Bound |
+|---|---|---|
+| int | Exact modular or non-modular progression inversion | O(1) |
+| lcg | Full-period power-of-two 2-adic bit lifting (m=2^r, a=1 mod 4, odd increment) | O(log m) |
+
+The candidate is forward-verified with the guarded law before a target address is formed. The resulting address is then read from the pinned Structural Memory revision and observed through the normal receipt path. A PREFIX-GROUND horizon is enforced during this forward verification and again by the registry read.
+
+All other inverse families currently refuse. In particular, this operation never calls the general Law.find() entry point: the current LCG fallback there can use baby-step/giant-step at O(sqrt(m)), while finite-graph inverse lookup scans its stored orbit. Neither is silently selected here. The LCG restrictions are intentional, not an assertion that other inverse mathematics is impossible; those methods can be added only with their own explicit algorithm, budget, and verification profile.
+
+The VirtualGroundRef v1 structure contains a numeric base coordinate but no scheduler identifier. The contextual address binds the declared scheduler ID into the Structural Memory context; it cannot independently prove which scheduler originally minted the base coordinate. The caller that forms the address must therefore supply that mapping from trusted system context.
+
 ## 5. Virtual Ground generation and Structural Memory
 
 Structural Memory stores a certified generator description and evidence, not every generated state. VirtualStructuralMemoryRef points to a locally admitted immutable revision without shipping its generator or granting authority. The contextual address combines that symbolic generator with the admitted base Virtual Ground.
