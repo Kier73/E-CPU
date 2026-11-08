@@ -99,7 +99,7 @@ class ComputationalTransitionContract:
             raise ComputationalTransitionError("effect_mode must be pure, idempotent, or transactional")
 
     def to_dict(self) -> dict[str, object]:
-        """Project the complete transition declaration into its canonical identity payload."""
+        """Mathematics: Project the complete transition declaration into its canonical identity payload."""
         return {
             "schema": "mailcpu.computational-transition-contract.v1",
             "transition_id": self.transition_id,
@@ -115,7 +115,7 @@ class ComputationalTransitionContract:
 
     @property
     def digest(self) -> str:
-        """Identify the exact transition contract, including interpretation and resource bounds."""
+        """Mathematics: Identify the exact transition contract, including interpretation and resource bounds."""
         return _sha256(_canonical_bytes(self.to_dict()))
 
 
@@ -158,7 +158,7 @@ class ComputationalTransitionContext:
             raise ComputationalTransitionError("logical_time must be a non-negative integer")
 
     def to_dict(self) -> dict[str, object]:
-        """Project all current-state and request coordinates used by the backend into a stable mapping."""
+        """Mathematics: Project all current-state and request coordinates used by the backend into a stable mapping."""
         return {
             "schema": "mailcpu.computational-transition-context.v1",
             "session_id": self.session_id,
@@ -178,7 +178,7 @@ class ComputationalTransitionContext:
 
     @property
     def binding_digest(self) -> str:
-        """Commit the interpretation and operation to one exact quorum-verified session coordinate."""
+        """Mathematics: Commit the interpretation and operation to one exact quorum-verified session coordinate."""
         return _sha256(_canonical_bytes(self.to_dict()))
 
 
@@ -187,7 +187,7 @@ class ComputationalTransitionBackend(Protocol):
 
     @property
     def backend_fingerprint(self) -> str:
-        """Return the exact backend profile identity declared by the transition contract."""
+        """Mathematics: Return the exact backend profile identity declared by the transition contract."""
         ...
 
     def transition(
@@ -196,7 +196,7 @@ class ComputationalTransitionBackend(Protocol):
         input_bytes: bytes,
         context: ComputationalTransitionContext,
     ) -> bytes:
-        """Return candidate successor state bytes without performing external effects."""
+        """Mathematics: Return candidate successor state bytes without performing external effects."""
         ...
 
 
@@ -242,7 +242,7 @@ class ComputationalSessionTransitionAdapter:
         expected_revision: int | None = None,
         expected_checkpoint_digest: str | None = None,
     ) -> ComputationalSessionSnapshot:
-        """Interpret one input from a verified snapshot and CAS-anchor its exact bounded successor bytes."""
+        """Mathematics: Interpret one input from a verified snapshot and CAS-anchor its exact bounded successor bytes."""
         if not isinstance(input_bytes, bytes):
             raise TypeError("input_bytes must be bytes")
         _label(operation_id, "operation_id")

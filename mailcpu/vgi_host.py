@@ -153,7 +153,7 @@ def _cached_vgi_signal8_plan(
     implementation_fingerprint: str,
     canonical_task_json: str,
 ) -> VGICompiledTaskPlan:
-    """Compile one immutable VGI Program for the exact Ground, implementation, and canonical TaskSpec key."""
+    """Mathematics: Compile one immutable VGI Program for the exact Ground, implementation, and canonical TaskSpec key."""
     try:
         from vgi import SIGNAL8_GROUND, TaskSpec, VirtualGroundInterpreter
     except ImportError as exc:
@@ -205,7 +205,7 @@ def compile_vgi_signal8_task(
     task_data: Mapping[str, Any],
     ground_fingerprint: str,
 ) -> VGICompiledTaskPlan:
-    """Compile or retrieve immutable Signal8 IR from its explicit Ground and typed task declaration."""
+    """Mathematics: Compile or retrieve immutable Signal8 IR from its explicit Ground and typed task declaration."""
     if not isinstance(task_data, Mapping):
         raise VGIHostError("VGI task must be a typed task-expression object")
     if (
@@ -239,7 +239,7 @@ def compile_vgi_signal8_task(
 
 
 def vgi_signal8_compilation_cache_info() -> dict[str, int]:
-    """Expose bounded compiled-plan cache counters for tests and local diagnostics."""
+    """Mathematics: Expose bounded compiled-plan cache counters for tests and local diagnostics."""
     info = _cached_vgi_signal8_plan.cache_info()
     return {
         "hits": info.hits,
@@ -250,7 +250,7 @@ def vgi_signal8_compilation_cache_info() -> dict[str, int]:
 
 
 def clear_vgi_signal8_compilation_cache() -> None:
-    """Discard derived compiled plans; no session state or durable identity depends on this cache."""
+    """Mathematics: Discard derived compiled plans; no session state or durable identity depends on this cache."""
     _cached_vgi_signal8_plan.cache_clear()
 
 
