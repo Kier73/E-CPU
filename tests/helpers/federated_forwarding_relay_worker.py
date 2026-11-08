@@ -203,8 +203,11 @@ def _wait_for_recovery_completion(
     result_path: Path,
     cut: str,
     timeout: float = 35.0,
+    expected_operations: int = 1,
 ) -> None:
     """Mathematics: keep servicing B until its original request is consumed and every response frame is ACKed."""
+    if type(expected_operations) is not int or expected_operations < 1:
+        raise ValueError("expected_operations must be a positive integer")
     deadline = time.monotonic() + timeout
     results: list[dict[str, Any]] = []
     while time.monotonic() < deadline:
@@ -218,7 +221,7 @@ def _wait_for_recovery_completion(
                 "effect": dict(result.effect),
             })
         if (
-            server.inbound.channel.next_receive_sequence >= 2
+            server.inbound.channel.next_receive_sequence >= expected_operations + 1
             and not server.outbound.channel.pending_sequences()
         ):
             break
@@ -259,7 +262,7 @@ def main(arguments: list[str]) -> int:
     store = None
     coordinator = None
     verified = None
-    if mode != "live":
+    if mode != "live" or config.get("enable_live_checkpoint") is True:
         store, coordinator = _open_store(config)
         verified = store.load_latest() if mode == "restore" else None
         if verified is not None and verified.manifest.capture_cut != cut:
@@ -360,11 +363,41 @@ def main(arguments: list[str]) -> int:
 
             control_thread = threading.Thread(target=serve_control, daemon=True)
             control_thread.start()
+            live_cut = config.get("live_cut")
+
+            def stop_at_live_cut(stage: str) -> None:
+                """Quorum-seal B's own live process at a named forwarding commit boundary."""
+                if live_cut is None or stage != live_cut:
+                    return
+                if store is None:
+                    raise RuntimeError("live relay crash cuts require an enabled recovery store")
+                checkpoint = store.seal(server, stage)
+                _write_json_durable(Path(marker_or_result), {
+                    "stage": "cut",
+                    "pid": os.getpid(),
+                    "cut": stage,
+                    "generation": checkpoint.generation,
+                    "manifest_digest": checkpoint.manifest.digest,
+                    "execution_count": len(
+                        server.operating_system.hypervisor_arbitration.snapshot()["executions"]
+                    ),
+                    "request_receive_cursor": server.inbound.channel.next_receive_sequence,
+                    "response_pending": list(server.outbound.channel.pending_sequences()),
+                    "downstream_seen": len(
+                        server.next_hop_clients["peer-c"].response.snapshot()["seen"]
+                    ),
+                    "journal_valid": server.operating_system.environment.kernel.journal.verify(),
+                })
+                while True:
+                    time.sleep(60)
+
             completed: list[dict[str, Any]] = []
             deadline = time.monotonic() + 90.0
             while time.monotonic() < deadline:
                 try:
-                    result = server.serve_once()
+                    result = server.serve_once(
+                        fault_hook=stop_at_live_cut if live_cut is not None else None
+                    )
                 except Exception as exc:
                     # A downstream process may be absent during its restart
                     # window. Preserve B's unacknowledged inbound operation and
@@ -473,7 +506,12 @@ def main(arguments: list[str]) -> int:
             directory,
             next_hop_transports={"peer-c": downstream},
         )
-        _wait_for_recovery_completion(server, Path(marker_or_result), cut)
+        _wait_for_recovery_completion(
+            server,
+            Path(marker_or_result),
+            cut,
+            expected_operations=int(config.get("restore_operations", 1)),
+        )
         inbound.close()
         for client in server.next_hop_clients.values():
             client.close()

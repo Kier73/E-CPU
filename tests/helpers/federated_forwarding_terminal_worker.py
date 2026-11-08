@@ -214,18 +214,18 @@ def main(arguments: list[str]) -> int:
     if len(arguments) != 5:
         raise ValueError("terminal worker requires mode, config, cut, marker/result path, and checkpoint directory")
     mode, config_path, cut, marker_or_result, checkpoint_directory = arguments
-    if mode not in {"prepare", "restore"}:
+    if mode not in {"prepare", "restore", "restore_latest"}:
         raise ValueError(f"unsupported terminal worker mode {mode!r}")
     config = json.loads(Path(config_path).read_text(encoding="utf-8"))
     directory = _directory(config)
     store, coordinator = _open_store(config, checkpoint_directory)
-    verified = store.load_latest() if mode == "restore" else None
-    if verified is not None and verified.manifest.capture_cut != cut:
+    verified = store.load_latest() if mode in {"restore", "restore_latest"} else None
+    if mode == "restore" and verified is not None and verified.manifest.capture_cut != cut:
         raise ValueError("terminal restart cut differs from the quorum-anchored capture cut")
 
     runtime_payload = (
         json.loads(Path(config["runtime_path"]).read_text(encoding="utf-8"))
-        if mode == "restore"
+        if mode in {"restore", "restore_latest"}
         else None
     )
     listener = SocketTransport.listen("127.0.0.1", int(config["peer_c_port"]))
@@ -308,8 +308,33 @@ def main(arguments: list[str]) -> int:
             catalogue_factory=restore_catalogue,
         )
         deadline = time.monotonic() + 90.0
+        post_recovery_checkpointed = False
         while time.monotonic() < deadline:
             server.serve_once()
+            if (
+                mode == "restore"
+                and config.get("checkpoint_after_first_recovery") is True
+                and not post_recovery_checkpointed
+                and server.inbound.channel.next_receive_sequence >= 2
+                and not server.outbound.channel.pending_sequences()
+            ):
+                checkpoint = store.seal(server, "idle")
+                marker = config.get("post_recovery_checkpoint_marker")
+                if not isinstance(marker, str) or not marker:
+                    raise ValueError("post-recovery checkpoint marker path is required")
+                _write_json_durable(Path(marker), {
+                    "stage": "post_recovery_idle",
+                    "pid": os.getpid(),
+                    "generation": checkpoint.generation,
+                    "manifest_digest": checkpoint.manifest.digest,
+                    "request_receive_cursor": server.inbound.channel.next_receive_sequence,
+                    "response_pending": list(server.outbound.channel.pending_sequences()),
+                    "execution_count": len(
+                        server.operating_system.hypervisor_arbitration.snapshot()["executions"]
+                    ),
+                    "journal_valid": server.operating_system.environment.kernel.journal.verify(),
+                })
+                post_recovery_checkpointed = True
             if (
                 server.inbound.channel.next_receive_sequence >= 3
                 and not server.outbound.channel.pending_sequences()
