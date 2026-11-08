@@ -1661,7 +1661,7 @@ def test_federated_workload_forwards_over_two_authenticated_hops_and_replays_onc
         serve_b_rebound: threading.Thread | None = None
         serve_c_rebound: threading.Thread | None = None
         client_ab_rebound: ComputationalFabricForwardingClient | None = None
-        client_bc_rebound: ComputationalFabricForwardingClient | None = None
+        transport_bc_rebound: SocketTransport | None = None
         stop_b_rebound = threading.Event()
         stop_c_rebound = threading.Event()
 
@@ -1703,7 +1703,7 @@ def test_federated_workload_forwards_over_two_authenticated_hops_and_replays_onc
                     relay_checkpoint,
                     transport,
                     directory_b,
-                    next_hop_transports={"peer-c": client_bc_rebound},
+                    next_hop_transports={"peer-c": transport_bc_rebound},
                     operating_system=restored_os,
                 )
             except BaseException as exc:
@@ -1712,7 +1712,7 @@ def test_federated_workload_forwards_over_two_authenticated_hops_and_replays_onc
         try:
             accept_c_rebound = threading.Thread(target=accept_c_after_restart, daemon=True)
             accept_c_rebound.start()
-            transport_bc = connect_mutual_tls(
+            transport_bc_rebound = connect_mutual_tls(
                 endpoint_c.endpoint_host,
                 endpoint_c.port,
                 "peer-b",
@@ -1720,10 +1720,6 @@ def test_federated_workload_forwards_over_two_authenticated_hops_and_replays_onc
                 client_context_b,
                 server_hostname=endpoint_c.tls_server_name,
                 timeout=4.0,
-            )
-            client_bc_rebound = ComputationalFabricForwardingClient.from_snapshot(
-                relay_checkpoint["next_hop_clients"]["peer-c"],
-                transport_bc,
             )
             accept_c_rebound.join(timeout=4.0)
             assert not accept_c_rebound.is_alive()
@@ -1773,8 +1769,8 @@ def test_federated_workload_forwards_over_two_authenticated_hops_and_replays_onc
             stop_c_rebound.set()
             if client_ab_rebound is not None:
                 client_ab_rebound.close()
-            if client_bc_rebound is not None:
-                client_bc_rebound.close()
+            if transport_bc_rebound is not None:
+                transport_bc_rebound.close()
             for server in server_b_rebound_holder.values():
                 server.close()
             for server in server_c_rebound_holder.values():
