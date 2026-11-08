@@ -30,6 +30,7 @@ from mailcpu import (  # noqa: E402
     OperatorSpec,
     RecoveryLineageAuthority,
     RecoveryLineagePeerClient,
+    RouteMetric,
     SeedCommitMembership,
     SystemIdentity,
     SystemSeed,
@@ -164,10 +165,10 @@ def _catalogue(
         computational_ground_fingerprints=(GROUND_FP,),
         program_fingerprints=(PROGRAM_FP,),
         costs=(
-            __import__("mailcpu").RouteMetric("latency", "ticks", 3),
-            __import__("mailcpu").RouteMetric("energy", "units", 20),
-            __import__("mailcpu").RouteMetric("bytes", "bytes", 128),
-            __import__("mailcpu").RouteMetric("risk", "score", 0),
+            RouteMetric("latency", "ticks", 3),
+            RouteMetric("energy", "units", 20),
+            RouteMetric("bytes", "bytes", 128),
+            RouteMetric("risk", "score", 0),
         ),
         implementation_fingerprint=IMPLEMENTATION_FP,
     )
@@ -250,10 +251,10 @@ def main(arguments: list[str]) -> int:
         )
         if mode == "prepare":
             operating_system, execute_pid, catalogue, advertisement = _initial_runtime(config)
-            expected = ComputationalHostAdvertisement.from_dict(
-                directory.local_snapshot.hosts[0].to_dict()
+            expected_snapshot = ComputationalPeerSnapshot.from_dict(
+                config["peer_snapshots"]["peer-c"]
             )
-            if advertisement.digest != expected.digest:
+            if not expected_snapshot.hosts or advertisement.digest != expected_snapshot.hosts[0].digest:
                 raise RuntimeError("terminal runtime advertisement differs from the configured peer snapshot")
             server = ComputationalFabricForwardingServer(
                 "peer-c",
