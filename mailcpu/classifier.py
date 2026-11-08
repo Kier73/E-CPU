@@ -266,8 +266,14 @@ class HypervisorRequest:
     def __post_init__(self) -> None:
         """Mathematics: require any control-plane intent projection to be detached finite JSON."""
         if self.intent_projection is not None:
-            if self.operation != "cpu register arithmetic instruction scheduling program execution virtual layer pure operator transformation":
-                raise ClassifierError("compact intent projection is reserved for receiver-verified Virtual Layer events")
+            expected_kinds = {
+                "cpu register arithmetic instruction scheduling program execution virtual layer pure operator transformation": "mailcpu.virtual-layer.intent.v1",
+                "forward network packet for federated computation": "mailcpu.computational-fabric.intent.v1",
+                "receive network request for local computational execution": "mailcpu.computational-fabric.intent.v1",
+            }
+            expected_kind = expected_kinds.get(self.operation)
+            if expected_kind is None:
+                raise ClassifierError("compact intent projection is reserved for receiver-verified Virtual Layer or computational-fabric events")
             if not isinstance(self.intent_projection, Mapping):
                 raise ClassifierError("intent_projection must be a mapping or None")
             try:
@@ -276,9 +282,9 @@ class HypervisorRequest:
             except (TypeError, ValueError, UnicodeDecodeError) as exc:
                 raise ClassifierError("intent_projection must be canonical finite JSON") from exc
             if len(encoded_projection) > 4096:
-                raise ClassifierError("Virtual Layer intent projection exceeds its 4096-byte control-plane bound")
-            if detached.get("kind") != "mailcpu.virtual-layer.intent.v1":
-                raise ClassifierError("Virtual Layer intent projection has an unsupported schema")
+                raise ClassifierError("intent projection exceeds its 4096-byte control-plane bound")
+            if detached.get("kind") != expected_kind:
+                raise ClassifierError("intent projection has an unsupported schema for this operation")
             object.__setattr__(self, "intent_projection", detached)
 
     def state(self) -> dict[str, object]:

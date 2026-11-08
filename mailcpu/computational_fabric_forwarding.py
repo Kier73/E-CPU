@@ -130,6 +130,51 @@ def computational_fabric_forward_channel_id(origin_peer_id: str, origin_channel:
     )
 
 
+def _forwarding_intent_projection(
+    envelope: "ComputationalFabricForwardingEnvelope",
+    *,
+    operation: str,
+) -> dict[str, object]:
+    """Mathematics: Project a complete route envelope into a compact receiver-verifiable control-plane intent."""
+    if not isinstance(envelope, ComputationalFabricForwardingEnvelope):
+        raise ComputationalFabricForwardingError("fabric intent projection requires a typed forwarding envelope")
+    if operation not in {"forward", "execute"}:
+        raise ComputationalFabricForwardingError("fabric intent operation must be forward or execute")
+    workload = envelope.address.workload
+    operator_reference = workload.operator_ref(envelope.address.operator_id)
+    payload_bytes = len(_canonical_bytes({"envelope": envelope.to_dict()}, "forwarding event payload"))
+    projection: dict[str, object] = {
+        "kind": "mailcpu.computational-fabric.intent.v1",
+        "operation": operation,
+        "origin_peer_id": envelope.origin_peer_id,
+        "origin_channel": envelope.origin_channel,
+        "origin_sequence": envelope.origin_sequence,
+        "logical_time": envelope.logical_time,
+        "current_peer_id": envelope.current_peer_id,
+        "previous_peer_id": envelope.previous_peer_id,
+        "hop_index": envelope.hop_index,
+        "hop_count": len(envelope.route.peer_path),
+        "operation_digest": envelope.operation_digest,
+        "envelope_digest": envelope.digest,
+        "route_digest": _canonical_digest(envelope.route.to_dict(), "fabric route"),
+        "address_digest": envelope.address.digest,
+        "workload_digest": workload.digest,
+        "input_digest": envelope.address.input_digest,
+        "state_digest": envelope.address.state_digest,
+        "operator_id": envelope.address.operator_id,
+        "operator_version": operator_reference.version,
+        "operator_contract_digest": envelope.address.operator_contract_digest,
+        "computational_ground_fingerprint": envelope.address.computational_ground_fingerprint,
+        "program_fingerprint": envelope.address.program_fingerprint,
+        "goal": dict(workload.intention["goal"]),
+        "budget": workload.budget.to_dict(),
+        "payload_bytes": payload_bytes,
+    }
+    if len(_canonical_bytes(projection, "fabric intent projection")) > 4096:
+        raise ComputationalFabricForwardingError("fabric intent projection exceeds its 4096-byte bound")
+    return projection
+
+
 @dataclass(frozen=True)
 class ComputationalFabricForwardingEnvelope:
     """Portable operation identity and route cursor; it carries no authority or executable binding."""
@@ -665,6 +710,10 @@ class ComputationalFabricForwardingClient:
             frozenset({"execute"}) if terminal else frozenset({"forward"}),
             frozenset(),
             False,
+            intent_projection=_forwarding_intent_projection(
+                child,
+                operation="execute" if terminal else "forward",
+            ),
         )
         event = HypervisorArbitrationEvent(
             self.local_peer_id,
@@ -1231,9 +1280,32 @@ class ComputationalFabricForwardingServer:
 
         def authorize(event: HypervisorArbitrationEvent) -> HypervisorArbitrationEvent:
             """Mathematics: Verify the envelope and replace every peer-supplied grant with this process's local rights."""
-            self._decode_envelope(event)
-            self._validate_local_route(ComputationalFabricForwardingEnvelope.from_dict(event.request.payload["envelope"]))
-            authorized = self.operating_system.hypervisor_authorize_event(self.authority_pid, event)
+            envelope = self._decode_envelope(event)
+            self._validate_local_route(envelope)
+            expected_projection = _forwarding_intent_projection(
+                envelope,
+                operation="execute" if envelope.hop_index == len(envelope.route.peer_path) - 1 else "forward",
+            )
+            if event.request.intent_projection is not None and event.request.intent_projection != expected_projection:
+                raise ComputationalFabricForwardingError("forwarding intent projection does not match the receiver-decoded route envelope")
+            projected_request = HypervisorRequest(
+                operation=event.request.operation,
+                resource=event.request.resource,
+                payload=dict(event.request.payload),
+                required_rights=event.request.required_rights,
+                granted_rights=event.request.granted_rights,
+                destructive=event.request.destructive,
+                temporal=None if event.request.temporal is None else dict(event.request.temporal),
+                intent_projection=expected_projection,
+            )
+            projected_event = HypervisorArbitrationEvent(
+                event.source,
+                event.channel,
+                event.sequence,
+                event.logical_time,
+                projected_request,
+            )
+            authorized = self.operating_system.hypervisor_authorize_event(self.authority_pid, projected_event)
             if authorized.identity != event.identity:
                 raise ComputationalFabricForwardingError("local authority changed the forwarding event identity")
             authorized_events[:] = [authorized]
