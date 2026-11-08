@@ -14,7 +14,7 @@ from pathlib import Path
 import shutil
 import tempfile
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 import time
 
 from .computational_fabric import ComputationalFabricDirectory
@@ -174,6 +174,10 @@ class VerifiedComputationalFabricForwardingCheckpoint:
             raise ComputationalFabricForwardingRecoveryError(
                 "forwarding snapshot bytes are not the canonical persisted projection"
             )
+        if self.manifest.capture_cut != snapshot["capture_cut"]:
+            raise ComputationalFabricForwardingRecoveryError(
+                "forwarding manifest capture cut differs from the peer snapshot"
+            )
         if (
             self.proof.proposal.slot != self.manifest.generation
             or self.proof.proposal.result_state_digest != self.manifest.digest
@@ -188,10 +192,17 @@ class VerifiedComputationalFabricForwardingCheckpoint:
         """Mathematics: Return the monotonic recovery generation sealed by the quorum proof."""
         return self.manifest.generation
 
-    def restore_operating_system(self) -> HeadlessOS:
+    def restore_operating_system(
+        self,
+        *,
+        structural_memory_admission_policy: Callable[[Any], bool] | None = None,
+    ) -> HeadlessOS:
         """Mathematics: Restore the local VM, capabilities, Hypervisor decision/effect ledger, and journal state."""
         try:
-            return HeadlessOS.from_snapshot(dict(self.snapshot["operating_system"]))
+            return HeadlessOS.from_snapshot(
+                dict(self.snapshot["operating_system"]),
+                structural_memory_admission_policy=structural_memory_admission_policy,
+            )
         except Exception as exc:
             raise ComputationalFabricForwardingRecoveryError(
                 f"cannot reconstruct receiver-local HeadlessOS state: {exc}"
@@ -204,17 +215,25 @@ class VerifiedComputationalFabricForwardingCheckpoint:
         *,
         next_hop_transports: Mapping[str, Any] | None = None,
         catalogue: Any = None,
-        operating_system: HeadlessOS | None = None,
+        catalogue_factory: Callable[[HeadlessOS], Any] | None = None,
+        structural_memory_admission_policy: Callable[[Any], bool] | None = None,
     ) -> ComputationalFabricForwardingServer:
-        """Mathematics: Rebind a verified peer snapshot to fresh authenticated transports and live local policy objects."""
-        restored_os = operating_system or self.restore_operating_system()
+        """Mathematics: Rebind a verified peer image to fresh transports and locally reconstructed runtime policy."""
+        if catalogue is not None and catalogue_factory is not None:
+            raise ComputationalFabricForwardingRecoveryError(
+                "supply either a catalogue or a catalogue_factory, not both"
+            )
+        restored_os = self.restore_operating_system(
+            structural_memory_admission_policy=structural_memory_admission_policy
+        )
+        restored_catalogue = catalogue if catalogue_factory is None else catalogue_factory(restored_os)
         try:
             return ComputationalFabricForwardingServer.from_snapshot(
                 self.snapshot,
                 transport,
                 directory,
                 next_hop_transports=next_hop_transports,
-                catalogue=catalogue,
+                catalogue=restored_catalogue,
                 operating_system=restored_os,
             )
         except Exception as exc:
