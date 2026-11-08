@@ -17,10 +17,14 @@ sys.path.insert(0, str(ROOT))
 
 from mailcpu import (  # noqa: E402
     Capability,
+    ComputationalFabricAuthority,
     ComputationalFabricDirectory,
+    ComputationalFabricDiscoveryService,
     ComputationalFabricForwardingClient,
     ComputationalFabricForwardingRecoveryStore,
     ComputationalFabricForwardingServer,
+    ComputationalFabricPeerListener,
+    ComputationalPeerEndpoint,
     ComputationalPeerSnapshot,
     DistributedRecoveryLineageCoordinator,
     HeadlessOS,
@@ -88,26 +92,84 @@ def _open_store(config: dict[str, Any]) -> tuple[ComputationalFabricForwardingRe
 
 
 def _directory(config: dict[str, Any]) -> ComputationalFabricDirectory:
-    """Mathematics: rebuild B's directly authenticated receiver view without restoring expired remote leases."""
+    """Build B's local snapshot and explicit trust roots; remote snapshots arrive via TLS discovery."""
     snapshots = {
         peer_id: ComputationalPeerSnapshot.from_dict(raw)
         for peer_id, raw in config["peer_snapshots"].items()
     }
     trusted = {
-        peer_id: snapshot.endpoint.tls_server_name
-        for peer_id, snapshot in snapshots.items()
-        if peer_id != "peer-b"
+        peer_id: snapshots[peer_id].endpoint.tls_server_name
+        for peer_id in ("peer-a", "peer-c")
     }
     directory = ComputationalFabricDirectory("peer-b", trusted)
     directory.register_local_snapshot(snapshots["peer-b"])
-    for peer_id in ("peer-a", "peer-c"):
-        snapshot = snapshots[peer_id]
-        directory._merge_verified_peer_snapshot(
-            snapshot,
-            authenticated_peer_id=peer_id,
-            authenticated_server_name=snapshot.endpoint.tls_server_name,
-        )
+    if not {
+        "peer_a_discovery_port_b",
+        "peer_c_discovery_port_b",
+    }.issubset(config):
+        # Older isolated experiments still use their fixture directory. The
+        # live discovery crash proof below never injects remote observations.
+        for peer_id in ("peer-a", "peer-c"):
+            snapshot = snapshots[peer_id]
+            directory._merge_verified_peer_snapshot(
+                snapshot,
+                authenticated_peer_id=peer_id,
+                authenticated_server_name=snapshot.endpoint.tls_server_name,
+            )
     return directory
+
+
+def _start_directory_listener(
+    authority: ComputationalFabricAuthority,
+    client_peer_id: str,
+    expected_client_dns: str,
+    tls_context: ssl.SSLContext,
+) -> tuple[ComputationalFabricPeerListener, threading.Event, threading.Thread, int]:
+    """Start one peer-pinned discovery socket and return its control endpoint and lifecycle handles."""
+    listener_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    listener_socket.bind(("127.0.0.1", 0))
+    listener_socket.listen(8)
+    port = int(listener_socket.getsockname()[1])
+    listener = ComputationalFabricPeerListener(
+        authority,
+        listener_socket,
+        client_peer_id,
+        expected_client_dns=expected_client_dns,
+        tls_context=tls_context,
+        handshake_timeout=8.0,
+    )
+    stop = threading.Event()
+    thread = threading.Thread(
+        target=listener.serve_forever,
+        args=(stop,),
+        daemon=True,
+        name=f"fabric-discovery-b-{client_peer_id}",
+    )
+    thread.start()
+    return listener, stop, thread, port
+
+
+def _stop_directory_listeners(
+    listeners: list[tuple[ComputationalFabricPeerListener, threading.Event, threading.Thread, int]],
+) -> None:
+    """Close discovery sockets and join their bounded accept/service threads."""
+    for listener, stop, _thread, _port in listeners:
+        stop.set()
+        listener.close()
+    for _listener, _stop, thread, _port in listeners:
+        thread.join(timeout=5.0)
+
+
+def _peer_snapshot(
+    directory: ComputationalFabricDirectory,
+    peer_id: str,
+) -> ComputationalPeerSnapshot:
+    """Return only a currently live directly observed peer snapshot."""
+    for snapshot in directory.active_snapshots:
+        if snapshot.peer_id == peer_id:
+            return snapshot
+    raise RuntimeError(f"peer {peer_id!r} has no active authenticated directory lease")
 
 
 def _tls_contexts(config: dict[str, Any]) -> tuple[ssl.SSLContext, ssl.SSLContext]:
@@ -130,11 +192,10 @@ def _tls_contexts(config: dict[str, Any]) -> tuple[ssl.SSLContext, ssl.SSLContex
 def _connect_c(
     config: dict[str, Any],
     client_context: ssl.SSLContext,
+    directory: ComputationalFabricDirectory,
 ) -> SocketTransport:
-    """Mathematics: establish a fresh B→C mutual-TLS stream using the stable logical endpoint."""
-    endpoint = ComputationalPeerSnapshot.from_dict(
-        config["peer_snapshots"]["peer-c"]
-    ).endpoint
+    """Connect to C's advertised forwarding endpoint after direct discovery admits its snapshot."""
+    endpoint = _peer_snapshot(directory, "peer-c").endpoint
     return connect_mutual_tls(
         endpoint.endpoint_host,
         endpoint.port,
@@ -173,9 +234,7 @@ def _new_server(
     downstream: SocketTransport,
 ) -> ComputationalFabricForwardingServer:
     """Mathematics: bind a newly created relay OS and two live mutual-TLS adjacencies to one operation namespace."""
-    endpoint_c = ComputationalPeerSnapshot.from_dict(
-        config["peer_snapshots"]["peer-c"]
-    ).endpoint
+    endpoint_c = _peer_snapshot(directory, "peer-c").endpoint
     client = ComputationalFabricForwardingClient(
         "peer-b",
         endpoint_c,
@@ -277,19 +336,73 @@ def main(arguments: list[str]) -> int:
         control_listener.bind(("127.0.0.1", 0))
         control_listener.listen(4)
         control_listener.settimeout(0.25)
+    local_snapshot = ComputationalPeerSnapshot.from_dict(
+        config["peer_snapshots"]["peer-b"]
+    )
+    authority = ComputationalFabricAuthority.from_snapshot(local_snapshot)
+    discovery_listeners: list[
+        tuple[ComputationalFabricPeerListener, threading.Event, threading.Thread, int]
+    ] = []
+    discovery_service: ComputationalFabricDiscoveryService | None = None
     downstream: SocketTransport | None = None
     inbound: SocketTransport | None = None
     server: ComputationalFabricForwardingServer | None = None
-    print(json.dumps({
-        "pid": os.getpid(),
-        "peer": "peer-b",
-        "port": int(config["peer_b_port"]),
-        "control_port": None if control_listener is None else control_listener.getsockname()[1],
-        "mode": mode,
-    }, sort_keys=True), flush=True)
 
     try:
-        downstream = _connect_c(config, client_context)
+        discovery_enabled = {
+            "peer_a_discovery_port_b",
+            "peer_c_discovery_port_b",
+        }.issubset(config)
+        if discovery_enabled:
+            # These peer-pinned control listeners are distinct from B's
+            # forwarding listener and return the same local authority snapshot.
+            discovery_listeners.append(_start_directory_listener(
+                authority, "peer-a", "peer-a.fabric.test", server_context
+            ))
+            discovery_listeners.append(_start_directory_listener(
+                authority, "peer-c", "peer-c.fabric.test", server_context
+            ))
+            control_endpoints = {
+                "peer-a": ComputationalPeerEndpoint(
+                    "peer-a", "peer-a.fabric.test", "127.0.0.1",
+                    int(config["peer_a_discovery_port_b"]),
+                ),
+                "peer-c": ComputationalPeerEndpoint(
+                    "peer-c", "peer-c.fabric.test", "127.0.0.1",
+                    int(config["peer_c_discovery_port_b"]),
+                ),
+            }
+            discovery_service = ComputationalFabricDiscoveryService(
+                directory,
+                control_endpoints,
+                client_context,
+                timeout=8.0,
+                refresh_interval=10.0,
+            )
+            reports = discovery_service.refresh_all()
+            discovery_service.close()
+            discovery_service = None
+            failed = tuple(
+                report for report in reports
+                if not report.connected or not report.active
+            )
+            if failed:
+                raise RuntimeError(
+                    "relay B could not directly reacquire every configured peer snapshot: "
+                    + "; ".join(f"{item.peer_id}: {item.error or 'inactive'}" for item in failed)
+                )
+
+        downstream = _connect_c(config, client_context, directory)
+        print(json.dumps({
+            "pid": os.getpid(),
+            "peer": "peer-b",
+            "port": int(config["peer_b_port"]),
+            "control_port": None if control_listener is None else control_listener.getsockname()[1],
+            "discovery_port_a": None if not discovery_listeners else discovery_listeners[0][3],
+            "discovery_port_c": None if not discovery_listeners else discovery_listeners[1][3],
+            "directory_peers": [item.peer_id for item in directory.active_snapshots],
+            "mode": mode,
+        }, sort_keys=True), flush=True)
         inbound = _accept_a(listener, config, server_context, directory)
         if mode == "live":
             operating_system = HeadlessOS()
@@ -529,6 +642,9 @@ def main(arguments: list[str]) -> int:
         listener.close()
         if control_listener is not None:
             control_listener.close()
+        if discovery_service is not None:
+            discovery_service.close()
+        _stop_directory_listeners(discovery_listeners)
         if coordinator is not None:
             coordinator.close()
 

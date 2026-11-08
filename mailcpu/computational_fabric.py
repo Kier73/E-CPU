@@ -1271,7 +1271,11 @@ class ComputationalFabricPeerClient:
         timeout: float = 3.0,
         policy: ReliabilityPolicy | None = None,
     ) -> None:
-        """Mathematics: Bind a TLS-authenticated remote endpoint to exact peer IDs and reciprocal reliable channels."""
+        """Bind an authenticated discovery endpoint to its logical peer and reciprocal reliable channels.
+
+        The discovery socket may be a dedicated control endpoint. The peer's
+        authenticated snapshot owns the separate endpoint used for forwarding.
+        """
         local_id = _peer_id(local_peer_id, "local_peer_id")
         if not isinstance(remote_endpoint, ComputationalPeerEndpoint):
             raise ComputationalFabricError("peer client requires a ComputationalPeerEndpoint")
@@ -1384,8 +1388,17 @@ class ComputationalFabricPeerClient:
                 if response.get("kind") != COMPUTATIONAL_DIRECTORY_SNAPSHOT_KIND:
                     raise ComputationalFabricError("directory response kind is unsupported")
                 snapshot = ComputationalPeerSnapshot.from_dict(response.get("snapshot"))
-                if snapshot.endpoint != self.remote_endpoint:
-                    raise ComputationalFabricError("directory snapshot endpoint differs from authenticated peer endpoint")
+                # The remote_endpoint is the authenticated discovery/control
+                # socket. The peer snapshot may advertise a distinct forwarding
+                # socket; bind that advertisement to the same logical peer and
+                # TLS DNS identity, not to the control-plane port.
+                if (
+                    snapshot.endpoint.peer_id != self.remote_endpoint.peer_id
+                    or snapshot.endpoint.tls_server_name != self.remote_endpoint.tls_server_name
+                ):
+                    raise ComputationalFabricError(
+                        "directory snapshot identity differs from authenticated discovery peer"
+                    )
                 return snapshot
             time.sleep(0.002)
         raise ComputationalFabricError("directory peer did not answer before the RPC deadline")
