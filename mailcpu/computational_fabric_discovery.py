@@ -6,13 +6,17 @@ import hashlib
 import json
 import math
 import ssl
+import socket
 import threading
+import time
 from dataclasses import dataclass, replace
 from typing import Any, Callable, Mapping
 
 from .computational_fabric import (
+    ComputationalFabricAuthority,
     ComputationalFabricDirectory,
     ComputationalFabricPeerClient,
+    ComputationalFabricPeerServer,
     ComputationalPeerEndpoint,
 )
 from .reliability import ReliabilityPolicy
@@ -73,6 +77,113 @@ class ComputationalFabricPeerRefresh:
             "snapshot_digest": self.snapshot_digest,
             "error": self.error,
         }
+
+
+class ComputationalFabricPeerListener:
+    """Reaccept direct mutual-TLS directory clients after transport loss or client restart."""
+
+    def __init__(
+        self,
+        authority: ComputationalFabricAuthority,
+        listener: socket.socket,
+        client_peer_id: str,
+        *,
+        expected_client_dns: str,
+        tls_context: ssl.SSLContext,
+        policy: ReliabilityPolicy | None = None,
+        handshake_timeout: float = 5.0,
+        idle_sleep: float = 0.002,
+    ) -> None:
+        if not isinstance(authority, ComputationalFabricAuthority):
+            raise ComputationalFabricDiscoveryError(
+                "peer listener requires a ComputationalFabricAuthority"
+            )
+        if not isinstance(listener, socket.socket):
+            raise ComputationalFabricDiscoveryError("peer listener requires a socket listener")
+        if not isinstance(tls_context, ssl.SSLContext):
+            raise ComputationalFabricDiscoveryError("peer listener requires a server SSLContext")
+        if not isinstance(client_peer_id, str) or not client_peer_id:
+            raise ComputationalFabricDiscoveryError("client_peer_id must be non-empty")
+        if policy is not None and not isinstance(policy, ReliabilityPolicy):
+            raise ComputationalFabricDiscoveryError("policy must be a ReliabilityPolicy")
+        self.authority = authority
+        self.listener = listener
+        self.client_peer_id = client_peer_id
+        self.expected_client_dns = expected_client_dns
+        self.tls_context = tls_context
+        self.policy = policy
+        self.handshake_timeout = _positive_seconds(
+            handshake_timeout,
+            "handshake_timeout",
+            maximum=120.0,
+        )
+        self.idle_sleep = _positive_seconds(idle_sleep, "idle_sleep", maximum=5.0)
+        self._closed = False
+
+    def serve_forever(
+        self,
+        stop_event: threading.Event,
+        *,
+        on_session: Callable[[ComputationalFabricPeerServer], None] | None = None,
+        on_error: Callable[[Exception], None] | None = None,
+    ) -> None:
+        """Accept authenticated sessions serially and rebuild reliable channels for every new stream."""
+        if not isinstance(stop_event, threading.Event):
+            raise ComputationalFabricDiscoveryError("stop_event must be a threading.Event")
+        if on_session is not None and not callable(on_session):
+            raise ComputationalFabricDiscoveryError("on_session must be callable")
+        if on_error is not None and not callable(on_error):
+            raise ComputationalFabricDiscoveryError("on_error must be callable")
+        if self._closed:
+            raise ComputationalFabricDiscoveryError("peer listener is closed")
+
+        try:
+            self.listener.settimeout(0.25)
+        except OSError as exc:
+            raise ComputationalFabricDiscoveryError(
+                f"peer listener cannot set a bounded accept timeout: {exc}"
+            ) from exc
+        while not stop_event.is_set():
+            try:
+                server = ComputationalFabricPeerServer.accept_mutual_tls(
+                    self.authority,
+                    self.listener,
+                    self.client_peer_id,
+                    expected_client_dns=self.expected_client_dns,
+                    tls_context=self.tls_context,
+                    policy=self.policy,
+                    handshake_timeout=self.handshake_timeout,
+                )
+            except Exception:
+                if stop_event.is_set() or self._closed or self.listener.fileno() < 0:
+                    return
+                # Rejected handshakes and bounded accept timeouts do not become
+                # directory observations; a later client may authenticate.
+                stop_event.wait(0.05)
+                continue
+
+            try:
+                if on_session is not None:
+                    on_session(server)
+                while not stop_event.is_set() and not server.transport.closed:
+                    try:
+                        serviced = server.service_once()
+                    except Exception as exc:
+                        if on_error is not None and not stop_event.is_set():
+                            on_error(exc)
+                        break
+                    if not serviced:
+                        stop_event.wait(self.idle_sleep)
+            finally:
+                server.close()
+
+    def close(self) -> None:
+        """Close the listener so an owning supervisor can terminate its accept loop."""
+        self._closed = True
+        try:
+            self.listener.close()
+        except OSError:
+            pass
 
 
 class ComputationalFabricDiscoveryService:
