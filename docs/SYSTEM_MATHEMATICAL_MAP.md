@@ -398,3 +398,44 @@ These are development directions, not fixed exclusions. Each item is an active e
 - **vCPU and accelerator realization — in progress:** grow the native context adapter toward a complete instruction-execution core and connect the E-GPU operational graph to a faithful emulator or hardware backend, with resource and performance measurements.
 - **Physical/information-theoretic substrates — in progress:** convert promising channel, delay, timing, and routing phenomena into typed state resources only after encoding, observation, noise, contention, expiry, security, and recovery have been experimentally established.
 - **End-to-end origin evidence — in progress:** bind origin identity and semantic operation commitments to portable signed evidence while preserving immediate-neighbor mutual TLS and receiver-local authorization as separate trust layers.
+
+
+## 15. Computational objects, byte identity, and temporal interpretation
+
+The M0/M1 computational-hosting foundation is documented in
+[COMPUTATIONAL_OBJECTS_AND_TIME.md](COMPUTATIONAL_OBJECTS_AND_TIME.md) and
+[TRANSIT_BYTE_OBJECTS.md](TRANSIT_BYTE_OBJECTS.md).
+
+It separates:
+
+- immutable byte identity and manifest;
+- computational Ground and representation semantics;
+- live state and permitted transition relation;
+- logical host identity and current placement;
+- communication-path ordering and the time coordinates owned by existing
+  event, causal, scheduler, monotonic, wall, chronon, and chemical domains.
+
+The M1 implementation in `mailcpu/computational_objects.py` composes the
+existing `PageBacking` contract. It represents an object as ordered,
+fixed-size content-addressed pages with explicit logical byte lengths. The
+manifest digest binds the ordered references and representation metadata;
+the content digest binds the original unpadded logical bytes.
+
+This is a data-plane foundation, not a universal interpreter. The bytes of a
+model, ELF image, memory page, operating-system image, or activation tensor
+still require their own Ground, layout and executable runtime contract.
+Likewise, the object manifest is immutable and has no timestamp: admission,
+transfer, interpretation, state transitions, commit, and recovery continue
+to use their existing E-CPU identities and temporal coordinates.
+
+The two distributed model-execution forms share this foundation:
+
+1. Replicated hosting: compatible hosts retain the same admitted immutable
+   artifact while requests and session continuations are routed.
+2. Partitioned execution: distinct hosts realize typed partitions whose data
+   dependencies are represented by the existing computation-graph and
+   communication mechanisms.
+
+Neither a global object resolver nor partitioned neural execution is claimed
+by M1. The current remote composition reuses `RemotePageStore` and its
+existing replicated-mailbox page transitions.

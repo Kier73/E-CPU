@@ -350,3 +350,34 @@ These graphs may eventually compose. A DAG node may require a representation tra
 
 The prudent direction is compositional: keep peer trust and logical host identity explicit, connect each graph only through typed contracts, measure route costs from real path observations, and require each destination to re-establish local authority. A continuous computational environment should emerge from persistent commitments and procedural reachability—not from equating advertised addresses with execution authority or treating network transport itself as a processor.
 
+
+
+## 9. Byte-object references and temporal data paths
+
+The M0/M1 extension preserves the semantic address above and separates its
+control-plane request from the byte-oriented data plane.
+
+A computational address may refer to an immutable byte object by its
+manifest identity, content identity, logical size, and representation type.
+The actual bytes remain behind an existing page provider. This avoids putting
+large model weights, executable images, tensor buffers, or memory snapshots
+inside an ordinary Virtual Layer JSON workload.
+
+The M1 implementation composes the existing `PageBacking` interface and
+`RemotePageStore`. It does not create a second memory system. A manifest
+binds the ordered page digests and each page's logical byte extent. A complete
+read additionally recomputes the logical content digest; a partial range read
+verifies only the page references it resolves.
+
+The immutable object reference has no timestamp. The operation that transfers,
+admits, interprets, commits, or restores that object carries the existing
+semantic execution identity, channel sequence, logical time, causal context,
+scheduler budget and recovery lineage. These coordinates remain distinct.
+The path is a temporal composition of host transitions, not a global wall
+clock and not merely a TCP connection.
+
+This extension enables later model-hosting contracts to refer to weight
+shards, tokenizer artifacts, KV-cache pages and activation buffers without
+requiring a new object identity system. Their tensor layouts, mutability,
+backend compatibility, session transactions and distributed execution
+semantics remain separate later obligations.

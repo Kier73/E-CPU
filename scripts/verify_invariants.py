@@ -218,6 +218,7 @@ def _expected_symbol(establishes: str) -> str | None:
         "computational_fabric_recovery": "ComputationalFabricRecoveryStore",
         "computational_fabric_forwarding": "ComputationalFabricForwardingServer",
         "computational_fabric_forwarding_recovery": "ComputationalFabricForwardingRecoveryStore",
+        "computational_objects": "ComputationalObjectStore",
         "transit_simt": "TransitSIMTHost",
         "seed_commit_quorum": "DurableSeedCommitLedger",
         "host_service": "HostServiceLifecycleAdapter",

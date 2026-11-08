@@ -12,6 +12,7 @@ from mailcpu import (
     SocketTransport,
     VirtualMemory,
 )
+from mailcpu.computational_objects import ComputationalObjectStore
 from mailcpu.remote_memory import RemotePageError, RemotePageStore
 
 
@@ -110,6 +111,29 @@ def test_virtual_memory_reclaim_faults_through_remote_page_backing(tmp_path) -> 
         restored = VirtualMemory.from_snapshot(memory.snapshot(), page_backing=store_a)
         store_a.drop_local_cache(digest)
         assert restored.read(0, 8) == b"remote!!"
+    finally:
+        transport_a.close()
+        transport_b.close()
+
+
+
+def test_computational_object_chunks_use_the_remote_page_transit_path(tmp_path) -> None:
+    """Mathematics: one object manifest resolves through replicated PAGE_PUT/PAGE_GET page transitions."""
+
+    transport_a, transport_b, store_a, store_b = _page_nodes(tmp_path, page_size=8)
+    try:
+        raw = b"model-bytes-cross-three-pages"
+        origin = ComputationalObjectStore(store_a, chunk_size=8)
+        replica = ComputationalObjectStore(store_b, chunk_size=8)
+        manifest = origin.put_bytes(raw, media_type="application/x-model-artifact")
+
+        assert all(store_b.has_page(item.page_digest) for item in manifest.chunks)
+        for item in manifest.chunks:
+            store_a.drop_local_cache(item.page_digest)
+
+        assert origin.read_bytes(manifest) == raw
+        assert replica.read_bytes(manifest) == raw
+        assert origin.verify(manifest) is True
     finally:
         transport_a.close()
         transport_b.close()
