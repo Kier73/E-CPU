@@ -632,7 +632,7 @@ operator contract, resource budget, logical time, and input metadata.
 or object transfer. Its digest and byte length are included in the intent
 projection presented to the classifier.
 
-The classifier and intent embedding operate on the bounded projection.
+The classifier and intent embedding operate on the bounded projection, which is restricted to the Virtual Layer operation contract and a 4 KiB canonical byte ceiling. Virtual-cost accounting retains full-payload semantic bits and chemical complexity while counting structural tokens only over the compact projection.
 Event identity, replay conflict detection, durable request state, receiver
 execution and operator input validation retain the complete payload. The
 receiver independently recomputes \(\Pi(W)\) from \(P(W)\), the locally
