@@ -972,6 +972,24 @@ class OrbitNavigationResult:
             "expanded_states": self.expanded_states,
         }
 
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "OrbitNavigationResult":
+        expected = {
+            "schema", "projection", "observation", "generator_family",
+            "complexity_bound", "expanded_states",
+        }
+        if not isinstance(payload, Mapping) or set(payload) != expected:
+            raise ObserverOrbitError("orbit navigation result fields are invalid")
+        if payload["schema"] != "mailcpu.orbit-navigation-result.v1":
+            raise ObserverOrbitError("unsupported orbit navigation result schema")
+        return cls(
+            projection=VirtualGroundProjection.from_dict(payload["projection"]),
+            observation=ObserverReceipt.from_dict(payload["observation"]),
+            generator_family=payload["generator_family"],
+            complexity_bound=payload["complexity_bound"],
+            expanded_states=payload["expanded_states"],
+        )
+
 
 @dataclass(frozen=True)
 class OrbitValueResult:
@@ -987,6 +1005,8 @@ class OrbitValueResult:
         if type(self.target_value) is not int:
             raise ObserverOrbitError("target_value must be a strict integer")
         _positive_int(self.orbit_coordinate, "orbit_coordinate", minimum=0)
+        if not isinstance(self.navigation, OrbitNavigationResult):
+            raise ObserverOrbitError("inverse result navigation payload is invalid")
         if self.navigation.projection.orbit_offset != self.orbit_coordinate:
             raise ObserverOrbitError("inverse coordinate differs from the located projection")
         if self.navigation.projection.value != self.target_value:
@@ -1005,6 +1025,24 @@ class OrbitValueResult:
             "navigation": self.navigation.to_dict(),
             "expanded_states": self.expanded_states,
         }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "OrbitValueResult":
+        expected = {
+            "schema", "target_value", "orbit_coordinate",
+            "inverse_complexity_bound", "navigation", "expanded_states",
+        }
+        if not isinstance(payload, Mapping) or set(payload) != expected:
+            raise ObserverOrbitError("orbit value result fields are invalid")
+        if payload["schema"] != "mailcpu.orbit-value-result.v1":
+            raise ObserverOrbitError("unsupported orbit value result schema")
+        return cls(
+            target_value=payload["target_value"],
+            orbit_coordinate=payload["orbit_coordinate"],
+            inverse_complexity_bound=payload["inverse_complexity_bound"],
+            navigation=OrbitNavigationResult.from_dict(payload["navigation"]),
+            expanded_states=payload["expanded_states"],
+        )
 
 
 class ContextualOrbitNavigator:
