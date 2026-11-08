@@ -166,7 +166,7 @@ def _forwarding_intent_projection(
         "operator_contract_digest": envelope.address.operator_contract_digest,
         "computational_ground_fingerprint": envelope.address.computational_ground_fingerprint,
         "program_fingerprint": envelope.address.program_fingerprint,
-        "goal": dict(workload.intention["goal"]),
+        "goal": workload.intention["goal"],
         "budget": workload.budget.to_dict(),
         "payload_bytes": payload_bytes,
     }
