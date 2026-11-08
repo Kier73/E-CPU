@@ -2,7 +2,7 @@
 
 ## Scope
 
-This specification records three related A→B→C process-failure experiments built on the per-peer checkpoint in `COMPUTATIONAL_FABRIC_FORWARDING_RECOVERY.md`: the isolated B and C crash matrices, plus one successive C-then-B crash sequence over a continuous semantic operation history.
+This specification records four related A→B→C process-failure experiments built on the per-peer checkpoint in `COMPUTATIONAL_FABRIC_FORWARDING_RECOVERY.md`: the isolated B and C crash matrices, plus the two successive crash orders C-then-B and B-then-C over a continuous semantic operation history.
 
 The first experiment hard-kills relay B at its own forwarding transaction cuts. B owns its local HeadlessOS/Hypervisor ledger, its inbound and outbound reliable channels, its B→C client ledgers, and its peer-scoped recovery journal. A retains the original sender state. C is independently checkpointed and rebound by the test supervisor. Anchor C and anchor D are independent authority processes for B's lineage.
 
@@ -88,6 +88,25 @@ The C idle generation is essential. C's first checkpoint predates response publi
 
 The expected accounting is one terminal operator entry for sequence 7 across C's original and replacement processes, followed by exactly one new entry for sequence 8. B records one committed result for sequence 7 and one fresh result for sequence 8. The test asserts the original operation identity, both peer-specific manifest generations, process ID changes, local journal validity, drained channel windows, and successful new work.
 
+## Successive B-then-C process failures
+
+The reverse-order experiment
+`test_relay_then_terminal_hard_kills_preserve_one_federated_operation_history`
+tests the complementary cursor relationship to the C-then-B sequence:
+
+1. Start B and C with distinct owner journals, fixed-membership quorums, and separate anchor pairs. C runs in a live mode; B runs with a live recovery store and a cut at `after_execution_commit`.
+2. A sends semantic operation sequence 7 through B to C. C commits the terminal effect and publishes its result. B consumes that result and commits the corresponding hop receipt.
+3. B quorum-seals its generation-1 image at `after_execution_commit`, before publishing the hop receipt to A. The test keeps B blocked at this cut. A retains its exact sequence-1 sender frame.
+4. C remains alive. After its inbound receive cursor advances and its outbound result window is acknowledged/drained, C seals an independent generation-1 `idle` checkpoint. The marker records C's receive cursor, empty response window, execution count, and local journal validity.
+5. The supervisor hard-kills B first, then C. Their checkpoints are separately quorum-anchored; neither is represented as one atomic cluster snapshot.
+6. C is restored from its idle generation, then B is restored from its committed generation and reconnects to C over fresh mutual TLS. A restores its exact sender image and retransmits the original operation frame.
+7. B returns sequence 7 from its committed hop receipt as a replay. It must not call C again for that already committed operation. A then submits sequence 8; B forwards it on the next downstream transport sequence, and restored C continues from the cursor recorded in its idle image.
+8. The test verifies the original replay, the new operation, both peer execution counts and receive cursors, drained reliable windows, valid journals, changed process IDs, and exactly two terminal operator calls across C's original and replacement processes.
+
+The C idle image is the critical bridge between the two independent histories. B's generation-1 image records that C's response was already consumed and acknowledged. C must therefore restore from a generation whose inbound cursor has consumed the corresponding request and whose response publication is no longer pending. The new sequence-8 operation tests that the downstream transport continues at the correct next sequence instead of replaying into a stale receiver cursor.
+
+This order demonstrates a different continuity path from C-then-B: in this case, B's committed semantic result survives while C is still alive, and C's already-advanced channel state must remain compatible with B's later restore. The same limits apply: independent per-peer manifests, no global transaction, pure deterministic workload, and fixture-supplied directory observations.
+
 ## What these experiments establish
 
 When the corresponding matrix passes, the experiments establish:
@@ -103,11 +122,11 @@ When the corresponding matrix passes, the experiments establish:
 
 ## Boundaries and next tests
 
-A and the recovery anchors remain outside the peer kill boundaries; the experiment does not prove independent requester-process recovery or anchor-process loss during the same operation. The successive experiment proves the **C-then-B** crash order only; the reverse **B-then-C** order remains a separate required experiment. Directory observations are fixture-supplied rather than discovered through the production peer-directory service. Authority transport in these tests is loopback `SocketTransport`, while the forwarding adjacencies are mutual TLS.
+A and the recovery anchors remain outside the peer kill boundaries; the experiment does not prove independent requester-process recovery or anchor-process loss during the same operation. The two successive experiments exercise the **C-then-B** and **B-then-C** orders independently. Each order still requires its exact-head CI matrix to pass before it is treated as validated coverage. Directory observations are fixture-supplied rather than discovered through the production peer-directory service. Authority transport in these tests is loopback `SocketTransport`, while the forwarding adjacencies are mutual TLS.
 
 The workload is deterministic pure computation. These tests do not establish exactly-once behavior for arbitrary external side effects. Such effects require durable idempotency or an effect journal at the actual side-effect owner. Nor do these tests prove a globally atomic multi-peer snapshot, hardware/storage power-loss durability, or malicious-host attestation.
 
-The remaining crash-order proof is the reverse **B-then-C** sequence, retaining the same A operation identity and both peer-specific quorum histories. After both orders pass, replace fixture directory snapshots with restart-safe peer discovery/lease refresh over authenticated network exchanges.
+After both crash orders pass their exact-head CI matrices, the next architectural gate is to replace fixture directory snapshots with restart-safe peer discovery and lease refresh over authenticated network exchanges.
 
 ## Tests
 
