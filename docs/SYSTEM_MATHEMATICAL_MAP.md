@@ -222,6 +222,8 @@ The Structural Memory context pins the system incarnation, base origin/state/inp
 
 For the admitted E0 families, integer and finite-graph lookup are direct \(O(1)\) coordinate operations; LCG and GF(2) recurrence jumps are logarithmic in the coordinate for fixed recurrence parameters/order. The direct locator reports zero expanded intermediate states. A failed identity, context, admission, or prefix-horizon check refuses: it does not silently switch to contextual BFS or SystemSeed replay. Those mechanisms remain available for their distinct problem classes.
 
+The target-directed locate_value path likewise uses only constant-time arithmetic inversion or full-period 2-adic LCG bit lifting; unsupported inverses refuse rather than selecting BSGS or linear finite-graph scans. The observer-orbit contract also records the limitation that the current VirtualGroundRef v1 coordinate does not carry its own scheduler identity.
+
 Observer composition aggregates exactly the declared member receipts while preserving each projection independently. It is explicitly not a consensus algorithm. This gives the runtime a common observer identity/evidence contract without forcing every observer to become a state owner, executor, or authority.
 
 
