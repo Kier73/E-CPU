@@ -259,7 +259,7 @@ def main(arguments: list[str]) -> int:
     store = None
     coordinator = None
     verified = None
-    if mode != "live":
+    if mode != "live" or config.get("enable_live_checkpoint") is True:
         store, coordinator = _open_store(config)
         verified = store.load_latest() if mode == "restore" else None
         if verified is not None and verified.manifest.capture_cut != cut:
@@ -360,11 +360,41 @@ def main(arguments: list[str]) -> int:
 
             control_thread = threading.Thread(target=serve_control, daemon=True)
             control_thread.start()
+            live_cut = config.get("live_cut")
+
+            def stop_at_live_cut(stage: str) -> None:
+                """Quorum-seal B's own live process at a named forwarding commit boundary."""
+                if live_cut is None or stage != live_cut:
+                    return
+                if store is None:
+                    raise RuntimeError("live relay crash cuts require an enabled recovery store")
+                checkpoint = store.seal(server, stage)
+                _write_json_durable(Path(marker_or_result), {
+                    "stage": "cut",
+                    "pid": os.getpid(),
+                    "cut": stage,
+                    "generation": checkpoint.generation,
+                    "manifest_digest": checkpoint.manifest.digest,
+                    "execution_count": len(
+                        server.operating_system.hypervisor_arbitration.snapshot()["executions"]
+                    ),
+                    "request_receive_cursor": server.inbound.channel.next_receive_sequence,
+                    "response_pending": list(server.outbound.channel.pending_sequences()),
+                    "downstream_seen": len(
+                        server.next_hop_clients["peer-c"].response.snapshot()["seen"]
+                    ),
+                    "journal_valid": server.operating_system.environment.kernel.journal.verify(),
+                })
+                while True:
+                    time.sleep(60)
+
             completed: list[dict[str, Any]] = []
             deadline = time.monotonic() + 90.0
             while time.monotonic() < deadline:
                 try:
-                    result = server.serve_once()
+                    result = server.serve_once(
+                        fault_hook=stop_at_live_cut if live_cut is not None else None
+                    )
                 except Exception as exc:
                     # A downstream process may be absent during its restart
                     # window. Preserve B's unacknowledged inbound operation and
