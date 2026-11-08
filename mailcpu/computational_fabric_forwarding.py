@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 import hashlib
 import json
 import threading
 import time
-from typing import Any
+from typing import Any, Iterator
 
 from .classifier import (
     HypervisorAction,
@@ -1249,6 +1250,12 @@ class ComputationalFabricForwardingServer:
         except Exception as exc:
             raise ComputationalFabricForwardingError(f"cannot reconcile forwarding result acknowledgement: {exc}") from exc
         return result
+
+    @contextmanager
+    def recovery_guard(self) -> Iterator[None]:
+        """Mathematics: Hold the peer transition lock across capture, durable publication, and quorum anchoring."""
+        with self._transition_lock:
+            yield
 
     def snapshot(self, *, capture_cut: str = "idle") -> dict[str, Any]:
         """Mathematics: Capture OS replay state and every hop-local reliable channel at one serialized boundary.
