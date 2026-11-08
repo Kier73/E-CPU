@@ -173,6 +173,20 @@ atomic commitment of arbitrary external effects, hardware attestation,
 cryptographic proof that a compatibility predicate is honest, or a universal
 translation between semantically different VGI Grounds.
 
+## 6. Composition with authenticated computational forwarding
+
+The first end-to-end M5-M7 transfer through the computational fabric is
+specified in [FABRIC_VGI_SESSION_COMPOSITION.md](FABRIC_VGI_SESSION_COMPOSITION.md)
+and implemented by `VGIFabricSessionOperator` in
+`mailcpu/computational_fabric_vgi.py`. The destination receives the M7 bundle
+as a typed Virtual Layer workload input, imports its own M1 pages, verifies
+the original M3 proof, and advances one M4 quantum under the same session
+identity. The same test traverses a mutual-TLS A→B→C forwarding path and
+checks descriptor, Ground, task, Program, interpretation, artifact, state
+schema, backend, logical time, predecessor checkpoint, and replay continuity.
+This is one bounded Signal8 experiment, not a universal session-over-fabric
+protocol or an arbitrary-effect transaction.
+
 ## 5. Tests and proof boundaries
 
 `tests/test_vgi_session.py` exercises descriptor identity, initial M1/M3

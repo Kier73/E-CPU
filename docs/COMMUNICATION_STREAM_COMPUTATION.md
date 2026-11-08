@@ -121,7 +121,7 @@ The current repository already provides several necessary pieces:
 - M5-M7 bind VGI interpretation, bounded instruction quanta, and portable host transfer to those persistent-state contracts.
 - E-GPU provides a bounded local example of a composite host whose method is selected through an internal operational graph.
 
-The next useful composition is therefore not another generic router. It is a stateful stream protocol that carries a persistent session descriptor and a bounded quantum request to an eligible host, imports state into the receiver's own M1 backing, verifies the M3 lineage and interpretation, advances the same semantic session, and returns a receipt containing the new revision and checkpoint identity.
+The first concrete composition now exists in `mailcpu/computational_fabric_vgi.py` as `VGIFabricSessionOperator`. The integrated test carries an M7 transfer bundle as a typed Virtual Layer workload across an authenticated A→B→C path. B performs only its local NETWORK forwarding transition; C re-admits the bundle into its own M1 backing, verifies the original M3 proof and exact VGI descriptor, then advances a bounded M4 quantum under the same session identity. Its receipt preserves Ground, task, Program, implementation, interpretation, artifact, state schema, backend, logical time, predecessor checkpoint, revision and lineage digest. Exact retries are checked at the M3/M4 session layer and at C's terminal Hypervisor CPU execution ledger. The complete specification and limits are in [FABRIC_VGI_SESSION_COMPOSITION.md](FABRIC_VGI_SESSION_COMPOSITION.md).
 
 ## 7. Proof obligations
 

@@ -4,16 +4,17 @@
 
 This specification connects semantic computational addresses to remote logical hosts without conflating a host with its physical placement or treating a network path as an execution engine.
 
-The implemented first network slice is:
+The implemented fabric path has two distinct parts:
 
-1. each peer owns a portable directory snapshot of its own logical host/operator advertisements and outgoing directed links;
+1. each peer owns a portable directory snapshot of its logical host/operator advertisements and outgoing directed links;
 2. configured peers exchange those snapshots directly over mutual TLS and the existing reliable MailCPU channel abstraction;
-3. each receiving peer admits snapshots only after checking transport identity, TLS DNS identity, monotonic revision, and a receiver-local lease;
-4. the local directory exposes the active peer/host/link view;
-5. a bounded resolver plans a cost-feasible directed multi-hop route to an advertised host;
-6. the route remains non-authoritative. It does not forward or execute the workload.
+3. each receiver admits snapshots only after checking transport identity, TLS DNS identity, monotonic revision, and a receiver-local lease;
+4. `ComputationalFabricDirectory` exposes the active peer/host/link view and preserves revision/digest high-water state across restart without reviving remote leases;
+5. `ComputationalFabricResolver` plans a bounded cost-feasible directed multi-hop route to an advertised logical host;
+6. `ComputationalFabricForwardingClient` and `ComputationalFabricForwardingServer` carry the request one authenticated edge at a time. Each receiver revalidates its adjacent links and leases, reconstructs local NETWORK authority, and emits a typed hop receipt;
+7. the terminal peer performs fresh receiver-local semantic resolution and invokes the Virtual Layer/Hypervisor CPU execution path.
 
-The receiver-local `ComputationalAddressResolver` and `ComputationalExecutionAdmissionCoordinator` remain the terminal semantic and execution boundaries. The fabric is a directory and planner, not a new Hypervisor.
+The route witness remains non-authoritative. It is not an execution grant. The forwarding service composes the existing per-hop Hypervisor and reliable-channel boundaries; it does not replace them or create a global Hypervisor. Per-peer images can be quorum-anchored and rebound to fresh TLS streams, but this does not create a distributed atomic snapshot or make arbitrary external effects exactly-once.
 
 ## 1. The repository's graphs are different layers
 
@@ -188,9 +189,9 @@ Forwarding has explicit peer-local authority, source/destination binding, sequen
 
 The NETWORK-domain hop event governs receiving and forwarding the transport request. The terminal computation is a nested, separate CPU-domain operation and still requires the selected local host process's compute right. The forwarding receipt does not collapse those authority planes.
 
-The current per-connection peer server services one authenticated stream at a time. The discovery client can discard and recreate its outbound stream; supervising listener acceptance across remote peer-process restarts remains an additional service-lifecycle build.
+The current per-connection peer server services one authenticated stream at a time. The discovery client can discard and recreate its outbound stream. A peer listener can accept a new stream after the prior authenticated session closes; independent listener supervision and parent-supervisor recovery remain explicit service-lifecycle concerns.
 
-The original origin identity is carried through the path and used by the terminal semantic execution ledger, but this first version does not include an origin signature. Intermediate peers authenticate their immediate neighbors with mutual TLS; trust in the end-to-end origin claim is therefore transitive through those explicitly trusted relays.
+The original origin identity and semantic operation sequence are carried through the path and used by receiver-side replay ledgers, but this version does not include an origin signature. Intermediate peers authenticate their immediate neighbors with mutual TLS; trust in the end-to-end origin claim is therefore transitive through those explicitly trusted relays.
 
 ## 8. Per-peer forwarding recovery
 

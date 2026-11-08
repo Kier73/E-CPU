@@ -573,3 +573,43 @@ chunk-transfer protocol. The receiving process reconstructs a new VGI
 interpreter and machine from the checkpoint, rather than migrating a live
 Python process or synthesizing pre-checkpoint undo history. Only declared
 pure execution is admitted by this path.
+
+
+## 20. Persistent VGI continuation across a communication path
+
+The first executable composition of M0-M7 session state with the peer
+forwarding graph is described in
+[FABRIC_VGI_SESSION_COMPOSITION.md](FABRIC_VGI_SESSION_COMPOSITION.md) and
+implemented by \`mailcpu/computational_fabric_vgi.py\`.
+
+The tested path is:
+
+\[
+A_{\text{source session}}
+\rightarrow B_{\text{NETWORK relay}}
+\rightarrow C_{\text{M1/M3 import + M4 VGI quantum}}
+\]
+
+The A→B→C peer graph, authenticated mutual-TLS streams, and typed
+ComputationalAddress are distinct from the VGI Ground and Program. B handles
+the forwarding transition only. C rebuilds local authority, admits the
+terminal Virtual Layer operator, imports the M7 checkpoint into its own M1
+page backing, verifies the source M3 quorum proof, and advances the original
+VGI session by one bounded quantum. The target receipt retains the session,
+descriptor, Ground, task, Program, interpretation, artifact, state schema,
+backend, predecessor, logical-time and lineage coordinates.
+
+The experiment also separates transport replay from semantic replay. A new
+transport delivery may cause B to re-enter a NETWORK forwarding transition;
+C's terminal execution ledger returns its cached CPU result, while the M3/M4
+session transition recognizes its exact immediate retry. This is not a
+global atomic transaction or an exactly-once guarantee for arbitrary
+side-effects.
+
+The test records source export time, bundle bytes, state bytes, M7 decode,
+target M1 import/M3 proof verification, M4 transition plus persistence/quorum
+commit, full target M1 verification, and end-to-end forwarding duration.
+These measurements provide the first comparable baseline for deciding
+whether inline base64 transfer should be replaced by chunked M1 page streaming.
+They are empirical local-run measurements, not physical network speed
+claims or a general performance model.
