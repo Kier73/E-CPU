@@ -124,7 +124,7 @@ E_op = base_energy + energy_per_byte * b
 T_op = max(1, ceil(E_op / virtual_capacity))
 ```
 
-Workload ceilings are intersected with node-local runtime ceilings and operator input/output bounds. Input size, estimated energy and virtual ticks are checked before dispatch. Output and combined input/output size are checked after the pure handler returns. These are virtual accounting units, not physical joules or measured network latency. The hypervisor independently records its existing representation cost and virtual-time receipt.
+Workload ceilings are intersected with node-local runtime ceilings and operator input/output bounds. Input size, estimated energy and virtual ticks are checked before dispatch. Output and combined input/output size are checked after the pure handler returns. These are virtual accounting units, not physical joules or measured network latency. The hypervisor's representation cost charges the full request's semantic bits and chemical complexity while the bounded, receiver-verified intent projection determines structural token count. This separates control-plane interpretation effort from bulk data extent without making the latter free.
 
 Eligible nodes, target node and preferred substrate are placement constraints, not capabilities. They cannot authorize a handler.
 
