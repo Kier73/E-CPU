@@ -27,6 +27,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install
+        id: install
         run: python -m pip install --upgrade pip pytest
 
       - name: Enable long paths for pinned VGI checkout
@@ -34,6 +35,7 @@ jobs:
         run: git config --global core.longpaths true
 
       - name: Install pinned VGI integration
+        id: install_vgi
         run: python -m pip install ".[vgi]"
 
       - name: Verify VGI Ground
@@ -42,10 +44,16 @@ jobs:
       - name: Test suite
         run: python -m pytest -q
 
+      - name: Measure persistent VGI fabric transfer
+        if: success() && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.14'
+        run: python -m pytest -q -s tests/test_computational_fabric.py::test_persistent_vgi_session_transfers_through_fabric_and_replays_once
+
       - name: Invariant registry
+        if: always() && steps.install.conclusion == 'success' && steps.install_vgi.conclusion == 'success'
         run: python scripts/verify_invariants.py
 
       - name: Repository conformance
+        if: always() && steps.install.conclusion == 'success' && steps.install_vgi.conclusion == 'success'
         run: python scripts/verify_repo.py
 
   package:
