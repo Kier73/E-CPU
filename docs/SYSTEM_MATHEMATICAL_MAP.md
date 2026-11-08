@@ -207,6 +207,26 @@ Strong bisimulation compares finite labelled systems under the declared labels a
 
 The coordinator composes these gates rather than replacing them: compile supported abstract projections; check declared causal prerequisites; run any explicitly required representation-equivalence gate; derive an exact concrete path and readiness result; then issue a proposal for hypervisor admission. A proposal is not an execution.
 
+
+### Contextual orbit addressing and symbolic Virtual Ground projection
+
+The executable observer/orbit composition is documented in [OBSERVER_ORBIT_CONTRACT.md](OBSERVER_ORBIT_CONTRACT.md) and implemented by mailcpu.observer_orbit.
+
+A contextual orbit address binds an exact SystemIdentity, base VirtualGroundRef, Computational Ground representation, typed scheduler coordinate, and revision-pinned VirtualStructuralMemoryRef. The memory coordinate is relative to the base Ground:
+
+\[
+t = \tau_{\mathrm{target}} - G_s.coordinate.
+\]
+
+The Structural Memory context pins the system incarnation, base origin/state/input frontier, Computational Ground, scheduler identifier, and declared extensions. The locator revalidates the admitted spec/certificate and evaluates its guarded generator directly at \(t\), producing a symbolic Virtual Ground projection plus Structural Memory and observer receipts. The projection is a coordinate/value view anchored to the base Ground, not a complete OS snapshot or SystemSeed.
+
+For the admitted E0 families, integer and finite-graph lookup are direct \(O(1)\) coordinate operations; LCG and GF(2) recurrence jumps are logarithmic in the coordinate for fixed recurrence parameters/order. The direct locator reports zero expanded intermediate states. A failed identity, context, admission, or prefix-horizon check refuses: it does not silently switch to contextual BFS or SystemSeed replay. Those mechanisms remain available for their distinct problem classes.
+
+The target-directed locate_value path likewise uses only constant-time arithmetic inversion or full-period 2-adic LCG bit lifting; unsupported inverses refuse rather than selecting BSGS or linear finite-graph scans. The observer-orbit contract also records the limitation that the current VirtualGroundRef v1 coordinate does not carry its own scheduler identity.
+
+Observer composition aggregates exactly the declared member receipts while preserving each projection independently. It is explicitly not a consensus algorithm. This gives the runtime a common observer identity/evidence contract without forcing every observer to become a state owner, executor, or authority.
+
+
 ## 5. Authority, commit, and semantic correctness
 
 Authority belongs to the receiver that owns the effect. The sender may describe a requested operation and its required rights, but it cannot grant itself permission.
