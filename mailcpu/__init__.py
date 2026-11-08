@@ -675,6 +675,16 @@ from .computational_host import (
     verify_computational_artifact_directory,
 )
 
+from .computational_session import (
+    ComputationalSessionCheckpoint,
+    ComputationalSessionConflictError,
+    ComputationalSessionError,
+    ComputationalSessionIntegrityError,
+    ComputationalSessionPendingError,
+    ComputationalSessionSnapshot,
+    ComputationalSessionStore,
+)
+
 from .computational_execution import (
     ComputationalExecutionAdmissionCoordinator,
     ComputationalExecutionAdmissionError,
@@ -1399,6 +1409,13 @@ __all__ = [
     "ComputationalHostExecution",
     "ComputationalHostReceipt",
     "ComputationalHostRequest",
+    "ComputationalSessionCheckpoint",
+    "ComputationalSessionConflictError",
+    "ComputationalSessionError",
+    "ComputationalSessionIntegrityError",
+    "ComputationalSessionPendingError",
+    "ComputationalSessionSnapshot",
+    "ComputationalSessionStore",
     "LocalComputationalHost",
     "TransitComputationalHost",
     "admit_computational_artifact_directory",

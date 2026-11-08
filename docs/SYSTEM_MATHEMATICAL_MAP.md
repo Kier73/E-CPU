@@ -468,3 +468,36 @@ reliable channels, and Transit workers remain the authority and commit path.
 
 This is a local hosting contract, not a general artifact catalog, hardware
 attestation layer, session-state migration mechanism, or partition scheduler.
+
+
+## 17. Persistent computational sessions and state
+
+The M3 session contract is specified in
+[COMPUTATIONAL_SESSIONS_AND_STATE.md](COMPUTATIONAL_SESSIONS_AND_STATE.md)
+and implemented in mailcpu/computational_session.py.
+
+Each session is one independent fixed-membership recovery lineage whose
+system identity equals the session identity. Immutable state payloads are
+stored through M1 ComputationalObjectStore pages. A typed checkpoint binds
+the session, artifact, backend profile, state schema, revision, predecessor
+checkpoint and lineage roots, transition identity, input commitment, logical
+time, and M1 state manifest.
+
+The checkpoint bytes are sealed through the existing RecoveryStateManifest
+and RecoveryLineageCoordinator. A session revision is current only when its
+root is the quorum-supported high-water; local revision numbers and files do
+not select current state. Continuation requires an exact expected revision
+and checkpoint digest. A conflicting or stale writer cannot overwrite the
+anchored state. Exact immediate retries can recover the already committed
+revision after a lost response.
+
+Checkpoint envelopes are durably written before the quorum seal. A partially
+prepared transition can be resumed only from its exact persisted proposal.
+Portable exports carry checkpoint and quorum evidence while leaving bulk
+state bytes in M1. Host replacement requires the same artifact and state
+schema, an accessible M1 page backing, the same fixed session lineage, and
+explicit backend compatibility when the backend fingerprint differs.
+
+M3 persists and anchors state; it does not interpret the bytes, execute the
+domain transition, atomically commit arbitrary external effects, or perform
+membership reconfiguration.
