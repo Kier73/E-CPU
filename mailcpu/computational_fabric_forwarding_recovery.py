@@ -307,17 +307,21 @@ class ComputationalFabricForwardingRecoveryStore:
         server: ComputationalFabricForwardingServer,
         capture_cut: str,
     ) -> VerifiedComputationalFabricForwardingCheckpoint:
-        """Persist one consistent per-hop capture cut, then quorum-commit its content root."""
-        if not isinstance(server, ComputationalFabricForwardingServer):
-            raise ComputationalFabricForwardingRecoveryError(
-                "seal requires a ComputationalFabricForwardingServer"
-            )
+        """Persist a consistent per-hop capture cut, then quorum-commit its content root."""
+        return self.seal_snapshot(server.snapshot(capture_cut=capture_cut), capture_cut)
+
+    def seal_snapshot(
+        self,
+        value: Mapping[str, Any],
+        capture_cut: str,
+    ) -> VerifiedComputationalFabricForwardingCheckpoint:
+        """Quorum-seal an already captured server snapshot without reopening runtime objects."""
         if capture_cut not in _CAPTURE_CUTS:
             raise ComputationalFabricForwardingRecoveryError(
                 f"capture_cut must be one of {sorted(_CAPTURE_CUTS)}"
             )
         try:
-            snapshot = _validate_snapshot(server.snapshot(capture_cut=capture_cut), capture_cut)
+            snapshot = _validate_snapshot(value, capture_cut)
             snapshot_bytes = _canonical_json(snapshot) + b"\n"
             previous_generation, predecessor_digest = self.coordinator.high_water()
             membership = self.coordinator.membership
