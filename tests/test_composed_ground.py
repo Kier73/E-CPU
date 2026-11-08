@@ -11,6 +11,7 @@ from mailcpu import (
     ComposedVirtualGroundAddress,
     ComposedVirtualGroundNavigator,
     ComposedVirtualGroundProjection,
+    ObserverOrbitError,
     ContextualOrbitAddress,
     RepresentationRef,
     SchedulerReading,
