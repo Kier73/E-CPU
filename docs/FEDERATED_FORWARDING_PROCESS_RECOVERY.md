@@ -107,6 +107,50 @@ The C idle image is the critical bridge between the two independent histories. B
 
 This order demonstrates a different continuity path from C-then-B: in this case, B's committed semantic result survives while C is still alive, and C's already-advanced channel state must remain compatible with B's later restore. The same limits apply: independent per-peer manifests, no global transaction, pure deterministic workload, and fixture-supplied directory observations.
 
+## Joint discovery-sidecar and forwarding-process recovery
+
+The four-cut B crash matrix now terminates two independent components at each
+cut: B's forwarding process and its separately supervised A-facing discovery
+sidecar. The sidecar is created from B's durable local authority snapshot and
+owns only the authenticated discovery/control socket. It does not own B's
+forwarding listener, inbound/outbound reliable channels, Hypervisor state, or
+recovery image.
+
+For each of `before_execution`, `after_execution_commit`,
+`after_response_publish`, and `after_request_ack`, the experiment now:
+
+1. Starts B's discovery sidecar under a bounded
+   `SubprocessServiceSupervisor`, then starts B's forwarding worker. A and C
+   acquire B's peer-owned snapshot through separate direct mutual-TLS paths;
+   the snapshot still advertises B's data-plane forwarding endpoint.
+2. Sends semantic operation sequence 7 and waits until B reaches the selected
+   quorum-anchored transaction cut. C is kept at a compatible idle recovery
+   image when the named cut requires it.
+3. Hard-kills B's forwarding process and independently hard-kills the
+   A-facing discovery sidecar. A's immediate refresh fails while its prior
+   receiver-local B lease is still active; after the receiver clock advances
+   past the lease, B is absent and a second refresh while the sidecar remains
+   down is also inactive.
+4. Restores C's required terminal state and starts B from its quorum-anchored
+   forwarding image. B reconstructs its own directory from direct A/C
+   observations and opens fresh data-plane adjacencies, but A is not yet
+   permitted to reconnect because its discovery sidecar remains unavailable.
+5. Restarts only the discovery sidecar under its separate restart budget. It
+   reloads the durable B authority snapshot with the same peer ID, revision,
+   digest, and forwarding endpoint. A reauthenticates over a fresh TLS stream
+   and reacquires the expired lease.
+6. A restores its exact pending sender frame and retransmits sequence 7. The
+   recovered B and C channel/Hypervisor ledgers reconcile the transaction
+   according to the selected crash cut; the original semantic effect is not
+   re-entered. Existing assertions continue to verify response publication,
+   ACK cursors, receipt identity, terminal execution count, and drained windows.
+
+This is a joint recovery proof, not a global atomic snapshot. The two services
+have independent lifetimes and durable state owners; recovery ordering is
+explicitly coordinated by the test harness. The sidecar's parent supervisor
+still represents an external recovery root, and arbitrary external effects
+still require idempotency at their actual side-effect owner.
+
 ## What these experiments establish
 
 When the corresponding matrix passes, the experiments establish:
@@ -117,6 +161,7 @@ When the corresponding matrix passes, the experiments establish:
 - Exact pending request frames are retransmitted when still pending; if transport ACK has already occurred, a new frame may carry the same semantic operation identity.
 - C's restored Hypervisor ledger prevents a second terminal operator invocation for an already committed pure operation.
 - A restored peer accepts fresh TLS streams rather than reviving sockets or TLS sessions from the prior process.
+- The B forwarding process and its A-facing discovery sidecar can be hard-killed and independently restarted around the same transaction; A cannot route from an expired lease and resumes only after fresh direct authentication to the sidecar.
 - A second distinct operation can complete through the recovered B→C path, demonstrating that recovery is not limited to replaying the first operation.
 - In the C-then-B sequential experiment, one original semantic operation survives a hard kill of C, C restoration and channel re-checkpoint, then a hard kill of B and B restoration. A second distinct operation then completes across both restored peers without a transport-sequence gap.
 
@@ -128,7 +173,10 @@ Unlike the earlier fixture-driven process experiments, this test gives each
 peer only its own local authority snapshot and a configured direct-peer trust
 map. Remote snapshots enter the live directory only through
 `ComputationalFabricDiscoveryService` and peer-pinned
-`ComputationalFabricPeerListener` sessions over mutual TLS.
+`ComputationalFabricPeerListener` sessions over mutual TLS. B's A-facing
+discovery listener is a separate `computational_fabric_service` subprocess
+backed by the same durable authority snapshot; B's forwarding worker does not
+own that listener or its process lifetime.
 
 The discovery sockets are deliberately separate from forwarding sockets.
 A discovery endpoint identifies the peer's authenticated control listener;
@@ -141,22 +189,28 @@ snapshot, not from a fixture directory.
 
 The tested sequence is:
 
-1. A and C start with only their own local snapshots. B starts its own authority
-   and peer-pinned discovery listeners for A and C.
+1. A and C start with only their own local snapshots. B's A-facing discovery
+   sidecar starts from the durable peer-authority store; B's forwarding worker
+   starts independently and opens a separate peer-pinned listener for C.
 2. B uses `ComputationalFabricDiscoveryService.refresh_all()` to acquire A/C
-   snapshots over fresh direct TLS connections. A and C independently query B's
-   discovery listeners and learn B's forwarding endpoint.
+   snapshots over fresh direct TLS connections. A queries B through the
+   sidecar, while C queries B through B's C-pinned listener; both receive the
+   forwarding endpoint from the same durable authority snapshot.
 3. A resolves A→B→C only after its active directory contains the authenticated
    snapshots. C likewise admits B before it accepts the forwarded operation.
-4. B is hard-killed at each of the four named forwarding cuts. A and C's local
+4. At each of the four named forwarding cuts, both B's forwarding process and
+   the independent A-facing discovery sidecar are hard-killed. A and C's local
    B leases expire; their high-water revisions remain but the inactive peer is
-   removed from the active topology.
-5. The replacement B process opens new discovery listeners and directly
-   refreshes A/C before reconnecting to C or accepting A's forwarding stream.
-   A and C then use fresh TLS connections to reacquire B's latest snapshot.
-6. A reconnects to the forwarding endpoint learned from the refreshed
-   snapshot, retransmits the exact pending request, and receives the original
-   semantic result. The downstream terminal ledger remains authoritative, so
+   removed from the active topology. A's refresh while the sidecar is down
+   remains inactive even after the old lease deadline.
+5. The replacement B forwarding process restores its quorum-anchored image,
+   reads and verifies the same durable peer-authority snapshot, directly
+   refreshes A/C, reconnects to C, and waits for A. The sidecar remains down
+   throughout this phase.
+6. The sidecar is independently restarted from its durable store. A uses a
+   fresh TLS connection to reacquire B's same peer revision and forwarding
+   endpoint, reconnects to the forwarding port, and retransmits the exact
+   pending request. The downstream terminal ledger remains authoritative, so
    already committed pure work is not entered twice.
 
 The control and data endpoints may share a peer identity and TLS DNS SAN while
@@ -213,9 +267,9 @@ The new B crash matrix uses live mutual-TLS discovery for A/B/C directory
 observations. The separate terminal-C crash test and the successive C-then-B /
 B-then-C tests still use fixture-supplied directory observations; these remain
 isolated recovery proofs rather than full discovery/failure composition. A and
-the recovery anchors remain outside the B kill boundary. This does not prove
-independent requester-process recovery or discovery-server process loss during
-the same operation. Authority and discovery sockets are loopback mutual TLS;
+the recovery anchors remain outside the B kill boundary. This does not prove independent requester-process recovery, simultaneous
+failure of every discovery listener, or recovery of the supervisor parent
+itself. Authority and discovery sockets are loopback mutual TLS;
 the forwarding adjacencies are also mutual TLS.
 
 The workload is deterministic pure computation. These tests do not establish
@@ -225,10 +279,11 @@ do these tests prove a globally atomic multi-peer snapshot, endpoint rotation,
 hardware/storage power-loss durability, malicious-host attestation, or
 recursive/gossip-based discovery. Direct peers are still configured trust roots.
 
-The A-facing discovery-sidecar outage is now composed with a live A→B→C
-forwarding path and semantic replay. The next gate is to combine the discovery
-outage with the named forwarding crash cuts, then separately test endpoint
-host/port revision changes while preserving peer ID and TLS DNS identity.
+The four-cut forwarding recovery matrix now also hard-kills and independently
+restarts the A-facing discovery sidecar. The next gates are endpoint host/port
+revision changes while preserving peer ID and TLS DNS identity, followed by
+recovery of the supervisor parent itself and eventually side-effect-owner
+idempotency for non-pure work.
 
 ## Tests
 
