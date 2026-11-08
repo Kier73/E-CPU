@@ -60,7 +60,7 @@ _COMPLEXITY = {
     "int": "O(1)",
     "fgraph": "O(1)",
     "lcg": "O(log n)",
-    "gf2": "O(log n)",
+    "gf2": "O(L^3 log n)",
 }
 
 
