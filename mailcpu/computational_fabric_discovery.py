@@ -186,7 +186,9 @@ class ComputationalFabricPeerListener:
                     try:
                         serviced = server.service_once()
                     except Exception as exc:
-                        if on_error is not None and not stop_event.is_set():
+                        with self._lock:
+                            closed = self._closed
+                        if on_error is not None and not stop_event.is_set() and not closed:
                             on_error(exc)
                         break
                     if not serviced:
