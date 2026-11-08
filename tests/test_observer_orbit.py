@@ -41,7 +41,7 @@ def _base() -> tuple[SystemIdentity, VirtualGroundRef, RepresentationRef]:
     return system, ground, interpretation
 
 
-def _admitted_lcg(*, offset: int = 10**12 + 3):
+def _admitted_lcg(*, offset: int = 10**12 + 3, multiplier: int = 5, increment: int = 1, modulus: int = 2**32):
     system, base_ground, interpretation = _base()
     context = contextual_orbit_context(
         system,
@@ -52,7 +52,7 @@ def _admitted_lcg(*, offset: int = 10**12 + 3):
     )
     law = Law(
         family="lcg",
-        params={"a": 5, "c": 1, "mod": 2**32, "x0": 13},
+        params={"a": multiplier, "c": increment, "mod": modulus, "x0": 13},
         order=1,
         verdict="GROUND",
     )
@@ -131,6 +131,7 @@ def _admitted_int(*, offset: int = 0):
         context_digest=canonical_value_digest(context),
     )
     return registry, law, address, observer
+
 
 def test_contextual_orbit_address_round_trip_binds_system_ground_clock_and_offset():
     _, _, address, _ = _admitted_lcg()
@@ -359,3 +360,12 @@ def test_locate_value_refuses_unreachable_integer_without_search_fallback():
 
     with pytest.raises(ObserverOrbitError, match="not reachable"):
         ContextualOrbitNavigator(registry).locate_value(base_address, observer, target_value=102)
+
+def test_locate_value_refuses_non_2adic_lcg_without_bsgs_fallback():
+    registry, law, base_address, observer = _admitted_lcg(
+        offset=0, multiplier=3, increment=1, modulus=2**32
+    )
+    with pytest.raises(ObserverOrbitError, match="full-period power-of-two 2-adic conditions"):
+        ContextualOrbitNavigator(registry).locate_value(
+            base_address, observer, target_value=law.navigate(5)
+        )
