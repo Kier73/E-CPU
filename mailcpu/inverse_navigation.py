@@ -88,6 +88,7 @@ class ProcessPathIndex:
     state_digests: tuple[str, ...]
     resource_envelopes: tuple[tuple[tuple[str, int], ...], ...]
     _first_coordinates: dict[str, int] = field(init=False, repr=False, compare=False)
+    _verified: bool = field(init=False, repr=False, compare=False, default=False)
 
     def __post_init__(self) -> None:
         """Mathematics: enforce path, endpoint, digest, and prefix-envelope dimensions."""
@@ -118,6 +119,7 @@ class ProcessPathIndex:
         object.__setattr__(self, "state_digests", states)
         object.__setattr__(self, "resource_envelopes", envelopes)
         object.__setattr__(self, "_first_coordinates", first)
+        object.__setattr__(self, "_verified", False)
 
     @classmethod
     def build(
@@ -179,7 +181,7 @@ class ProcessPathIndex:
             state_digests.append(_state_digest(state))
             resource_envelopes.append(_frozen_envelope(envelope))
 
-        return cls(
+        index = cls(
             descriptor_digest=descriptor.digest,
             context_digest=context.resolution_digest(),
             start_state_digest=state_digests[0],
@@ -187,6 +189,8 @@ class ProcessPathIndex:
             state_digests=tuple(state_digests),
             resource_envelopes=tuple(resource_envelopes),
         )
+        object.__setattr__(index, "_verified", True)
+        return index
 
     def coordinate_of(self, state: Mapping[str, Any]) -> int | None:
         """Mathematics: resolve the first indexed coordinate by exact state digest in expected O(1)."""
@@ -214,6 +218,8 @@ class ProcessPathIndex:
             raise ProcessPathIndexError("semantic address does not identify the descriptor")
         if context.process_id != descriptor.process_id:
             raise ProcessPathIndexError("process context belongs to another descriptor")
+        if not self._verified:
+            raise ProcessPathIndexError("portable path index must be verified against its descriptor and context before lookup")
         if descriptor.digest != self.descriptor_digest:
             raise ProcessPathIndexError("process descriptor differs from the indexed transition law")
         if context.resolution_digest() != self.context_digest:
@@ -261,7 +267,10 @@ class ProcessPathIndex:
             rebuilt = ProcessPathIndex.build(descriptor, context, self.transition_ids)
         except (NavigationError, TypeError, ValueError):
             return False
-        return rebuilt.digest == self.digest
+        valid = rebuilt.digest == self.digest
+        if valid:
+            object.__setattr__(self, "_verified", True)
+        return valid
 
     def _payload(self) -> dict[str, Any]:
         """Mathematics: serialize the non-self-referential process-path index fields."""
@@ -295,6 +304,10 @@ class ProcessPathIndex:
             raise ProcessPathIndexError("process path index fields are invalid")
         if payload["schema"] != "mailcpu.process-path-index.v1":
             raise ProcessPathIndexError("unsupported process path index schema")
+        if not isinstance(payload["transition_ids"], list):
+            raise ProcessPathIndexError("transition_ids must be an array")
+        if not isinstance(payload["state_digests"], list):
+            raise ProcessPathIndexError("state_digests must be an array")
         if not isinstance(payload["resource_envelopes"], list):
             raise ProcessPathIndexError("resource_envelopes must be an array")
         index = cls(
