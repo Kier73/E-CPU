@@ -37,7 +37,7 @@ from .structural_memory import (
     StructuralMemoryRegistry,
     StructuralMemoryVersion,
 )
-from .temporal import SchedulerReading, TemporalFrame
+from .temporal import CausalStamp, MonotonicReading, SchedulerReading, TemporalFrame, WallTimeReading
 from .virtual_layer import VirtualGroundRef, VirtualStructuralMemoryRef
 
 
@@ -124,6 +124,50 @@ class _FrozenDict(dict):
     setdefault = _immutable
     update = _immutable
     __ior__ = _immutable
+
+
+def _temporal_frame_from_dict(payload: Mapping[str, Any]) -> TemporalFrame:
+    expected = {
+        "actor_id", "monotonic", "wall", "causal", "scheduler",
+        "event_lambda", "chronon_phase", "chemical_tau",
+    }
+    if not isinstance(payload, Mapping) or set(payload) != expected:
+        raise ObserverOrbitError("temporal frame fields are invalid")
+    monotonic = payload["monotonic"]
+    wall = payload["wall"]
+    causal = payload["causal"]
+    scheduler = payload["scheduler"]
+    if monotonic is not None:
+        if not isinstance(monotonic, Mapping) or set(monotonic) != {"actor_id", "segment", "elapsed_ns"}:
+            raise ObserverOrbitError("monotonic reading fields are invalid")
+        monotonic = MonotonicReading(monotonic["actor_id"], monotonic["segment"], monotonic["elapsed_ns"])
+    if wall is not None:
+        if not isinstance(wall, Mapping) or set(wall) != {"actor_id", "utc_ns", "sample_index"}:
+            raise ObserverOrbitError("wall reading fields are invalid")
+        wall = WallTimeReading(wall["actor_id"], wall["utc_ns"], wall["sample_index"])
+    if causal is not None:
+        if not isinstance(causal, Mapping):
+            raise ObserverOrbitError("causal stamp must be an object")
+        causal = CausalStamp.from_dict(causal)
+    if scheduler is not None:
+        if not isinstance(scheduler, Mapping) or set(scheduler) != {"scheduler_id", "tick"}:
+            raise ObserverOrbitError("scheduler reading fields are invalid")
+        scheduler = SchedulerReading(scheduler["scheduler_id"], scheduler["tick"])
+    phase = payload["chronon_phase"]
+    if phase is not None:
+        if not isinstance(phase, (list, tuple)) or len(phase) != 2:
+            raise ObserverOrbitError("chronon_phase must contain a real/imaginary pair")
+        phase = (phase[0], phase[1])
+    return TemporalFrame(
+        actor_id=payload["actor_id"],
+        monotonic=monotonic,
+        wall=wall,
+        causal=causal,
+        scheduler=scheduler,
+        event_lambda=payload["event_lambda"],
+        chronon_phase=phase,
+        chemical_tau=payload["chemical_tau"],
+    )
 
 
 @dataclass(frozen=True)
@@ -324,6 +368,45 @@ class ObserverReceipt:
             "evidence": [item.to_dict() for item in self.evidence],
         }
 
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "ObserverReceipt":
+        expected = {
+            "schema", "observer_id", "revision", "contract_digest", "subject",
+            "interpretation", "observation", "operation_id", "input_digest",
+            "context_digest", "projection_json", "projection_digest", "time_frame",
+            "observer_state_before_digest", "observer_state_after_digest",
+            "subject_state_before_digest", "subject_state_after_digest", "evidence",
+        }
+        if not isinstance(payload, Mapping) or set(payload) != expected:
+            raise ObserverOrbitError("observer receipt fields are invalid")
+        if payload["schema"] != "mailcpu.observer.receipt.v1":
+            raise ObserverOrbitError("unsupported observer receipt schema")
+        raw_frame = payload["time_frame"]
+        if raw_frame is not None and not isinstance(raw_frame, Mapping):
+            raise ObserverOrbitError("observer receipt time_frame must be an object")
+        raw_evidence = payload["evidence"]
+        if not isinstance(raw_evidence, list):
+            raise ObserverOrbitError("observer receipt evidence must be an array")
+        return cls(
+            observer_id=payload["observer_id"],
+            revision=payload["revision"],
+            contract_digest=payload["contract_digest"],
+            subject=RepresentationRef.from_dict(payload["subject"]),
+            interpretation=RepresentationRef.from_dict(payload["interpretation"]),
+            observation=ObservationContract.from_dict(payload["observation"]),
+            operation_id=payload["operation_id"],
+            input_digest=payload["input_digest"],
+            context_digest=payload["context_digest"],
+            projection_json=payload["projection_json"],
+            projection_digest=payload["projection_digest"],
+            time_frame=None if raw_frame is None else _temporal_frame_from_dict(raw_frame),
+            observer_state_before_digest=payload["observer_state_before_digest"],
+            observer_state_after_digest=payload["observer_state_after_digest"],
+            subject_state_before_digest=payload["subject_state_before_digest"],
+            subject_state_after_digest=payload["subject_state_after_digest"],
+            evidence=tuple(RepresentationRef.from_dict(item) for item in raw_evidence),
+        )
+
     @property
     def digest(self) -> str:
         return canonical_value_digest(self.to_dict())
@@ -385,6 +468,21 @@ class ObserverComposition:
             "members": [item.to_dict() for item in self.members],
         }
 
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "ObserverComposition":
+        if (
+            not isinstance(payload, Mapping)
+            or set(payload) != {"schema", "composition_id", "revision", "members"}
+            or payload["schema"] != "mailcpu.observer.composition.v1"
+            or not isinstance(payload["members"], list)
+        ):
+            raise ObserverOrbitError("observer composition fields are invalid")
+        return cls(
+            payload["composition_id"],
+            payload["revision"],
+            tuple(ObserverContract.from_dict(item) for item in payload["members"]),
+        )
+
     @property
     def digest(self) -> str:
         return canonical_value_digest(self.to_dict())
@@ -398,14 +496,29 @@ class ObserverMemberReceipt:
     contract_digest: str
     receipt_digest: str
     projection_digest: str
+    projection_json: str
     time_frame_digest: str | None = None
 
     def __post_init__(self) -> None:
         _identifier(self.observer_id, "member observer_id")
         for name in ("contract_digest", "receipt_digest", "projection_digest"):
             _digest(getattr(self, name), name)
+        if not isinstance(self.projection_json, str):
+            raise ObserverOrbitError("member projection_json must be a string")
+        try:
+            projection = json.loads(self.projection_json)
+        except json.JSONDecodeError as exc:
+            raise ObserverOrbitError("member projection_json is malformed") from exc
+        if _canonical_json(projection, "member projection") != self.projection_json:
+            raise ObserverOrbitError("member projection_json is not canonical")
+        if canonical_value_digest(projection) != self.projection_digest:
+            raise ObserverOrbitError("member projection digest does not match content")
         if self.time_frame_digest is not None:
             _digest(self.time_frame_digest, "time_frame_digest")
+
+    @property
+    def projection(self) -> Any:
+        return json.loads(self.projection_json)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -413,9 +526,19 @@ class ObserverMemberReceipt:
             "contract_digest": self.contract_digest,
             "receipt_digest": self.receipt_digest,
             "projection_digest": self.projection_digest,
+            "projection_json": self.projection_json,
             "time_frame_digest": self.time_frame_digest,
         }
 
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "ObserverMemberReceipt":
+        expected = {
+            "observer_id", "contract_digest", "receipt_digest", "projection_digest",
+            "projection_json", "time_frame_digest",
+        }
+        if not isinstance(payload, Mapping) or set(payload) != expected:
+            raise ObserverOrbitError("observer member receipt fields are invalid")
+        return cls(**dict(payload))
 
 @dataclass(frozen=True)
 class ObserverAggregateReceipt:
@@ -457,6 +580,28 @@ class ObserverAggregateReceipt:
             "members": [item.to_dict() for item in self.members],
             "semantics": "aggregation-not-consensus",
         }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "ObserverAggregateReceipt":
+        expected = {
+            "schema", "composition_digest", "operation_id", "input_digest",
+            "subject", "interpretation", "context_digest", "members", "semantics",
+        }
+        if not isinstance(payload, Mapping) or set(payload) != expected:
+            raise ObserverOrbitError("observer aggregate fields are invalid")
+        if payload["schema"] != "mailcpu.observer.aggregate.v1" or payload["semantics"] != "aggregation-not-consensus":
+            raise ObserverOrbitError("unsupported observer aggregate semantics")
+        if not isinstance(payload["members"], list):
+            raise ObserverOrbitError("observer aggregate members must be an array")
+        return cls(
+            composition_digest=payload["composition_digest"],
+            operation_id=payload["operation_id"],
+            input_digest=payload["input_digest"],
+            subject=RepresentationRef.from_dict(payload["subject"]),
+            interpretation=RepresentationRef.from_dict(payload["interpretation"]),
+            context_digest=payload["context_digest"],
+            members=tuple(ObserverMemberReceipt.from_dict(item) for item in payload["members"]),
+        )
 
     @property
     def digest(self) -> str:
@@ -508,6 +653,7 @@ def compose_observer_receipts(
             contract_digest=contract.digest,
             receipt_digest=receipt.digest,
             projection_digest=receipt.projection_digest,
+            projection_json=receipt.projection_json,
             time_frame_digest=frame_digest,
         ))
 
@@ -742,9 +888,41 @@ class VirtualGroundProjection:
     def to_dict(self) -> dict[str, Any]:
         return {
             **self.identity_payload(),
+            "structural_memory_ref": self.structural_memory.to_dict(),
             "projection_digest": self.projection_digest,
             "read_receipt": self.read_receipt.to_dict(),
         }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "VirtualGroundProjection":
+        if not isinstance(payload, Mapping):
+            raise ObserverOrbitError("Virtual Ground projection must be an object")
+        coordinate_payload = payload.get("coordinate")
+        if not isinstance(coordinate_payload, Mapping) or set(coordinate_payload) != {"scheduler_id", "tick"}:
+            raise ObserverOrbitError("projection scheduler coordinate fields are invalid")
+        projection = cls(
+            system_identity=SystemIdentity.from_snapshot(payload.get("system_identity")),
+            base_ground=VirtualGroundRef.from_dict(payload.get("base_ground")),
+            computational_ground=RepresentationRef.from_dict(payload.get("computational_ground")),
+            transition=RepresentationRef.from_dict(payload.get("transition")),
+            coordinate=SchedulerReading(coordinate_payload["scheduler_id"], coordinate_payload["tick"]),
+            orbit_offset=payload.get("orbit_offset"),
+            structural_memory=VirtualStructuralMemoryRef.from_dict(payload.get("structural_memory_ref")),
+            value=payload.get("value"),
+            value_digest=payload.get("value_digest"),
+            read_receipt=StructuralMemoryReadReceipt.from_dict(payload.get("read_receipt")),
+        )
+        expected = {
+            **projection.identity_payload(),
+            "structural_memory_ref": projection.structural_memory.to_dict(),
+            "projection_digest": projection.projection_digest,
+            "read_receipt": projection.read_receipt.to_dict(),
+        }
+        if dict(payload) != expected:
+            raise ObserverOrbitError("Virtual Ground projection digest or canonical payload does not match")
+        if payload.get("scope") != "structural-memory-projection-not-full-system-snapshot":
+            raise ObserverOrbitError("unsupported Virtual Ground projection scope")
+        return projection
 
 
 @dataclass(frozen=True)
@@ -767,6 +945,16 @@ class OrbitNavigationResult:
             raise ObserverOrbitError("complexity bound does not match the admitted generator family")
         if type(self.expanded_states) is not int or self.expanded_states != 0:
             raise ObserverOrbitError("symbolic orbit navigation must not expand intermediate states")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema": "mailcpu.orbit-navigation-result.v1",
+            "projection": self.projection.to_dict(),
+            "observation": self.observation.to_dict(),
+            "generator_family": self.generator_family,
+            "complexity_bound": self.complexity_bound,
+            "expanded_states": self.expanded_states,
+        }
 
 
 class ContextualOrbitNavigator:
@@ -882,8 +1070,6 @@ class ContextualOrbitNavigator:
             input_digest=address.digest,
             projection_value=observation_value,
             time_frame=frame,
-            subject_state_before_digest=transition.content_digest,
-            subject_state_after_digest=transition.content_digest,
             evidence=(read_ref, projection_ref),
         )
         family = version.spec.family
