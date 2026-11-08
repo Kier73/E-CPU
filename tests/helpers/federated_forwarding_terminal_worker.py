@@ -214,7 +214,7 @@ def main(arguments: list[str]) -> int:
     if len(arguments) != 5:
         raise ValueError("terminal worker requires mode, config, cut, marker/result path, and checkpoint directory")
     mode, config_path, cut, marker_or_result, checkpoint_directory = arguments
-    if mode not in {"prepare", "restore", "restore_latest"}:
+    if mode not in {"prepare", "live_idle", "restore", "restore_latest"}:
         raise ValueError(f"unsupported terminal worker mode {mode!r}")
     config = json.loads(Path(config_path).read_text(encoding="utf-8"))
     directory = _directory(config)
@@ -247,7 +247,7 @@ def main(arguments: list[str]) -> int:
             expected_peer_dns=directory.trusted_peers["peer-b"],
             handshake_timeout=8.0,
         )
-        if mode == "prepare":
+        if mode in {"prepare", "live_idle"}:
             operating_system, execute_pid, catalogue, advertisement = _initial_runtime(config)
             expected_snapshot = ComputationalPeerSnapshot.from_dict(
                 config["peer_snapshots"]["peer-c"]
@@ -266,6 +266,33 @@ def main(arguments: list[str]) -> int:
                 catalogue=catalogue,
                 timeout=8.0,
             )
+
+            if mode == "live_idle":
+                deadline = time.monotonic() + 90.0
+                while time.monotonic() < deadline:
+                    server.serve_once()
+                    if (
+                        server.inbound.channel.next_receive_sequence >= 2
+                        and not server.outbound.channel.pending_sequences()
+                    ):
+                        checkpoint = store.seal(server, "idle")
+                        _write_json_durable(Path(marker_or_result), {
+                            "stage": "idle_checkpoint",
+                            "pid": os.getpid(),
+                            "cut": "idle",
+                            "generation": checkpoint.generation,
+                            "manifest_digest": checkpoint.manifest.digest,
+                            "execution_count": len(
+                                server.operating_system.hypervisor_arbitration.snapshot()["executions"]
+                            ),
+                            "request_receive_cursor": server.inbound.channel.next_receive_sequence,
+                            "response_pending": list(server.outbound.channel.pending_sequences()),
+                            "journal_valid": server.operating_system.environment.kernel.journal.verify(),
+                        })
+                        while True:
+                            time.sleep(60)
+                    time.sleep(0.002)
+                raise TimeoutError("terminal peer did not reach an acknowledged idle checkpoint")
 
             def stop_at_cut(stage: str) -> None:
                 if stage != cut:
