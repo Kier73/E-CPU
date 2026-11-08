@@ -693,6 +693,15 @@ from .computational_transition import (
     ComputationalTransitionError,
 )
 
+from .vgi_session import (
+    VGICompiledSessionDescriptor,
+    VGISessionError,
+    VGISessionExecution,
+    VGISessionTransferBundle,
+    VGIPersistentSession,
+    vgi_signal8_session_backend_fingerprint,
+)
+
 from .computational_execution import (
     ComputationalExecutionAdmissionCoordinator,
     ComputationalExecutionAdmissionError,
@@ -1429,6 +1438,12 @@ __all__ = [
     "ComputationalTransitionContext",
     "ComputationalTransitionContract",
     "ComputationalTransitionError",
+    "VGICompiledSessionDescriptor",
+    "VGISessionError",
+    "VGISessionExecution",
+    "VGISessionTransferBundle",
+    "VGIPersistentSession",
+    "vgi_signal8_session_backend_fingerprint",
     "LocalComputationalHost",
     "TransitComputationalHost",
     "admit_computational_artifact_directory",

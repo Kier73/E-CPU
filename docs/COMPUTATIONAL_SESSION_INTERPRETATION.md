@@ -113,3 +113,11 @@ M4 establishes a compositional interface and tests its local invariants. It does
 - that compiled-plan caching improves every workload (single-use tasks may see no benefit).
 
 For any domain, the producer must supply a versioned Ground/state schema and a backend contract. E-CPU binds these descriptions to the current session and controls the durable state transition. The domain implementation remains responsible for meaning, while the host and quorum lineage remain responsible for admission, execution authority, and current-state continuity.
+
+During M7 migration, the backend fingerprint of the source checkpoint and
+the target execution backend fingerprint can differ. The transition context
+now carries both: historical provenance remains attached to the state being
+interpreted, while the execution contract identifies the local backend that
+will produce the candidate successor. The target compatibility predicate
+must approve that source-to-target relationship on reads and commits until
+the first target-side revision is anchored.

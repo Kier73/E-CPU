@@ -138,6 +138,8 @@ def test_transition_adapter_binds_verified_snapshot_and_commits_successor(tmp_pa
     assert context.lineage_digest == initial.lineage_manifest.digest
     assert context.state_digest == initial.checkpoint.state_digest
     assert context.interpretation_fingerprint == INTERPRETATION
+    assert context.backend_fingerprint == BACKEND
+    assert context.execution_backend_fingerprint == BACKEND
     assert context.binding_digest == hashlib.sha256(
         json.dumps(
             context.to_dict(), sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
