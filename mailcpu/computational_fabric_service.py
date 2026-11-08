@@ -211,8 +211,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     store = ComputationalFabricAuthorityStore(arguments.snapshot_store)
     snapshot = store.load(expected_peer_id=arguments.peer_id)
-    if snapshot.endpoint.port != arguments.listen_port:
-        raise ValueError("listen port differs from the persisted peer endpoint")
+    # --listen-port is the independently managed discovery/control endpoint.
+    # The peer snapshot continues to advertise the data-plane forwarding port.
     authority = ComputationalFabricAuthority.from_snapshot(
         snapshot,
         on_snapshot=store.save,
@@ -249,6 +249,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "snapshot_digest": snapshot.digest,
                 "bind_host": arguments.bind_host,
                 "port": arguments.listen_port,
+                "control_port": arguments.listen_port,
+                "forwarding_host": snapshot.endpoint.endpoint_host,
+                "forwarding_port": snapshot.endpoint.port,
                 "accepts_peer_id": arguments.client_peer_id,
             }
         )
