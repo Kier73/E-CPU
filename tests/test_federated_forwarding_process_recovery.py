@@ -875,6 +875,10 @@ def test_relay_b_hard_process_kill_restarts_from_quorum_and_replays_same_operati
         assert cut_marker["journal_valid"] is True
         assert requester_snapshot["request_channel"]["pending"]["1"]
 
+        assert "server" in terminal_holder, (
+            "terminal peer failed before accepting the relay stream: "
+            f"{terminal_failures!r}"
+        )
         terminal_server = terminal_holder["server"]
         if cut != "before_execution":
             _wait_terminal_response_ack(terminal_server)

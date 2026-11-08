@@ -61,27 +61,27 @@ class SocketListener:
 
     @classmethod
     def wrap(cls, listener: socket.socket) -> "SocketListener":
-        """Wrap an existing listening socket at the transport boundary."""
+        """Mathematics: wrap one existing listening socket as the transport-owned accept endpoint."""
         return cls(listener)
 
     def accept_raw(self) -> tuple[socket.socket, Any]:
-        """Accept one raw stream for immediate authentication by the TLS adapter."""
+        """Mathematics: accept one raw stream for immediate authentication by the TLS adapter."""
         return self._listener.accept()
 
     def settimeout(self, timeout: float | None) -> None:
-        """Set a finite accept timeout through the transport-owned listener."""
+        """Mathematics: set a finite accept timeout on the transport-owned listener."""
         self._listener.settimeout(timeout)
 
     def fileno(self) -> int:
-        """Return the listener descriptor for closed-state observation."""
+        """Mathematics: return the listener descriptor used for closed-state observation."""
         return self._listener.fileno()
 
     def getsockname(self) -> Any:
-        """Return the bound endpoint projection without exposing the underlying socket."""
+        """Mathematics: return the bound endpoint projection without exposing the underlying socket."""
         return self._listener.getsockname()
 
     def close(self) -> None:
-        """Close the external listener and reject subsequent accepts."""
+        """Mathematics: close the external listener and reject subsequent accepts."""
         self._listener.close()
 
 
@@ -301,7 +301,7 @@ class SocketTransport:
         port: int = 0,
         backlog: int = 16,
     ) -> SocketListener:
-        """Create an external listener and retain it behind the transport boundary."""
+        """Mathematics: create an external listener and retain it behind the transport boundary."""
         return SocketListener(SocketTransport.listen(host, port, backlog))
 
     def send(self, addr: str, msg: Message) -> Message:

@@ -33,6 +33,7 @@ from mailcpu import (  # noqa: E402
     RecoveryLineageAuthority,
     RecoveryLineagePeerClient,
     SeedCommitMembership,
+    SocketListener,
     SocketTransport,
 )
 from mailcpu.mtls_transport import accept_mutual_tls, connect_mutual_tls  # noqa: E402
@@ -145,7 +146,7 @@ def _start_directory_listener(
     port = int(listener_socket.getsockname()[1])
     listener = ComputationalFabricPeerListener(
         authority,
-        listener_socket,
+        SocketListener.wrap(listener_socket),
         client_peer_id,
         expected_client_dns=expected_client_dns,
         tls_context=tls_context,
