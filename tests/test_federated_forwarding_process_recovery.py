@@ -604,9 +604,9 @@ def test_relay_b_hard_process_kill_restarts_from_quorum_and_replays_same_operati
 
     peer_a_port = 44001
     reserved_ports = {peer_a_port}
-    while len(reserved_ports) < 4:
+    while len(reserved_ports) < 3:
         reserved_ports.add(_free_port())
-    _unused_a, peer_b_port, peer_c_port, sidecar_port = sorted(reserved_ports)
+    _unused_a, peer_b_port, peer_c_port = sorted(reserved_ports)
     endpoint_a = ComputationalPeerEndpoint(
         "peer-a", "peer-a.fabric.test", "127.0.0.1", peer_a_port
     )
@@ -657,6 +657,17 @@ def test_relay_b_hard_process_kill_restarts_from_quorum_and_replays_same_operati
     discovery_c_for_b = _start_peer_directory_listener(
         authority_c, "peer-b", certificates
     )
+    occupied_ports = {
+        peer_a_port,
+        peer_b_port,
+        peer_c_port,
+        discovery_a_for_b[3],
+        discovery_c_for_a[3],
+        discovery_c_for_b[3],
+    }
+    sidecar_port = _free_port()
+    while sidecar_port in occupied_ports:
+        sidecar_port = _free_port()
 
     # B's A-facing discovery process has its own supervised lifetime and
     # portable authority store. It is not a thread or socket owned by B's
