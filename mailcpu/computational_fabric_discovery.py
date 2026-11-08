@@ -4,15 +4,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import ssl
 import threading
-import time
 from dataclasses import dataclass, replace
 from typing import Any, Callable, Mapping
 
 from .computational_fabric import (
     ComputationalFabricDirectory,
-    ComputationalFabricError,
     ComputationalFabricPeerClient,
     ComputationalPeerEndpoint,
 )
@@ -39,6 +38,7 @@ def _positive_seconds(value: float, field: str, *, maximum: float = 3600.0) -> f
     if (
         not isinstance(value, (int, float))
         or isinstance(value, bool)
+        or not math.isfinite(float(value))
         or value <= 0
         or value > maximum
     ):
