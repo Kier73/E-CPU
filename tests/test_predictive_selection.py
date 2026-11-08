@@ -343,6 +343,10 @@ def test_hypervisor_and_fabric_evidence_keep_estimates_separate_from_execution()
     assert evidence.to_dict()["route_authoritative"] is False
     restored = PredictiveExecutionEvidence.from_dict(evidence.to_dict())
     assert restored == evidence
+    tampered_execution = evidence.to_dict()
+    tampered_execution["hypervisor_result"]["effect"]["estimated_energy"] += 1
+    with pytest.raises(PredictiveSelectionError, match="hypervisor result content"):
+        PredictiveExecutionEvidence.from_dict(tampered_execution)
     tampered = evidence.to_dict()
     tampered["route_witness"]["total_costs"][0]["amount"] += 1
     with pytest.raises(PredictiveSelectionError, match="route witness"):

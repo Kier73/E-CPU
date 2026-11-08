@@ -103,7 +103,7 @@ The selected ID is a recommendation only. Admission, execution, and checkpoint a
 
 PredictiveExecutionEvidence.from_hypervisor_result accepts only a typed HypervisorExecutionResult whose local action is ALLOW, whose effect is a Virtual Layer operator result, and whose executed flag is true. It retains:
 - decision receipt and operation identity;
-- result fingerprint and content digest;
+- the complete canonical HypervisorExecutionResult payload, with its digest rechecked against every retained identity field, effect estimate, replay flag, placement label, and extracted handler measurement;
 - declared estimated Virtual Layer energy and virtual ticks;
 - node and substrate labels; and
 - explicitly reported numeric handler measurements, such as elapsed milliseconds or transferred bytes.

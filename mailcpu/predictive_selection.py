@@ -197,6 +197,7 @@ class PredictiveExecutionEvidence:
     result_digest: str
     source: str
     channel: str
+    domain: str
     sequence: int
     logical_time: int
     decision_receipt: str
@@ -209,6 +210,7 @@ class PredictiveExecutionEvidence:
     estimated_energy: int | None
     estimated_virtual_ticks: int | None
     measured_metrics_json: str
+    result_json: str
     route_witness_digest: str | None = None
     route_network_costs: tuple[RouteMetric, ...] = ()
     route_host_costs: tuple[RouteMetric, ...] = ()
@@ -225,6 +227,66 @@ class PredictiveExecutionEvidence:
         _require_int(self.logical_time, "hypervisor logical time")
         if self.action != HypervisorAction.ALLOW.value or self.executed is not True:
             raise PredictiveSelectionError("execution evidence requires an ALLOW decision and executed effect")
+        _require_label(self.domain, "hypervisor domain")
+        try:
+            raw_result = json.loads(self.result_json)
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise PredictiveSelectionError("hypervisor result JSON is malformed") from exc
+        expected_result_fields = {
+            "source", "channel", "sequence", "logical_time", "fingerprint",
+            "decision_receipt", "action", "domain", "effect", "replayed", "executed",
+        }
+        if (
+            not isinstance(raw_result, Mapping)
+            or set(raw_result) != expected_result_fields
+            or _canonical_json(raw_result, "hypervisor result") != self.result_json
+            or _digest(raw_result, "hypervisor result") != self.result_digest
+        ):
+            raise PredictiveSelectionError("hypervisor result content does not match its retained digest")
+        if (
+            raw_result["source"] != self.source
+            or raw_result["channel"] != self.channel
+            or raw_result["domain"] != self.domain
+            or raw_result["sequence"] != self.sequence
+            or raw_result["logical_time"] != self.logical_time
+            or raw_result["decision_receipt"] != self.decision_receipt
+            or raw_result["fingerprint"] != self.fingerprint
+            or raw_result["action"] != self.action
+            or raw_result["executed"] is not self.executed
+            or raw_result["replayed"] is not self.replayed
+        ):
+            raise PredictiveSelectionError("hypervisor result identity differs from retained execution evidence")
+        raw_effect = raw_result["effect"]
+        if not isinstance(raw_effect, Mapping) or raw_effect.get("kind") != "virtual_layer.operator_result":
+            raise PredictiveSelectionError("retained hypervisor result is not a Virtual Layer operator effect")
+        if (
+            raw_effect.get("node_id") != self.node_id
+            or raw_effect.get("substrate") != self.substrate
+            or raw_effect.get("estimated_energy") != self.estimated_energy
+            or raw_effect.get("estimated_virtual_ticks") != self.estimated_virtual_ticks
+        ):
+            raise PredictiveSelectionError("hypervisor effect estimates or placement differ from retained execution evidence")
+        raw_measurement = raw_effect.get("measurement")
+        if raw_measurement is None and isinstance(raw_effect.get("result"), Mapping):
+            raw_measurement = raw_effect["result"].get("measurement")
+        if raw_measurement is None:
+            raw_measurement = {}
+        if not isinstance(raw_measurement, Mapping):
+            raise PredictiveSelectionError("retained hypervisor measurement must be an object")
+        normalized_measurement = {
+            key: value
+            for key, value in raw_measurement.items()
+            if (
+                isinstance(key, str)
+                and _IDENTIFIER.fullmatch(key) is not None
+                and isinstance(value, (int, float))
+                and not isinstance(value, bool)
+                and math.isfinite(value)
+                and value >= 0
+            )
+        }
+        if _canonical_json(normalized_measurement, "hypervisor measured metrics") != self.measured_metrics_json:
+            raise PredictiveSelectionError("hypervisor handler measurements differ from the retained result")
         if type(self.replayed) is not bool:
             raise PredictiveSelectionError("hypervisor replayed flag must be Boolean")
         if self.node_id is not None:
@@ -280,6 +342,7 @@ class PredictiveExecutionEvidence:
             if (
                 restored_route.digest != self.route_witness_digest
                 or restored_route.authoritative is not False
+                or restored_route.target_host.node_id != self.node_id
                 or restored_route.network_costs != tuple(self.route_network_costs)
                 or restored_route.host_costs != tuple(self.route_host_costs)
                 or restored_route.total_costs != tuple(self.route_total_costs)
@@ -349,6 +412,7 @@ class PredictiveExecutionEvidence:
             result_digest=_digest(result.to_dict(), "hypervisor execution result"),
             source=result.source,
             channel=result.channel,
+            domain=result.domain.value,
             sequence=result.sequence,
             logical_time=result.logical_time,
             decision_receipt=result.decision_receipt,
@@ -361,6 +425,7 @@ class PredictiveExecutionEvidence:
             estimated_energy=energy,
             estimated_virtual_ticks=ticks,
             measured_metrics_json=_canonical_json(normalized_measurement, "measured execution metrics"),
+            result_json=_canonical_json(result.to_dict(), "hypervisor execution result"),
             route_witness_digest=route_digest,
             route_network_costs=network_costs,
             route_host_costs=host_costs,
@@ -380,6 +445,7 @@ class PredictiveExecutionEvidence:
             "result_digest": self.result_digest,
             "source": self.source,
             "channel": self.channel,
+            "domain": self.domain,
             "sequence": self.sequence,
             "logical_time": self.logical_time,
             "decision_receipt": self.decision_receipt,
@@ -392,6 +458,7 @@ class PredictiveExecutionEvidence:
             "estimated_energy": self.estimated_energy,
             "estimated_virtual_ticks": self.estimated_virtual_ticks,
             "measured_metrics": self.measured_metrics,
+            "hypervisor_result": json.loads(self.result_json),
             "route_witness_digest": self.route_witness_digest,
             "route_network_costs": [item.to_dict() for item in self.route_network_costs],
             "route_host_costs": [item.to_dict() for item in self.route_host_costs],
@@ -404,9 +471,10 @@ class PredictiveExecutionEvidence:
     def from_dict(cls, payload: Mapping[str, Any]) -> "PredictiveExecutionEvidence":
         """Mathematics: reconstruct the exact typed execution-evidence projection and revalidate its route boundary."""
         expected = {
-            "schema", "result_digest", "source", "channel", "sequence", "logical_time",
+            "schema", "result_digest", "source", "channel", "domain", "sequence", "logical_time",
             "decision_receipt", "fingerprint", "action", "executed", "replayed", "node_id",
             "substrate", "estimated_energy", "estimated_virtual_ticks", "measured_metrics",
+            "hypervisor_result",
             "route_witness_digest", "route_network_costs", "route_host_costs",
             "route_total_costs", "route_witness", "route_authoritative",
         }
@@ -425,6 +493,7 @@ class PredictiveExecutionEvidence:
             result_digest=payload["result_digest"],
             source=payload["source"],
             channel=payload["channel"],
+            domain=payload["domain"],
             sequence=payload["sequence"],
             logical_time=payload["logical_time"],
             decision_receipt=payload["decision_receipt"],
@@ -437,6 +506,7 @@ class PredictiveExecutionEvidence:
             estimated_energy=payload["estimated_energy"],
             estimated_virtual_ticks=payload["estimated_virtual_ticks"],
             measured_metrics_json=_canonical_json(dict(metrics), "measured execution metrics"),
+            result_json=_canonical_json(payload["hypervisor_result"], "hypervisor result"),
             route_witness_digest=payload["route_witness_digest"],
             route_network_costs=tuple(RouteMetric.from_dict(item) for item in payload["route_network_costs"]),
             route_host_costs=tuple(RouteMetric.from_dict(item) for item in payload["route_host_costs"]),
