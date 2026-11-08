@@ -99,9 +99,9 @@ The E0 representation already stores its finite preperiod and cycle. A cached in
 
 ### General path-dependent transitions
 
-There is no universal algebraic inverse for arbitrary guarded transitions, especially when updates are non-injective or context-dependent. ProcessPathIndex.build therefore accepts an explicit finite transition path, revalidates each guard, update, invariant, and resource condition, then stores state-digest coordinates and prefix resource envelopes.
+There is no universal algebraic inverse for arbitrary guarded transitions, especially when updates are non-injective or context-dependent. ProcessPathIndex.build therefore accepts an explicit finite declarative transition path, revalidates each guard, update, invariant, and resource condition, then stores state-digest coordinates and prefix resource envelopes. This is a verified path under the descriptor, not a receipt proving that a physical host executed it.
 
-The path index provides direct lookup for exact states already present in that validated path and returns an existing NavigationWitness. verify_navigation_witness independently replays the returned path under the descriptor and context.
+The path index provides direct lookup for exact states already present in that validated path and returns an existing NavigationWitness. A portable index must be revalidated against the exact descriptor and context after deserialization before lookup. verify_navigation_witness independently replays the returned path under the descriptor and context.
 
 This is an inverse of the indexed path, not an inverse of the entire branching state graph. Absence from one path index is not a proof of global unreachability. Discovering a path that has not been supplied still requires the existing bounded ContextualNavigator or another explicitly budgeted graph/index construction.
 
