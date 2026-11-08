@@ -195,7 +195,7 @@ The host must not independently claim that a state transition is durably committ
 
 The generic host operator factory adapts a LocalComputationalHost into a versioned OperatorSpec. The portable workload contains an operation label, finite input, and optional request identifier; the implementation stays at the receiving node.
 
-The operator is declared deterministic and pure. This declaration is a backend contract: the adapter must not emit non-deterministic timing, mutable external side effects, or unstable runtime observations as part of its output. Execution metrics remain outside the deterministic receipt.
+The Virtual Layer adapter is available only when the backend profile explicitly declares deterministic execution and pure effects. The current Virtual Layer runtime accepts replay-safe pure operators; it does not make nondeterministic or external side effects safe by wrapping them in a receipt. A local backend may still be called directly under its own domain contract, but this M2 Transit adapter refuses profiles that cannot satisfy the current replay boundary. Execution metrics remain outside the deterministic receipt.
 
 TransitComputationalHost binds that operator to a receiver HeadlessOS-compatible authority and exposes the existing Virtual Layer operation/resource identity. It can be used as the backend for the existing TransitComputeWorker; the worker and Hypervisor remain responsible for authorization and commit. The remote side names the operator and supplies typed data, never executable adapter code or authority.
 

@@ -137,6 +137,8 @@ def _profile(**overrides) -> ComputationalBackendProfile:
         "configuration": {"deterministic": True, "workers": 1},
         "max_input_bytes": 4096,
         "max_output_bytes": 8192,
+        "deterministic": True,
+        "effect_mode": "pure",
     }
     values.update(overrides)
     return ComputationalBackendProfile(**values)
@@ -286,6 +288,22 @@ def test_backend_fingerprint_binds_implementation_runtime_and_configuration() ->
         changed_config.fingerprint,
         changed_implementation.fingerprint,
     }) == 4
+
+
+def test_virtual_layer_adapter_refuses_non_replay_safe_backend(tmp_path) -> None:
+    """The pure Virtual Layer contract is not granted to a backend that declares nondeterministic execution."""
+    root = _artifact_directory(tmp_path)
+    manifest = _manifest(root)
+    profile = _profile(deterministic=False)
+    host = LocalComputationalHost(
+        host_id="host-local-1",
+        manifest=manifest,
+        artifact_root=root,
+        profile=profile,
+        adapter=EchoAdapter(),
+    )
+    with pytest.raises(ComputationalBackendError, match="deterministic pure"):
+        make_computational_host_operator(host, operator_id="artifact.non-deterministic")
 
 
 def test_local_host_lazily_loads_and_emits_deterministic_receipts(tmp_path) -> None:

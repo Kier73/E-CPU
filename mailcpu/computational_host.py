@@ -481,6 +481,8 @@ class ComputationalBackendProfile:
     configuration: Mapping[str, Any] = field(default_factory=dict)
     max_input_bytes: int = 1_000_000
     max_output_bytes: int = 2_000_000
+    deterministic: bool = True
+    effect_mode: str = "pure"
 
     def __post_init__(self) -> None:
         """Mathematics: Validate stable backend identity, explicit implementation digest, resource bounds, and finite profile data."""
@@ -503,6 +505,10 @@ class ComputationalBackendProfile:
             raise ComputationalBackendError("configuration must be a JSON object")
         _strict_integer(self.max_input_bytes, "max_input_bytes", minimum=1)
         _strict_integer(self.max_output_bytes, "max_output_bytes", minimum=1)
+        if not isinstance(self.deterministic, bool):
+            raise ComputationalBackendError("deterministic must be Boolean")
+        if not isinstance(self.effect_mode, str) or self.effect_mode not in {"pure", "idempotent", "transactional"}:
+            raise ComputationalBackendError("effect_mode must be pure, idempotent, or transactional")
         object.__setattr__(self, "substrates", substrates)
         object.__setattr__(self, "runtime_versions", _freeze_json(self.runtime_versions, "runtime_versions"))
         object.__setattr__(self, "configuration", _freeze_json(self.configuration, "configuration"))
@@ -520,6 +526,8 @@ class ComputationalBackendProfile:
             "configuration": _thaw_json(self.configuration),
             "max_input_bytes": self.max_input_bytes,
             "max_output_bytes": self.max_output_bytes,
+            "deterministic": self.deterministic,
+            "effect_mode": self.effect_mode,
         }
 
     @property
@@ -880,6 +888,10 @@ def make_computational_host_operator(
     if not isinstance(host, LocalComputationalHost):
         raise TypeError("host must be a LocalComputationalHost")
     _label(operator_id, "operator_id")
+    if not host.profile.deterministic or host.profile.effect_mode != "pure":
+        raise ComputationalBackendError(
+            "the current Virtual Layer host adapter requires a deterministic pure backend profile"
+        )
     spec = OperatorSpec(
         operator_id=operator_id,
         version=version,
