@@ -603,10 +603,12 @@ def test_relay_b_hard_process_kill_restarts_from_quorum_and_replays_same_operati
     anchor_d, anchor_d_port = _start_anchor(root, "anchor-d", membership_path, anchors_dir)
 
     peer_a_port = 44001
-    reserved_ports = {peer_a_port}
-    while len(reserved_ports) < 3:
-        reserved_ports.add(_free_port())
-    _unused_a, peer_b_port, peer_c_port = sorted(reserved_ports)
+    forwarding_ports: list[int] = []
+    while len(forwarding_ports) < 2:
+        candidate = _free_port()
+        if candidate != peer_a_port and candidate not in forwarding_ports:
+            forwarding_ports.append(candidate)
+    peer_b_port, peer_c_port = forwarding_ports
     endpoint_a = ComputationalPeerEndpoint(
         "peer-a", "peer-a.fabric.test", "127.0.0.1", peer_a_port
     )
