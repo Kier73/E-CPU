@@ -2292,7 +2292,7 @@ def test_persistent_vgi_session_transfers_through_fabric_and_replays_once(tmp_pa
         genesis,
     )
     lineage_root = tmp_path / "quorum"
-    authorities = {
+    source_authorities = {
         member: RecoveryLineageAuthority(
             membership,
             member,
@@ -2300,12 +2300,16 @@ def test_persistent_vgi_session_transfers_through_fabric_and_replays_once(tmp_pa
         )
         for member in membership.member_ids
     }
-    lineage = RecoveryLineageCoordinator(membership, authorities)
+    source_lineage = RecoveryLineageCoordinator(membership, source_authorities)
 
     source_backing = MemoryPageBacking()
     target_backing = MemoryPageBacking()
-    source_store, source_session = make_session_store(tmp_path / "host-a", source_backing, lineage, descriptor)
-    target_store, target_session = make_session_store(tmp_path / "host-c", target_backing, lineage, descriptor)
+    source_store, source_session = make_session_store(
+        tmp_path / "host-a",
+        source_backing,
+        source_lineage,
+        descriptor,
+    )
 
     signal_backend = Signal8Backend()
     initial_memory = {
@@ -2319,6 +2323,27 @@ def test_persistent_vgi_session_transfers_through_fabric_and_replays_once(tmp_pa
     transfer = source_session.export_transfer().to_dict()
     export_ms = (time.perf_counter() - export_started) * 1000.0
     assert source_store.object_store.verify(source_base.session.checkpoint.state_manifest)
+
+    # C opens its own coordinator only after A has anchored the source
+    # checkpoint. Its independent authority objects replay the same durable
+    # member journals rather than reusing A's in-memory quorum coordinator.
+    target_authorities = {
+        member: RecoveryLineageAuthority(
+            membership,
+            member,
+            lineage_root / f"{member}.jsonl",
+        )
+        for member in membership.member_ids
+    }
+    target_lineage = RecoveryLineageCoordinator(membership, target_authorities)
+    assert target_lineage is not source_lineage
+    assert all(target_authorities[name] is not source_authorities[name] for name in membership.member_ids)
+    target_store, target_session = make_session_store(
+        tmp_path / "host-c",
+        target_backing,
+        target_lineage,
+        descriptor,
+    )
 
     transition_contexts: list[dict[str, object]] = []
     original_transition_backend = target_session.transition_adapter.backend
