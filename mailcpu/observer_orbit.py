@@ -19,11 +19,12 @@ snapshot, or a claim that one scalar reconstructs the hosted machine.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import json
 import re
 from typing import Any, Mapping, Sequence
 
+from .law_certifier import HorizonExceeded, Law, Refused, find_coordinate_int, find_coordinate_lcg_adic, navigate_guarded
 from .seed import SystemIdentity
 from .semantic_translation import (
     ObservationContract,
@@ -841,6 +842,21 @@ class VirtualGroundProjection:
         if not isinstance(self.read_receipt, StructuralMemoryReadReceipt):
             raise ObserverOrbitError("projection read_receipt is invalid")
         ref = self.structural_memory
+        ref_context = _thaw_json(ref.context)
+        if not isinstance(ref_context, Mapping):
+            raise ObserverOrbitError("projection Structural Memory context is invalid")
+        extensions = ref_context.get("extensions")
+        if not isinstance(extensions, Mapping):
+            raise ObserverOrbitError("projection context extensions are invalid")
+        expected_context = contextual_orbit_context(
+            self.system_identity,
+            self.base_ground,
+            self.computational_ground,
+            scheduler_id=self.coordinate.scheduler_id,
+            extensions=extensions,
+        )
+        if ref_context != expected_context:
+            raise ObserverOrbitError("projection Structural Memory context is not bound to its system, grounds, and scheduler")
         receipt = self.read_receipt
         if self.transition.content_digest != ref.spec_digest:
             raise ObserverOrbitError("projection transition does not identify the referenced Structural Memory spec")
@@ -957,6 +973,40 @@ class OrbitNavigationResult:
         }
 
 
+@dataclass(frozen=True)
+class OrbitValueResult:
+    """First mathematically located coordinate for one requested generator value."""
+
+    target_value: int
+    orbit_coordinate: int
+    inverse_complexity_bound: str
+    navigation: OrbitNavigationResult
+    expanded_states: int = 0
+
+    def __post_init__(self) -> None:
+        if type(self.target_value) is not int:
+            raise ObserverOrbitError("target_value must be a strict integer")
+        _positive_int(self.orbit_coordinate, "orbit_coordinate", minimum=0)
+        if self.navigation.projection.orbit_offset != self.orbit_coordinate:
+            raise ObserverOrbitError("inverse coordinate differs from the located projection")
+        if self.navigation.projection.value != self.target_value:
+            raise ObserverOrbitError("located projection does not match the requested target value")
+        if self.inverse_complexity_bound not in {"O(1)", "O(log m)"}:
+            raise ObserverOrbitError("unsupported inverse complexity declaration")
+        if type(self.expanded_states) is not int or self.expanded_states != 0:
+            raise ObserverOrbitError("inverse navigation must not expand intermediate states")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema": "mailcpu.orbit-value-result.v1",
+            "target_value": self.target_value,
+            "orbit_coordinate": self.orbit_coordinate,
+            "inverse_complexity_bound": self.inverse_complexity_bound,
+            "navigation": self.navigation.to_dict(),
+            "expanded_states": self.expanded_states,
+        }
+
+
 class ContextualOrbitNavigator:
     """Resolve a ContextualOrbitAddress through admitted Structural Memory only.
 
@@ -969,6 +1019,19 @@ class ContextualOrbitNavigator:
         if not isinstance(registry, StructuralMemoryRegistry):
             raise ObserverOrbitError("ContextualOrbitNavigator requires a StructuralMemoryRegistry")
         self.registry = registry
+
+    def _version_for_address(self, address: ContextualOrbitAddress):
+        memory_ref = address.structural_memory
+        try:
+            version = self.registry.version_for_revision(memory_ref.memory_id, memory_ref.revision)
+        except StructuralMemoryError as exc:
+            raise ObserverOrbitError("referenced Structural Memory revision is not admitted") from exc
+        if (
+            version.spec.digest != memory_ref.spec_digest
+            or version.certificate.digest != memory_ref.certificate_digest
+        ):
+            raise ObserverOrbitError("Structural Memory version or certificate identity does not match the address")
+        return version
 
     def locate(
         self,
@@ -988,15 +1051,7 @@ class ContextualOrbitNavigator:
             raise ObserverOrbitError("observer context does not match the contextual orbit address")
 
         memory_ref = address.structural_memory
-        try:
-            version = self.registry.version_for_revision(memory_ref.memory_id, memory_ref.revision)
-        except StructuralMemoryError as exc:
-            raise ObserverOrbitError("referenced Structural Memory revision is not admitted") from exc
-        if (
-            version.spec.digest != memory_ref.spec_digest
-            or version.certificate.digest != memory_ref.certificate_digest
-        ):
-            raise ObserverOrbitError("Structural Memory version or certificate identity does not match the address")
+        version = self._version_for_address(address)
 
         transition = structural_memory_spec_representation_ref(version.spec)
         if observer.subject != transition:
@@ -1083,3 +1138,134 @@ class ContextualOrbitNavigator:
             complexity_bound=complexity,
             expanded_states=0,
         )
+
+    def locate_value(
+        self,
+        base_address: ContextualOrbitAddress,
+        observer: ObserverContract,
+        target_value: int,
+        *,
+        operation_id: str = "mailcpu.orbit.locate-value",
+        time_frame: TemporalFrame | None = None,
+    ) -> OrbitValueResult:
+        """Invert supported generator dynamics and observe the first matching coordinate.
+
+        The supplied address must be pinned at its base coordinate (offset zero).
+        This operation intentionally supports only inverse methods with explicit
+        direct algebraic bounds:
+          * int: exact modular/non-modular progression inverse, O(1);
+          * lcg: full-period power-of-two bit lifting, O(log m).
+
+        It never invokes Law.find(), because that method may select BSGS O(sqrt(m))
+        or a linear finite-graph scan for other families.
+        """
+        if not isinstance(base_address, ContextualOrbitAddress):
+            raise ObserverOrbitError("locate_value requires a base ContextualOrbitAddress")
+        if not isinstance(observer, ObserverContract):
+            raise ObserverOrbitError("locate_value requires an ObserverContract")
+        if type(target_value) is not int:
+            raise ObserverOrbitError("target_value must be a strict integer")
+        _identifier(operation_id, "operation_id")
+        if base_address.orbit_offset != 0:
+            raise ObserverOrbitError("value inversion requires an address pinned at the base coordinate")
+        if observer.context_digest != base_address.context_digest:
+            raise ObserverOrbitError("observer context does not match the contextual orbit address")
+
+        version = self._version_for_address(base_address)
+        transition = structural_memory_spec_representation_ref(version.spec)
+        if observer.subject != transition:
+            raise ObserverOrbitError("observer subject does not identify the pinned Structural Memory law")
+        if observer.interpretation != base_address.computational_ground:
+            raise ObserverOrbitError("observer interpretation does not match the Computational Ground")
+
+        params = version.spec.parameters
+        family = version.spec.family
+        if family == "int":
+            step = params["step"]
+            modulus = params.get("mod")
+            origin = params["x0"]
+            if modulus is None:
+                if step == 0:
+                    candidate = 0 if target_value == origin else None
+                else:
+                    difference = target_value - origin
+                    quotient, remainder = divmod(difference, step)
+                    candidate = quotient if remainder == 0 and quotient >= 0 else None
+            elif target_value < 0 or target_value >= modulus:
+                candidate = None
+            elif step % modulus == 0:
+                candidate = 0 if target_value == origin % modulus else None
+            else:
+                candidate = find_coordinate_int(step, modulus, origin, target_value)
+            inverse_complexity = "O(1)"
+        elif family == "lcg":
+            multiplier = params["a"]
+            increment = params["c"]
+            modulus = params["mod"]
+            origin = params["x0"]
+            is_power_of_two = modulus >= 8 and (modulus & (modulus - 1)) == 0
+            is_full_period_2adic = (
+                is_power_of_two
+                and multiplier % 4 == 1
+                and increment % 2 == 1
+            )
+            if not is_full_period_2adic:
+                raise ObserverOrbitError(
+                    "LCG inverse is unsupported without the full-period power-of-two 2-adic conditions; BSGS fallback is disabled"
+                )
+            if target_value < 0 or target_value >= modulus:
+                candidate = None
+            else:
+                candidate = find_coordinate_lcg_adic(
+                    multiplier,
+                    increment,
+                    modulus,
+                    origin,
+                    target_value,
+                )
+            inverse_complexity = "O(log m)"
+        else:
+            raise ObserverOrbitError(
+                f"direct inverse navigation is not yet admitted for {family!r}; no scan or BSGS fallback is permitted"
+            )
+
+        if candidate is None:
+            raise ObserverOrbitError("target value is not reachable under the admitted direct inverse")
+        law = Law(
+            family=version.spec.family,
+            params=params,
+            order=version.spec.order,
+            verdict=version.spec.law_verdict,
+            first_bad=version.spec.first_bad,
+        )
+        try:
+            verified_value = navigate_guarded(law, candidate)
+        except (HorizonExceeded, Refused) as exc:
+            raise ObserverOrbitError("inverse coordinate lies outside the certified Structural Memory horizon") from exc
+        if verified_value != target_value:
+            raise ObserverOrbitError("inverse candidate failed exact forward verification")
+
+        resolved_ref = replace(base_address.structural_memory, coordinate=candidate)
+        resolved_address = replace(
+            base_address,
+            coordinate=SchedulerReading(
+                base_address.coordinate.scheduler_id,
+                base_address.base_ground.coordinate + candidate,
+            ),
+            structural_memory=resolved_ref,
+        )
+        navigation = self.locate(
+            resolved_address,
+            observer,
+            operation_id=operation_id,
+            time_frame=time_frame,
+            expected_value=target_value,
+        )
+        return OrbitValueResult(
+            target_value=target_value,
+            orbit_coordinate=candidate,
+            inverse_complexity_bound=inverse_complexity,
+            navigation=navigation,
+            expanded_states=0,
+        )
+
