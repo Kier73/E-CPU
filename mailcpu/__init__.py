@@ -429,6 +429,7 @@ from .vantage_transform import (
     vp_stride,
 )
 from .law_certifier import (
+    FiniteGraphInverseIndex,
     HorizonExceeded,
     Law,
     Refused,
@@ -1326,6 +1327,7 @@ __all__ = [
     "vp_modulus",
     "vp_origin",
     "vp_stride",
+    "FiniteGraphInverseIndex",
     "HorizonExceeded",
     "Law",
     "Refused",
