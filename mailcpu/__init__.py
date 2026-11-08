@@ -693,6 +693,16 @@ from .computational_transition import (
     ComputationalTransitionError,
 )
 
+from .computational_fabric_vgi import (
+    VGIFabricOperatorError,
+    VGIFabricSessionOperator,
+    VGI_FABRIC_INPUT_SCHEMA,
+    VGI_FABRIC_QUANTUM_OPERATOR,
+    VGI_FABRIC_QUANTUM_VERSION,
+    VGI_FABRIC_RESULT_SCHEMA,
+    vgi_fabric_quantum_operator_spec,
+)
+
 from .vgi_session import (
     VGICompiledSessionDescriptor,
     VGISessionError,
@@ -1443,6 +1453,13 @@ __all__ = [
     "ComputationalTransitionContext",
     "ComputationalTransitionContract",
     "ComputationalTransitionError",
+    "VGIFabricOperatorError",
+    "VGIFabricSessionOperator",
+    "VGI_FABRIC_INPUT_SCHEMA",
+    "VGI_FABRIC_QUANTUM_OPERATOR",
+    "VGI_FABRIC_QUANTUM_VERSION",
+    "VGI_FABRIC_RESULT_SCHEMA",
+    "vgi_fabric_quantum_operator_spec",
     "VGICompiledSessionDescriptor",
     "VGISessionError",
     "VGISessionExecution",
