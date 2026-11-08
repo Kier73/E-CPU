@@ -854,6 +854,7 @@ from .composed_ground import (
 from .inverse_navigation import ProcessPathIndex, ProcessPathIndexError
 from .predictive_selection import (
     PredictiveCandidateEvaluation,
+    PredictiveComponentMetrics,
     PredictiveDescriptionCandidate,
     PredictiveDescriptionSelector,
     PredictiveExecutionEvidence,
@@ -926,6 +927,7 @@ __all__ = [
     "ProcessPathIndex",
     "ProcessPathIndexError",
     "PredictiveCandidateEvaluation",
+    "PredictiveComponentMetrics",
     "PredictiveDescriptionCandidate",
     "PredictiveDescriptionSelector",
     "PredictiveExecutionEvidence",

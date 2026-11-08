@@ -30,6 +30,7 @@ from mailcpu.predictive_selection import (
     PredictiveGroundObservation,
     PredictiveSelectionError,
     predictive_experiment_digest,
+    _navigation_work_units,
 )
 from mailcpu.semantic_translation import ObservationContract
 from mailcpu.temporal import SchedulerReading, TemporalFrame
@@ -209,9 +210,23 @@ def test_selector_ranks_composed_descriptions_on_chronological_holdouts():
         "alternative",
         alternative_laws,
     )
+    permuted_laws = _laws_map(original_laws)
+    permuted_laws["program-counter"] = Law(
+        "int",
+        {"x0": 88, "step": -3, "mod": 101},
+        1,
+        "GROUND",
+    )
+    permuted_address = _candidate_address(
+        registry,
+        address,
+        "permuted",
+        permuted_laws,
+    )
     candidates = (
         PredictiveDescriptionCandidate("grounded", address),
         PredictiveDescriptionCandidate("alternative", alternative_address),
+        PredictiveDescriptionCandidate("permuted", permuted_address),
     )
     observations = _make_observations(
         address,
@@ -231,6 +246,7 @@ def test_selector_ranks_composed_descriptions_on_chronological_holdouts():
     assert "grounded" in report.pareto_frontier
     grounded = next(item for item in report.evaluations if item.candidate_id == "grounded")
     alternative = next(item for item in report.evaluations if item.candidate_id == "alternative")
+    permuted = next(item for item in report.evaluations if item.candidate_id == "permuted")
     assert grounded.partition("development").sample_count == 2
     assert grounded.partition("validation").sample_count == 2
     assert grounded.partition("test").sample_count == 2
@@ -243,6 +259,35 @@ def test_selector_ranks_composed_descriptions_on_chronological_holdouts():
     assert grounded.partition("validation").component_state_space_coverage == 1.0
     assert alternative.partition("validation").component_accuracy < 1.0
     assert alternative.partition("validation").predictive_yield < 1.0
+    grounded_components = {
+        item.component_id: item
+        for item in grounded.partition("validation").component_metrics
+    }
+    alternative_components = {
+        item.component_id: item
+        for item in alternative.partition("validation").component_metrics
+    }
+    permuted_components = {
+        item.component_id: item
+        for item in permuted.partition("validation").component_metrics
+    }
+    pc_grounded = grounded_components["program-counter"]
+    pc_alternative = alternative_components["program-counter"]
+    pc_permuted = permuted_components["program-counter"]
+    assert pc_grounded.accuracy_ratio == 1.0
+    assert pc_grounded.state_support_coverage == 1.0
+    assert pc_grounded.observed_change_intervals == 1
+    assert pc_grounded.predicted_change_intervals == 1
+    assert pc_grounded.change_detection_accuracy == 1.0
+    assert pc_grounded.transition_value_accuracy == 1.0
+    assert pc_alternative.accuracy_ratio == 0.0
+    assert pc_alternative.change_detection_accuracy == 1.0
+    assert pc_alternative.transition_value_accuracy == 0.0
+    assert pc_alternative.matched_transitions == 0
+    assert pc_permuted.accuracy_ratio == 0.0
+    assert pc_permuted.state_support_coverage == 1.0
+    assert pc_permuted.change_detection_accuracy == 1.0
+    assert pc_permuted.transition_value_accuracy == 0.0
     assert grounded.partition("validation").navigation_work_units > 0
     assert len(grounded.partition("validation").navigation_evidence_digest) == 64
     assert grounded.description_bytes > 0
@@ -428,3 +473,11 @@ def test_selector_refuses_an_empty_validation_window():
             development_through_tick=512,
             validation_through_tick=513,
         )
+
+
+def test_navigation_work_proxy_reflects_direct_family_costs():
+    assert _navigation_work_units("int", {}, 1, 1024) == 1
+    assert _navigation_work_units("fgraph", {"orbit": [1, 2, 3, 4]}, 4, 1024) == 4
+    assert _navigation_work_units("lcg", {"mod": 2**32}, 1, 255) == 8
+    assert _navigation_work_units("gf2", {}, 2, 1) == 1
+    assert _navigation_work_units("gf2", {}, 2, 255) == 64

@@ -16,7 +16,7 @@ import re
 from collections import defaultdict
 from typing import Any, Mapping, Sequence
 
-from .classifier import HypervisorAction, HypervisorExecutionResult
+from .classifier import HypervisorAction, HypervisorDomain, HypervisorExecutionResult
 from .computational_fabric import ComputationalFabricRouteWitness
 from .composed_ground import (
     ComposedComponentAddress,
@@ -683,6 +683,131 @@ class PredictiveDescriptionCandidate:
 
 
 @dataclass(frozen=True)
+class PredictiveComponentMetrics:
+    """Mathematics: bind per-component value support, point predictions, and sampled transition classifications into one validated metric record."""
+
+    component_id: str
+    field_path: tuple[str, ...]
+    sample_count: int
+    predicted_samples: int
+    correct_samples: int
+    distinct_observed_values: int
+    distinct_predicted_values: int
+    distinct_matched_values: int
+    observed_change_intervals: int
+    predicted_change_intervals: int
+    eligible_transition_intervals: int
+    correct_change_classifications: int
+    false_positive_changes: int
+    missed_changes: int
+    matched_transitions: int
+
+    def __post_init__(self) -> None:
+        """Mathematics: enforce finite sample, support, and transition confusion counts for one component."""
+        _require_identifier(self.component_id, "component metric ID")
+        if (
+            not isinstance(self.field_path, (tuple, list))
+            or not self.field_path
+            or any(not isinstance(item, str) or not item for item in self.field_path)
+        ):
+            raise PredictiveSelectionError("component metric field_path must contain non-empty object keys")
+        object.__setattr__(self, "field_path", tuple(self.field_path))
+        names = (
+            "sample_count", "predicted_samples", "correct_samples",
+            "distinct_observed_values", "distinct_predicted_values", "distinct_matched_values",
+            "observed_change_intervals", "predicted_change_intervals",
+            "eligible_transition_intervals", "correct_change_classifications",
+            "false_positive_changes", "missed_changes", "matched_transitions",
+        )
+        for name in names:
+            _require_int(getattr(self, name), name)
+        if self.predicted_samples > self.sample_count or self.correct_samples > self.predicted_samples:
+            raise PredictiveSelectionError("component sample counters are inconsistent")
+        if (
+            self.distinct_matched_values > self.distinct_observed_values
+            or self.distinct_matched_values > self.distinct_predicted_values
+            or self.observed_change_intervals > max(0, self.sample_count - 1)
+            or self.eligible_transition_intervals > max(0, self.sample_count - 1)
+            or self.predicted_change_intervals > self.eligible_transition_intervals
+            or self.correct_change_classifications > self.eligible_transition_intervals
+            or self.false_positive_changes > self.eligible_transition_intervals
+            or self.missed_changes > self.eligible_transition_intervals
+            or self.matched_transitions > self.eligible_transition_intervals
+        ):
+            raise PredictiveSelectionError("component state-support or transition counters are inconsistent")
+        if (
+            self.correct_change_classifications
+            + self.false_positive_changes
+            + self.missed_changes
+            != self.eligible_transition_intervals
+        ):
+            raise PredictiveSelectionError("component transition classifications do not partition eligible intervals")
+        if self.false_positive_changes > self.predicted_change_intervals:
+            raise PredictiveSelectionError("false-positive changes exceed predicted changes")
+        if self.missed_changes > self.observed_change_intervals:
+            raise PredictiveSelectionError("missed changes exceed observed changes")
+
+    @property
+    def coverage_ratio(self) -> float:
+        """Mathematics: compute predicted component samples divided by all observed samples."""
+        return self.predicted_samples / self.sample_count if self.sample_count else 0.0
+
+    @property
+    def accuracy_ratio(self) -> float:
+        """Mathematics: compute exact component values divided by successfully predicted values."""
+        return self.correct_samples / self.predicted_samples if self.predicted_samples else 0.0
+
+    @property
+    def state_support_coverage(self) -> float:
+        """Mathematics: compute matched distinct observed values divided by distinct observed values."""
+        return (
+            self.distinct_matched_values / self.distinct_observed_values
+            if self.distinct_observed_values else 0.0
+        )
+
+    @property
+    def change_detection_accuracy(self) -> float:
+        """Mathematics: compute correct changed/unchanged classifications over intervals with two predictions."""
+        return (
+            self.correct_change_classifications / self.eligible_transition_intervals
+            if self.eligible_transition_intervals else 0.0
+        )
+
+    @property
+    def transition_value_accuracy(self) -> float:
+        """Mathematics: compute exact observed/predicted before-and-after pairs over eligible sampled intervals."""
+        return (
+            self.matched_transitions / self.eligible_transition_intervals
+            if self.eligible_transition_intervals else 0.0
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Mathematics: serialize state support, point accuracy, and the complete sampled transition confusion profile."""
+        return {
+            "component_id": self.component_id,
+            "field_path": list(self.field_path),
+            "sample_count": self.sample_count,
+            "predicted_samples": self.predicted_samples,
+            "correct_samples": self.correct_samples,
+            "distinct_observed_values": self.distinct_observed_values,
+            "distinct_predicted_values": self.distinct_predicted_values,
+            "distinct_matched_values": self.distinct_matched_values,
+            "observed_change_intervals": self.observed_change_intervals,
+            "predicted_change_intervals": self.predicted_change_intervals,
+            "eligible_transition_intervals": self.eligible_transition_intervals,
+            "correct_change_classifications": self.correct_change_classifications,
+            "false_positive_changes": self.false_positive_changes,
+            "missed_changes": self.missed_changes,
+            "matched_transitions": self.matched_transitions,
+            "coverage_ratio": self.coverage_ratio,
+            "accuracy_ratio": self.accuracy_ratio,
+            "state_support_coverage": self.state_support_coverage,
+            "change_detection_accuracy": self.change_detection_accuracy,
+            "transition_value_accuracy": self.transition_value_accuracy,
+        }
+
+
+@dataclass(frozen=True)
 class PredictivePartitionMetrics:
     """Predictive coverage, conditional accuracy, residuals, and algorithmic work for one chronological partition."""
 
@@ -697,6 +822,7 @@ class PredictivePartitionMetrics:
     unmodeled_changed_leaf_count: int
     navigation_work_units: int
     navigation_evidence_digest: str
+    component_metrics: tuple[PredictiveComponentMetrics, ...]
     distinct_observed_component_states: int
     distinct_predicted_component_states: int
     distinct_matched_component_states: int
@@ -733,6 +859,22 @@ class PredictivePartitionMetrics:
         if self.correct_components > self.predicted_components or self.predicted_components > self.expected_components:
             raise PredictiveSelectionError("partition component counters are inconsistent")
         _require_digest(self.navigation_evidence_digest, "navigation evidence digest")
+        component_metrics = tuple(self.component_metrics)
+        if any(not isinstance(item, PredictiveComponentMetrics) for item in component_metrics):
+            raise PredictiveSelectionError("component_metrics must contain PredictiveComponentMetrics values")
+        if len({item.component_id for item in component_metrics}) != len(component_metrics):
+            raise PredictiveSelectionError("component_metrics IDs must be unique")
+        if not component_metrics:
+            raise PredictiveSelectionError("every predictive partition must retain per-component metrics")
+        if len({item.field_path for item in component_metrics}) != len(component_metrics):
+            raise PredictiveSelectionError("component_metrics field paths must be unique")
+        if self.expected_components != self.sample_count * len(component_metrics):
+            raise PredictiveSelectionError("expected component count differs from the component metric basis")
+        if any(item.sample_count != self.sample_count for item in component_metrics):
+            raise PredictiveSelectionError("component metric sample counts differ from their partition")
+        if any(item.predicted_samples != self.covered_samples for item in component_metrics):
+            raise PredictiveSelectionError("component prediction coverage differs from the composed projection coverage")
+        object.__setattr__(self, "component_metrics", tuple(sorted(component_metrics, key=lambda item: item.component_id)))
         if self.distinct_matched_component_states > self.distinct_observed_component_states:
             raise PredictiveSelectionError("matched component-state count exceeds observed distinct states")
         for name in ("coverage_ratio", "component_accuracy", "predictive_yield", "full_state_match_rate", "component_state_space_coverage"):
@@ -780,6 +922,7 @@ class PredictivePartitionMetrics:
             "unmodeled_changed_leaf_count": self.unmodeled_changed_leaf_count,
             "navigation_work_units": self.navigation_work_units,
             "navigation_evidence_digest": self.navigation_evidence_digest,
+            "component_metrics": [item.to_dict() for item in self.component_metrics],
             "distinct_observed_component_states": self.distinct_observed_component_states,
             "distinct_predicted_component_states": self.distinct_predicted_component_states,
             "distinct_matched_component_states": self.distinct_matched_component_states,
@@ -954,7 +1097,9 @@ def _navigation_work_units(family: str, parameters: Mapping[str, Any], order: in
             raise PredictiveSelectionError("admitted LCG description has an invalid modulus")
         return max(1, coordinate.bit_length())
     if family == "gf2":
-        return max(1, order ** 3 * max(1, (coordinate + 1).bit_length()))
+        if coordinate < order:
+            return 1
+        return max(1, order ** 3 * coordinate.bit_length())
     raise PredictiveSelectionError(f"unsupported generator family {family!r}")
 
 
@@ -1007,7 +1152,7 @@ class PredictiveDescriptionSelector:
                 "int": "O(1)",
                 "fgraph": "O(N) orbit materialization + O(1) indexed read",
                 "lcg": "O(log m)",
-                "gf2": "O(L^3 log t)",
+                "gf2": "O(1) for initial outputs, then O(L^3 log t)",
             }[version.spec.family]))
         description = {
             "schema": "mailcpu.predictive-description.v1",
@@ -1040,6 +1185,25 @@ class PredictiveDescriptionSelector:
         observed_component_states: set[str] = set()
         predicted_component_states: set[str] = set()
         matched_component_states: set[str] = set()
+        component_state: dict[str, dict[str, Any]] = {
+            item.component_id: {
+                "observed_values": set(),
+                "predicted_values": set(),
+                "sample_count": sample_count,
+                "predicted_samples": 0,
+                "correct_samples": 0,
+                "observed_change_intervals": 0,
+                "predicted_change_intervals": 0,
+                "eligible_transition_intervals": 0,
+                "correct_change_classifications": 0,
+                "false_positive_changes": 0,
+                "missed_changes": 0,
+                "matched_transitions": 0,
+            }
+            for item in candidate.address.components
+        }
+        previous_observed_values: dict[str, int] | None = None
+        previous_predicted_values: dict[str, int] | None = None
         template = candidate.address.template
         component_paths = tuple(item.field_path for item in candidate.address.components)
 
@@ -1049,10 +1213,20 @@ class PredictiveDescriptionSelector:
                 template, observed, component_paths
             )
             observed_vector = []
+            observed_by_id: dict[str, int] = {}
             for component in candidate.address.components:
                 expected = _read_path(observed, component.field_path, "observed state")
                 _validate_component_value(expected, component.value_kind, "observed component")
                 observed_vector.append([component.component_id, expected])
+                observed_by_id[component.component_id] = expected
+                component_state[component.component_id]["observed_values"].add(
+                    _canonical_json(expected, "observed component value")
+                )
+                if (
+                    previous_observed_values is not None
+                    and expected != previous_observed_values[component.component_id]
+                ):
+                    component_state[component.component_id]["observed_change_intervals"] += 1
             observed_vector_json = _canonical_json(observed_vector, "observed component state")
             observed_component_states.add(observed_vector_json)
             relative_coordinate = sample.tick - candidate.address.base_ground.coordinate
@@ -1073,6 +1247,8 @@ class PredictiveDescriptionSelector:
                     "disposition": "refused",
                     "error_type": type(exc).__name__,
                 })
+                previous_observed_values = observed_by_id
+                previous_predicted_values = None
                 continue
             if result.expanded_states != 0:
                 raise PredictiveSelectionError("candidate evaluation unexpectedly expanded intermediate states")
@@ -1097,17 +1273,43 @@ class PredictiveDescriptionSelector:
             ]
             predicted_vector_json = _canonical_json(predicted_vector, "predicted component state")
             predicted_component_states.add(predicted_vector_json)
-            if predicted_vector_json == observed_vector_json:
-                matched_component_states.add(observed_vector_json)
             for component in candidate.address.components:
-                actual = predicted_by_id[component.component_id]
-                expected = _read_path(observed, component.field_path, "observed state")
+                component_id = component.component_id
+                actual = predicted_by_id[component_id]
+                expected = observed_by_id[component_id]
+                metrics = component_state[component_id]
+                metrics["predicted_values"].add(
+                    _canonical_json(actual, "predicted component value")
+                )
+                metrics["predicted_samples"] += 1
                 if actual == expected:
                     correct_components += 1
+                    metrics["correct_samples"] += 1
+                if previous_predicted_values is not None and previous_observed_values is not None:
+                    observed_changed = expected != previous_observed_values[component_id]
+                    predicted_changed = actual != previous_predicted_values[component_id]
+                    metrics["eligible_transition_intervals"] += 1
+                    if predicted_changed:
+                        metrics["predicted_change_intervals"] += 1
+                    if observed_changed == predicted_changed:
+                        metrics["correct_change_classifications"] += 1
+                    elif predicted_changed:
+                        metrics["false_positive_changes"] += 1
+                    else:
+                        metrics["missed_changes"] += 1
+                    if (
+                        previous_predicted_values[component_id]
+                        == previous_observed_values[component_id]
+                        and actual == expected
+                    ):
+                        metrics["matched_transitions"] += 1
             if projection.state_digest == canonical_value_digest(observed):
                 exact_state_matches += 1
             residual_leaf_count += _leaf_difference_count(projection.state, observed)
+            previous_observed_values = observed_by_id
+            previous_predicted_values = predicted_by_id
 
+        matched_component_states.update(observed_component_states & predicted_component_states)
         component_accuracy = (
             correct_components / predicted_components if predicted_components else 0.0
         )
@@ -1117,6 +1319,29 @@ class PredictiveDescriptionSelector:
         )
         full_state_match_rate = (
             exact_state_matches / sample_count if sample_count else 0.0
+        )
+        component_metric_records = tuple(
+            PredictiveComponentMetrics(
+                component_id=component.component_id,
+                field_path=component.field_path,
+                sample_count=sample_count,
+                predicted_samples=component_state[component.component_id]["predicted_samples"],
+                correct_samples=component_state[component.component_id]["correct_samples"],
+                distinct_observed_values=len(component_state[component.component_id]["observed_values"]),
+                distinct_predicted_values=len(component_state[component.component_id]["predicted_values"]),
+                distinct_matched_values=len(
+                    component_state[component.component_id]["observed_values"]
+                    & component_state[component.component_id]["predicted_values"]
+                ),
+                observed_change_intervals=component_state[component.component_id]["observed_change_intervals"],
+                predicted_change_intervals=component_state[component.component_id]["predicted_change_intervals"],
+                eligible_transition_intervals=component_state[component.component_id]["eligible_transition_intervals"],
+                correct_change_classifications=component_state[component.component_id]["correct_change_classifications"],
+                false_positive_changes=component_state[component.component_id]["false_positive_changes"],
+                missed_changes=component_state[component.component_id]["missed_changes"],
+                matched_transitions=component_state[component.component_id]["matched_transitions"],
+            )
+            for component in candidate.address.components
         )
         return PredictivePartitionMetrics(
             partition=partition,
@@ -1130,6 +1355,7 @@ class PredictiveDescriptionSelector:
             unmodeled_changed_leaf_count=unmodeled_changed_leaf_count,
             navigation_work_units=navigation_work_units,
             navigation_evidence_digest=_digest(navigation_evidence, "partition navigation evidence"),
+            component_metrics=component_metric_records,
             distinct_observed_component_states=len(observed_component_states),
             distinct_predicted_component_states=len(predicted_component_states),
             distinct_matched_component_states=len(matched_component_states),

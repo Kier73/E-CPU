@@ -74,6 +74,17 @@ Coverage and conditional accuracy are separate by design. A candidate that predi
 
 The composed projection currently writes scalar component values into nested JSON object paths. Other changing fields remain visible as residual or unmodeled changes; they are not silently assumed to be predicted.
 
+Each partition also reports a PredictiveComponentMetrics record for each component. It separates:
+- exact pointwise value coverage and accuracy;
+- distinct observed-value support, distinct predicted-value support, and their intersection;
+- observed changes across adjacent samples;
+- predicted change detections over intervals where both endpoints were directly predicted;
+- false-positive and missed change detections; and
+- exact before/after transition-value matches.
+
+A sampled transition is the pair between adjacent observations in the supplied partition, even when their scheduler ticks are not consecutive. A navigation refusal breaks predicted transition continuity; the evaluator does not bridge over the missing prediction. Per-component state-support coverage measures scalar-value set intersection. The composed component-state-space coverage measures set intersection of complete multi-component tuples: a distinct predicted tuple counts as covered when it appears anywhere in the observed partition, irrespective of timing. These support measures can therefore be high even when values occur at the wrong times. Change-detection accuracy checks only whether a sampled interval changed or stayed stable, while transition-value accuracy requires the exact observed before/after values. These measures diagnose different forms of predictability and are not collapsed into one score.
+
+
 ## 5. Description and navigation cost
 
 The report charges each candidate in three distinct ways:
@@ -84,7 +95,7 @@ The report charges each candidate in three distinct ways:
    - integer progression: one unit;
    - finite graph: O(N) canonical orbit materialization plus O(1) indexed access. The current registry reconstructs the stored orbit parameters for each new coordinate, so the proxy charges N units per read;
    - LCG: queried coordinate bit length;
-   - GF(2): recurrence-order cubed times the queried coordinate bit length.
+   - GF(2): one unit for an initial-register output; from coordinate t ≥ L, recurrence-order cubed times bit_length(t), matching the forward companion-matrix jump.
 
 These units compare the known algebraic cost profiles. They are not measured instruction counts, elapsed time, energy, or asymptotic proofs for an entire OS. Physical execution measurements, when supplied separately, remain separate fields.
 
@@ -135,3 +146,30 @@ The long-term question—whether a virtual description can become more effective
 \[
 \boxed{\text{Observe independently; predict compositionally; compare on held-out time; select by evidence and cost.}}
 \]
+
+
+## 10. Promotion and distributed evaluation seams
+
+### Hypervisor revision admission
+
+The repository already has a model-promotion pattern in ClassifierHypervisor:
+- HypervisorRevisionWitness binds a request to the expected semantic decision projection.
+- admit_classifier_revision evaluates a candidate in a shadow hypervisor and changes the active classifier only after every witness matches.
+- HypervisorIntentRevisionWitness also binds the current baseline action, and intent admission refuses any candidate whose action would be more permissive.
+- HypervisorRevisionProposal carries a checkpointable candidate snapshot and typed witnesses.
+- HypervisorRevisionArbitrationLoop fingerprints proposal identity, rejects a conflicting reuse, returns an exact replay for a duplicate, and journals the admission/refusal.
+
+This is the right shape for a future predictive-description promotion gate, but the existing proposal ABI is specifically for classifier and intent models. A generator candidate must not be smuggled through that interface. A future extension should add an explicit predictive-description target and witness type. It should independently re-evaluate the selected, already-admitted composed description on a new holdout set, compare it with the current baseline under a declared no-regression/Pareto policy, and only then move a versioned active-description pointer. Structural Memory admission remains a separate prerequisite. The current selector does none of this: it emits an advisory report.
+
+### Compute-fabric execution
+
+The existing ComputationalAddress already binds a typed Virtual Layer workload, operator-contract digest, Computational Ground, optional program identity, metric basis, resource ceilings and pinned Structural Memory references. The directory resolves host advertisements, while ComputationalFabricRouteWitness binds a proposed multi-hop path and additive network/host/total cost decomposition. ComputationalFabricDirectory also retains peer revision high-water marks and requires peers to reauthenticate for fresh leases after restore.
+
+The current selector is local to one StructuralMemoryRegistry; it does not dispatch candidate evaluations to remote peers. The route witness is retained only as non-authoritative placement context attached to an actual Hypervisor result. A distributed evaluator can be added without changing prediction semantics by:
+1. creating a deterministic pure evaluation workload for one candidate, partition and scheduler coordinate;
+2. pinning every component's exact Structural Memory revision, spec digest, certificate digest and common Ground-relative coordinate in the workload address;
+3. requiring the receiving host to re-resolve those revisions locally and use the same direct composed navigation path;
+4. returning the composed projection digest and per-component read receipts alongside the receiver-local Hypervisor execution result and measured handler metrics; and
+5. reducing results in canonical candidate/coordinate order, treating missing or refused results as reduced coverage and keeping planned route costs distinct from measured execution and transport time.
+
+This would parallelize evaluation, not move admission authority. A remote host's result would still need independent evidence binding and the selected description would still need a separate promotion witness set.
