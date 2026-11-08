@@ -1990,18 +1990,39 @@ def test_discovery_service_reauthenticates_after_transport_loss_and_directory_re
 
 
 @pytest.mark.skipif(shutil.which("openssl") is None, reason="OpenSSL CLI is required for ephemeral mutual-TLS certificates")
-def test_supervised_peer_process_restarts_from_durable_authority_and_reacquires_lease(
+def test_supervised_peer_process_restarts_control_listener_without_data_plane_loss(
     tmp_path: Path,
 ) -> None:
-    """Hard-kill a real fabric peer process; its replacement must reload the same revision and re-authenticate."""
+    """A killed discovery sidecar can recover its lease without owning the forwarding endpoint."""
 
     certificates = _make_test_certificates(tmp_path)
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        probe.bind(("127.0.0.1", 0))
-        port = int(probe.getsockname()[1])
 
-    endpoint = _endpoint("peer-b", port=port)
+    # Keep an independent data-plane endpoint bound throughout the discovery
+    # service kill/restart. It intentionally does not share the control port.
+    forwarding_listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    forwarding_listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    forwarding_listener.bind(("127.0.0.1", 0))
+    forwarding_listener.listen(8)
+    forwarding_listener.settimeout(1.0)
+    forwarding_port = int(forwarding_listener.getsockname()[1])
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        control_port = int(probe.getsockname()[1])
+    assert control_port != forwarding_port
+
+    def assert_data_plane_endpoint_alive() -> None:
+        """Prove the separately owned forwarding socket remains connectable."""
+        connection = socket.create_connection(
+            ("127.0.0.1", forwarding_port),
+            timeout=1.0,
+        )
+        accepted, _address = forwarding_listener.accept()
+        connection.close()
+        accepted.close()
+
+    endpoint = _endpoint("peer-b", port=forwarding_port)
+    control_endpoint = _endpoint("peer-b", port=control_port)
     store = ComputationalFabricAuthorityStore(tmp_path / "peer-b" / "authority.json")
     authority = store.open_authority(endpoint, lease_seconds=30)
     authority.register_host(_locus())
@@ -2020,7 +2041,7 @@ def test_supervised_peer_process_restarts_from_durable_authority_and_reacquires_
         "--bind-host",
         "127.0.0.1",
         "--listen-port",
-        str(port),
+        str(control_port),
         "--client-peer-id",
         "peer-a",
         "--expected-client-dns",
@@ -2035,7 +2056,7 @@ def test_supervised_peer_process_restarts_from_durable_authority_and_reacquires_
     supervisor = SubprocessServiceSupervisor()
     supervisor.register(
         SubprocessServiceSpec(
-            name="peer-b",
+            name="peer-b-discovery",
             command=command,
             readiness_directory=tmp_path / "readiness",
             restart=RestartPolicy.ON_FAILURE,
@@ -2044,48 +2065,66 @@ def test_supervised_peer_process_restarts_from_durable_authority_and_reacquires_
             restart_delay=0.02,
             shutdown_timeout=3.0,
             cwd=Path(__file__).resolve().parents[1],
-            log_path=tmp_path / "peer-b-service.log",
+            log_path=tmp_path / "peer-b-discovery-service.log",
         )
     )
 
+    lease_clock = [1_000.0]
     directory = ComputationalFabricDirectory(
         "peer-a",
         {"peer-b": "peer-b.fabric.test"},
+        monotonic=lambda: lease_clock[0],
     )
     directory.register_local_snapshot(
         _snapshot("peer-a", links=(_link("peer-a", "peer-b", 2),))
     )
     discovery = ComputationalFabricDiscoveryService(
         directory,
-        {"peer-b": endpoint},
+        {"peer-b": control_endpoint},
         _client_context(certificates),
         timeout=2.0,
         refresh_interval=0.05,
     )
     try:
-        first_process = supervisor.start("peer-b")
+        first_process = supervisor.start("peer-b-discovery")
         assert first_process.state == "running"
         assert first_process.pid is not None
         assert first_process.ready is not None
         assert first_process.ready["peer_id"] == "peer-b"
         assert first_process.ready["revision"] == durable_snapshot.revision
+        assert first_process.ready["control_port"] == control_port
+        assert first_process.ready["forwarding_port"] == forwarding_port
+        assert first_process.ready["port"] == control_port
         first_pid = first_process.pid
 
+        assert_data_plane_endpoint_alive()
         first = discovery.refresh_peer("peer-b")
         assert first.connected and first.refreshed and first.active
         assert first.revision == durable_snapshot.revision
         assert first.snapshot_digest == durable_snapshot.digest
         assert first.changed is True
         assert directory.hosts[0].host_id == "logical-host-b"
+        observed = next(
+            item for item in directory.active_snapshots
+            if item.peer_id == "peer-b"
+        )
+        assert observed.endpoint == endpoint
+        assert observed.endpoint.port != control_endpoint.port
 
-        # Kill the actual listener process. The receiver retains its previous
-        # observation only under the original, still-live local lease.
-        supervisor.kill("peer-b")
+        # Kill only the control-plane process. The last authenticated
+        # observation remains valid until its receiver-local lease expires.
+        supervisor.kill("peer-b-discovery")
         failed = discovery.refresh_peer("peer-b")
         assert failed.connected is False
         assert failed.refreshed is False
         assert failed.active is True
         assert failed.error is not None
+        assert_data_plane_endpoint_alive()
+
+        lease_clock[0] += 31.0
+        assert directory.purge_expired() == ("peer-b",)
+        assert tuple(item.peer_id for item in directory.active_snapshots) == ("peer-a",)
+        assert_data_plane_endpoint_alive()
 
         restarted = supervisor.reconcile()[0]
         assert restarted.state == "running"
@@ -2094,21 +2133,29 @@ def test_supervised_peer_process_restarts_from_durable_authority_and_reacquires_
         assert restarted.ready is not None
         assert restarted.ready["revision"] == durable_snapshot.revision
         assert restarted.ready["snapshot_digest"] == durable_snapshot.digest
+        assert restarted.ready["control_port"] == control_port
+        assert restarted.ready["forwarding_port"] == forwarding_port
 
-        # The new process has no old socket or TLS session. Discovery must
-        # establish a fresh mutual-TLS stream before renewing peer-b's lease.
+        # The replacement has no old socket or TLS session. A fresh direct
+        # mutual-TLS observation renews the expired lease without changing the
+        # peer's revision, identity, or advertised forwarding endpoint.
         reconnected = discovery.refresh_peer("peer-b")
         assert reconnected.connected and reconnected.refreshed and reconnected.active
         assert reconnected.changed is False
         assert reconnected.revision == durable_snapshot.revision
         assert reconnected.snapshot_digest == durable_snapshot.digest
-        assert "peer-b" in {
-            snapshot.peer_id for snapshot in directory.active_snapshots
-        }
+        observed = next(
+            item for item in directory.active_snapshots
+            if item.peer_id == "peer-b"
+        )
+        assert observed.endpoint == endpoint
+        assert observed.endpoint.port == forwarding_port
         assert store.load(expected_peer_id="peer-b").digest == durable_snapshot.digest
+        assert_data_plane_endpoint_alive()
     finally:
         discovery.close()
         supervisor.close()
+        forwarding_listener.close()
 
 
 def test_authority_store_detects_tampering_and_authority_mutations_roll_back_on_persist_failure(

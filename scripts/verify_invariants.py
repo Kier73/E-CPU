@@ -214,6 +214,7 @@ def _expected_symbol(establishes: str) -> str | None:
         "computational_execution": "ComputationalExecutionAdmissionCoordinator",
         "computational_fabric": "ComputationalFabricResolver",
         "computational_fabric_discovery": "ComputationalFabricDiscoveryService",
+        "computational_fabric_service": "main",
         "computational_fabric_recovery": "ComputationalFabricRecoveryStore",
         "computational_fabric_forwarding": "ComputationalFabricForwardingServer",
         "computational_fabric_forwarding_recovery": "ComputationalFabricForwardingRecoveryStore",
