@@ -24,7 +24,16 @@ import json
 import re
 from typing import Any, Mapping, Sequence
 
-from .law_certifier import HorizonExceeded, Law, Refused, find_coordinate_int, find_coordinate_lcg_adic, navigate_guarded
+from .law_certifier import (
+    HorizonExceeded,
+    Law,
+    Refused,
+    find_coordinate_fgraph,
+    find_coordinate_gf2_bit,
+    find_coordinate_int,
+    find_coordinate_lcg_adic,
+    navigate_guarded,
+)
 from .seed import SystemIdentity
 from .semantic_translation import (
     ObservationContract,
@@ -1050,6 +1059,8 @@ class OrbitValueResult:
         expected_inverse_bound = {
             "int": "O(1)",
             "lcg": "O(log m)",
+            "gf2": "O(L)",
+            "fgraph": "O(1) after O(N) index compilation",
         }.get(self.navigation.generator_family)
         if self.inverse_complexity_bound != expected_inverse_bound:
             raise ObserverOrbitError("inverse complexity bound does not match the supported generator family")
@@ -1238,8 +1249,10 @@ class ContextualOrbitNavigator:
           * int: exact modular/non-modular progression inverse, O(1);
           * lcg: full-period power-of-two bit lifting, O(log m).
 
-        It never invokes Law.find(), because that method may select BSGS O(sqrt(m))
-        or a linear finite-graph scan for other families.
+        It never invokes the general BSGS fallback. GF(2) inversion is bounded by
+        the recurrence register order. Finite-graph inversion compiles a reusable
+        hash index from the stored preperiod/cycle values, then performs O(1)
+        expected lookup; no transition steps are executed during index creation.
         """
         if not isinstance(base_address, ContextualOrbitAddress):
             raise ObserverOrbitError("locate_value requires a base ContextualOrbitAddress")
@@ -1306,6 +1319,19 @@ class ContextualOrbitNavigator:
                     target_value,
                 )
             inverse_complexity = "O(log m)"
+        elif family == "gf2":
+            candidate = find_coordinate_gf2_bit(
+                params["C"],
+                params["init"],
+                target_value,
+            )
+            inverse_complexity = "O(L)"
+        elif family == "fgraph":
+            candidate = find_coordinate_fgraph(
+                params["orbit"],
+                target_value,
+            )
+            inverse_complexity = "O(1) after O(N) index compilation"
         else:
             raise ObserverOrbitError(
                 f"direct inverse navigation is not yet admitted for {family!r}; no scan or BSGS fallback is permitted"
