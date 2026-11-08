@@ -59,6 +59,7 @@ Index of specification documents. Documents use defined terms from `GLOSSARY.md`
 | 50 | [COMPUTATIONAL_OBJECTS_AND_TIME.md](COMPUTATIONAL_OBJECTS_AND_TIME.md) | Computational object identity, host interpretation, time coordinates, temporal composition of communication paths, and replicated versus partitioned execution |
 | 51 | [TRANSIT_BYTE_OBJECTS.md](TRANSIT_BYTE_OBJECTS.md) | M1 content-addressed byte objects over existing page backings, page manifests, bounded range reads, remote page composition, and proof boundaries |
 | 52 | [COMPUTATIONAL_HOSTING.md](COMPUTATIONAL_HOSTING.md) | M2 backend-neutral multi-file artifact admission, backend profiles, local execution adapters, deterministic receipts, and Hypervisor/Transit composition |
+| 53 | [COMPUTATIONAL_SESSIONS_AND_STATE.md](COMPUTATIONAL_SESSIONS_AND_STATE.md) | M3 persistent computational sessions, immutable state checkpoints, quorum-anchored revisions, CAS continuation, and host migration |
 
 ## Document classes
 

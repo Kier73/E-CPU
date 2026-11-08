@@ -259,3 +259,17 @@ Deterministic result receipts are distinct from process-local duration
 measurements and from durable Hypervisor commitment. See
 [COMPUTATIONAL_HOSTING.md](docs/COMPUTATIONAL_HOSTING.md) for the mathematics,
 adapter contract, tests, and current proof boundaries.
+
+
+## Persistent computational sessions
+
+M3 adds a general, domain-neutral state checkpoint and continuation layer.
+Session identity is isolated by a fixed recovery membership; versioned state
+payloads are stored in the existing M1 page/object substrate; and each
+checkpoint is admitted as the quorum high-water through the existing recovery
+lineage. Continuation uses compare-and-swap against both expected revision and
+checkpoint digest. A portable checkpoint export can be restored by another
+host when the same artifact/state schema, recovery membership, and M1 pages
+are available; a changed backend profile requires explicit compatibility
+approval. See
+[COMPUTATIONAL_SESSIONS_AND_STATE.md](docs/COMPUTATIONAL_SESSIONS_AND_STATE.md).
