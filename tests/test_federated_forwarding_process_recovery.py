@@ -418,14 +418,14 @@ def _start_terminal_service(
                 expected_peer_dns="peer-b.fabric.test",
                 handshake_timeout=8.0,
             )
+            deadline = time.monotonic() + 20.0
+            while time.monotonic() < deadline and not stop.is_set():
+                if any(item.peer_id == "peer-b" for item in directory.active_snapshots):
+                    break
+                time.sleep(0.005)
+            if not any(item.peer_id == "peer-b" for item in directory.active_snapshots):
+                raise RuntimeError("terminal peer could not directly authenticate relay B before forwarding admission")
             if snapshot is None:
-                deadline = time.monotonic() + 20.0
-                while time.monotonic() < deadline and not stop.is_set():
-                    if any(item.peer_id == "peer-b" for item in directory.active_snapshots):
-                        break
-                    time.sleep(0.005)
-                if not any(item.peer_id == "peer-b" for item in directory.active_snapshots):
-                    raise RuntimeError("terminal peer could not directly authenticate relay B before forwarding admission")
                 server = ComputationalFabricForwardingServer(
                     "peer-c",
                     "peer-b",
@@ -1803,9 +1803,9 @@ def test_terminal_peer_c_hard_process_kill_recovers_while_relay_b_survives(
         assert first_receipt.downstream.peer_id == "peer-c"
         assert first_receipt.downstream.terminal_execution is not None
         assert first_receipt.downstream.terminal_execution["execution"]["effect"]["result"] == 9
-        assert first_receipt.downstream.terminal_execution["execution"]["replayed"] is (
-            cut != "before_execution"
-        )
+        # The nested receipt is C's original terminal result; the retry flag
+        # belongs to B's outer forwarding transition and does not rewrite it.
+        assert first_receipt.downstream.terminal_execution["execution"]["replayed"] is False
 
         # A second, new operation forces B to drain any old duplicate C result
         # before accepting the current result; it proves the rebinding path
