@@ -1690,7 +1690,6 @@ def test_federated_workload_forwards_over_two_authenticated_hops_and_replays_onc
                     transport,
                     directory_c,
                     catalogue=catalogue,
-                    operating_system=restored_os,
                 )
             except BaseException as exc:
                 rebound_failures.append(exc)
@@ -1712,7 +1711,6 @@ def test_federated_workload_forwards_over_two_authenticated_hops_and_replays_onc
                     transport,
                     directory_b,
                     next_hop_transports={"peer-c": transport_bc_rebound},
-                    operating_system=restored_os,
                 )
             except BaseException as exc:
                 rebound_failures.append(exc)
@@ -2193,3 +2191,528 @@ def test_authority_store_detects_tampering_and_authority_mutations_roll_back_on_
         failing.register_host(_locus())
     assert failing.revision == 0
     assert failing.snapshot().hosts == ()
+
+
+@pytest.mark.skipif(shutil.which("openssl") is None, reason="OpenSSL CLI is required for ephemeral mutual-TLS certificates")
+def test_persistent_vgi_session_transfers_through_fabric_and_replays_once(tmp_path: Path) -> None:
+    """Mathematics: Move a quorum-backed VGI checkpoint through A→B→C, admit local M1 pages, continue M4, and prove semantic replay."""
+
+    import hashlib
+    import json
+    import time
+
+    from vgi import SIGNAL8_GROUND, Signal8Backend
+    from mailcpu.classifier import HypervisorPolicy
+
+    from mailcpu.computational_fabric_forwarding import (
+        ComputationalFabricForwardingClient,
+        ComputationalFabricForwardingEnvelope,
+        ComputationalFabricForwardingServer,
+    )
+    from mailcpu.computational_fabric_vgi import (
+        VGIFabricSessionOperator,
+        VGI_FABRIC_INPUT_SCHEMA,
+    )
+    from mailcpu.computational_objects import ComputationalObjectStore
+    from mailcpu.computational_session import ComputationalSessionStore
+    from mailcpu.recovery_lineage import RecoveryLineageAuthority, RecoveryLineageCoordinator
+    from mailcpu.seed_commit_quorum import SeedCommitMembership
+    from mailcpu.vgi_session import (
+        VGI_SESSION_MEDIA_TYPE,
+        VGI_SESSION_STATE_SCHEMA,
+        VGICompiledSessionDescriptor,
+        VGIPersistentSession,
+        vgi_signal8_session_backend_fingerprint,
+    )
+
+    class MemoryPageBacking:
+        """Mathematics: Keep fixed-geometry content-addressed pages isolated per logical host."""
+
+        def __init__(self, page_size: int = 32) -> None:
+            self.page_size = page_size
+            self.pages: dict[str, bytes] = {}
+
+        def put_page(self, data: bytes) -> str:
+            """Mathematics: Admit one exact padded page under its SHA-256 identity."""
+            digest = hashlib.sha256(data).hexdigest()
+            self.pages.setdefault(digest, data)
+            return digest
+
+        def get_page(self, digest: str) -> bytes:
+            """Mathematics: Resolve one page by the content digest in its M1 manifest."""
+            return self.pages[digest]
+
+    def make_session_store(root: Path, backing: MemoryPageBacking, lineage, descriptor):
+        """Mathematics: Bind one local M1 page table to the shared M3 quorum and exact VGI execution profile."""
+        state_limit = 1024 * 1024
+        backend = vgi_signal8_session_backend_fingerprint(
+            max_quantum_steps=2,
+            max_total_steps=100,
+            max_state_bytes=state_limit,
+        )
+        objects = ComputationalObjectStore(backing, chunk_size=32)
+        store = ComputationalSessionStore(
+            root,
+            objects,
+            lineage,
+            artifact_manifest_digest=descriptor.artifact_manifest_digest,
+            backend_fingerprint=backend,
+            state_schema_id=VGI_SESSION_STATE_SCHEMA,
+            state_media_type=VGI_SESSION_MEDIA_TYPE,
+        )
+        return store, VGIPersistentSession(
+            store,
+            descriptor,
+            max_quantum_steps=2,
+            max_total_steps=100,
+            max_state_bytes=state_limit,
+        )
+
+    task = {
+        "name": "fabric-persistent-add",
+        "inputs": ["input.a", "input.b"],
+        "outputs": [{
+            "label": "sum",
+            "expression": {
+                "type": "add",
+                "left": {"type": "input", "address": "input.a"},
+                "right": {"type": "input", "address": "input.b"},
+            },
+        }],
+    }
+    descriptor = VGICompiledSessionDescriptor.from_task(task, SIGNAL8_GROUND.fingerprint)
+    session_id = "fabric-vgi-session"
+    genesis = hashlib.sha256(b"fabric-vgi-session-genesis-v1").hexdigest()
+    membership = SeedCommitMembership(
+        session_id,
+        1,
+        ("A", "B", "C"),
+        "A",
+        1,
+        genesis,
+    )
+    lineage_root = tmp_path / "quorum"
+    source_authorities = {
+        member: RecoveryLineageAuthority(
+            membership,
+            member,
+            lineage_root / f"{member}.jsonl",
+        )
+        for member in membership.member_ids
+    }
+    source_lineage = RecoveryLineageCoordinator(membership, source_authorities)
+
+    source_backing = MemoryPageBacking()
+    target_backing = MemoryPageBacking()
+    source_store, source_session = make_session_store(
+        tmp_path / "host-a",
+        source_backing,
+        source_lineage,
+        descriptor,
+    )
+
+    signal_backend = Signal8Backend()
+    initial_memory = {
+        "input.a": signal_backend.encode_symbol(2, observer=1),
+        "input.b": signal_backend.encode_symbol(3, observer=1),
+    }
+    source_session.initialize(initial_memory)
+    source_base = source_session.advance(2, operation_id="source-quantum-1")
+    assert source_base.status == "running"
+    export_started = time.perf_counter()
+    transfer = source_session.export_transfer().to_dict()
+    export_ms = (time.perf_counter() - export_started) * 1000.0
+    assert source_store.object_store.verify(source_base.session.checkpoint.state_manifest)
+
+    # C opens its own coordinator only after A has anchored the source
+    # checkpoint. Its independent authority objects replay the same durable
+    # member journals rather than reusing A's in-memory quorum coordinator.
+    target_authorities = {
+        member: RecoveryLineageAuthority(
+            membership,
+            member,
+            lineage_root / f"{member}.jsonl",
+        )
+        for member in membership.member_ids
+    }
+    target_lineage = RecoveryLineageCoordinator(membership, target_authorities)
+    assert target_lineage is not source_lineage
+    assert all(target_authorities[name] is not source_authorities[name] for name in membership.member_ids)
+    target_store, target_session = make_session_store(
+        tmp_path / "host-c",
+        target_backing,
+        target_lineage,
+        descriptor,
+    )
+
+    transition_contexts: list[dict[str, object]] = []
+    original_transition_backend = target_session.transition_adapter.backend
+
+    class RecordingTransitionBackend:
+        """Mathematics: Observe the exact verified M3 context presented to C's local pure transition."""
+
+        @property
+        def backend_fingerprint(self) -> str:
+            return original_transition_backend.backend_fingerprint
+
+        def transition(self, state_bytes: bytes, input_bytes: bytes, context) -> bytes:
+            transition_contexts.append(context.to_dict())
+            return original_transition_backend.transition(state_bytes, input_bytes, context)
+
+    target_session.transition_adapter.backend = RecordingTransitionBackend()
+    binding = VGIFabricSessionOperator(target_session)
+    registry = OperatorRegistry()
+    binding.register(registry)
+
+    certificates_root = tmp_path / "certificates"
+    certificates_root.mkdir()
+    certificates = _make_test_certificates(certificates_root)
+    listener_b = SocketTransport.listen("127.0.0.1", 0)
+    listener_c = SocketTransport.listen("127.0.0.1", 0)
+    endpoint_a = _endpoint("peer-a", port=44001)
+    endpoint_b = _endpoint("peer-b", port=listener_b.getsockname()[1])
+    endpoint_c = _endpoint("peer-c", port=listener_c.getsockname()[1])
+
+    destination_os = HeadlessOS()
+    system_identity = SystemIdentity("federated-vgi-system", 1)
+    seed = SystemSeed.from_system(destination_os)
+    seed_envelope = SystemSeedEnvelope(
+        system_identity,
+        "federated-vgi",
+        "federated-vgi",
+        seed,
+    )
+    assert destination_os.seed_admission.admit(seed_envelope).accepted
+    system_ground = VirtualGroundRef.from_envelope(seed_envelope)
+
+    runtime = VirtualLayerRuntime(registry, "node-c", frozenset({"cpu"}))
+    compute_pid = destination_os.environment.kernel.spawn(
+        "federated-vgi-compute",
+        capabilities=(Capability("/virtual-layer/operators", frozenset({"compute"})),),
+        parent_pid=destination_os.environment.init_pid,
+    )
+    locus = ComputationalHostLocus.from_runtime(
+        host_id="logical-vgi-host-c",
+        runtime=runtime,
+        authority_pid=compute_pid,
+        operator_id=binding.spec.operator_id,
+        computational_ground_fingerprints=(descriptor.ground_fingerprint,),
+        program_fingerprints=(descriptor.program_fingerprint,),
+        costs=_host_costs(3),
+        implementation_fingerprint=descriptor.implementation_fingerprint,
+    )
+    catalogue = ComputationalHostCatalogue((locus,))
+    advertisement = ComputationalHostAdvertisement.from_locus(locus, "peer-c")
+
+    workload = VirtualLayerWorkload(
+        workload_id="vgi-session-transfer-quantum",
+        system=system_identity,
+        ground=system_ground,
+        intention={"goal": {"kind": "continue-persistent-vgi-session", "session_id": session_id}},
+        operators=(VirtualOperatorRef(binding.spec.operator_id, binding.spec.version, "cpu"),),
+        input_value={
+            "schema": VGI_FABRIC_INPUT_SCHEMA,
+            "transfer": transfer,
+            "quantum_steps": 2,
+        },
+        budget=VirtualBudget(100_000_000, 4_000_000, 100_000),
+        logical_time=5,
+        eligible_nodes=("node-c",),
+        max_hops=2,
+    )
+    address = ComputationalAddress.from_workload(
+        workload,
+        binding.spec.operator_id,
+        binding.spec,
+        descriptor.ground_fingerprint,
+        program_fingerprint=descriptor.program_fingerprint,
+        metric_order=METRICS,
+    )
+
+    snapshot_a = ComputationalPeerSnapshot(
+        endpoint_a,
+        1,
+        60,
+        (),
+        (_link("peer-a", "peer-b", 2),),
+    )
+    snapshot_b = ComputationalPeerSnapshot(
+        endpoint_b,
+        1,
+        60,
+        (),
+        (_link("peer-b", "peer-c", 3),),
+    )
+    snapshot_c = ComputationalPeerSnapshot(endpoint_c, 1, 60, (advertisement,), ())
+    directory_a = _directory(snapshot_a, snapshot_b, snapshot_c, local_peer_id="peer-a")
+    directory_b = _directory(snapshot_a, snapshot_b, snapshot_c, local_peer_id="peer-b")
+    directory_c = _directory(snapshot_b, snapshot_c, local_peer_id="peer-c")
+
+    resolved = ComputationalFabricResolver().resolve(address, directory_a, origin_peer_id="peer-a")
+    assert resolved.status is ComputationalFabricStatus.FOUND
+    assert resolved.witness is not None
+    assert resolved.witness.peer_path == ("peer-a", "peer-b", "peer-c")
+    envelope = ComputationalFabricForwardingEnvelope.begin(
+        address,
+        resolved.witness,
+        origin_channel="application.vgi",
+        origin_sequence=1,
+    )
+
+    allow_policy = HypervisorPolicy(
+        review_confidence=0.0,
+        automatic_confidence=0.0,
+        destructive_confidence=0.0,
+        danger_review_probability=1.0,
+    )
+    relay_os = HeadlessOS()
+    relay_os.hypervisor.policy = allow_policy
+    relay_pid = relay_os.environment.kernel.spawn(
+        "federated-vgi-relay",
+        capabilities=(Capability("/network/computational-fabric/forward", frozenset({"forward"})),),
+        parent_pid=relay_os.environment.init_pid,
+    )
+    execute_pid = destination_os.environment.kernel.spawn(
+        "federated-vgi-terminal-gate",
+        capabilities=(Capability("/network/computational-fabric/execute", frozenset({"execute"})),),
+        parent_pid=destination_os.environment.init_pid,
+    )
+    destination_os.hypervisor.policy = allow_policy
+
+    client_context_b = ssl.create_default_context(
+        ssl.Purpose.SERVER_AUTH,
+        cafile=str(certificates["ca"]),
+    )
+    client_context_b.minimum_version = ssl.TLSVersion.TLSv1_2
+    client_context_b.load_cert_chain(
+        str(certificates["server_cert"]),
+        str(certificates["server_key"]),
+    )
+
+    failures: list[BaseException] = []
+    server_b_holder: dict[str, ComputationalFabricForwardingServer] = {}
+    server_c_holder: dict[str, ComputationalFabricForwardingServer] = {}
+    stop_b = threading.Event()
+    stop_c = threading.Event()
+    client_ab: ComputationalFabricForwardingClient | None = None
+    client_bc: ComputationalFabricForwardingClient | None = None
+    threads: list[threading.Thread] = []
+
+    def accept_c() -> None:
+        """Mathematics: Accept only peer B's pinned TLS identity and bind C's local VGI operator catalogue."""
+        try:
+            server_c_holder["server"] = ComputationalFabricForwardingServer.accept_mutual_tls(
+                listener_c,
+                "peer-c",
+                "peer-b",
+                _server_context_c(certificates),
+                directory_c,
+                destination_os,
+                execute_pid,
+                origin_peer_id="peer-a",
+                origin_channel="application.vgi",
+                catalogue=catalogue,
+                timeout=8.0,
+            )
+        except BaseException as exc:
+            failures.append(exc)
+
+    def accept_b() -> None:
+        """Mathematics: Accept only peer A's pinned TLS identity and bind B's local relay capability."""
+        try:
+            server_b_holder["server"] = ComputationalFabricForwardingServer.accept_mutual_tls(
+                listener_b,
+                "peer-b",
+                "peer-a",
+                _server_context(certificates),
+                directory_b,
+                relay_os,
+                relay_pid,
+                origin_peer_id="peer-a",
+                origin_channel="application.vgi",
+                next_hop_clients={"peer-c": client_bc},
+                timeout=8.0,
+            )
+        except BaseException as exc:
+            failures.append(exc)
+
+    def serve(server: ComputationalFabricForwardingServer, stop: threading.Event) -> None:
+        """Mathematics: Apply receiver-local bounded forwarding transitions until the test releases the peer."""
+        while not stop.is_set():
+            try:
+                served = server.serve_once()
+                if served is None:
+                    time.sleep(0.001)
+            except BaseException as exc:
+                failures.append(exc)
+                stop.set()
+                return
+
+    try:
+        accept_c_thread = threading.Thread(target=accept_c, daemon=True)
+        threads.append(accept_c_thread)
+        accept_c_thread.start()
+        client_bc = ComputationalFabricForwardingClient.connect_mutual_tls(
+            "peer-b",
+            endpoint_c,
+            client_context_b,
+            origin_peer_id="peer-a",
+            origin_channel="application.vgi",
+            timeout=8.0,
+        )
+        accept_c_thread.join(timeout=8.0)
+        assert not accept_c_thread.is_alive()
+        assert "server" in server_c_holder, repr(failures)
+
+        accept_b_thread = threading.Thread(target=accept_b, daemon=True)
+        threads.append(accept_b_thread)
+        accept_b_thread.start()
+        client_ab = ComputationalFabricForwardingClient.connect_mutual_tls(
+            "peer-a",
+            endpoint_b,
+            _client_context(certificates),
+            origin_peer_id="peer-a",
+            origin_channel="application.vgi",
+            timeout=8.0,
+        )
+        accept_b_thread.join(timeout=8.0)
+        assert not accept_b_thread.is_alive()
+        assert "server" in server_b_holder, repr(failures)
+
+        server_b = server_b_holder["server"]
+        server_c = server_c_holder["server"]
+        serve_c_thread = threading.Thread(target=serve, args=(server_c, stop_c), daemon=True)
+        serve_b_thread = threading.Thread(target=serve, args=(server_b, stop_b), daemon=True)
+        threads.extend((serve_c_thread, serve_b_thread))
+        serve_c_thread.start()
+        serve_b_thread.start()
+
+        forward_started = time.perf_counter()
+        try:
+            receipt = client_ab.forward(envelope, directory_a)
+        except Exception as exc:
+            b_error = (
+                None
+                if "server" not in server_b_holder
+                else server_b_holder["server"].last_error
+            )
+            c_error = (
+                None
+                if "server" not in server_c_holder
+                else server_c_holder["server"].last_error
+            )
+            raise AssertionError(
+                "VGI fabric request failed: "
+                f"{type(exc).__name__}: {exc}; "
+                f"receiver_failures={[f'{type(item).__name__}: {item}' for item in failures]!r}; "
+                f"B.last_error={b_error!r}; C.last_error={c_error!r}; "
+                f"transfer_bytes={len(json.dumps(transfer, sort_keys=True, separators=(',', ':')).encode('utf-8'))}"
+            ) from exc
+        forward_ms = (time.perf_counter() - forward_started) * 1000.0
+        assert not failures, repr(failures)
+        assert receipt.succeeded
+        assert receipt.peer_id == "peer-b"
+        assert receipt.downstream is not None
+        assert receipt.downstream.peer_id == "peer-c"
+        terminal = receipt.downstream.terminal_execution
+        assert terminal is not None
+        assert terminal["status"] == "executed"
+        result = terminal["execution"]["effect"]["result"]
+        assert result["schema"] == "mailcpu.fabric.vgi-quantum-result.v1"
+        assert result["session_id"] == session_id
+        assert result["descriptor_digest"] == descriptor.descriptor_digest
+        assert result["ground_fingerprint"] == descriptor.ground_fingerprint
+        assert result["task_digest"] == descriptor.task_digest
+        assert result["program_fingerprint"] == descriptor.program_fingerprint
+        assert result["interpretation_fingerprint"] == descriptor.interpretation_fingerprint
+        assert result["logical_time"] == source_base.session.checkpoint.logical_time + 1
+        assert result["backend_fingerprint"] == source_base.session.checkpoint.backend_fingerprint
+        assert result["state_schema_id"] == VGI_SESSION_STATE_SCHEMA
+        assert result["artifact_manifest_digest"] == descriptor.artifact_manifest_digest
+        assert result["revision"] == source_base.revision + 1
+        assert result["predecessor_checkpoint_digest"] == source_base.checkpoint_digest
+        assert result["total_steps"] == 4
+        assert result["status"] == "running"
+        assert result["replayed"] is False
+        assert result["measurement"]["transfer_bundle_bytes"] > 0
+        assert result["measurement"]["state_bytes"] == len(source_base.session.state_bytes)
+
+        # Observe the exact context supplied to the receiver-local M4 pure
+        # backend: the transfer must continue the original M3 causal point.
+        assert len(transition_contexts) == 1
+        transition_context = transition_contexts[0]
+        assert transition_context["session_id"] == source_base.session.checkpoint.session_id
+        assert transition_context["revision"] == source_base.revision
+        assert transition_context["checkpoint_digest"] == source_base.checkpoint_digest
+        assert transition_context["lineage_digest"] == source_base.session.lineage_manifest.digest
+        assert transition_context["state_digest"] == source_base.session.checkpoint.state_digest
+        assert transition_context["artifact_manifest_digest"] == descriptor.artifact_manifest_digest
+        assert transition_context["state_schema_id"] == VGI_SESSION_STATE_SCHEMA
+        assert transition_context["backend_fingerprint"] == source_base.session.checkpoint.backend_fingerprint
+        assert transition_context["execution_backend_fingerprint"] == target_session.transition_adapter.contract.backend_fingerprint
+        assert transition_context["interpretation_fingerprint"] == descriptor.interpretation_fingerprint
+        assert transition_context["transition_contract_digest"] == target_session.transition_adapter.contract.digest
+        assert transition_context["operation_id"] == result["operation_id"]
+        assert transition_context["logical_time"] == source_base.session.checkpoint.logical_time + 1
+
+        target_snapshot = target_session.load().session
+        assert target_snapshot.revision == result["revision"]
+        assert target_snapshot.checkpoint_digest == result["checkpoint_digest"]
+        assert target_snapshot.checkpoint.session_id == source_base.session.checkpoint.session_id
+        assert target_snapshot.checkpoint.artifact_manifest_digest == source_base.session.checkpoint.artifact_manifest_digest
+        assert target_snapshot.checkpoint.backend_fingerprint == source_base.session.checkpoint.backend_fingerprint
+        assert target_store.object_store.verify(target_snapshot.checkpoint.state_manifest)
+        assert source_backing.pages
+        assert target_backing.pages
+        assert source_backing is not target_backing
+
+        after_first_execution_count = len(
+            destination_os.hypervisor_arbitration.snapshot()["executions"]
+        )
+        first_measurement = binding.last_measurement
+        replay = client_ab.forward(envelope, directory_a)
+        assert replay.digest == receipt.digest
+        assert replay.succeeded
+        assert target_session.load().revision == source_base.revision + 1
+        assert len(destination_os.hypervisor_arbitration.snapshot()["executions"]) == after_first_execution_count
+        assert binding.last_measurement == first_measurement
+        assert len(transition_contexts) == 1
+
+        # The same operation identity is also idempotent at the M3/M4 boundary,
+        # including a retry after a lost outer Hypervisor receipt.
+        m3_retry = binding.execute(workload.input_value, workload)
+        assert m3_retry["replayed"] is True
+        assert m3_retry["revision"] == source_base.revision + 1
+        assert target_session.load().revision == source_base.revision + 1
+        assert len(transition_contexts) == 1
+
+        verify_started = time.perf_counter()
+        assert target_store.object_store.verify(target_snapshot.checkpoint.state_manifest)
+        target_m1_verify_ms = (time.perf_counter() - verify_started) * 1000.0
+        measurements = {
+            "transfer_export_ms": export_ms,
+            "forward_roundtrip_ms": forward_ms,
+            "target_m1_verify_ms": target_m1_verify_ms,
+            **first_measurement,
+        }
+        print("FABRIC_VGI_MEASUREMENTS=" + json.dumps(measurements, sort_keys=True), flush=True)
+        assert measurements["transfer_bundle_bytes"] > 0
+        assert measurements["bundle_decode_ms"] >= 0
+        assert measurements["m1_import_and_m3_verification_ms"] >= 0
+        assert measurements["m4_quantum_m1_persist_and_m3_commit_ms"] >= 0
+        assert measurements["forward_roundtrip_ms"] >= measurements["m4_quantum_m1_persist_and_m3_commit_ms"]
+    finally:
+        stop_b.set()
+        stop_c.set()
+        if client_ab is not None:
+            client_ab.close()
+        if client_bc is not None:
+            client_bc.close()
+        for server in server_b_holder.values():
+            server.close()
+        for server in server_c_holder.values():
+            server.close()
+        listener_b.close()
+        listener_c.close()
+        for thread in threads:
+            thread.join(timeout=5.0)

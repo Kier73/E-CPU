@@ -27,6 +27,12 @@ where:
 
 Transport sequence, physical arrival time, and semantic operation identity are separate coordinates. A retry may use a new transport sequence while preserving the same semantic operation. A receiver must reject a conflicting payload that reuses an identity already committed to different content.
 
+### Control-plane intent and bulk payload are separate projections
+
+A large typed input must not be embedded wholesale into the Hypervisor's semantic intent representation. The Virtual Layer supplies an explicit intent projection alongside the full payload. The projection is a bounded summary of the workload goal, System/Ground coordinate, operator contract, resource budget, logical time, input byte extent and SHA-256 input/workload identities. The complete request payload remains present in the event and is included in its event fingerprint. The projection is restricted to the receiver-verified Virtual Layer operator contract and a 4 KiB canonical JSON bound. `HypervisorRequest.decision_state()` uses the compact projection plus the digest and byte length of the full payload for classifier/intent interpretation, while `state()` retains the complete request for replay, journaling and receiver execution. Virtual-cost accounting still charges the complete request's serialized semantic bits and chemical complexity, but evaluates the structural token count over the compact projection; this separates interpretation budget from data-materialization cost without treating the payload as free.
+
+The projection is not accepted as a sender assertion. Before local capabilities are derived or a handler is prepared, the receiving Virtual Layer reconstructs the workload, resolves the local operator contract, remeasures the complete input, recomputes the projection, and requires exact equality. This is an interpretation-cost optimization, not a trust shortcut: a different bulk input changes the workload/input digest and event identity, and a forged intent summary is rejected. Requests without an explicit projection retain the original full-payload classification behavior.
+
 ## 2. Hosts interpret; links carry
 
 Let a path be:
@@ -121,7 +127,7 @@ The current repository already provides several necessary pieces:
 - M5-M7 bind VGI interpretation, bounded instruction quanta, and portable host transfer to those persistent-state contracts.
 - E-GPU provides a bounded local example of a composite host whose method is selected through an internal operational graph.
 
-The next useful composition is therefore not another generic router. It is a stateful stream protocol that carries a persistent session descriptor and a bounded quantum request to an eligible host, imports state into the receiver's own M1 backing, verifies the M3 lineage and interpretation, advances the same semantic session, and returns a receipt containing the new revision and checkpoint identity.
+The first concrete composition now exists in `mailcpu/computational_fabric_vgi.py` as `VGIFabricSessionOperator`. The integrated test carries an M7 transfer bundle as a typed Virtual Layer workload across an authenticated A→B→C path. B performs only its local NETWORK forwarding transition; C re-admits the bundle into its own M1 backing, verifies the original M3 proof and exact VGI descriptor, then advances a bounded M4 quantum under the same session identity. Its receipt preserves Ground, task, Program, implementation, interpretation, artifact, state schema, backend, logical time, predecessor checkpoint, revision and lineage digest. Exact retries are checked at the M3/M4 session layer and at C's terminal Hypervisor CPU execution ledger. The complete specification and limits are in [FABRIC_VGI_SESSION_COMPOSITION.md](FABRIC_VGI_SESSION_COMPOSITION.md).
 
 ## 7. Proof obligations
 

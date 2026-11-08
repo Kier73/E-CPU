@@ -418,6 +418,13 @@ def _start_terminal_service(
                 expected_peer_dns="peer-b.fabric.test",
                 handshake_timeout=8.0,
             )
+            deadline = time.monotonic() + 20.0
+            while time.monotonic() < deadline and not stop.is_set():
+                if any(item.peer_id == "peer-b" for item in directory.active_snapshots):
+                    break
+                time.sleep(0.005)
+            if not any(item.peer_id == "peer-b" for item in directory.active_snapshots):
+                raise RuntimeError("terminal peer could not directly authenticate relay B before forwarding admission")
             if snapshot is None:
                 server = ComputationalFabricForwardingServer(
                     "peer-c",
@@ -432,13 +439,30 @@ def _start_terminal_service(
                     timeout=8.0,
                 )
             else:
-                restored_os = HeadlessOS.from_snapshot(snapshot["operating_system"])
+                def restore_catalogue(restored_os: HeadlessOS) -> ComputationalHostCatalogue:
+                    """Mathematics: Rebind C's trusted local handler to its restored authority process and the verified OS image."""
+                    original = catalogue.loci[0]
+                    restored_os.environment.kernel._process(original.authority_pid)
+                    restored_locus = ComputationalHostLocus.from_runtime(
+                        host_id=original.host_id,
+                        runtime=original.runtime_binding,
+                        authority_pid=original.authority_pid,
+                        operator_id=original.operator_spec.operator_id,
+                        computational_ground_fingerprints=original.computational_ground_fingerprints,
+                        costs=original.costs,
+                        program_fingerprints=original.program_fingerprints,
+                        supports_ground_program_compilation=original.supports_ground_program_compilation,
+                        version=original.operator_spec.version,
+                        supports_structural_memory=original.supports_structural_memory,
+                        implementation_fingerprint=original.implementation_fingerprint,
+                    )
+                    return ComputationalHostCatalogue((restored_locus,))
+
                 server = ComputationalFabricForwardingServer.from_snapshot(
                     snapshot,
                     transport,
                     directory,
-                    catalogue=catalogue,
-                    operating_system=restored_os,
+                    catalogue_factory=restore_catalogue,
                 )
             holder["server"] = server
             listener.close()
@@ -875,6 +899,10 @@ def test_relay_b_hard_process_kill_restarts_from_quorum_and_replays_same_operati
         assert cut_marker["journal_valid"] is True
         assert requester_snapshot["request_channel"]["pending"]["1"]
 
+        assert "server" in terminal_holder, (
+            "terminal peer failed before accepting the relay stream: "
+            f"{terminal_failures!r}"
+        )
         terminal_server = terminal_holder["server"]
         if cut != "before_execution":
             _wait_terminal_response_ack(terminal_server)
@@ -1055,10 +1083,16 @@ def test_relay_b_hard_process_kill_restarts_from_quorum_and_replays_same_operati
 
         expected_final_calls = 1
         assert calls == ["federated-process-recovery-sum"]
+        assert "server" in terminal_holder_rebound, (
+            "terminal peer could not bind its verified recovery image: "
+            f"{terminal_failures_rebound!r}"
+        )
         terminal_restored = terminal_holder_rebound["server"]
-        assert len(
-            terminal_restored.operating_system.hypervisor_arbitration.snapshot()["executions"]
-        ) == 1
+        terminal_executions = terminal_restored.operating_system.hypervisor_arbitration.snapshot()["executions"]
+        assert len(terminal_executions) == 2
+        terminal_domains = [item["domain"] for item in terminal_executions]
+        assert terminal_domains.count("network") == 1
+        assert terminal_domains.count("cpu") == 1
         assert not terminal_failures_rebound
 
         relay_result = _wait_json(result_path, relay_restored)
@@ -1503,7 +1537,11 @@ def test_federated_forwarding_continues_through_discovery_sidecar_loss_and_repla
             True,
         ]
         terminal_executions = terminal_holder["server"].operating_system.hypervisor_arbitration.snapshot()["executions"]
-        assert len(terminal_executions) == 2
+        assert len(terminal_executions) == 4
+        terminal_domains = [item["domain"] for item in terminal_executions]
+        assert terminal_domains.count("network") == 2
+        assert terminal_domains.count("cpu") == 2
+        assert len(calls) == 2
         assert not terminal_failures
 
         stdout, stderr = relay.communicate(timeout=15)
@@ -1767,6 +1805,9 @@ def test_terminal_peer_c_hard_process_kill_recovers_while_relay_b_survives(
         assert first_receipt.downstream.peer_id == "peer-c"
         assert first_receipt.downstream.terminal_execution is not None
         assert first_receipt.downstream.terminal_execution["execution"]["effect"]["result"] == 9
+        # The nested receipt is C's original terminal result; the retry flag
+        # belongs to B's outer forwarding transition and does not rewrite it.
+        assert first_receipt.downstream.terminal_execution["execution"]["replayed"] is False
 
         # A second, new operation forces B to drain any old duplicate C result
         # before accepting the current result; it proves the rebinding path
@@ -2093,8 +2134,10 @@ def test_relay_then_terminal_hard_kills_preserve_one_federated_operation_history
 
         first_result = _read_forward_results(client_a, 1, relay_final)[0]
         assert first_result.action.value == "allow"
+        # The relay re-enters its local NETWORK transition after restart;
+        # the downstream C peer must return its cached CPU execution instead.
         assert first_result.executed is True
-        assert first_result.replayed is True
+        assert first_result.replayed is False
         first_receipt = ComputationalFabricHopReceipt.from_dict(
             first_result.effect["receipt"]
         )
@@ -2103,6 +2146,9 @@ def test_relay_then_terminal_hard_kills_preserve_one_federated_operation_history
         assert first_receipt.downstream.peer_id == "peer-c"
         assert first_receipt.downstream.terminal_execution is not None
         assert first_receipt.downstream.terminal_execution["execution"]["effect"]["result"] == 9
+        # B replays its cached NETWORK result; this nested C receipt is the
+        # original successful terminal execution, not a second C execution.
+        assert first_receipt.downstream.terminal_execution["execution"]["replayed"] is False
 
         # A new operation after both process deaths proves the restored channel
         # cursors and semantic ledgers can advance together, not merely replay.

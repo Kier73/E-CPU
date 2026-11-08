@@ -261,6 +261,31 @@ class HypervisorRequest:
     granted_rights: frozenset[str] = frozenset()
     destructive: bool = False
     temporal: Mapping[str, Any] | None = None
+    intent_projection: Mapping[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        """Mathematics: require any control-plane intent projection to be detached finite JSON."""
+        if self.intent_projection is not None:
+            expected_kinds = {
+                "cpu register arithmetic instruction scheduling program execution virtual layer pure operator transformation": "mailcpu.virtual-layer.intent.v1",
+                "forward network packet for federated computation": "mailcpu.computational-fabric.intent.v1",
+                "receive network request for local computational execution": "mailcpu.computational-fabric.intent.v1",
+            }
+            expected_kind = expected_kinds.get(self.operation)
+            if expected_kind is None:
+                raise ClassifierError("compact intent projection is reserved for receiver-verified Virtual Layer or computational-fabric events")
+            if not isinstance(self.intent_projection, Mapping):
+                raise ClassifierError("intent_projection must be a mapping or None")
+            try:
+                encoded_projection = _canonical_json_bytes(dict(self.intent_projection))
+                detached = json.loads(encoded_projection.decode("utf-8"))
+            except (TypeError, ValueError, UnicodeDecodeError) as exc:
+                raise ClassifierError("intent_projection must be canonical finite JSON") from exc
+            if len(encoded_projection) > 4096:
+                raise ClassifierError("intent projection exceeds its 4096-byte control-plane bound")
+            if detached.get("kind") != expected_kind:
+                raise ClassifierError("intent projection has an unsupported schema for this operation")
+            object.__setattr__(self, "intent_projection", detached)
 
     def state(self) -> dict[str, object]:
         """Mathematics: form shared state `x=(operation,resource,payload,authority,risk,time)` for all advisory and exact gates."""
@@ -275,6 +300,20 @@ class HypervisorRequest:
         }
         if self.temporal is not None:
             state["temporal"] = dict(self.temporal)
+        if self.intent_projection is not None:
+            state["intent_projection"] = dict(self.intent_projection)
+        return state
+
+    def decision_state(self) -> dict[str, object]:
+        """Mathematics: replace bulk payload P by compact digest-bound intent Π(P) for semantic classification only."""
+        state = self.state()
+        if self.intent_projection is None:
+            return state
+        payload_bytes = _canonical_json_bytes(dict(self.payload))
+        state["payload"] = dict(self.intent_projection)
+        state["payload_digest"] = hashlib.sha256(payload_bytes).hexdigest()
+        state["payload_bytes"] = len(payload_bytes)
+        state.pop("intent_projection", None)
         return state
 
     @classmethod
@@ -289,6 +328,7 @@ class HypervisorRequest:
         required = payload.get("required_rights", ())
         granted = payload.get("granted_rights", ())
         temporal = payload.get("temporal")
+        intent_projection = payload.get("intent_projection")
         if (
             not isinstance(operation, str)
             or not operation
@@ -300,6 +340,7 @@ class HypervisorRequest:
             or any(not isinstance(right, str) or not right for right in (*required, *granted))
             or not isinstance(payload.get("destructive", False), bool)
             or (temporal is not None and not isinstance(temporal, Mapping))
+            or (intent_projection is not None and not isinstance(intent_projection, Mapping))
         ):
             raise ClassifierError("hypervisor request state has invalid fields")
         return cls(
@@ -310,6 +351,7 @@ class HypervisorRequest:
             frozenset(granted),
             bool(payload.get("destructive", False)),
             None if temporal is None else dict(temporal),
+            None if intent_projection is None else dict(intent_projection),
         )
 
 
@@ -914,9 +956,14 @@ class ClassifierHypervisor:
             ),
         }
         state = request.state()
-        batch = self.classifier.evaluate(state, questions)
-        intent_prediction = self.intent_model.predict(state)
-        virtual_cost = estimate_virtual_cost(state, self.virtual_capacity)
+        decision_state = request.decision_state()
+        batch = self.classifier.evaluate(decision_state, questions)
+        intent_prediction = self.intent_model.predict(decision_state)
+        virtual_cost = estimate_virtual_cost(
+            state,
+            self.virtual_capacity,
+            token_value=decision_state,
+        )
         domain_answer = batch.answers["domain"]
         danger_answer = batch.answers["danger"]
         if not isinstance(domain_answer, ChoiceAnswer) or not isinstance(danger_answer, NoulAnswer):

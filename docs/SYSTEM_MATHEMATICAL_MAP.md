@@ -573,3 +573,75 @@ chunk-transfer protocol. The receiving process reconstructs a new VGI
 interpreter and machine from the checkpoint, rather than migrating a live
 Python process or synthesizing pre-checkpoint undo history. Only declared
 pure execution is admitted by this path.
+
+
+## 20. Persistent VGI continuation across a communication path
+
+The first executable composition of M0-M7 session state with the peer
+forwarding graph is described in
+[FABRIC_VGI_SESSION_COMPOSITION.md](FABRIC_VGI_SESSION_COMPOSITION.md) and
+implemented by `mailcpu/computational_fabric_vgi.py`.
+
+The tested path is:
+
+\[
+A_{\text{source session}}
+\rightarrow B_{\text{NETWORK relay}}
+\rightarrow C_{\text{M1/M3 import + M4 VGI quantum}}
+\]
+
+The A→B→C peer graph, authenticated mutual-TLS streams, and typed
+ComputationalAddress are distinct from the VGI Ground and Program. B handles
+the forwarding transition only. C rebuilds local authority, admits the
+terminal Virtual Layer operator, imports the M7 checkpoint into its own M1
+page backing, verifies the source M3 quorum proof, and advances the original
+VGI session by one bounded quantum. The target receipt retains the session,
+descriptor, Ground, task, Program, interpretation, artifact, state schema,
+backend, predecessor, logical-time and lineage coordinates.
+
+The experiment also separates transport replay from semantic replay. A new
+transport delivery may cause B to re-enter a NETWORK forwarding transition;
+C's terminal execution ledger returns its cached CPU result, while the M3/M4
+session transition recognizes its exact immediate retry. This is not a
+global atomic transaction or an exactly-once guarantee for arbitrary
+side-effects.
+
+The test records source export time, bundle bytes, state bytes, M7 decode,
+target M1 import/M3 proof verification, M4 transition plus persistence/quorum
+commit, full target M1 verification, and end-to-end forwarding duration.
+These measurements provide the first comparable baseline for deciding
+whether inline base64 transfer should be replaced by chunked M1 page streaming.
+They are empirical local-run measurements, not physical network speed
+claims or a general performance model.
+
+
+## 21. Intent interpretation versus payload materialization
+
+Virtual Layer requests now have two related but non-interchangeable
+representations:
+
+\[
+R=(\underbrace{\Pi(W)}_{\text{bounded intent}},\
+\underbrace{P(W)}_{\text{complete payload}},\
+d(W),\ |P(W)|)
+\]
+
+\(\Pi(W)\) contains the workload goal, Ground and system coordinates,
+operator contract, resource budget, logical time, and input metadata.
+\(P(W)\) is the full canonical workload and input, including any opaque state
+or object transfer. Its digest and byte length are included in the intent
+projection presented to the classifier.
+
+The classifier and intent embedding operate on the bounded projection, which is restricted to the Virtual Layer operation contract and a 4 KiB canonical byte ceiling. Virtual-cost accounting retains full-payload semantic bits and chemical complexity while counting structural tokens only over the compact projection.
+Event identity, replay conflict detection, durable request state, receiver
+execution and operator input validation retain the complete payload. The
+receiver independently recomputes \(\Pi(W)\) from \(P(W)\), the locally
+resolved operator contract and resource bounds before preparing the handler.
+A projection mismatch is rejected before the handler can run.
+
+This separates semantic interpretation cost from data materialization cost.
+It does not make payload bytes free: canonical hashing, event journaling,
+transport, object admission, state persistence and output encoding still
+consume measurable resources. The next optimization is to transfer M1 pages
+as bounded content-addressed chunks while retaining the manifest and digest
+checks; the intent projection remains the compact control-plane descriptor.

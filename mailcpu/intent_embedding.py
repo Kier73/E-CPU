@@ -449,13 +449,20 @@ class VirtualCost:
         )
 
 
-def estimate_virtual_cost(value: Mapping[str, Any], capacity: int = 64) -> VirtualCost:
-    """Mathematics: evaluate `E_v=max(1,8|J|+8|T|+ceil(16τ_chem)+1)` and `τ_v=ceil(E_v/C)`."""
+def estimate_virtual_cost(
+    value: Mapping[str, Any],
+    capacity: int = 64,
+    *,
+    token_value: Mapping[str, Any] | None = None,
+) -> VirtualCost:
+    """Mathematics: account full payload bits/chemical structure while tokenizing an optional verified compact semantic projection."""
 
     if not isinstance(value, Mapping) or not isinstance(capacity, int) or isinstance(capacity, bool) or capacity < 1:
         raise IntentEmbeddingError("virtual cost requires mapping state and positive integer capacity")
+    if token_value is not None and not isinstance(token_value, Mapping):
+        raise IntentEmbeddingError("virtual cost token_value must be a mapping")
     serialized = _canonical_json(value).encode("utf-8")
-    tokens = structural_tokens(value)
+    tokens = structural_tokens(value if token_value is None else token_value)
     chemical_tau = compute_chemical_difficulty(tuple(serialized))
     semantic_bits = 8 * len(serialized)
     virtual_energy = max(1, semantic_bits + 8 * len(tokens) + math.ceil(16.0 * chemical_tau) + 1)

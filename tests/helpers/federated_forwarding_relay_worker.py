@@ -33,6 +33,7 @@ from mailcpu import (  # noqa: E402
     RecoveryLineageAuthority,
     RecoveryLineagePeerClient,
     SeedCommitMembership,
+    SocketListener,
     SocketTransport,
 )
 from mailcpu.mtls_transport import accept_mutual_tls, connect_mutual_tls  # noqa: E402
@@ -145,7 +146,7 @@ def _start_directory_listener(
     port = int(listener_socket.getsockname()[1])
     listener = ComputationalFabricPeerListener(
         authority,
-        listener_socket,
+        SocketListener.wrap(listener_socket),
         client_peer_id,
         expected_client_dns=expected_client_dns,
         tls_context=tls_context,
@@ -590,8 +591,15 @@ def main(arguments: list[str]) -> int:
                     })
                     return 0
                 time.sleep(0.002)
+            downstream_client = server.next_hop_clients["peer-c"]
             raise TimeoutError(
-                f"live relay did not settle {expected_live_operations} terminal operations"
+                f"live relay did not settle {expected_live_operations} terminal operations; "
+                f"completed={completed!r}; receive_cursor={server.inbound.channel.next_receive_sequence}; "
+                f"pending_inbound={server.inbound.channel.pending_sequences()}; "
+                f"pending_outbound={server.outbound.channel.pending_sequences()}; "
+                f"downstream_request_pending={downstream_client.request.channel.pending_sequences()}; "
+                f"downstream_response_pending={downstream_client.response.channel.pending_sequences()}; "
+                f"last_error={server.last_error!r}"
             )
 
         if mode == "prepare":

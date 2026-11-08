@@ -159,6 +159,51 @@ def test_hypervisor_executes_pure_operator_with_local_capability_and_replay_rece
     assert operating_system.environment.kernel.journal.verify()
 
 
+
+def test_intent_projection_is_recomputed_at_the_receiver_and_survives_authorization() -> None:
+    """Mathematics: bind compact control-plane intent to full workload content before local capabilities are granted."""
+    operating_system = HeadlessOS()
+    operating_system.hypervisor.classifier = LexicalDecisionModel()
+    identity, _, ground = _admitted_ground(operating_system)
+    calls = []
+    registry = _registry(calls)
+    runtime = VirtualLayerRuntime(registry, "node-a", frozenset({"cpu"}))
+    workload = _workload(identity, ground)
+    pid = operating_system.environment.kernel.spawn(
+        "intent-projection-worker",
+        capabilities=(Capability("/virtual-layer/operators", frozenset({"compute"})),),
+        parent_pid=operating_system.environment.init_pid,
+    )
+
+    event = runtime.build_event(
+        "origin",
+        "intent-projection",
+        1,
+        workload.logical_time,
+        workload,
+        "core.sum_pair",
+    )
+    assert event.request.intent_projection is not None
+    assert event.request.intent_projection["workload_digest"] == workload.digest
+    assert event.request.intent_projection["input_digest"] == event.request.payload["input_digest"]
+    assert event.request.decision_state()["payload"] == event.request.intent_projection
+    assert event.request.decision_state()["payload"] != event.request.payload
+
+    authorized = operating_system.hypervisor_authorize_event(pid, event)
+    assert authorized.request.granted_rights == frozenset({"compute"})
+    assert authorized.request.intent_projection == event.request.intent_projection
+    assert authorized.request.payload == event.request.payload
+
+    forged_projection = dict(event.request.intent_projection)
+    forged_projection["intention"] = {"goal": "unrelated operation"}
+    forged_event = replace(
+        event,
+        request=replace(event.request, intent_projection=forged_projection),
+    )
+    with pytest.raises(VirtualLayerError, match="intent projection does not match"):
+        runtime._prepare_event(operating_system, pid, forged_event)
+    assert calls == []
+
 def test_runtime_refuses_stale_ground_wrong_node_unsupported_substrate_and_budget() -> None:
     """Mathematics: every local execution must match the admitted `(identity, ground, frontier, node, budget)` tuple."""
     operating_system = HeadlessOS()

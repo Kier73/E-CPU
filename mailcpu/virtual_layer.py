@@ -804,6 +804,51 @@ class VirtualLayerRuntime:
         if envelope.identity != workload.system or local_ground != workload.ground:
             raise VirtualLayerError("workload Virtual Ground or causal frontier is stale or mismatched")
 
+    def _intent_projection(
+        self,
+        workload: VirtualLayerWorkload,
+        reference: VirtualOperatorRef,
+        spec: OperatorSpec,
+        input_value: Any,
+        input_bytes: int,
+        energy: int,
+        ticks: int,
+        *,
+        computational_admission: Mapping[str, Any] | None = None,
+    ) -> dict[str, object]:
+        """Mathematics: project semantic intent and resource coordinates while binding the complete bulk input by digest."""
+        projection: dict[str, object] = {
+            "kind": "mailcpu.virtual-layer.intent.v1",
+            "workload_id": workload.workload_id,
+            "workload_digest": workload.digest,
+            "system": workload.system.snapshot(),
+            "ground": workload.ground.to_dict(),
+            "intention": _copy_json(dict(workload.intention), "workload intention"),
+            "operator_id": spec.operator_id,
+            "operator_version": spec.version,
+            "operator_contract_digest": spec.digest,
+            "operator_reference_digest": _digest(reference.to_dict(), "operator reference"),
+            "input_digest": _digest(input_value, "operator input"),
+            "input_bytes": input_bytes,
+            "structural_memory_digest": _digest(
+                [item.to_dict() for item in reference.structural_memory],
+                "structural-memory references",
+            ),
+            "budget": workload.budget.to_dict(),
+            "logical_time": workload.logical_time,
+            "eligible_nodes": list(workload.eligible_nodes),
+            "max_hops": workload.max_hops,
+            "estimated_energy": energy,
+            "estimated_virtual_ticks": ticks,
+            "computational_admission_digest": (
+                None if computational_admission is None
+                else _digest(dict(computational_admission), "computational admission")
+            ),
+        }
+        if len(_canonical_bytes(projection, "Virtual Layer intent projection")) > 4096:
+            raise VirtualLayerError("Virtual Layer intent projection exceeds its 4096-byte bound")
+        return projection
+
     def _resolve_structural_memory_inputs(
         self,
         operating_system: Any,
@@ -892,8 +937,9 @@ class VirtualLayerRuntime:
             ),
             "estimated_energy": energy, "estimated_virtual_ticks": ticks, "input_bytes": input_bytes,
         }
+        validated_admission = None
         if computational_admission is not None:
-            payload["computational_admission"] = _validate_computational_admission_context(
+            validated_admission = _validate_computational_admission_context(
                 computational_admission,
                 self,
                 workload,
@@ -902,6 +948,17 @@ class VirtualLayerRuntime:
                 input_value,
                 logical_time,
             )
+            payload["computational_admission"] = validated_admission
+        intent_projection = self._intent_projection(
+            workload,
+            reference,
+            spec,
+            input_value,
+            input_bytes,
+            energy,
+            ticks,
+            computational_admission=validated_admission,
+        )
         request = HypervisorRequest(
             operation=VIRTUAL_LAYER_OPERATOR_OPERATION,
             resource=virtual_layer_operator_resource(spec.operator_id, spec.version),
@@ -909,6 +966,7 @@ class VirtualLayerRuntime:
             required_rights=spec.required_rights,
             granted_rights=frozenset(),
             destructive=False,
+            intent_projection=intent_projection,
         )
         return HypervisorArbitrationEvent(source, channel, sequence, logical_time, request)
 
@@ -934,8 +992,9 @@ class VirtualLayerRuntime:
         reference, spec, handler, input_value, input_bytes, energy, ticks = self._resolve_operator(workload, operator_id)
         if payload.get("operator_contract_digest") != spec.digest:
             raise VirtualLayerError("operator contract does not match this execution node")
+        validated_admission = None
         if "computational_admission" in payload:
-            _validate_computational_admission_context(
+            validated_admission = _validate_computational_admission_context(
                 payload["computational_admission"],
                 self,
                 workload,
@@ -955,6 +1014,26 @@ class VirtualLayerRuntime:
             "structural-memory references",
         ):
             raise VirtualLayerError("structural-memory reference digest mismatch")
+        expected_intent_projection = self._intent_projection(
+            workload,
+            reference,
+            spec,
+            input_value,
+            input_bytes,
+            energy,
+            ticks,
+            computational_admission=validated_admission,
+        )
+        if request.intent_projection != expected_intent_projection:
+            mismatched_fields = sorted(
+                key
+                for key in set(request.intent_projection or {}) | set(expected_intent_projection)
+                if (request.intent_projection or {}).get(key) != expected_intent_projection.get(key)
+            )
+            raise VirtualLayerError(
+                "intent projection does not match the receiver-recomputed workload and input digests; "
+                f"mismatched_fields={mismatched_fields!r}"
+            )
         for field_name, expected in (("input_bytes", input_bytes), ("estimated_energy", energy), ("estimated_virtual_ticks", ticks)):
             claimed = payload.get(field_name)
             if not isinstance(claimed, int) or isinstance(claimed, bool) or claimed != expected:
