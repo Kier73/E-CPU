@@ -103,3 +103,14 @@ See EGPU_NAVIGABLE_FABRIC.md for the executable reference structure.
 New subsystems should expose logical identity, transitions, capabilities, and lineage independently of placement. Active paths may host computation when they have operational state and a transition contract. Composite hosts should expose bounded sub-loci and return route witnesses. Physical migration requires continuity evidence; fault-domain claims require placement evidence.
 
 This model defines vocabulary and a design contract. Any documented observer is a possible observer-host construct; that statement is a classification rule, not a claim that every sensor, path element, remote process, or machine is already instantiated, reachable, trusted, or authorized as a live MailCPU host. A concrete observer-host must still establish its identity, observation contract, resource bounds, and any required state/lineage. The first E-GPU implementation proves a bounded local example of composable loci and deterministic capability navigation. Physical GPU execution, arbitrary path-host execution, general migration, and distributed identity continuity remain later targets.
+
+
+## Executable observer receipts and contextual orbit addressing
+
+The common runtime observer contract is implemented by mailcpu.observer_orbit.ObserverContract and ObserverReceipt. It reuses the repository's content-addressed RepresentationRef, versioned ObservationContract, typed TemporalFrame, and evidence references. Receipt digests bind content and provenance; they are not remote signatures, peer authentication, or capability grants.
+
+ObserverComposition aggregates a complete declared set of observer receipts while preserving each member's distinct projection. It does not infer consensus or equivalence.
+
+ContextualOrbitAddress pins a SystemIdentity, base VirtualGroundRef, Computational Ground, typed absolute scheduler coordinate, and an exact admitted VirtualStructuralMemoryRef. ContextualOrbitNavigator resolves the pinned law and directly evaluates its relative coordinate to create a symbolic Virtual Ground projection. The projection is deliberately not represented as a complete machine snapshot. Direct-navigation failures refuse; they do not trigger an invisible BFS or replay fallback.
+
+See [OBSERVER_ORBIT_CONTRACT.md](OBSERVER_ORBIT_CONTRACT.md) for the formal address, context binding, complexity boundaries, evidence model, and non-goals.
