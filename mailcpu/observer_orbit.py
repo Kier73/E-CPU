@@ -430,7 +430,7 @@ class ObserverReceipt:
 
 
 def verify_observer_receipt(contract: ObserverContract, receipt: ObserverReceipt) -> bool:
-    """Check that one receipt is internally consistent with its exact observer contract."""
+    """Mathematics: verify exact observer identity, revision, context, projection, and receipt digests."""
     if not isinstance(contract, ObserverContract) or not isinstance(receipt, ObserverReceipt):
         return False
     return (
@@ -639,7 +639,7 @@ def compose_observer_receipts(
     composition: ObserverComposition,
     receipts: Sequence[ObserverReceipt],
 ) -> ObserverAggregateReceipt:
-    """Verify and aggregate exactly one receipt per declared observer member."""
+    """Mathematics: aggregate a bijection from declared observer contracts to valid operation receipts."""
     if not isinstance(composition, ObserverComposition):
         raise ObserverOrbitError("composition must be an ObserverComposition")
     if not isinstance(receipts, (tuple, list)):
@@ -704,7 +704,7 @@ def contextual_orbit_context(
     scheduler_id: str,
     extensions: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Bind a law context to the exact system, Virtual Ground, semantic Ground, and clock domain."""
+    """Mathematics: construct the canonical product context binding system, Virtual Ground, semantic Ground, and scheduler domain."""
     if not isinstance(system_identity, SystemIdentity):
         raise ObserverOrbitError("system_identity must be a SystemIdentity")
     if not isinstance(base_ground, VirtualGroundRef):
@@ -904,7 +904,7 @@ class VirtualGroundProjection:
             raise ObserverOrbitError("Structural Memory read receipt does not verify the projection address")
 
     def identity_payload(self) -> dict[str, Any]:
-        """Return stable projection identity, excluding per-read receipt/cache metadata."""
+        """Mathematics: derive stable projection identity while quotienting out per-read receipt and cache metadata."""
         ref = self.structural_memory
         return {
             "schema": "mailcpu.virtual-ground.projection.v1",
@@ -1226,7 +1226,7 @@ class ContextualOrbitNavigator:
         operation_id: str = "mailcpu.orbit.locate-value",
         time_frame: TemporalFrame | None = None,
     ) -> OrbitValueResult:
-        """Invert supported generator dynamics and observe the first matching coordinate.
+        """Mathematics: invert supported generator dynamics and observe the first matching coordinate.
 
         The supplied address must be pinned at its base coordinate (offset zero).
         This operation intentionally supports only inverse methods with explicit
