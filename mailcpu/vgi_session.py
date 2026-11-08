@@ -27,7 +27,6 @@ from .computational_session import (
 )
 from .computational_transition import (
     ComputationalSessionTransitionAdapter,
-    ComputationalTransitionBackend,
     ComputationalTransitionContext,
     ComputationalTransitionContract,
     ComputationalTransitionError,
@@ -485,7 +484,7 @@ def _decode_session_state(
     return machine, status, last_steps
 
 
-class _VGISessionTransitionBackend(ComputationalTransitionBackend):
+class _VGISessionTransitionBackend:
     """Mathematics: Pure backend that restores, advances, and snapshots one bounded VGI SignalStateMachine quantum."""
 
     def __init__(
