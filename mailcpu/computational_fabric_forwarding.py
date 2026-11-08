@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 import hashlib
 import json
 import threading
 import time
-from typing import Any
+from typing import Any, Iterator
 
 from .classifier import (
     HypervisorAction,
@@ -547,6 +548,7 @@ class ComputationalFabricForwardingClient:
             local,
             channel_id,
         )
+        self._transition_lock = threading.RLock()
 
     @classmethod
     def connect_mutual_tls(
@@ -644,6 +646,15 @@ class ComputationalFabricForwardingClient:
         envelope: ComputationalFabricForwardingEnvelope,
         directory: ComputationalFabricDirectory,
     ) -> ComputationalFabricHopReceipt:
+        """Mathematics: Serialize one downstream request with capture so its channel cut is recoverable."""
+        with self._transition_lock:
+            return self._forward(envelope, directory)
+
+    def _forward(
+        self,
+        envelope: ComputationalFabricForwardingEnvelope,
+        directory: ComputationalFabricDirectory,
+    ) -> ComputationalFabricHopReceipt:
         """Mathematics: Advance one route edge, receive a locally admitted Hypervisor result, and verify its hop receipt."""
         _next_snapshot, _link, child = self._validate_outgoing(envelope, directory)
         terminal = child.hop_index == len(child.route.peer_path) - 1
@@ -715,6 +726,87 @@ class ComputationalFabricForwardingClient:
         ):
             raise ComputationalFabricForwardingError("next peer receipt does not bind this exact authenticated forwarding hop")
         return receipt
+
+    def snapshot(self) -> dict[str, Any]:
+        """Mathematics: Capture operation identity and both reliable channel ledgers for one adjacent TLS hop."""
+        with self._transition_lock:
+            return {
+                "schema": "mailcpu.computational-fabric-forwarding-client.v1",
+                "version": 1,
+                "local_peer_id": self.local_peer_id,
+                "remote_endpoint": self.remote_endpoint.to_dict(),
+                "origin_peer_id": self.origin_peer_id,
+                "origin_channel": self.origin_channel,
+                "timeout": self.timeout,
+                "max_payload_bytes": self.max_payload_bytes,
+                "request_channel": self.request.channel.snapshot(),
+                "response_channel": self.response.snapshot(),
+            }
+
+    @classmethod
+    def from_snapshot(
+        cls,
+        payload: Mapping[str, Any],
+        transport: SocketTransport,
+    ) -> "ComputationalFabricForwardingClient":
+        """Mathematics: Restore a client channel pair over a newly authenticated adjacent-peer transport."""
+        expected = {
+            "schema", "version", "local_peer_id", "remote_endpoint",
+            "origin_peer_id", "origin_channel", "timeout", "max_payload_bytes",
+            "request_channel", "response_channel",
+        }
+        if (
+            not isinstance(payload, Mapping)
+            or set(payload) != expected
+            or payload.get("schema") != "mailcpu.computational-fabric-forwarding-client.v1"
+            or type(payload.get("version")) is not int
+            or payload.get("version") != 1
+            or not isinstance(payload.get("remote_endpoint"), Mapping)
+            or not isinstance(payload.get("request_channel"), Mapping)
+            or not isinstance(payload.get("response_channel"), Mapping)
+        ):
+            raise ComputationalFabricForwardingError("forwarding client snapshot fields or version are invalid")
+        endpoint = ComputationalPeerEndpoint.from_dict(payload["remote_endpoint"])
+        client = cls(
+            str(payload["local_peer_id"]),
+            endpoint,
+            transport,
+            origin_peer_id=str(payload["origin_peer_id"]),
+            origin_channel=str(payload["origin_channel"]),
+            timeout=float(payload["timeout"]),
+            max_payload_bytes=int(payload["max_payload_bytes"]),
+        )
+        restored_request = ReliableChannel.from_snapshot(
+            dict(payload["request_channel"]),
+            transport,
+        )
+        if (
+            restored_request.source != client.local_peer_id
+            or restored_request.destination != endpoint.peer_id
+            or restored_request.channel != client.channel_id
+            or restored_request.peer != endpoint.peer_id
+        ):
+            raise ComputationalFabricForwardingError(
+                "restored downstream request channel is bound to another peer or operation"
+            )
+        client.request = HypervisorOperationChannel(restored_request)
+        restored_response = HypervisorOperationResultChannel.from_snapshot(
+            payload["response_channel"],
+            transport,
+        )
+        if (
+            restored_response.operation_source != client.local_peer_id
+            or restored_response.operation_channel != client.channel_id
+            or restored_response.channel.source != client.local_peer_id
+            or restored_response.channel.destination != client.local_peer_id
+            or restored_response.channel.peer != endpoint.peer_id
+            or restored_response.channel.channel != client.channel_id + _RESPONSE_SUFFIX
+        ):
+            raise ComputationalFabricForwardingError(
+                "restored downstream result channel is bound to another peer or operation"
+            )
+        client.response = restored_response
+        return client
 
     def close(self) -> None:
         """Mathematics: Close the directly authenticated peer stream and its associated reliable channels."""
@@ -813,6 +905,7 @@ class ComputationalFabricForwardingServer:
         self.retry_interval = 0.03
         self._last_retry = time.monotonic()
         self.last_error: str | None = None
+        self._transition_lock = threading.RLock()
 
     @classmethod
     def accept_mutual_tls(
@@ -1097,7 +1190,20 @@ class ComputationalFabricForwardingServer:
             "receipt_digest": receipt.digest,
         }
 
-    def serve_once(self) -> HypervisorExecutionResult | None:
+    def serve_once(
+        self,
+        *,
+        fault_hook: Any = None,
+    ) -> HypervisorExecutionResult | None:
+        """Mathematics: Serialize one hop transition with checkpoint capture and expose its exact commit/publication cuts."""
+        with self._transition_lock:
+            return self._serve_once(fault_hook=fault_hook)
+
+    def _serve_once(
+        self,
+        *,
+        fault_hook: Any = None,
+    ) -> HypervisorExecutionResult | None:
         """Mathematics: Apply one reliable request as local authorize → Hypervisor → receipt publish → request ACK."""
         try:
             self.outbound.channel.process_ack()
@@ -1137,12 +1243,167 @@ class ComputationalFabricForwardingServer:
             {HypervisorDomain.NETWORK: execute},
             self.outbound,
             encode,
+            fault_hook=fault_hook,
         )
         try:
             self.outbound.channel.process_ack()
         except Exception as exc:
             raise ComputationalFabricForwardingError(f"cannot reconcile forwarding result acknowledgement: {exc}") from exc
         return result
+
+    @contextmanager
+    def recovery_guard(self) -> Iterator[None]:
+        """Mathematics: Hold the peer transition lock across capture, durable publication, and quorum anchoring."""
+        with self._transition_lock:
+            yield
+
+    def snapshot(self, *, capture_cut: str = "idle") -> dict[str, Any]:
+        """Mathematics: Capture OS replay state and every hop-local reliable channel at one serialized boundary.
+
+        Active remote leases and transport objects are intentionally omitted.
+        The caller must authenticate fresh streams and refresh the directory
+        before invoking from_snapshot.
+        """
+        allowed_cuts = {
+            "idle",
+            "before_execution",
+            "after_execution_commit",
+            "after_response_publish",
+            "after_request_ack",
+        }
+        if capture_cut not in allowed_cuts:
+            raise ComputationalFabricForwardingError(
+                f"capture_cut must be one of {sorted(allowed_cuts)}"
+            )
+        with self._transition_lock:
+            return {
+                "schema": "mailcpu.computational-fabric-forwarding-server.v1",
+                "version": 1,
+                "capture_cut": capture_cut,
+                "local_peer_id": self.local_peer_id,
+                "previous_peer_id": self.previous_peer_id,
+                "origin_peer_id": self.origin_peer_id,
+                "origin_channel": self.origin_channel,
+                "authority_pid": self.authority_pid,
+                "timeout": self.timeout,
+                "max_payload_bytes": self.max_payload_bytes,
+                "operating_system": self.operating_system.snapshot(),
+                "inbound_channel": self.inbound.channel.snapshot(),
+                "outbound_channel": self.outbound.snapshot(),
+                "next_hop_clients": {
+                    peer_id: client.snapshot()
+                    for peer_id, client in sorted(self.next_hop_clients.items())
+                },
+            }
+
+    @classmethod
+    def from_snapshot(
+        cls,
+        payload: Mapping[str, Any],
+        transport: SocketTransport,
+        directory: ComputationalFabricDirectory,
+        *,
+        next_hop_transports: Mapping[str, SocketTransport] | None = None,
+        catalogue: ComputationalHostCatalogue | None = None,
+        operating_system: HeadlessOS | None = None,
+    ) -> "ComputationalFabricForwardingServer":
+        """Mathematics: Rebind one verified peer checkpoint to fresh streams and caller-reconstructed host runtimes."""
+        expected = {
+            "schema", "version", "capture_cut", "local_peer_id", "previous_peer_id",
+            "origin_peer_id", "origin_channel", "authority_pid", "timeout",
+            "max_payload_bytes", "operating_system", "inbound_channel",
+            "outbound_channel", "next_hop_clients",
+        }
+        if (
+            not isinstance(payload, Mapping)
+            or set(payload) != expected
+            or payload.get("schema") != "mailcpu.computational-fabric-forwarding-server.v1"
+            or type(payload.get("version")) is not int
+            or payload.get("version") != 1
+            or payload.get("capture_cut") not in {
+                "idle", "before_execution", "after_execution_commit",
+                "after_response_publish", "after_request_ack",
+            }
+            or not isinstance(payload.get("operating_system"), Mapping)
+            or not isinstance(payload.get("inbound_channel"), Mapping)
+            or not isinstance(payload.get("outbound_channel"), Mapping)
+            or not isinstance(payload.get("next_hop_clients"), Mapping)
+        ):
+            raise ComputationalFabricForwardingError("forwarding server snapshot fields or version are invalid")
+        if operating_system is None:
+            restored_os = HeadlessOS.from_snapshot(dict(payload["operating_system"]))
+        else:
+            if not isinstance(operating_system, HeadlessOS):
+                raise ComputationalFabricForwardingError("restore requires a receiver-local HeadlessOS")
+            try:
+                supplied_state = operating_system.snapshot()
+            except Exception as exc:
+                raise ComputationalFabricForwardingError(
+                    f"supplied receiver-local HeadlessOS is not checkpointable: {exc}"
+                ) from exc
+            if supplied_state != dict(payload["operating_system"]):
+                raise ComputationalFabricForwardingError(
+                    "supplied receiver-local HeadlessOS does not match the verified peer snapshot"
+                )
+            restored_os = operating_system
+        raw_clients = payload["next_hop_clients"]
+        supplied_transports = dict(next_hop_transports or {})
+        if set(supplied_transports) != set(raw_clients):
+            raise ComputationalFabricForwardingError(
+                "fresh downstream transports must exactly match the checkpointed next-hop set"
+            )
+        clients = {
+            peer_id: ComputationalFabricForwardingClient.from_snapshot(
+                raw_clients[peer_id],
+                supplied_transports[peer_id],
+            )
+            for peer_id in sorted(raw_clients)
+        }
+        server = cls(
+            str(payload["local_peer_id"]),
+            str(payload["previous_peer_id"]),
+            transport,
+            directory,
+            restored_os,
+            int(payload["authority_pid"]),
+            origin_peer_id=str(payload["origin_peer_id"]),
+            origin_channel=str(payload["origin_channel"]),
+            catalogue=catalogue,
+            next_hop_clients=clients,
+            timeout=float(payload["timeout"]),
+            max_payload_bytes=int(payload["max_payload_bytes"]),
+        )
+        restored_inbound = ReliableChannel.from_snapshot(
+            dict(payload["inbound_channel"]),
+            transport,
+        )
+        if (
+            restored_inbound.source != server.local_peer_id
+            or restored_inbound.destination != server.local_peer_id
+            or restored_inbound.peer != server.previous_peer_id
+            or restored_inbound.channel != server.channel_id
+        ):
+            raise ComputationalFabricForwardingError(
+                "restored inbound channel is bound to another peer or operation"
+            )
+        server.inbound = HypervisorOperationChannel(restored_inbound)
+        restored_outbound = HypervisorOperationResultChannel.from_snapshot(
+            payload["outbound_channel"],
+            transport,
+        )
+        if (
+            restored_outbound.operation_source != server.previous_peer_id
+            or restored_outbound.operation_channel != server.channel_id
+            or restored_outbound.channel.source != server.local_peer_id
+            or restored_outbound.channel.destination != server.previous_peer_id
+            or restored_outbound.channel.peer != server.previous_peer_id
+            or restored_outbound.channel.channel != server.channel_id + _RESPONSE_SUFFIX
+        ):
+            raise ComputationalFabricForwardingError(
+                "restored outbound channel is bound to another peer or operation"
+            )
+        server.outbound = restored_outbound
+        return server
 
     def serve_forever(
         self,

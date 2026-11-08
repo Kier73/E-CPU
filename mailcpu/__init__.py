@@ -694,6 +694,12 @@ from .computational_fabric_forwarding import (
     computational_fabric_forward_channel_id,
 )
 
+from .computational_fabric_forwarding_recovery import (
+    ComputationalFabricForwardingRecoveryError,
+    ComputationalFabricForwardingRecoveryStore,
+    VerifiedComputationalFabricForwardingCheckpoint,
+)
+
 from .navigation_admission import (
     HypervisorNavigationAdmissionCoordinator,
     NavigationAdmissionError,
@@ -1364,6 +1370,9 @@ __all__ = [
     "ComputationalFabricForwardingServer",
     "ComputationalFabricHopReceipt",
     "computational_fabric_forward_channel_id",
+    "ComputationalFabricForwardingRecoveryError",
+    "ComputationalFabricForwardingRecoveryStore",
+    "VerifiedComputationalFabricForwardingCheckpoint",
     "ComputationalHostAdvertisement",
     "ComputationalNetworkLink",
     "ComputationalPeerEndpoint",
