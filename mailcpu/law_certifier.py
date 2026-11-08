@@ -342,8 +342,10 @@ def find_coordinate_gf2_bit(
     """
     if type(target) is not int or target not in (0, 1):
         return None
-    if not isinstance(initial, (tuple, list)) or not initial:
-        return None
+    if not isinstance(coefficients, (tuple, list)) or not isinstance(initial, (tuple, list)) or not initial:
+        raise ValueError("GF(2) coefficients and initial register must be finite bit sequences")
+    if len(coefficients) < len(initial) + 1 or coefficients[0] != 1:
+        raise ValueError("GF(2) connection polynomial must have a constant term and sufficient order")
     if any(type(bit) is not int or bit not in (0, 1) for bit in initial):
         raise ValueError("GF(2) initial register must contain only bits")
     if any(type(bit) is not int or bit not in (0, 1) for bit in coefficients):
@@ -355,11 +357,9 @@ def find_coordinate_gf2_bit(
     if target == 1:  # initial register is all zero, a fixed point
         return None
     feedback_parity = 0
-    limit = min(len(initial), len(coefficients) - 1)
-    for index in range(1, limit + 1):
+    for index in range(1, len(initial) + 1):
         feedback_parity ^= coefficients[index]
     return len(initial) if feedback_parity == 0 else None
-
 
 @dataclass(frozen=True)
 class FiniteGraphInverseIndex:
