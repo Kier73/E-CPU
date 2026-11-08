@@ -256,10 +256,14 @@ def main(arguments: list[str]) -> int:
     config = json.loads(Path(config_path).read_text(encoding="utf-8"))
     config["checkpoint_directory"] = checkpoint_directory
     directory = _directory(config)
-    store, coordinator = _open_store(config)
-    verified = store.load_latest() if mode == "restore" else None
-    if verified is not None and verified.manifest.capture_cut != cut:
-        raise ValueError("relay restart cut differs from the quorum-anchored capture cut")
+    store = None
+    coordinator = None
+    verified = None
+    if mode != "live":
+        store, coordinator = _open_store(config)
+        verified = store.load_latest() if mode == "restore" else None
+        if verified is not None and verified.manifest.capture_cut != cut:
+            raise ValueError("relay restart cut differs from the quorum-anchored capture cut")
 
     server_context, client_context = _tls_contexts(config)
     listener = SocketTransport.listen("127.0.0.1", int(config["peer_b_port"]))
@@ -487,7 +491,8 @@ def main(arguments: list[str]) -> int:
         listener.close()
         if control_listener is not None:
             control_listener.close()
-        coordinator.close()
+        if coordinator is not None:
+            coordinator.close()
 
 
 if __name__ == "__main__":
