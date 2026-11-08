@@ -567,8 +567,6 @@ def test_relay_b_hard_process_kill_restarts_from_quorum_and_replays_same_operati
     config = {
         "membership_path": str(membership_path),
         "lineage_root": str(lineage_root),
-        "anchor_c_port": anchor_c_port,
-        "anchor_d_port": anchor_d_port,
         "peer_b_port": peer_b_port,
         "peer_b_cert": str(certificates["peer-b_cert"]),
         "peer_b_key": str(certificates["peer-b_key"]),
@@ -856,23 +854,11 @@ def test_terminal_peer_c_hard_process_kill_recovers_while_relay_b_survives(
     terminal_worker = root / "tests" / "helpers" / "federated_forwarding_terminal_worker.py"
     certificates = _certificates(tmp_path)
 
-    lineage_b = tmp_path / "lineage-b"
     lineage_c = tmp_path / "lineage-c"
-    authorities_b = lineage_b / "authorities"
     authorities_c = lineage_c / "authorities"
-    authorities_b.mkdir(parents=True, exist_ok=True)
     authorities_c.mkdir(parents=True, exist_ok=True)
 
-    membership_b_path = tmp_path / "membership-b.json"
     membership_c_path = tmp_path / "membership-c.json"
-    membership_b = SeedCommitMembership(
-        "federated-relay-peer-b",
-        1,
-        ("peer-b", "anchor-c", "anchor-d"),
-        "peer-b",
-        1,
-        GENESIS,
-    )
     membership_c = SeedCommitMembership(
         "federated-terminal-peer-c",
         1,
@@ -881,17 +867,11 @@ def test_terminal_peer_c_hard_process_kill_recovers_while_relay_b_survives(
         1,
         hashlib.sha256(b"mailcpu-federated-terminal-peer-c-process-recovery-v1").hexdigest(),
     )
-    membership_b_path.write_text(
-        json.dumps(membership_b.snapshot(), sort_keys=True, separators=(",", ":")),
-        encoding="utf-8",
-    )
     membership_c_path.write_text(
         json.dumps(membership_c.snapshot(), sort_keys=True, separators=(",", ":")),
         encoding="utf-8",
     )
 
-    anchor_c, anchor_c_port = _start_anchor(root, "anchor-c", membership_b_path, authorities_b)
-    anchor_d, anchor_d_port = _start_anchor(root, "anchor-d", membership_b_path, authorities_b)
     anchor_e, anchor_e_port = _start_anchor(root, "anchor-e", membership_c_path, authorities_c)
     anchor_f, anchor_f_port = _start_anchor(root, "anchor-f", membership_c_path, authorities_c)
 
@@ -933,8 +913,6 @@ def test_terminal_peer_c_hard_process_kill_recovers_while_relay_b_survives(
     calls_path = tmp_path / "terminal-operator-calls.jsonl"
     runtime_path = tmp_path / "terminal-runtime.json"
     config = {
-        "membership_path": str(membership_b_path),
-        "lineage_root": str(lineage_b),
         "anchor_c_port": anchor_c_port,
         "anchor_d_port": anchor_d_port,
         "membership_path_c": str(membership_c_path),
@@ -963,9 +941,7 @@ def test_terminal_peer_c_hard_process_kill_recovers_while_relay_b_survives(
     cut_marker = tmp_path / "peer-c-cut.json"
     terminal_result = tmp_path / "peer-c-result.json"
     relay_result = tmp_path / "peer-b-result.json"
-    processes: list[subprocess.Popen[str]] = [
-        anchor_c, anchor_d, anchor_e, anchor_f
-    ]
+    processes: list[subprocess.Popen[str]] = [anchor_e, anchor_f]
     client_a: ComputationalFabricForwardingClient | None = None
     terminal_initial: subprocess.Popen[str] | None = None
     terminal_restored: subprocess.Popen[str] | None = None
