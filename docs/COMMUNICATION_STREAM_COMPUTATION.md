@@ -4,7 +4,9 @@
 
 This document describes a direction for E-CPU: treat communication infrastructure as a navigable computational substrate in which ports, services, queues, translators, memory providers, and execution hosts can participate as typed operational loci.
 
-The claim is deliberately narrower than “the Internet is already a computer.” A network link transports information. A receiver becomes a computational host only when it exposes a stable identity, an interpretable request contract, a transition relation, local authority, bounded resources, and an observable result. A path becomes computational when its participating hosts compose those contracts.
+The underlying abstraction is **host = observer**. Any identifiable locus that observes information or changes information through observation and interaction is an observer-host candidate. An observer may be a receiver, sensor, queue, port, timing probe, memory provider, interpreter, or composite service; it need not be a conventional machine or general-purpose executor. Observation itself may be read-only, or it may change the observer's state, the observed state, or both.
+
+The claim is deliberately narrower than “the Internet is already a computer.” A passive link only carries information. An observer-host performs a declared observation or interaction. For that locus to participate in an admitted computational path, its identity, observation/transition contract, applicable authority, resource bounds, and observable result must be established. A path becomes computational by composing such host contracts; it does not become trusted or executable merely by being connected.
 
 ## 1. The stream carries a state description
 
@@ -60,9 +62,9 @@ At a receiver, a message can pass through:
 \rightarrow \text{receipt / continuation}.
 \]
 
-The network does not execute the semantic transition merely by moving bytes. Computation occurs at the host that interprets and applies the transition. A port is not automatically a host; it becomes an operational locus when a service behind it exposes a defined request/reply relation and owns the relevant state.
+The network does not execute the semantic transition merely by moving bytes. A host/observer is the locus that observes, interprets, or interacts with the information. Computation occurs when that observation is composed with a declared transition that produces an admitted effect or result. A port is not automatically a host merely because it has an address; the port or service becomes an observer-host when it actually receives, samples, inspects, measures, admits, acknowledges, transforms, or emits information under a defined contract. Such a host can be observational without having a general-purpose execution engine.
 
-This creates a composable alternative to one machine containing every execution primitive. One host may decode a representation, another may perform a bounded transformation, another may supply memory, and another may verify the result. The path is useful only when adjacent schemas, identities, causal relations, authority, and resource contracts agree.
+This creates a composable alternative to one machine containing every execution primitive. One host may decode a representation, another may perform a bounded transformation, another may supply memory, another may measure a link, and another may verify the result. The path is useful only when adjacent schemas, identities, causal relations, authority, and resource contracts agree. Observation-only hosts contribute their declared observation; they do not inherit the execution or authority of neighbouring hosts.
 
 ## 3. Meaningful interpretation is not free computation
 
@@ -87,7 +89,7 @@ d=(\text{radix}=10,\ \text{leading\_zeros}=10^{12},\
 \text{digit}=1).
 \]
 
-This descriptor denotes a decimal value whose explicit expansion would contain a trillion leading fractional zeroes before the 1. The descriptor is finite; the expanded string is not stored. An observer can ask for a bounded window, compare coordinates, or apply an algebraic transformation without enumerating the entire prefix.
+This descriptor denotes a decimal value whose explicit expansion would contain a trillion leading fractional zeroes before the 1. The descriptor is finite; the expanded string is not stored. An observer-host can ask for a bounded window, compare coordinates, or apply an algebraic transformation without enumerating the entire prefix. In this document, “observer” always denotes a possible logical host, not only an external person contemplating a representation.
 
 The distinction is essential:
 
@@ -98,7 +100,7 @@ The distinction is essential:
 
 The descriptor does not physically contain infinite information. It contains a finite rule that denotes an unbounded family. If a request asks to materialize n digits, the work and storage still grow with n. If an operation supports a verified jump or symbolic coordinate transform, it may avoid linear enumeration; the cost then depends on the arithmetic representation, operand size, algorithm, and proof obligations.
 
-A finite observer cannot traverse an infinite space linearly. It can navigate it by symbolic position, composition, indexing, or verified transformations. This only works when the representation defines those operations and a verifier can check their results.
+A finite observer-host cannot traverse an infinite space linearly. It can navigate it by symbolic position, composition, indexing, or verified transformations. This only works when the representation defines those operations and a verifier can check their results. The observer's available operations, information horizon, resource budget, and evidence are part of its host contract; finite observation does not imply exhaustive knowledge of the represented space.
 
 ## 5. Describe → resolve → realize
 

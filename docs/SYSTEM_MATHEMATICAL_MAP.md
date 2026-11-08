@@ -74,7 +74,7 @@ This is the core formal pattern repeated throughout the repository: state has an
 
 ## 2. Host, substrate, and operational path
 
-A logical host is an identifiable operational locus:
+A logical host is an identifiable observer-locus. **Host and observer are the same underlying abstraction**: any locus that can observe information or change information through observation and interaction is a host candidate. The observer need not be human, centralized, persistent, or implemented as a conventional machine.
 
 \[
 H=(I,C,S,T,K,L)
@@ -82,20 +82,28 @@ H=(I,C,S,T,K,L)
 
 - \(I\): stable logical identity.
 - \(C\): communication interfaces and adjacency.
-- \(S\): operational state; it may be empty for a stateless transform.
-- \(T\): its defined information transition.
+- \(S\): operational state; it may be empty for a stateless observer or transform.
+- \(T\): its defined observation and/or information-transition relation.
 - \(K\): capabilities available and permitted at that locus.
 - \(L\): operational lineage, revision, provenance, and recovery identity.
 
-A substrate carries information; a host performs a defined operation; a path relates substrate edges and host transitions. A passive link is normally an edge, not a host. A server process may realize a host, but process identity and logical host identity are not interchangeable.
+An observation can be modelled as:
 
-For a path \(\pi=(h_0,\ldots,h_n)\), its semantic computation is a composition of admitted transitions:
+\[
+\mathsf{O}_H:(X,S_H)\rightarrow(Y,S'_H,X',E)
+\]
+
+where X is the information made available to the observer, Y is the bounded observation, S'_H is the observer's resulting state, X' is the observed information after any interaction, and E is the evidence or receipt. A passive read may leave both states unchanged; an active observation may update the observer, the observed information, or both. The contract determines which behavior is permitted and observable.
+
+A substrate carries information; a host/observer performs a defined observation or interaction; a path relates substrate edges and host transitions. A passive link that only carries signals is normally an edge, not a host. A link, port, or path segment that samples, measures, decodes, admits, acknowledges, filters, or otherwise interacts with information is an observer-host for that operation. A server process may realize a host, but process identity and logical host identity are not interchangeable.
+
+For a path \(\pi=(h_0,\ldots,h_n)\), its semantic operation is a composition of admitted observations and transitions. An observation-only host can contribute a measured or verified result without being treated as an executor; where an observation changes state, that interaction is an explicit transition. The computation path is:
 
 \[
 F_\pi = T_{h_n}\circ T_{h_{n-1}}\circ\cdots\circ T_{h_0}
 \]
 
-This composition is meaningful only where adjacent request/reply schemas, semantic identities, causal dependencies, authority requirements, and observation contracts match. Physical placement may change while logical host identity and required lineage remain stable.
+This composition is meaningful only where adjacent request/reply schemas, semantic identities, causal dependencies, authority requirements, and observation contracts match. Observation is therefore not outside the computational fabric: it is a primitive host operation that can supply evidence, alter state, or participate in a larger transition path. Physical placement may change while logical host identity and required lineage remain stable.
 
 The implementation has several related but distinct operational graphs. They must not be flattened into one universal graph:
 
@@ -170,6 +178,8 @@ D=(G,P,\mathcal{T},I)
 \]
 
 Here \(G\) is the representation grammar, \(P\) defines well-formed states, \(\mathcal{T}\) defines permitted transition operators, and \(I\) gives invariants/admissibility conditions. A description is useful when its verified rules can generate, locate, restore, or validate states of interest without materializing every member of \(\Omega_D\).
+
+The phrase **finite observer** refers to a finite observer-host: a locus with bounded observation and interaction resources. It is not restricted to a human or an external analyst. A host's observation horizon, sampling rules, state effects, and evidence contract bound what it can establish; an observer does not gain exhaustive knowledge merely because a symbolic description denotes an unbounded state family.
 
 A finite navigation is a bounded trajectory:
 

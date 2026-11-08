@@ -29,11 +29,24 @@ Registry of defined terms for this repository.
   identity, argument validity, or model output.
 
 **host**
-: An identifiable logical operational locus in a communication substrate
-  where information can be received, observed, transformed, retained, routed,
-  or emitted under a defined capability and transition relation. A host need
-  not be a physical machine. A passive link is not a host unless it has an
-  operational state or transition of its own.
+: An identifiable logical observer-locus in a communication substrate. A host
+  can receive or inspect information, distinguish or measure a property of it,
+  or change information through observation and interaction. *Host* and
+  *observer* name the same underlying abstraction. Observation is the minimum
+  host operation; general execution, transformation, routing, persistence,
+  verification, coordination, and authority are additional capabilities, not
+  assumptions. A passive link that only carries signals remains a substrate
+  edge; a link, port, or path element that actually observes or interacts with
+  information is an observer-host for that declared operation.
+
+**observer**
+: The observational aspect of a logical host: an identifiable locus that
+  samples, detects, distinguishes, compares, measures, interprets, or publishes
+  information. An observer is a possible computational participant in the
+  system, not merely a human viewpoint or passive monitor. It performs only
+  the observation and interaction operations defined by its contract and
+  admitted by local policy; the term does not imply arbitrary execution,
+  authority, persistence, or trust.
 
 **operational locus**
 : One addressable transition point within a host or composite operational

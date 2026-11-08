@@ -2,9 +2,9 @@
 
 ## Normative definition
 
-A **host** is an identifiable operational locus in a communication substrate at which information can be received, observed, transformed, retained, routed, or emitted under a defined capability and transition relation.
+A **host** is an identifiable **observer**: a logical operational locus that can receive or inspect information, distinguish or measure some property of it, or change information through observation and interaction. In this architecture, *host* and *observer* name the same underlying kind of locus. An observer is therefore not limited to a human viewpoint, an external analyst, or a passive monitoring tool; it is a possible operational construct in the system.
 
-A host is not necessarily a physical machine, server, CPU, process, operating system, or persistent object. It is defined by an identifiable operation contract and the state or lineage that gives that operation continuity.
+A host is not necessarily a physical machine, server, CPU, process, operating system, or persistent object. Observation is the minimum host relation. Execution, transformation, routing, persistence, verification, coordination, and authority are additional capabilities that may be composed with it; they are not prerequisites for being an observer-host. Each host performs only the operations declared by its own contract and admitted by the relevant local policy.
 
 Let a logical host be:
 
@@ -12,15 +12,23 @@ Let a logical host be:
 H=(I,C,S,T,K,L)
 \]
 
-where I is stable logical identity; C is communication interfaces and adjacency; S is operational state (possibly empty for a stateless transform); T is the defined transition relation; K is the set of capabilities available and permitted; and L is operational lineage, including continuity, revision, provenance, and recovery identity.
+where I is stable logical identity; C is communication interfaces and adjacency; S is operational state (possibly empty for a stateless observer or transform); T is the defined observation and/or information-transition relation; K is the set of capabilities available and permitted; and L is operational lineage, including continuity, revision, provenance, and recovery identity.
 
-The distinction between S and T matters. A stateless transducer can be a host because it has a defined transition. A stateful object is not automatically a host if no information operation is defined.
+An observational contract can be represented as:
+
+\[
+\mathsf{O}_H:(X,S_H)\rightarrow(Y,S'_H,X',E)
+\]
+
+where X is the information made available to the observer, Y is its bounded observation or result, S_H and S'_H are the host's state before and after observation, X' is the observed information after any interaction, and E is the evidence or receipt exposed by the contract. A read-only observation may leave both states unchanged; an active observation may update the observer, the observed information, or both. The contract must say which case applies.
+
+The distinction between S and T matters. A stateless observer can be a host because it has a defined observation relation. A stateful object is not automatically a host if no information operation is defined.
 
 ## Substrate, host, and path
 
 A **substrate** is the medium and connectivity through which information can move. A **host** is an operational locus with a defined information contract. A **path** is an ordered or constrained relation among substrate edges and host loci.
 
-A passive communication link is normally a substrate edge, not a host. A path segment becomes a host when it carries an operational capability of its own: a queue with admission/dequeue transitions, a router with policy and forwarding state, a filter with a defined transformation, or a scheduler with a stateful selection relation. Thus paths can contain hosts, and active path segments can themselves host operations.
+A passive communication link that only carries signals is normally a substrate edge, not a host. A link, port, or path segment that observes its traffic or condition—by sampling, measuring, decoding, admitting, queueing, acknowledging, filtering, or otherwise interacting with information—is an observer-host for that operation. It need not execute a general-purpose program. Thus a path can contain observer-hosts as well as passive edges, and an active path segment can itself host computation when its observation contract is composed with a declared transition.
 
 ## Roles are composable capabilities
 
@@ -29,7 +37,7 @@ Roles are not mutually exclusive kinds:
 | Role | Operation | Example |
 |---|---|---|
 | Sensor / transducer | Convert a measured phenomenon to information | Sensor interface, decoder |
-| Observer | Sample, compare, or publish a view | Monitor, trace reader |
+| Observer-host | Sample, distinguish, compare, measure, or publish a bounded view; optionally interact with the observed state | Monitor, trace reader, receiver, timing probe |
 | Transit | Queue, route, filter, schedule, or reshape information | Mailbox, active router |
 | Execution | Apply a bounded transition | CPU worker, SIMT interpreter |
 | Memory | Retain and resolve by identity or coordinate | Page store, Structural Memory |
@@ -37,7 +45,7 @@ Roles are not mutually exclusive kinds:
 | Authority | Admit, deny, or commit under policy | Hypervisor, recovery authority |
 | Coordination | Compose transitions across loci | DAG coordinator |
 
-One host can expose many roles. Several hosts can cooperate as one composite service. A host may create or contain subordinate logical hosts without requiring physical containment. A queue can be memory and transit; a worker can execute and verify.
+Observation is the minimum host role; the remaining roles are composable capabilities. One host can expose many roles. Several hosts can cooperate as one composite service. A host may create or contain subordinate logical hosts without requiring physical containment. A queue can observe, retain, and transit; a worker can execute and verify. A pure observer-host is not thereby granted execution, storage, forwarding, or authority capabilities.
 
 ## Identity is not placement
 
@@ -94,4 +102,4 @@ See EGPU_NAVIGABLE_FABRIC.md for the executable reference structure.
 
 New subsystems should expose logical identity, transitions, capabilities, and lineage independently of placement. Active paths may host computation when they have operational state and a transition contract. Composite hosts should expose bounded sub-loci and return route witnesses. Physical migration requires continuity evidence; fault-domain claims require placement evidence.
 
-This model defines vocabulary and a design contract. It does not claim every sensor, path, observer, remote process, or machine is already a live MailCPU host. The first E-GPU implementation proves a bounded local example of composable loci and deterministic capability navigation. Physical GPU execution, arbitrary path-host execution, general migration, and distributed identity continuity remain later targets.
+This model defines vocabulary and a design contract. Any documented observer is a possible observer-host construct; that statement is a classification rule, not a claim that every sensor, path element, remote process, or machine is already instantiated, reachable, trusted, or authorized as a live MailCPU host. A concrete observer-host must still establish its identity, observation contract, resource bounds, and any required state/lineage. The first E-GPU implementation proves a bounded local example of composable loci and deterministic capability navigation. Physical GPU execution, arbitrary path-host execution, general migration, and distributed identity continuity remain later targets.
