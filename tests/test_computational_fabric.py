@@ -1024,7 +1024,6 @@ def test_mutual_tls_peer_client_discovers_and_merges_remote_host_snapshot(tmp_pa
     authority.register_host(ComputationalHostAdvertisement.from_locus(_locus(), "peer-b"))
 
     server_result: dict[str, object] = {}
-    server_errors: list[BaseException] = []
     stop = threading.Event()
 
     def serve() -> None:
@@ -1079,7 +1078,6 @@ def test_mutual_tls_peer_client_discovers_and_merges_remote_host_snapshot(tmp_pa
         assert routed.witness.peer_path == ("peer-a", "peer-b")
         assert routed.witness.target_host.host_id == "logical-host-b"
         assert server_result.get("server") is not None
-        assert not server_errors
     finally:
         stop.set()
         if client is not None:
@@ -1838,7 +1836,6 @@ def test_discovery_service_reauthenticates_after_transport_loss_and_directory_re
         args=(stop,),
         kwargs={
             "on_session": lambda server: accepted_sessions.append(server.transport),
-            "on_error": server_errors.append,
         },
         daemon=True,
     )
