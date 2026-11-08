@@ -39,6 +39,7 @@ def _canonical_digest(value: Mapping[str, Any]) -> str:
 
 
 def _positive_seconds(value: float, field: str, *, maximum: float = 3600.0) -> float:
+    """Validate a finite positive duration within the field-specific maximum."""
     if (
         not isinstance(value, (int, float))
         or isinstance(value, bool)
@@ -378,6 +379,7 @@ class ComputationalFabricDiscoveryService:
         )
 
     def _last_known(self, peer_id: str) -> tuple[int | None, str | None]:
+        """Return the observed peer revision and digest, or absent markers."""
         for snapshot in self.directory.peer_snapshots:
             if snapshot.peer_id == peer_id:
                 return snapshot.revision, snapshot.digest

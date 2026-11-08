@@ -681,6 +681,7 @@ class ComputationalFabricAuthority:
             return self._snapshot_locked()
 
     def _snapshot_locked(self) -> ComputationalPeerSnapshot:
+        """Project the current peer authority state while its lock is held."""
         return ComputationalPeerSnapshot(
             self.endpoint,
             self._revision,
@@ -690,6 +691,7 @@ class ComputationalFabricAuthority:
         )
 
     def _persist_locked(self) -> None:
+        """Send the current locked snapshot to the configured persistence sink."""
         if self._on_snapshot is not None:
             self._on_snapshot(self._snapshot_locked())
 

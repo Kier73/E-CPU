@@ -42,6 +42,7 @@ class ComputationalFabricAuthorityStore:
 
     @staticmethod
     def _canonical_digest(payload: Mapping[str, Any]) -> str:
+        """Hash a peer snapshot projection using canonical JSON bytes."""
         try:
             encoded = json.dumps(
                 dict(payload),
@@ -57,6 +58,7 @@ class ComputationalFabricAuthorityStore:
         return hashlib.sha256(encoded).hexdigest()
 
     def save(self, snapshot: ComputationalPeerSnapshot) -> str:
+        """Atomically persist one peer snapshot and return its content digest."""
         if not isinstance(snapshot, ComputationalPeerSnapshot):
             raise ComputationalFabricAuthorityStoreError(
                 "authority store accepts ComputationalPeerSnapshot values only"
@@ -109,6 +111,7 @@ class ComputationalFabricAuthorityStore:
         return snapshot.digest
 
     def load(self, *, expected_peer_id: str | None = None) -> ComputationalPeerSnapshot:
+        """Load a peer snapshot and verify its schema, digest, and optional peer identity."""
         try:
             size = self.path.stat().st_size
             if size <= 0 or size > self.MAX_BYTES:
@@ -177,6 +180,7 @@ class ComputationalFabricAuthorityStore:
 
 
 def _server_context(certificate: Path, private_key: Path, client_ca: Path) -> ssl.SSLContext:
+    """Create a TLS server context that requires client certificates from the configured CA."""
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.minimum_version = ssl.TLSVersion.TLSv1_2
     context.load_cert_chain(str(certificate), str(private_key))
@@ -186,6 +190,7 @@ def _server_context(certificate: Path, private_key: Path, client_ca: Path) -> ss
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Define the CLI contract for the restartable authenticated peer service."""
     parser = argparse.ArgumentParser(
         description="Run one restartable, mutually authenticated computational-fabric peer service."
     )
@@ -203,6 +208,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    """Restore one peer authority and serve its discovery endpoint until stopped."""
     arguments = build_parser().parse_args(argv)
     if not 1 <= arguments.listen_port <= 65535:
         raise ValueError("listen port must be between 1 and 65535")
@@ -235,6 +241,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     previous_handlers: dict[int, Any] = {}
 
     def request_stop(_signum: int, _frame: Any) -> None:
+        """Signal the peer listener to stop and close its active endpoint."""
         stop_event.set()
         listener.close()
 
