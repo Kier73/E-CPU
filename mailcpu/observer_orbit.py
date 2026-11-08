@@ -56,24 +56,28 @@ _COMPLEXITY = {
 
 
 def _identifier(value: Any, label: str) -> str:
+    """Mathematics: constrain observer and operation identities to a bounded safe identifier alphabet."""
     if not isinstance(value, str) or _IDENTIFIER.fullmatch(value) is None:
         raise ObserverOrbitError(f"{label} must be a safe 1-128 character identifier")
     return value
 
 
 def _digest(value: Any, label: str) -> str:
+    """Mathematics: require a lowercase 256-bit SHA-256 content digest."""
     if not isinstance(value, str) or _DIGEST.fullmatch(value) is None:
         raise ObserverOrbitError(f"{label} must be a lowercase SHA-256 digest")
     return value
 
 
 def _positive_int(value: Any, label: str, *, minimum: int = 1) -> int:
+    """Mathematics: require a strict integer at or above the declared lower bound, excluding Booleans."""
     if type(value) is not int or value < minimum:
         raise ObserverOrbitError(f"{label} must be an integer >= {minimum}")
     return value
 
 
 def _canonical_json(value: Any, label: str) -> str:
+    """Mathematics: encode finite JSON deterministically with sorted keys and compact separators."""
     try:
         return json.dumps(
             value,
@@ -87,6 +91,7 @@ def _canonical_json(value: Any, label: str) -> str:
 
 
 def _clone_json(value: Any, label: str) -> Any:
+    """Mathematics: detach a JSON value through canonical encoding and decoding."""
     encoded = _canonical_json(value, label)
     try:
         return json.loads(encoded)
@@ -95,6 +100,7 @@ def _clone_json(value: Any, label: str) -> Any:
 
 
 def _freeze_json(value: Any) -> Any:
+    """Mathematics: recursively freeze mappings and sequences without changing their JSON meaning."""
     if isinstance(value, dict):
         return _FrozenDict({key: _freeze_json(item) for key, item in value.items()})
     if isinstance(value, list):
@@ -103,6 +109,7 @@ def _freeze_json(value: Any) -> Any:
 
 
 def _thaw_json(value: Any) -> Any:
+    """Mathematics: convert frozen mappings and tuples into detached JSON dictionaries and lists."""
     if isinstance(value, Mapping):
         return {key: _thaw_json(item) for key, item in value.items()}
     if isinstance(value, (tuple, list)):
@@ -114,6 +121,7 @@ class _FrozenDict(dict):
     """A JSON-compatible mapping that cannot be mutated after admission."""
 
     def _immutable(self, *args: Any, **kwargs: Any) -> None:
+        """Mathematics: reject any mutation of a value after it has been admitted as immutable observer context."""
         raise TypeError("observer-orbit values are immutable")
 
     __setitem__ = _immutable
@@ -127,6 +135,7 @@ class _FrozenDict(dict):
 
 
 def _temporal_frame_from_dict(payload: Mapping[str, Any]) -> TemporalFrame:
+    """Mathematics: reconstruct typed temporal readings without conflating scheduler, causal, wall, or monotonic coordinates."""
     expected = {
         "actor_id", "monotonic", "wall", "causal", "scheduler",
         "event_lambda", "chronon_phase", "chemical_tau",
@@ -201,6 +210,7 @@ class ObserverContract:
             _digest(self.lineage_digest, "observer lineage_digest")
 
     def to_dict(self) -> dict[str, Any]:
+        """Mathematics: serialize the validated value into its versioned JSON representation."""
         return {
             "schema": "mailcpu.observer.contract.v1",
             "observer_id": self.observer_id,
@@ -214,6 +224,7 @@ class ObserverContract:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "ObserverContract":
+        """Mathematics: reconstruct the value from its exact versioned JSON representation and revalidate its invariants."""
         expected = {
             "schema", "observer_id", "revision", "subject", "interpretation",
             "observation", "context_digest", "lineage_digest",
@@ -234,6 +245,7 @@ class ObserverContract:
 
     @property
     def digest(self) -> str:
+        """Mathematics: compute SHA-256 identity over the canonical serialized representation."""
         return canonical_value_digest(self.to_dict())
 
 
@@ -319,6 +331,7 @@ class ObserverReceipt:
         subject_state_after_digest: str | None = None,
         evidence: Sequence[RepresentationRef] = (),
     ) -> "ObserverReceipt":
+        """Mathematics: bind an observer operation, canonical projection, time frame, and evidence into one receipt."""
         if not isinstance(contract, ObserverContract):
             raise ObserverOrbitError("receipt issuance requires an ObserverContract")
         projection_json = _canonical_json(projection_value, "observer projection")
@@ -344,9 +357,11 @@ class ObserverReceipt:
 
     @property
     def projection(self) -> Any:
+        """Mathematics: decode and return a detached JSON view of the stored projection."""
         return json.loads(self.projection_json)
 
     def to_dict(self) -> dict[str, Any]:
+        """Mathematics: serialize the validated value into its versioned JSON representation."""
         return {
             "schema": "mailcpu.observer.receipt.v1",
             "observer_id": self.observer_id,
@@ -370,6 +385,7 @@ class ObserverReceipt:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "ObserverReceipt":
+        """Mathematics: reconstruct the value from its exact versioned JSON representation and revalidate its invariants."""
         expected = {
             "schema", "observer_id", "revision", "contract_digest", "subject",
             "interpretation", "observation", "operation_id", "input_digest",
@@ -409,6 +425,7 @@ class ObserverReceipt:
 
     @property
     def digest(self) -> str:
+        """Mathematics: compute SHA-256 identity over the canonical serialized representation."""
         return canonical_value_digest(self.to_dict())
 
 
@@ -461,6 +478,7 @@ class ObserverComposition:
         object.__setattr__(self, "members", members)
 
     def to_dict(self) -> dict[str, Any]:
+        """Mathematics: serialize the validated value into its versioned JSON representation."""
         return {
             "schema": "mailcpu.observer.composition.v1",
             "composition_id": self.composition_id,
@@ -470,6 +488,7 @@ class ObserverComposition:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "ObserverComposition":
+        """Mathematics: reconstruct the value from its exact versioned JSON representation and revalidate its invariants."""
         if (
             not isinstance(payload, Mapping)
             or set(payload) != {"schema", "composition_id", "revision", "members"}
@@ -485,6 +504,7 @@ class ObserverComposition:
 
     @property
     def digest(self) -> str:
+        """Mathematics: compute SHA-256 identity over the canonical serialized representation."""
         return canonical_value_digest(self.to_dict())
 
 
@@ -518,9 +538,11 @@ class ObserverMemberReceipt:
 
     @property
     def projection(self) -> Any:
+        """Mathematics: decode and return a detached JSON view of the stored projection."""
         return json.loads(self.projection_json)
 
     def to_dict(self) -> dict[str, Any]:
+        """Mathematics: serialize the validated value into its versioned JSON representation."""
         return {
             "observer_id": self.observer_id,
             "contract_digest": self.contract_digest,
@@ -532,6 +554,7 @@ class ObserverMemberReceipt:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "ObserverMemberReceipt":
+        """Mathematics: reconstruct the value from its exact versioned JSON representation and revalidate its invariants."""
         expected = {
             "observer_id", "contract_digest", "receipt_digest", "projection_digest",
             "projection_json", "time_frame_digest",
@@ -570,6 +593,7 @@ class ObserverAggregateReceipt:
         object.__setattr__(self, "members", members)
 
     def to_dict(self) -> dict[str, Any]:
+        """Mathematics: serialize the validated value into its versioned JSON representation."""
         return {
             "schema": "mailcpu.observer.aggregate.v1",
             "composition_digest": self.composition_digest,
@@ -584,6 +608,7 @@ class ObserverAggregateReceipt:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "ObserverAggregateReceipt":
+        """Mathematics: reconstruct the value from its exact versioned JSON representation and revalidate its invariants."""
         expected = {
             "schema", "composition_digest", "operation_id", "input_digest",
             "subject", "interpretation", "context_digest", "members", "semantics",
@@ -606,6 +631,7 @@ class ObserverAggregateReceipt:
 
     @property
     def digest(self) -> str:
+        """Mathematics: compute SHA-256 identity over the canonical serialized representation."""
         return canonical_value_digest(self.to_dict())
 
 
@@ -751,13 +777,16 @@ class ContextualOrbitAddress:
 
     @property
     def orbit_offset(self) -> int:
+        """Mathematics: compute the target scheduler tick relative to the pinned base Virtual Ground coordinate."""
         return self.coordinate.tick - self.base_ground.coordinate
 
     @property
     def context_digest(self) -> str:
+        """Mathematics: compute content identity for the exact immutable orbit context."""
         return canonical_value_digest(_thaw_json(self.structural_memory.context))
 
     def to_dict(self) -> dict[str, Any]:
+        """Mathematics: serialize the validated value into its versioned JSON representation."""
         return {
             "schema": "mailcpu.contextual-orbit-address.v1",
             "system_identity": self.system_identity.snapshot(),
@@ -771,6 +800,7 @@ class ContextualOrbitAddress:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "ContextualOrbitAddress":
+        """Mathematics: reconstruct the value from its exact versioned JSON representation and revalidate its invariants."""
         expected = {
             "schema", "system_identity", "base_ground", "computational_ground",
             "coordinate", "structural_memory", "context_extensions", "orbit_offset",
@@ -796,6 +826,7 @@ class ContextualOrbitAddress:
 
     @property
     def digest(self) -> str:
+        """Mathematics: compute SHA-256 identity over the canonical serialized representation."""
         return canonical_value_digest(self.to_dict())
 
 
@@ -899,9 +930,11 @@ class VirtualGroundProjection:
 
     @property
     def projection_digest(self) -> str:
+        """Mathematics: identify the symbolic projection independently of per-read cache and receipt metadata."""
         return canonical_value_digest(self.identity_payload())
 
     def to_dict(self) -> dict[str, Any]:
+        """Mathematics: serialize the validated value into its versioned JSON representation."""
         return {
             **self.identity_payload(),
             "structural_memory_ref": self.structural_memory.to_dict(),
@@ -911,6 +944,7 @@ class VirtualGroundProjection:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "VirtualGroundProjection":
+        """Mathematics: reconstruct the value from its exact versioned JSON representation and revalidate its invariants."""
         if not isinstance(payload, Mapping):
             raise ObserverOrbitError("Virtual Ground projection must be an object")
         coordinate_payload = payload.get("coordinate")
@@ -963,6 +997,7 @@ class OrbitNavigationResult:
             raise ObserverOrbitError("symbolic orbit navigation must not expand intermediate states")
 
     def to_dict(self) -> dict[str, Any]:
+        """Mathematics: serialize the validated value into its versioned JSON representation."""
         return {
             "schema": "mailcpu.orbit-navigation-result.v1",
             "projection": self.projection.to_dict(),
@@ -974,6 +1009,7 @@ class OrbitNavigationResult:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "OrbitNavigationResult":
+        """Mathematics: reconstruct the value from its exact versioned JSON representation and revalidate its invariants."""
         expected = {
             "schema", "projection", "observation", "generator_family",
             "complexity_bound", "expanded_states",
@@ -1017,6 +1053,7 @@ class OrbitValueResult:
             raise ObserverOrbitError("inverse navigation must not expand intermediate states")
 
     def to_dict(self) -> dict[str, Any]:
+        """Mathematics: serialize the validated value into its versioned JSON representation."""
         return {
             "schema": "mailcpu.orbit-value-result.v1",
             "target_value": self.target_value,
@@ -1028,6 +1065,7 @@ class OrbitValueResult:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "OrbitValueResult":
+        """Mathematics: reconstruct the value from its exact versioned JSON representation and revalidate its invariants."""
         expected = {
             "schema", "target_value", "orbit_coordinate",
             "inverse_complexity_bound", "navigation", "expanded_states",
@@ -1059,6 +1097,7 @@ class ContextualOrbitNavigator:
         self.registry = registry
 
     def _version_for_address(self, address: ContextualOrbitAddress):
+        """Mathematics: resolve the exact admitted memory revision and recheck its spec and certificate digests."""
         memory_ref = address.structural_memory
         try:
             version = self.registry.version_for_revision(memory_ref.memory_id, memory_ref.revision)
@@ -1080,6 +1119,7 @@ class ContextualOrbitNavigator:
         time_frame: TemporalFrame | None = None,
         expected_value: int | None = None,
     ) -> OrbitNavigationResult:
+        """Mathematics: evaluate one certified generator at the addressed relative coordinate without expanding intermediate states."""
         if not isinstance(address, ContextualOrbitAddress):
             raise ObserverOrbitError("locate requires a ContextualOrbitAddress")
         if not isinstance(observer, ObserverContract):
