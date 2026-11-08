@@ -795,3 +795,343 @@ def test_relay_b_hard_process_kill_restarts_from_quorum_and_replays_same_operati
         terminal_listener.close()
         if terminal_listener_rebound is not None:
             terminal_listener_rebound.close()
+
+
+def _send_federated_operation(
+    client: ComputationalFabricForwardingClient,
+    envelope: ComputationalFabricForwardingEnvelope,
+) -> int:
+    """Send one origin operation through A's reliable request channel."""
+    request = HypervisorRequest(
+        COMPUTATIONAL_FABRIC_FORWARD_OPERATION,
+        COMPUTATIONAL_FABRIC_FORWARD_RESOURCE,
+        {"envelope": envelope.advance().to_dict()},
+        frozenset({"forward"}),
+        frozenset(),
+        False,
+    )
+    event = HypervisorArbitrationEvent(
+        "peer-a",
+        envelope.channel_id,
+        envelope.origin_sequence,
+        envelope.logical_time,
+        request,
+    )
+    return client.request.send(event)
+
+
+def _rebind_live_relay(
+    control_port: int,
+    *,
+    peer_id: str = "peer-c",
+) -> dict[str, Any]:
+    """Ask a surviving relay process to reconnect one downstream peer over fresh mutual TLS."""
+    with socket.create_connection(("127.0.0.1", control_port), timeout=25.0) as connection:
+        connection.settimeout(25.0)
+        connection.sendall(
+            json.dumps(
+                {"command": "rebind_next_hop", "peer_id": peer_id},
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8") + b"\\n"
+        )
+        chunks = bytearray()
+        while b"\\n" not in chunks and len(chunks) <= 4096:
+            part = connection.recv(1024)
+            if not part:
+                break
+            chunks.extend(part)
+    assert b"\\n" in chunks, "relay control endpoint closed without a response"
+    return json.loads(bytes(chunks).split(b"\\n", 1)[0].decode("utf-8"))
+
+
+@pytest.mark.parametrize("cut", CUTS)
+def test_terminal_peer_c_hard_process_kill_recovers_while_relay_b_survives(
+    cut: str,
+    tmp_path: Path,
+) -> None:
+    """C dies at each terminal transaction cut; B preserves the pending route and rebinds C without restarting."""
+    root = Path(__file__).resolve().parents[1]
+    relay_worker = root / "tests" / "helpers" / "federated_forwarding_relay_worker.py"
+    terminal_worker = root / "tests" / "helpers" / "federated_forwarding_terminal_worker.py"
+    certificates = _certificates(tmp_path)
+
+    lineage_b = tmp_path / "lineage-b"
+    lineage_c = tmp_path / "lineage-c"
+    authorities_b = lineage_b / "authorities"
+    authorities_c = lineage_c / "authorities"
+    authorities_b.mkdir(parents=True, exist_ok=True)
+    authorities_c.mkdir(parents=True, exist_ok=True)
+
+    membership_b_path = tmp_path / "membership-b.json"
+    membership_c_path = tmp_path / "membership-c.json"
+    membership_b = SeedCommitMembership(
+        "federated-relay-peer-b",
+        1,
+        ("peer-b", "anchor-c", "anchor-d"),
+        "peer-b",
+        1,
+        GENESIS,
+    )
+    membership_c = SeedCommitMembership(
+        "federated-terminal-peer-c",
+        1,
+        ("peer-c", "anchor-e", "anchor-f"),
+        "peer-c",
+        1,
+        hashlib.sha256(b"mailcpu-federated-terminal-peer-c-process-recovery-v1").hexdigest(),
+    )
+    membership_b_path.write_text(
+        json.dumps(membership_b.snapshot(), sort_keys=True, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    membership_c_path.write_text(
+        json.dumps(membership_c.snapshot(), sort_keys=True, separators=(",", ":")),
+        encoding="utf-8",
+    )
+
+    anchor_c, anchor_c_port = _start_anchor(root, "anchor-c", membership_b_path, authorities_b)
+    anchor_d, anchor_d_port = _start_anchor(root, "anchor-d", membership_b_path, authorities_b)
+    anchor_e, anchor_e_port = _start_anchor(root, "anchor-e", membership_c_path, authorities_c)
+    anchor_f, anchor_f_port = _start_anchor(root, "anchor-f", membership_c_path, authorities_c)
+
+    peer_a_port = _free_port()
+    peer_b_port = _free_port()
+    peer_c_port = _free_port()
+    endpoint_a = ComputationalPeerEndpoint(
+        "peer-a", "peer-a.fabric.test", "127.0.0.1", peer_a_port
+    )
+    endpoint_b = ComputationalPeerEndpoint(
+        "peer-b", "peer-b.fabric.test", "127.0.0.1", peer_b_port
+    )
+    endpoint_c = ComputationalPeerEndpoint(
+        "peer-c", "peer-c.fabric.test", "127.0.0.1", peer_c_port
+    )
+    link_ab = _link("peer-a", "peer-b", 2)
+    link_bc = _link("peer-b", "peer-c", 3)
+
+    # Build the portable semantic address and advertisement exactly as the
+    # terminal worker will. The PID-bearing local runtime binding stays inside C.
+    address_os = HeadlessOS()
+    address, catalogue, _calls, _execute_pid = _make_workload(address_os)
+    advertisement = ComputationalHostAdvertisement.from_locus(catalogue.loci[0], "peer-c")
+    snapshots = (
+        ComputationalPeerSnapshot(endpoint_a, 1, 60, (), (link_ab,)),
+        ComputationalPeerSnapshot(endpoint_b, 1, 60, (), (link_bc,)),
+        ComputationalPeerSnapshot(endpoint_c, 1, 60, (advertisement,), ()),
+    )
+    directory_a = _directory(snapshots, "peer-a")
+    resolved = ComputationalFabricResolver().resolve(
+        address,
+        directory_a,
+        origin_peer_id="peer-a",
+    )
+    assert resolved.status is ComputationalFabricStatus.FOUND
+    assert resolved.witness is not None
+    assert resolved.witness.peer_path == ("peer-a", "peer-b", "peer-c")
+
+    calls_path = tmp_path / "terminal-operator-calls.jsonl"
+    runtime_path = tmp_path / "terminal-runtime.json"
+    config = {
+        "membership_path": str(membership_b_path),
+        "lineage_root": str(lineage_b),
+        "anchor_c_port": anchor_c_port,
+        "anchor_d_port": anchor_d_port,
+        "membership_path_c": str(membership_c_path),
+        "lineage_root_c": str(lineage_c),
+        "anchor_e_port": anchor_e_port,
+        "anchor_f_port": anchor_f_port,
+        "peer_b_port": peer_b_port,
+        "peer_c_port": peer_c_port,
+        "peer_b_cert": str(certificates["peer-b_cert"]),
+        "peer_b_key": str(certificates["peer-b_key"]),
+        "peer_c_cert": str(certificates["peer-c_cert"]),
+        "peer_c_key": str(certificates["peer-c_key"]),
+        "ca_cert": str(certificates["ca"]),
+        "peer_snapshots": {item.peer_id: item.to_dict() for item in snapshots},
+        "calls_path": str(calls_path),
+        "runtime_path": str(runtime_path),
+    }
+    config_path = tmp_path / "terminal-recovery-config.json"
+    config_path.write_text(
+        json.dumps(config, sort_keys=True, separators=(",", ":")),
+        encoding="utf-8",
+    )
+
+    terminal_checkpoint_dir = tmp_path / "peer-c-checkpoints"
+    relay_checkpoint_dir = tmp_path / "peer-b-unused-checkpoints"
+    cut_marker = tmp_path / "peer-c-cut.json"
+    terminal_result = tmp_path / "peer-c-result.json"
+    relay_result = tmp_path / "peer-b-result.json"
+    processes: list[subprocess.Popen[str]] = [
+        anchor_c, anchor_d, anchor_e, anchor_f
+    ]
+    client_a: ComputationalFabricForwardingClient | None = None
+    terminal_initial: subprocess.Popen[str] | None = None
+    terminal_restored: subprocess.Popen[str] | None = None
+    relay: subprocess.Popen[str] | None = None
+
+    try:
+        terminal_initial = subprocess.Popen(
+            [
+                sys.executable, str(terminal_worker), "prepare", str(config_path),
+                cut, str(cut_marker), str(terminal_checkpoint_dir),
+            ],
+            cwd=root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+        processes.append(terminal_initial)
+        terminal_ready = _wait_ready(terminal_initial)
+        assert terminal_ready["peer"] == "peer-c"
+
+        relay = subprocess.Popen(
+            [
+                sys.executable, str(relay_worker), "live", str(config_path),
+                "live", str(relay_result), str(relay_checkpoint_dir),
+            ],
+            cwd=root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+        processes.append(relay)
+        relay_ready = _wait_ready(relay)
+        assert relay_ready["peer"] == "peer-b"
+        assert isinstance(relay_ready["control_port"], int)
+
+        client_a = ComputationalFabricForwardingClient.connect_mutual_tls(
+            "peer-a",
+            endpoint_b,
+            _client_context(certificates, "peer-a"),
+            origin_peer_id="peer-a",
+            origin_channel="application.batch",
+            timeout=8.0,
+        )
+        first_envelope = ComputationalFabricForwardingEnvelope.begin(
+            address,
+            resolved.witness,
+            origin_channel="application.batch",
+            origin_sequence=7,
+        )
+        assert _send_federated_operation(client_a, first_envelope) == 1
+
+        cut_state = _wait_json(cut_marker, terminal_initial)
+        assert cut_state["stage"] == "cut"
+        assert cut_state["pid"] == terminal_initial.pid
+        assert cut_state["cut"] == cut
+        assert cut_state["generation"] == 1
+        assert cut_state["request_receive_cursor"] == (
+            2 if cut == "after_request_ack" else 1
+        )
+        assert cut_state["response_pending"] == (
+            [1] if cut in {"after_response_publish", "after_request_ack"} else []
+        )
+        assert cut_state["execution_count"] == (0 if cut == "before_execution" else 1)
+        assert cut_state["journal_valid"] is True
+
+        _kill(terminal_initial)
+        assert relay.poll() is None, "relay B must remain alive while terminal C is absent"
+        calls_before_restart = (
+            len(calls_path.read_text(encoding="utf-8").splitlines())
+            if calls_path.exists()
+            else 0
+        )
+        assert calls_before_restart == (0 if cut == "before_execution" else 1)
+
+        terminal_restored = subprocess.Popen(
+            [
+                sys.executable, str(terminal_worker), "restore", str(config_path),
+                cut, str(terminal_result), str(terminal_checkpoint_dir),
+            ],
+            cwd=root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+        processes.append(terminal_restored)
+        restored_ready = _wait_ready(terminal_restored)
+        assert restored_ready["peer"] == "peer-c"
+        assert restored_ready["pid"] != terminal_initial.pid
+
+        rebound = _rebind_live_relay(int(relay_ready["control_port"]))
+        assert rebound["ok"] is True, rebound
+        assert rebound["pid"] == relay.pid
+        assert rebound["peer_id"] == "peer-c"
+
+        # Receive the original result before issuing fresh work. This may
+        # complete before or after the C restart for publication/ACK cuts.
+        first_result = _read_forward_results(client_a, 1, relay)[0]
+        assert first_result.action.value == "allow"
+        assert first_result.executed is True
+        first_receipt = ComputationalFabricHopReceipt.from_dict(
+            first_result.effect["receipt"]
+        )
+        assert first_receipt.peer_id == "peer-b"
+        assert first_receipt.downstream is not None
+        assert first_receipt.downstream.peer_id == "peer-c"
+        assert first_receipt.downstream.terminal_execution is not None
+        assert first_receipt.downstream.terminal_execution["execution"]["effect"]["result"] == 9
+
+        # A second, new operation forces B to drain any old duplicate C result
+        # before accepting the current result; it proves the rebinding path
+        # remains useful rather than merely replaying one completed receipt.
+        second_envelope = ComputationalFabricForwardingEnvelope.begin(
+            address,
+            resolved.witness,
+            origin_channel="application.batch",
+            origin_sequence=8,
+        )
+        assert _send_federated_operation(client_a, second_envelope) == 2
+        second_result = _read_forward_results(client_a, 1, relay)[0]
+        assert second_result.action.value == "allow"
+        assert second_result.executed is True
+        second_receipt = ComputationalFabricHopReceipt.from_dict(
+            second_result.effect["receipt"]
+        )
+        assert second_receipt.downstream is not None
+        assert second_receipt.downstream.terminal_execution is not None
+        assert second_receipt.downstream.terminal_execution["execution"]["effect"]["result"] == 9
+
+        b_state = _wait_json(relay_result, relay)
+        c_state = _wait_json(terminal_result, terminal_restored)
+        assert b_state["stage"] == "live_complete"
+        assert b_state["pid"] == relay.pid
+        assert b_state["execution_count"] == 2
+        assert b_state["request_receive_cursor"] == 3
+        assert b_state["response_pending"] == []
+        assert b_state["downstream_request_pending"] == []
+        assert b_state["downstream_response_seen"] == 2
+        assert b_state["journal_valid"] is True
+
+        assert c_state["stage"] == "restored_complete"
+        assert c_state["pid"] == terminal_restored.pid
+        assert c_state["cut"] == cut
+        assert c_state["execution_count"] == 2
+        assert c_state["request_receive_cursor"] == 3
+        assert c_state["response_pending"] == []
+        assert c_state["call_count"] == 2
+        assert c_state["journal_valid"] is True
+        assert len(calls_path.read_text(encoding="utf-8").splitlines()) == 2
+
+        relay_stdout, relay_stderr = relay.communicate(timeout=15)
+        assert relay.returncode == 0, (
+            f"live relay failed with exit={relay.returncode}\\n"
+            f"stdout:\\n{relay_stdout}\\nstderr:\\n{relay_stderr}"
+        )
+        terminal_stdout, terminal_stderr = terminal_restored.communicate(timeout=15)
+        assert terminal_restored.returncode == 0, (
+            f"restored terminal failed with exit={terminal_restored.returncode}\\n"
+            f"stdout:\\n{terminal_stdout}\\nstderr:\\n{terminal_stderr}"
+        )
+    finally:
+        if client_a is not None:
+            client_a.close()
+        for process in processes:
+            if process.poll() is None:
+                process.kill()
+                process.communicate(timeout=10)
