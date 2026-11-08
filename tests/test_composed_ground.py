@@ -205,3 +205,16 @@ def test_composed_virtual_ground_can_bind_a_target_state_digest():
     ).projection.state_digest == result.projection.state_digest
     with pytest.raises(ComposedGroundError, match="expected_state_digest"):
         ComposedVirtualGroundNavigator(registry).locate(address, expected_state_digest="f" * 64)
+
+
+def test_composed_projection_embeds_and_verifies_its_complete_source_address():
+    registry, address, _ = _fixture()
+    projection = ComposedVirtualGroundNavigator(registry).locate(address).projection
+    encoded = projection.to_dict()
+    tampered = dict(encoded)
+    tampered_address = dict(encoded["address"])
+    tampered_address["orbit_offset"] += 1
+    tampered["address"] = tampered_address
+
+    with pytest.raises(ComposedGroundError):
+        ComposedVirtualGroundProjection.from_dict(tampered)
