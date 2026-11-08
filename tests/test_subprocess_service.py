@@ -5,8 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 
+import pytest
+
 from mailcpu import RestartPolicy
 from mailcpu.subprocess_service import (
+    SubprocessServiceError,
     SubprocessServiceSpec,
     SubprocessServiceSupervisor,
 )
@@ -89,3 +92,43 @@ def test_explicit_stop_clears_desired_state_and_suppresses_restart(
     assert reports[0].state == "stopped"
     assert reports[0].restart_count == 0
     supervisor.close()
+
+
+def test_never_restart_policy_survives_failed_initial_readiness(tmp_path: Path) -> None:
+    """A failed first spawn remains terminal when the declared restart policy is NEVER."""
+
+    marker = tmp_path / "spawn-count.txt"
+    source = (
+        "from pathlib import Path; "
+        f"Path({str(marker)!r}).open('a', encoding='utf-8').write('x'); "
+        "raise SystemExit(17)"
+    )
+    supervisor = SubprocessServiceSupervisor()
+    supervisor.register(
+        SubprocessServiceSpec(
+            name="never-worker",
+            command=(sys.executable, "-c", source),
+            readiness_directory=tmp_path / "ready",
+            restart=RestartPolicy.NEVER,
+            max_restarts=5,
+            readiness_timeout=2.0,
+            cwd=tmp_path,
+        )
+    )
+    try:
+        with pytest.raises(SubprocessServiceError, match="exited before readiness"):
+            supervisor.start("never-worker")
+
+        failed = supervisor.status("never-worker")
+        assert failed.state == "failed"
+        assert failed.restart_count == 0
+        assert marker.read_text(encoding="utf-8") == "x"
+
+        for _ in range(3):
+            reconciled = supervisor.reconcile()[0]
+            assert reconciled.state == "failed"
+            assert reconciled.restart_count == 0
+
+        assert marker.read_text(encoding="utf-8") == "x"
+    finally:
+        supervisor.close()

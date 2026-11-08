@@ -832,3 +832,12 @@ Workload, node, and operator limits are intersected before dispatch. These units
 The intention's `goal` is descriptive in this first stage; the executor does not yet assign general semantics to arbitrary goal predicates or prove that a returned value satisfies them. Likewise, ordered operator references and `max_hops` reserve a future Path-State contract but do not yet implement multi-hop scheduling, goal-directed path search, SIMD/SIMT lane distribution, dynamic placement, or public-Internet peer authentication. The generalized algebraic Virtual Ground remains a later stage above the concrete `SystemSeed` mechanism.
 
 The acceptance witnesses are in `tests/test_virtual_layer.py`. The real TCP loopback witness is E1 transport evidence, not evidence of public-Internet deployment.
+
+
+## Host-service lifecycle adapter
+
+Real host subprocess effects now have a narrow bridge through the existing
+Hypervisor event/effect ledger and the locally configured process supervisor.
+See [Hypervisor-Governed Host-Service Lifecycle](HYPERVISOR_HOST_SERVICE_LIFECYCLE.md)
+for capability mapping, replay behavior, and the explicit parent-process recovery
+boundary.

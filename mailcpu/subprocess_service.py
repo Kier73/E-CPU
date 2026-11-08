@@ -339,6 +339,14 @@ class SubprocessServiceSupervisor:
         self._restart(record)
 
     def _restart(self, record: _ProcessRecord) -> None:
+        # A failed initial spawn has no Popen handle. Reconciliation may still
+        # encounter it, but NEVER must remain a terminal policy in every path.
+        if record.spec.restart is RestartPolicy.NEVER:
+            record.state = "failed"
+            return
+        if not record.desired:
+            record.state = "stopped"
+            return
         if record.restart_count >= record.spec.max_restarts:
             record.state = "restart_exhausted"
             return

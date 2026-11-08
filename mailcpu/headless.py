@@ -10,6 +10,7 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 from .assembler import AssemblyError, assemble
 from .bytecode import BytecodeExecutable
 from .datagram import DatagramError, NetworkDatagram
+from .host_service import HostServiceAction, HostServiceCommand, HostServiceLifecycleAdapter
 from .classifier import (
     ClassifierHypervisor,
     HypervisorDecision,
@@ -2043,6 +2044,45 @@ class HeadlessOS:
             {"service": name},
             {HypervisorDomain.SERVICE: lambda: self.services.start(name)},
             frozenset({"execute"}),
+        )
+
+    def hypervisor_host_service_event(
+        self,
+        pid: int,
+        source: str,
+        channel: str,
+        sequence: int,
+        logical_time: int,
+        command: HostServiceCommand,
+        adapter: HostServiceLifecycleAdapter,
+    ) -> HypervisorExecutionResult:
+        """Govern one allowlisted host-service action through the existing event/effect ledger.
+
+        Virtual-process capabilities are derived locally. The event can select a
+        registered service and action, but cannot supply an executable command.
+        """
+        if not isinstance(adapter, HostServiceLifecycleAdapter):
+            raise TypeError("host service dispatch requires a HostServiceLifecycleAdapter")
+        adapter.validate(command)
+        rights = {
+            HostServiceAction.START: frozenset({"execute"}),
+            HostServiceAction.STOP: frozenset({"control"}),
+            HostServiceAction.INSPECT: frozenset({"read"}),
+        }[command.action]
+        operation = f"{command.action.value} service daemon supervisor lifecycle"
+        resource = f"/host-service/{command.service}"
+        return self.hypervisor_dispatch_event(
+            pid,
+            source,
+            channel,
+            sequence,
+            logical_time,
+            operation,
+            resource,
+            command.to_dict(),
+            {HypervisorDomain.SERVICE: lambda: adapter.execute(command)},
+            rights,
+            destructive=command.action is HostServiceAction.STOP,
         )
 
     def hypervisor_launch_file(
