@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from functools import lru_cache
 from math import gcd
 from typing import Any, Callable, Sequence
 
@@ -322,6 +323,74 @@ def lfsr_jump(c: Sequence[int], state: Sequence[int], k: int) -> list[int]:
     return [sum(acc_mat[i][j] & state[j] for j in range(n)) & 1 for i in range(n)]
 
 
+
+
+def find_coordinate_gf2_bit(
+    coefficients: Sequence[int],
+    initial: Sequence[int],
+    target: int,
+) -> int | None:
+    r"""Find the first occurrence of one output bit without traversing the LFSR orbit.
+
+    Mathematics:
+    The first L register outputs are exactly the initial register bits. If the
+    requested bit is absent there, the register is uniform: 0^L or 1^L.
+    The zero register is fixed. The all-one register advances to itself when
+    the feedback XOR is one, otherwise its next output is zero at coordinate L.
+    Thus the first coordinate is determined by at most L input-bit checks and
+    one feedback-parity calculation, independent of the orbit period.
+    """
+    if type(target) is not int or target not in (0, 1):
+        return None
+    if not isinstance(initial, (tuple, list)) or not initial:
+        return None
+    if any(type(bit) is not int or bit not in (0, 1) for bit in initial):
+        raise ValueError("GF(2) initial register must contain only bits")
+    if any(type(bit) is not int or bit not in (0, 1) for bit in coefficients):
+        raise ValueError("GF(2) coefficients must contain only bits")
+    for coordinate, bit in enumerate(initial):
+        if bit == target:
+            return coordinate
+    # Absence from the initial register implies a uniform opposite state.
+    if target == 1:  # initial register is all zero, a fixed point
+        return None
+    feedback_parity = 0
+    limit = min(len(initial), len(coefficients) - 1)
+    for index in range(1, limit + 1):
+        feedback_parity ^= coefficients[index]
+    return len(initial) if feedback_parity == 0 else None
+
+
+@lru_cache(maxsize=256)
+def _finite_orbit_inverse_index(orbit: tuple[int, ...]) -> dict[int, int]:
+    r"""Compile the earliest-coordinate dictionary for one immutable finite orbit.
+
+    Mathematics: construct I(x)=min{t | orbit[t]=x}; the O(N) build is cached
+    by the exact orbit tuple, making each subsequent inverse query expected O(1).
+    """
+    index: dict[int, int] = {}
+    for coordinate, value in enumerate(orbit):
+        index.setdefault(value, coordinate)
+    return index
+
+
+def find_coordinate_fgraph(orbit: Sequence[int], target: int) -> int | None:
+    r"""Invert a stored finite functional-graph orbit through its cached state index.
+
+    Mathematics: compile the stored preperiod/cycle values once in O(N), then
+    return I(target) in expected O(1). This indexes supplied symbolic structure;
+    it does not execute the transition function or scan new orbit states.
+    """
+    if type(target) is not int:
+        return None
+    if not isinstance(orbit, (tuple, list)):
+        raise ValueError("finite functional-graph orbit must be a finite sequence")
+    normalized = tuple(orbit)
+    if any(type(value) is not int for value in normalized):
+        raise ValueError("finite functional-graph orbit values must be integers")
+    return _finite_orbit_inverse_index(normalized).get(target)
+
+
 def brent_cycle(step_fn: Callable[[int], int], x0: int, limit: int = 1 << 22) -> tuple[int, int] | None:
     r"""Discover pre-period $\mu$ and cycle length $\lambda$ via Brent's algorithm.
 
@@ -542,12 +611,11 @@ class Law:
                     return cand
             return find_coordinate_lcg(a, c, m, x0, target, max_order=max_order)
 
+        if fam == "gf2":
+            return find_coordinate_gf2_bit(p["C"], p["init"], target)
+
         if fam == "fgraph":
-            orbit = p["orbit"]
-            for i, val in enumerate(orbit):
-                if val == target:
-                    return i
-            return None
+            return find_coordinate_fgraph(p["orbit"], target)
 
         raise Refused(f"inversion unsupported for law family {fam!r}")
 
