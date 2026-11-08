@@ -377,7 +377,15 @@ def admit_computational_artifact_directory(
     components: list[ComputationalArtifactComponent] = []
     total_size = 0
     for relative, file_path in files:
+        try:
+            advertised_size = file_path.stat().st_size
+        except OSError as exc:
+            raise ComputationalArtifactError(f"cannot stat artifact component: {relative}") from exc
+        if advertised_size < 0 or total_size + advertised_size > max_total_size:
+            raise ComputationalArtifactError("artifact directory exceeds max_total_size")
         digest, size = _compute_file_digest(file_path)
+        if size != advertised_size:
+            raise ComputationalArtifactError(f"artifact component changed while being admitted: {relative}")
         total_size += size
         if total_size > max_total_size:
             raise ComputationalArtifactError("artifact directory exceeds max_total_size")
@@ -419,7 +427,7 @@ def admit_computational_artifact_directory(
         artifact_kind=artifact_kind,
         components=tuple(components),
         total_size_bytes=total_size,
-        metadata=metadata or {},
+        metadata=metadata if metadata is not None else {},
     )
 
 
@@ -484,7 +492,7 @@ class ComputationalBackendProfile:
         if not isinstance(self.substrates, (tuple, list)):
             raise ComputationalBackendError("substrates must be a sequence")
         substrates = tuple(self.substrates)
-        if not substrates or any(item not in _SUBSTRATES for item in substrates) or len(set(substrates)) != len(substrates):
+        if not substrates or any(not isinstance(item, str) or item not in _SUBSTRATES for item in substrates) or len(set(substrates)) != len(substrates):
             raise ComputationalBackendError("substrates must be unique supported E-CPU substrate names")
         if not isinstance(self.runtime_versions, Mapping) or any(
             not isinstance(key, str) or not key or not isinstance(value, str) or not value
@@ -586,6 +594,9 @@ class ComputationalHostReceipt:
         _strict_integer(self.output_size_bytes, "output_size_bytes")
         if self.status != "EXECUTED":
             raise ComputationalBackendError("host receipt status must be EXECUTED")
+        expected_digest = _digest_bytes(_canonical_bytes(self._payload_dict(), "host receipt"))
+        if self.receipt_digest != expected_digest:
+            raise ComputationalBackendError("host receipt digest does not match its evidence fields")
 
     def _payload_dict(self) -> dict[str, object]:
         """Mathematics: Return the receipt identity projection without its self-referential digest."""
@@ -607,6 +618,33 @@ class ComputationalHostReceipt:
     def to_dict(self) -> dict[str, object]:
         """Mathematics: Return the portable receipt projection with its deterministic digest."""
         return self._payload_dict() | {"receipt_digest": self.receipt_digest}
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> ComputationalHostReceipt:
+        """Mathematics: Reconstruct a receipt and independently verify its canonical evidence digest."""
+        expected = {
+            "kind", "schema_version", "host_id", "artifact_manifest_digest",
+            "backend_fingerprint", "request_id", "workload_id", "logical_time",
+            "input_digest", "output_digest", "output_size_bytes", "status",
+            "receipt_digest",
+        }
+        if not isinstance(payload, Mapping) or set(payload) != expected:
+            raise ComputationalBackendError("host receipt fields are invalid")
+        if payload["kind"] != _HOST_RECEIPT_KIND or payload["schema_version"] != _HOST_RECEIPT_SCHEMA_VERSION:
+            raise ComputationalBackendError("unsupported host receipt kind or schema version")
+        return cls(
+            receipt_digest=payload["receipt_digest"],
+            host_id=payload["host_id"],
+            artifact_manifest_digest=payload["artifact_manifest_digest"],
+            backend_fingerprint=payload["backend_fingerprint"],
+            request_id=payload["request_id"],
+            workload_id=payload["workload_id"],
+            logical_time=payload["logical_time"],
+            input_digest=payload["input_digest"],
+            output_digest=payload["output_digest"],
+            output_size_bytes=payload["output_size_bytes"],
+            status=payload["status"],
+        )
 
     @classmethod
     def create(
@@ -663,6 +701,12 @@ class ComputationalHostExecution:
             raise ComputationalBackendError("execution output JSON is invalid") from exc
         if not isinstance(self.receipt, ComputationalHostReceipt):
             raise TypeError("receipt must be a ComputationalHostReceipt")
+        output_bytes = self.output_json.encode("utf-8")
+        if (
+            _digest_bytes(output_bytes) != self.receipt.output_digest
+            or len(output_bytes) != self.receipt.output_size_bytes
+        ):
+            raise ComputationalBackendError("execution output does not match its receipt")
 
     @property
     def output(self) -> Any:
