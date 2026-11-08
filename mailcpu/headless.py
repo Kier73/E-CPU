@@ -1937,6 +1937,9 @@ class HeadlessOS:
             granted_rights=granted,
             destructive=request.destructive,
             temporal=None if request.temporal is None else dict(request.temporal),
+            intent_projection=(
+                None if request.intent_projection is None else dict(request.intent_projection)
+            ),
         )
         return HypervisorArbitrationEvent(
             event.source,

@@ -69,6 +69,53 @@ def test_typed_primitives_preserve_probability_invariants() -> None:
     assert 0.0 <= risk.noul <= 1.0
 
 
+
+def test_hypervisor_uses_digest_bound_intent_projection_for_large_payloads() -> None:
+    """Mathematics: keep the classifier's semantic input finite while retaining complete request bytes in the event identity."""
+
+    import hashlib
+    import json
+
+    payload = {"transfer": "vgi-state-page:" + ("x" * 24_000)}
+    projection = {
+        "kind": "mailcpu.virtual-layer.intent.v1",
+        "goal": {"kind": "continue-persistent-session"},
+        "workload_digest": hashlib.sha256(b"complete-workload").hexdigest(),
+        "input_digest": hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest(),
+        "input_bytes": len(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ),
+    }
+    request = HypervisorRequest(
+        "cpu register arithmetic instruction scheduling program execution virtual layer pure operator transformation",
+        "/virtual-layer/operators/core.vgi/1",
+        payload,
+        frozenset({"compute"}),
+        frozenset({"compute"}),
+        intent_projection=projection,
+    )
+
+    decision_state = request.decision_state()
+    assert decision_state["payload"] == projection
+    assert decision_state["payload_bytes"] > 24_000
+    assert decision_state["payload_digest"] == hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    assert len(json.dumps(decision_state, sort_keys=True)) < 4_096
+
+    restored = HypervisorRequest.from_state(request.state())
+    assert restored.state() == request.state()
+    assert restored.decision_state() == decision_state
+    assert restored.payload == payload
+
+    hypervisor = ClassifierHypervisor()
+    decision = hypervisor.decide(restored)
+    assert decision.action is HypervisorAction.ALLOW
+    assert decision.domain is HypervisorDomain.CPU
+    assert hypervisor.journal.verify()
+
 def test_hypervisor_allows_clear_read_and_dispatches_one_handler() -> None:
     """Mathematics: verify `ALLOW ⇒ exactly one selected handler` for a high-confidence non-destructive request."""
 
