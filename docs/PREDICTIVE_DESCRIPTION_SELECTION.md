@@ -82,7 +82,7 @@ The report charges each candidate in three distinct ways:
 2. **Verification witness units:** the sum of admitted certificate witness_count values. This is a count of witness cases represented by the certificates, not a measured CPU duration.
 3. **Navigation work units:** a deterministic algorithmic proxy derived from the admitted family and queried coordinate:
    - integer progression: one unit;
-   - indexed finite graph read: one unit after its admitted representation is available;
+   - finite graph: O(N) canonical orbit materialization plus O(1) indexed access. The current registry reconstructs the stored orbit parameters for each new coordinate, so the proxy charges N units per read;
    - LCG: queried coordinate bit length;
    - GF(2): recurrence-order cubed times the queried coordinate bit length.
 
@@ -92,7 +92,7 @@ These units compare the known algebraic cost profiles. They are not measured ins
 
 The selector constructs a Pareto frontier from validation results. A candidate dominates another only when it is no worse in all of the following and strictly better in at least one:
 
-- predictive yield, coverage, component accuracy, and full-state match rate (maximize);
+- predictive yield, sampled component-state-space coverage, sample coverage, component accuracy, and full-state match rate (maximize);
 - description bytes, mean navigation work units, and verification witness units (minimize).
 
 The frontier is ordered deterministically by predictive yield, matched distinct component-state coverage, sample coverage, component accuracy, full-state match rate, mean navigation work, description size, witness units, then candidate ID. This is a transparent prediction-first tie-break, not a hidden weighted score. The full frontier remains in the report so a later policy can apply an explicit resource preference without discarding the measured trade-off.
@@ -112,7 +112,7 @@ The distinction matters: estimated_energy and estimated_virtual_ticks come from 
 
 An optional ComputationalFabricRouteWitness contributes its typed network, host, and total route-cost vectors. When the hypervisor effect names a node, the adapter requires it to match the route witness target node. The witness validates the additive relation total = network + host, but its authoritative property is false. The selector therefore preserves the route witness digest and costs as planning context, not as proof of execution, an observed latency, or a prediction label. Likewise, the typed hypervisor result and its digest are not a digital signature: callers must source the result from the trusted host hypervisor/effect ledger rather than accept a caller-constructed object as attestation.
 
-The current ranking does not blend these operational measurements into the prediction objective. Instead, the report aggregates hypervisor execution counts, replay counts, declared energy/tick estimates, measured handler metrics, route witness counts, and route metric totals in a separate operational profile. They are reported separately so future experiments can compare the model's predictive utility with the cost of obtaining and using its observations without conflating host placement with model correctness.
+The current ranking does not blend these operational measurements into the prediction objective. Instead, the report counts all returned Hypervisor result samples and replay receipts separately, but includes only non-replayed effects in estimated energy/tick sums, measured handler metrics, and route-cost totals so an idempotent retransmission is not charged as a second execution. They are reported separately so future experiments can compare the model's predictive utility with the cost of obtaining and using its observations without conflating host placement with model correctness.
 
 ## 8. Anti-enumeration and failure semantics
 

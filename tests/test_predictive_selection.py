@@ -364,6 +364,12 @@ def test_hypervisor_and_fabric_evidence_keep_estimates_separate_from_execution()
     registry, address, laws = _fixture()
     observations = list(_make_observations(address, _laws_map(laws), (511, 512)))
     observations[0] = replace(observations[0], execution_evidence=evidence)
+    replay_result = replace(result, sequence=2, logical_time=512, replayed=True)
+    replay_evidence = PredictiveExecutionEvidence.from_hypervisor_result(
+        replay_result,
+        route_witness=route,
+    )
+    observations[1] = replace(observations[1], execution_evidence=replay_evidence)
     report = PredictiveDescriptionSelector(registry).evaluate(
         (PredictiveDescriptionCandidate("grounded", address),),
         tuple(observations),
@@ -371,7 +377,9 @@ def test_hypervisor_and_fabric_evidence_keep_estimates_separate_from_execution()
         validation_through_tick=512,
     )
     operational = report.identity_payload()["operational_profile"]
+    assert operational["hypervisor_result_samples"] == 2
     assert operational["hypervisor_executed_samples"] == 1
+    assert operational["hypervisor_replayed_samples"] == 1
     assert operational["estimated_energy_sum"] == 17
     assert operational["fabric_route_witness_samples"] == 1
     assert operational["fabric_route_cost_sums"] == [

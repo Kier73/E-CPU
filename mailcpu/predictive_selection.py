@@ -228,6 +228,8 @@ class PredictiveExecutionEvidence:
         if self.action != HypervisorAction.ALLOW.value or self.executed is not True:
             raise PredictiveSelectionError("execution evidence requires an ALLOW decision and executed effect")
         _require_label(self.domain, "hypervisor domain")
+        if self.domain not in {item.value for item in HypervisorDomain}:
+            raise PredictiveSelectionError("hypervisor domain is not an admitted HypervisorDomain value")
         try:
             raw_result = json.loads(self.result_json)
         except (TypeError, json.JSONDecodeError) as exc:
@@ -343,6 +345,7 @@ class PredictiveExecutionEvidence:
                 restored_route.digest != self.route_witness_digest
                 or restored_route.authoritative is not False
                 or restored_route.target_host.node_id != self.node_id
+                or (self.substrate is not None and self.substrate not in restored_route.target_host.substrates)
                 or restored_route.network_costs != tuple(self.route_network_costs)
                 or restored_route.host_costs != tuple(self.route_host_costs)
                 or restored_route.total_costs != tuple(self.route_total_costs)
@@ -938,8 +941,13 @@ def _address_at_tick(address: ComposedVirtualGroundAddress, tick: int) -> Compos
 
 def _navigation_work_units(family: str, parameters: Mapping[str, Any], order: int, coordinate: int) -> int:
     """Mathematics: produce a deterministic asymptotic work proxy without enumerating intermediate states."""
-    if family in {"int", "fgraph"}:
+    if family == "int":
         return 1
+    if family == "fgraph":
+        orbit = parameters.get("orbit")
+        if not isinstance(orbit, (list, tuple)) or not orbit:
+            raise PredictiveSelectionError("admitted finite-graph description has no stored orbit")
+        return len(orbit)
     if family == "lcg":
         modulus = parameters.get("mod")
         if type(modulus) is not int or modulus < 2:
@@ -997,7 +1005,7 @@ class PredictiveDescriptionSelector:
             verification_units += version.certificate.witness_count
             profiles.append((component.component_id, version.spec.family, {
                 "int": "O(1)",
-                "fgraph": "O(1) indexed generator read",
+                "fgraph": "O(N) orbit materialization + O(1) indexed read",
                 "lcg": "O(log m)",
                 "gf2": "O(L^3 log t)",
             }[version.spec.family]))
@@ -1174,6 +1182,7 @@ class PredictiveDescriptionSelector:
     ) -> dict[str, Any]:
         """Mathematics: aggregate actual hypervisor execution evidence separately from estimated fabric route costs."""
         evidence = [item.execution_evidence for item in samples if item.execution_evidence is not None]
+        first_executions = [item for item in evidence if not item.replayed]
         measured_totals: dict[str, float] = defaultdict(float)
         route_totals: dict[tuple[str, str, str], int] = defaultdict(int)
         route_count = 0
@@ -1181,7 +1190,7 @@ class PredictiveDescriptionSelector:
         estimated_ticks = 0
         energy_count = 0
         tick_count = 0
-        for item in evidence:
+        for item in first_executions:
             if item.estimated_energy is not None:
                 estimated_energy += item.estimated_energy
                 energy_count += 1
@@ -1199,8 +1208,9 @@ class PredictiveDescriptionSelector:
                 for metric in item.route_total_costs:
                     route_totals[("total", metric.name, metric.unit)] += metric.amount
         return {
-            "hypervisor_executed_samples": len(evidence),
-            "hypervisor_replayed_samples": sum(1 for item in evidence if item.replayed),
+            "hypervisor_result_samples": len(evidence),
+            "hypervisor_executed_samples": len(first_executions),
+            "hypervisor_replayed_samples": len(evidence) - len(first_executions),
             "estimated_energy_sum": estimated_energy,
             "estimated_energy_sample_count": energy_count,
             "estimated_virtual_ticks_sum": estimated_ticks,
