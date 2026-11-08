@@ -218,3 +218,10 @@ def test_composed_projection_embeds_and_verifies_its_complete_source_address():
 
     with pytest.raises(ComposedGroundError):
         ComposedVirtualGroundProjection.from_dict(tampered)
+
+
+def test_composed_address_extension_mapping_is_immutable_after_digesting():
+    _, address, _ = _fixture()
+
+    with pytest.raises(TypeError, match="immutable"):
+        address.extensions["changed"] = True
