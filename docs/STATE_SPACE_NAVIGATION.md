@@ -8,6 +8,8 @@ The governing principle is:
 
 > Represent a space by its verified law; represent experience of that space by a finite trajectory.
 
+
+The cross-subsystem view is indexed in [SYSTEM_MATHEMATICAL_MAP.md](SYSTEM_MATHEMATICAL_MAP.md). This document remains the focused specification for capacity versus finite trajectory.
 ## 1. Closed descriptions denote spaces
 
 Let a finite description be
