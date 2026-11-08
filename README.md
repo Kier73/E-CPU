@@ -293,3 +293,25 @@ fresh mutable machine from its own inputs; M1 state and quorum-anchored
 session checkpoints remain the authority. See
 [COMPUTATIONAL_SESSION_INTERPRETATION.md](docs/COMPUTATIONAL_SESSION_INTERPRETATION.md)
 and [VGI_VIRTUAL_LAYER.md](docs/VGI_VIRTUAL_LAYER.md).
+
+## Persistent VGI sessions and transit
+
+M5-M7 connect the VGI compiled interpretation to the persistent computational
+session substrate. A descriptor binds Signal8 Ground, typed task, immutable
+Program IR, implementation identity, and M2 artifact manifest. Machine state
+is stored as canonical VGI checkpoints in M1 and becomes current only through
+M3's quorum-anchored revisions.
+
+Execution advances in bounded instruction quanta via the M4 pure transition
+adapter. Each quantum uses revision/checkpoint compare-and-swap, preserves
+logical-time progression, and supports exact immediate retry without
+re-entering an already committed quantum. Cumulative step and state limits
+bound the session independently from per-quantum limits.
+
+A portable transfer package carries the descriptor, M3 proof, M1 manifest,
+and bounded state bytes. A target re-admits state into its own M1 store,
+requires matching page geometry, verifies the source quorum high-water, and
+requires explicit compatibility approval for a changed execution backend
+or VGI implementation. The current transfer format embeds bounded state
+bytes in base64 JSON rather than streaming them. See
+[VGI_PERSISTENT_SESSIONS_AND_TRANSIT.md](docs/VGI_PERSISTENT_SESSIONS_AND_TRANSIT.md).

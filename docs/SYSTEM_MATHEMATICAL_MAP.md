@@ -532,3 +532,44 @@ Ground from opaque bytes. The admitted E-CPU System Ground, the VGI
 Computational Ground, the compiled program, the session state, and the
 execution host remain distinct identities. Cached IR is an optimization;
 M1 pages and the quorum-anchored session checkpoint remain authoritative.
+
+## 19. Persistent VGI interpretation, bounded quanta, and host transit
+
+M5-M7 are specified in
+[VGI_PERSISTENT_SESSIONS_AND_TRANSIT.md](VGI_PERSISTENT_SESSIONS_AND_TRANSIT.md)
+and implemented by `mailcpu/vgi_session.py`.
+
+A compiled VGI session descriptor binds the explicit Signal8 Computational
+Ground, canonical typed TaskSpec, VGI Program IR, source implementation
+fingerprint, semantic interpretation identity, and M2 composite artifact
+manifest. Its semantic identity binds Ground, task, and Program; the compiled
+plan identity additionally binds the compiler implementation.
+
+The machine's mutable state is serialized using VGI's own checkpoint format.
+E-CPU wraps it with the descriptor digest and bounded continuation status,
+stores those exact bytes as an M1 computational object, and anchors the M1
+manifest through the existing M3 session checkpoint and quorum lineage.
+The machine is restored only under the exact Ground and Program.
+
+M6 advances at most the caller-requested quantum (itself capped by the
+configured maximum) using individual VGI instruction steps. Each successful
+quantum produces one candidate state and one M3 compare-and-swap/quorum
+revision through the M4 transition adapter. The cumulative step and state
+bounds are independent of the per-quantum bound. A terminal `halted` or
+`step_limit` status is part of the committed state envelope.
+
+M7 exports the semantic descriptor, M3 checkpoint and proof, M1 manifest,
+and bounded state bytes. A target host imports the bytes into its own M1
+page store, requires identical page geometry, verifies that the resulting
+manifest is exact, and then verifies the original quorum proof. A changed
+execution backend profile or VGI implementation requires its respective
+explicit compatibility predicate. The transition context carries both the
+backend fingerprint of the current committed state and the target execution
+backend fingerprint, so migration does not rewrite historical provenance.
+
+The transfer package is bounded and currently serializes the complete state
+payload as base64 JSON (default maximum 64 MiB); it is not a streaming
+chunk-transfer protocol. The receiving process reconstructs a new VGI
+interpreter and machine from the checkpoint, rather than migrating a live
+Python process or synthesizing pre-checkpoint undo history. Only declared
+pure execution is admitted by this path.

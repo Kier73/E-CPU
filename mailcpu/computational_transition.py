@@ -15,6 +15,7 @@ from dataclasses import dataclass, replace
 from typing import Protocol
 
 from .computational_session import (
+    BackendCompatibility,
     ComputationalSessionConflictError,
     ComputationalSessionError,
     ComputationalSessionSnapshot,
@@ -131,6 +132,7 @@ class ComputationalTransitionContext:
     artifact_manifest_digest: str
     state_schema_id: str
     backend_fingerprint: str
+    execution_backend_fingerprint: str
     interpretation_fingerprint: str
     transition_contract_digest: str
     operation_id: str
@@ -148,6 +150,7 @@ class ComputationalTransitionContext:
             "state_digest",
             "artifact_manifest_digest",
             "backend_fingerprint",
+            "execution_backend_fingerprint",
             "interpretation_fingerprint",
             "transition_contract_digest",
             "input_digest",
@@ -169,6 +172,7 @@ class ComputationalTransitionContext:
             "artifact_manifest_digest": self.artifact_manifest_digest,
             "state_schema_id": self.state_schema_id,
             "backend_fingerprint": self.backend_fingerprint,
+            "execution_backend_fingerprint": self.execution_backend_fingerprint,
             "interpretation_fingerprint": self.interpretation_fingerprint,
             "transition_contract_digest": self.transition_contract_digest,
             "operation_id": self.operation_id,
@@ -208,8 +212,11 @@ class ComputationalSessionTransitionAdapter:
         session_store: ComputationalSessionStore,
         contract: ComputationalTransitionContract,
         backend: ComputationalTransitionBackend,
+        *,
+        backend_compatibility: BackendCompatibility | None = None,
     ) -> None:
         """Bind one local backend to an exact M3 session, interpretation, state schema, and pure effect contract."""
+
         if not isinstance(session_store, ComputationalSessionStore):
             raise TypeError("session_store must be a ComputationalSessionStore")
         if not isinstance(contract, ComputationalTransitionContract):
@@ -229,9 +236,12 @@ class ComputationalSessionTransitionAdapter:
             raise ComputationalTransitionError("local backend identity differs from the transition contract")
         if not callable(getattr(backend, "transition", None)):
             raise TypeError("backend must implement transition(state_bytes, input_bytes, context)")
+        if backend_compatibility is not None and not callable(backend_compatibility):
+            raise TypeError("backend_compatibility must be callable")
         self.session_store = session_store
         self.contract = contract
         self.backend = backend
+        self.backend_compatibility = backend_compatibility
 
     def apply(
         self,
@@ -264,7 +274,9 @@ class ComputationalSessionTransitionAdapter:
             "input_schema_id": self.contract.input_schema_id,
             "payload_digest": _sha256(input_bytes),
         }))
-        current = self.session_store.load_latest()
+        current = self.session_store.load_latest(
+            backend_compatibility=self.backend_compatibility,
+        )
         if len(current.state_bytes) > self.contract.max_state_bytes:
             raise ComputationalTransitionError("current session state exceeds max_state_bytes")
 
@@ -310,6 +322,7 @@ class ComputationalSessionTransitionAdapter:
             artifact_manifest_digest=current.checkpoint.artifact_manifest_digest,
             state_schema_id=current.checkpoint.state_schema_id,
             backend_fingerprint=current.checkpoint.backend_fingerprint,
+            execution_backend_fingerprint=self.contract.backend_fingerprint,
             interpretation_fingerprint=self.contract.interpretation_fingerprint,
             transition_contract_digest=self.contract.digest,
             operation_id=operation_id,
@@ -337,4 +350,5 @@ class ComputationalSessionTransitionAdapter:
             operation_id=operation_id,
             input_digest=input_digest,
             logical_time=next_logical_time,
+            backend_compatibility=self.backend_compatibility,
         )
