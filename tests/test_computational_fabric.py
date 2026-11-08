@@ -2548,8 +2548,28 @@ def test_persistent_vgi_session_transfers_through_fabric_and_replays_once(tmp_pa
         serve_b_thread.start()
 
         forward_started = time.perf_counter()
-        receipt = client_ab.forward(envelope, directory_a)
+        try:
+            receipt = client_ab.forward(envelope, directory_a)
+        except Exception as exc:
+            b_error = (
+                None
+                if "server" not in server_b_holder
+                else server_b_holder["server"].last_error
+            )
+            c_error = (
+                None
+                if "server" not in server_c_holder
+                else server_c_holder["server"].last_error
+            )
+            raise AssertionError(
+                "VGI fabric request failed: "
+                f"{type(exc).__name__}: {exc}; "
+                f"receiver_failures={[f'{type(item).__name__}: {item}' for item in failures]!r}; "
+                f"B.last_error={b_error!r}; C.last_error={c_error!r}; "
+                f"transfer_bytes={len(json.dumps(transfer, sort_keys=True, separators=(',', ':')).encode('utf-8'))}"
+            ) from exc
         forward_ms = (time.perf_counter() - forward_started) * 1000.0
+        assert not failures, repr(failures)
         assert receipt.succeeded
         assert receipt.peer_id == "peer-b"
         assert receipt.downstream is not None
