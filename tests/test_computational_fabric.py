@@ -1628,6 +1628,167 @@ def test_federated_workload_forwards_over_two_authenticated_hops_and_replays_onc
         assert replay.digest == receipt.digest
         assert replay.succeeded
         assert calls == ["federated-forwarding-sum"]
+
+        # Capture the completed per-peer state, terminate all original TLS
+        # streams, and independently rebind A, B and C from their own images.
+        requester_checkpoint = client_ab.snapshot()
+        relay_checkpoint = server_b.snapshot(capture_cut="idle")
+        terminal_checkpoint = server_c.snapshot(capture_cut="idle")
+        assert relay_checkpoint["inbound_channel"]["next_receive_sequence"] == 3
+        assert terminal_checkpoint["inbound_channel"]["next_receive_sequence"] == 2
+
+        stop_b.set()
+        stop_c.set()
+        client_ab.close()
+        client_bc.close()
+        server_b.close()
+        server_c.close()
+        for thread in (thread_b, thread_c):
+            if thread is not None:
+                thread.join(timeout=3.0)
+        listener_b.close()
+        listener_c.close()
+
+        from mailcpu.mtls_transport import connect_mutual_tls
+
+        listener_b_rebound = SocketTransport.listen("127.0.0.1", port_b)
+        listener_c_rebound = SocketTransport.listen("127.0.0.1", port_c)
+        server_b_rebound_holder: dict[str, ComputationalFabricForwardingServer] = {}
+        server_c_rebound_holder: dict[str, ComputationalFabricForwardingServer] = {}
+        rebound_failures: list[BaseException] = []
+        accept_b_rebound: threading.Thread | None = None
+        accept_c_rebound: threading.Thread | None = None
+        serve_b_rebound: threading.Thread | None = None
+        serve_c_rebound: threading.Thread | None = None
+        client_ab_rebound: ComputationalFabricForwardingClient | None = None
+        client_bc_rebound: ComputationalFabricForwardingClient | None = None
+        stop_b_rebound = threading.Event()
+        stop_c_rebound = threading.Event()
+
+        def accept_c_after_restart() -> None:
+            """Restore C's execution ledger and channel cursors on a fresh B↔C TLS stream."""
+            try:
+                transport = accept_mutual_tls(
+                    listener_c_rebound,
+                    "peer-c",
+                    "peer-b",
+                    _server_context_c(certificates),
+                    expected_peer_dns="peer-b.fabric.test",
+                    handshake_timeout=4.0,
+                )
+                restored_os = HeadlessOS.from_snapshot(terminal_checkpoint["operating_system"])
+                server_c_rebound_holder["server"] = ComputationalFabricForwardingServer.from_snapshot(
+                    terminal_checkpoint,
+                    transport,
+                    directory_c,
+                    catalogue=catalogue,
+                    operating_system=restored_os,
+                )
+            except BaseException as exc:
+                rebound_failures.append(exc)
+
+        def accept_b_after_restart() -> None:
+            """Restore B's replay ledger and downstream channel over fresh A↔B and B↔C streams."""
+            try:
+                transport = accept_mutual_tls(
+                    listener_b_rebound,
+                    "peer-b",
+                    "peer-a",
+                    _server_context(certificates),
+                    expected_peer_dns="peer-a.fabric.test",
+                    handshake_timeout=4.0,
+                )
+                restored_os = HeadlessOS.from_snapshot(relay_checkpoint["operating_system"])
+                server_b_rebound_holder["server"] = ComputationalFabricForwardingServer.from_snapshot(
+                    relay_checkpoint,
+                    transport,
+                    directory_b,
+                    next_hop_transports={"peer-c": client_bc_rebound},
+                    operating_system=restored_os,
+                )
+            except BaseException as exc:
+                rebound_failures.append(exc)
+
+        try:
+            accept_c_rebound = threading.Thread(target=accept_c_after_restart, daemon=True)
+            accept_c_rebound.start()
+            transport_bc = connect_mutual_tls(
+                endpoint_c.endpoint_host,
+                endpoint_c.port,
+                "peer-b",
+                "peer-c",
+                client_context_b,
+                server_hostname=endpoint_c.tls_server_name,
+                timeout=4.0,
+            )
+            client_bc_rebound = ComputationalFabricForwardingClient.from_snapshot(
+                relay_checkpoint["next_hop_clients"]["peer-c"],
+                transport_bc,
+            )
+            accept_c_rebound.join(timeout=4.0)
+            assert not accept_c_rebound.is_alive()
+            assert "server" in server_c_rebound_holder
+
+            accept_b_rebound = threading.Thread(target=accept_b_after_restart, daemon=True)
+            accept_b_rebound.start()
+            transport_ab = connect_mutual_tls(
+                endpoint_b.endpoint_host,
+                endpoint_b.port,
+                "peer-a",
+                "peer-b",
+                client_context_a,
+                server_hostname=endpoint_b.tls_server_name,
+                timeout=4.0,
+            )
+            client_ab_rebound = ComputationalFabricForwardingClient.from_snapshot(
+                requester_checkpoint,
+                transport_ab,
+            )
+            accept_b_rebound.join(timeout=4.0)
+            assert not accept_b_rebound.is_alive()
+            assert "server" in server_b_rebound_holder
+
+            server_b_rebound = server_b_rebound_holder["server"]
+            server_c_rebound = server_c_rebound_holder["server"]
+            serve_c_rebound = threading.Thread(
+                target=serve,
+                args=(server_c_rebound, stop_c_rebound),
+                daemon=True,
+            )
+            serve_b_rebound = threading.Thread(
+                target=serve,
+                args=(server_b_rebound, stop_b_rebound),
+                daemon=True,
+            )
+            serve_c_rebound.start()
+            serve_b_rebound.start()
+
+            replay_after_rebind = client_ab_rebound.forward(envelope, directory_a)
+            assert replay_after_rebind.digest == receipt.digest
+            assert replay_after_rebind.succeeded
+            assert calls == ["federated-forwarding-sum"]
+            assert not rebound_failures
+        finally:
+            stop_b_rebound.set()
+            stop_c_rebound.set()
+            if client_ab_rebound is not None:
+                client_ab_rebound.close()
+            if client_bc_rebound is not None:
+                client_bc_rebound.close()
+            for server in server_b_rebound_holder.values():
+                server.close()
+            for server in server_c_rebound_holder.values():
+                server.close()
+            listener_b_rebound.close()
+            listener_c_rebound.close()
+            for thread in (
+                serve_b_rebound,
+                serve_c_rebound,
+                accept_b_rebound,
+                accept_c_rebound,
+            ):
+                if thread is not None:
+                    thread.join(timeout=3.0)
         assert not failures
     finally:
         stop_b.set()
