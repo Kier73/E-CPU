@@ -479,8 +479,9 @@ and implemented in mailcpu/computational_session.py.
 Each session is one independent fixed-membership recovery lineage whose
 system identity equals the session identity. Immutable state payloads are
 stored through M1 ComputationalObjectStore pages. A typed checkpoint binds
-the session, artifact, backend profile, state schema, revision, predecessor,
-transition identity, input commitment, logical time, and M1 state manifest.
+the session, artifact, backend profile, state schema, revision, predecessor
+checkpoint and lineage roots, transition identity, input commitment, logical
+time, and M1 state manifest.
 
 The checkpoint bytes are sealed through the existing RecoveryStateManifest
 and RecoveryLineageCoordinator. A session revision is current only when its
