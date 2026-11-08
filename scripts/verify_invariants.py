@@ -221,6 +221,8 @@ def _expected_symbol(establishes: str) -> str | None:
         "computational_objects": "ComputationalObjectStore",
         "computational_host": "LocalComputationalHost",
         "computational_session": "ComputationalSessionStore",
+        "computational_transition": "ComputationalSessionTransitionAdapter",
+        "vgi_host": "execute_vgi_signal8",
         "transit_simt": "TransitSIMTHost",
         "seed_commit_quorum": "DurableSeedCommitLedger",
         "host_service": "HostServiceLifecycleAdapter",

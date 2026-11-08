@@ -93,3 +93,33 @@ The current interpreter is bounded to its declared finite Signal8 Ground and typ
 3. Formalize Ground-to-Operator refinement for alternative CPU/GPU/FPGA implementations.
 4. Extend source identity into a deployment trust/attestation model where required; source hashes alone do not prove host authenticity or runtime integrity.
 5. Prototype a signal-native E-GPU method only after the hosted scalar VGI path is stable.
+
+
+## Reusable compiled interpretation plans
+
+The Signal8 adapter compiles a typed TaskSpec under the exact local
+SIGNAL8_GROUND into the VGI immutable Program representation. The E-CPU
+host caches that derived plan in a bounded 128-entry LRU keyed by:
+
+- the VGI computational-Ground fingerprint;
+- the E-CPU/VGI source implementation fingerprint, including the compiler
+  and interpreter source packages;
+- the canonical typed task digest.
+
+The plan digest binds those identities and the compiled Program fingerprint.
+The execution receipt includes both the task fingerprint and compiled-plan
+digest, making the interpreted representation inspectable and reusable.
+
+Only the immutable task and Program are cached. Each admitted operation
+constructs a fresh VirtualGroundInterpreter and a fresh SignalStateMachine
+with its own signal memory, registers, program counter, trace, outputs, undo
+history, and checkpoint. Session or machine state is never cached or shared
+between requests. Cache entries can be discarded or recompiled without
+changing session or receipt semantics.
+
+This is compilation from declared Ground and task information, not discovery
+of semantic laws by examining opaque bytes. The E-CPU System Ground remains
+the admission context; SIGNAL8_GROUND remains the VGI computational
+semantics. A session can bind the plan digest into its generic transition
+contract while its exact state and lineage coordinates remain in the M3
+checkpoint.

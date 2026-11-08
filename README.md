@@ -273,3 +273,23 @@ host when the same artifact/state schema, recovery membership, and M1 pages
 are available; a changed backend profile requires explicit compatibility
 approval. See
 [COMPUTATIONAL_SESSIONS_AND_STATE.md](docs/COMPUTATIONAL_SESSIONS_AND_STATE.md).
+
+
+## Stateful interpretation and compiled Ground plans
+
+M4 adds a domain-neutral ComputationalSessionTransitionAdapter: it starts
+from a verified M3 snapshot, invokes a declared deterministic pure backend
+with a context bound to the exact checkpoint, quorum lineage, artifact,
+backend, state schema, interpretation, input, and logical time, then publishes
+candidate bytes through the existing session CAS and quorum seal. It does not
+guess semantics from opaque state bytes and does not atomically commit
+arbitrary external side effects.
+
+For the optional VGI integration, typed tasks compile under the explicitly
+declared Signal8 Computational Ground into immutable Program IR. A bounded
+cache reuses only that compiled plan for matching Ground, compiler
+implementation, and canonical task identities. Each execution constructs a
+fresh mutable machine from its own inputs; M1 state and quorum-anchored
+session checkpoints remain the authority. See
+[COMPUTATIONAL_SESSION_INTERPRETATION.md](docs/COMPUTATIONAL_SESSION_INTERPRETATION.md)
+and [VGI_VIRTUAL_LAYER.md](docs/VGI_VIRTUAL_LAYER.md).
