@@ -203,8 +203,11 @@ def _wait_for_recovery_completion(
     result_path: Path,
     cut: str,
     timeout: float = 35.0,
+    expected_operations: int = 1,
 ) -> None:
     """Mathematics: keep servicing B until its original request is consumed and every response frame is ACKed."""
+    if type(expected_operations) is not int or expected_operations < 1:
+        raise ValueError("expected_operations must be a positive integer")
     deadline = time.monotonic() + timeout
     results: list[dict[str, Any]] = []
     while time.monotonic() < deadline:
@@ -218,8 +221,9 @@ def _wait_for_recovery_completion(
                 "effect": dict(result.effect),
             })
         if (
-            server.inbound.channel.next_receive_sequence >= 2
+            server.inbound.channel.next_receive_sequence >= expected_operations + 1
             and not server.outbound.channel.pending_sequences()
+            and len(results) >= expected_operations
         ):
             break
         time.sleep(0.002)
@@ -503,7 +507,12 @@ def main(arguments: list[str]) -> int:
             directory,
             next_hop_transports={"peer-c": downstream},
         )
-        _wait_for_recovery_completion(server, Path(marker_or_result), cut)
+        _wait_for_recovery_completion(
+            server,
+            Path(marker_or_result),
+            cut,
+            expected_operations=int(config.get("restore_operations", 1)),
+        )
         inbound.close()
         for client in server.next_hop_clients.values():
             client.close()
