@@ -2,7 +2,7 @@
 
 ## Purpose and evidence discipline
 
-This is a living architectural review for E-CPU / MailCPU. It is not a feature checklist and it is not a claim that every possible capability has been built. Its purpose is to observe the system from multiple scales while implementation proceeds.
+This is a historical architectural review for E-CPU / MailCPU, originally written around the implementation state following PRs #16–22. Its evidence discipline and hypotheses remain useful, but its Sections 1–2 are not a current capability inventory and are not exhaustive of later work in persistent sessions, authenticated forwarding, subprocess recovery, or VGI host transit. For the current implementation state, use [README.md](../README.md), [SYSTEM_MATHEMATICAL_MAP.md](SYSTEM_MATHEMATICAL_MAP.md), [COMPUTATIONAL_FABRIC.md](COMPUTATIONAL_FABRIC.md), and [VGI_PERSISTENT_SESSIONS_AND_TRANSIT.md](VGI_PERSISTENT_SESSIONS_AND_TRANSIT.md), then verify each claim against the modules and tests named there. This review is not a feature checklist and does not claim that every possible capability has been built.
 
 Every observation belongs to one of four evidence classes:
 
@@ -20,9 +20,9 @@ The cross-subsystem mathematical inventory is maintained in
 composable models and evidence boundaries, not as a claim that all subsystems
 share one graph, clock, or solver.
 
-## 1. Present system: what it can do
+## 1. Historical system snapshot: post-PR #16–22
 
-The following describes mainline after PRs #16–22. In addition to the original Structural Memory registry, the merged work now binds pinned structural references to Virtual Layer operators, exposes them through a read-only VFS provider, and uses them as content-addressed demand-page backing for virtual memory. This review records integrated boundaries, not claims of universal execution or production deployment.
+The following records the historical mainline as it stood after PRs #16–22; later additions are covered only where explicitly noted. In addition to the original Structural Memory registry, the merged work now binds pinned structural references to Virtual Layer operators, exposes them through a read-only VFS provider, and uses them as content-addressed demand-page backing for virtual memory. This review records integrated boundaries, not claims of universal execution or production deployment.
 
 ### 1.1 Execute a deterministic machine over a communication model
 
