@@ -157,7 +157,7 @@ def _validate_snapshot(value: Any, capture_cut: str | None = None) -> dict[str, 
 
 @dataclass(frozen=True)
 class VerifiedComputationalFabricForwardingCheckpoint:
-    """One immutable forwarding snapshot whose exact content root passed quorum verification."""
+    """A forwarding snapshot whose persisted bytes and restore projection are checked against a quorum-anchored root."""
 
     manifest: RecoveryStateManifest
     proof: RecoveryLineageProof
