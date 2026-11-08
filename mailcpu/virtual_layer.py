@@ -845,8 +845,8 @@ class VirtualLayerRuntime:
                 else _digest(dict(computational_admission), "computational admission")
             ),
         }
-        if len(_canonical_bytes(projection, "Virtual Layer intent projection")) > 8192:
-            raise VirtualLayerError("Virtual Layer intent projection exceeds its 8192-byte bound")
+        if len(_canonical_bytes(projection, "Virtual Layer intent projection")) > 4096:
+            raise VirtualLayerError("Virtual Layer intent projection exceeds its 4096-byte bound")
         return projection
 
     def _resolve_structural_memory_inputs(
