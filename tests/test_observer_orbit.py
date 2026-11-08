@@ -7,6 +7,7 @@ import pytest
 from mailcpu import (
     ContextualOrbitAddress,
     ContextualOrbitNavigator,
+    ObserverAggregateReceipt,
     ObserverComposition,
     ObserverContract,
     ObserverOrbitError,
@@ -104,7 +105,6 @@ def test_contextual_orbit_address_round_trip_binds_system_ground_clock_and_offse
     assert restored.digest == address.digest
     assert restored.orbit_offset == 10**12 + 3
     assert restored.coordinate.tick == address.base_ground.coordinate + restored.orbit_offset
-    assert VirtualGroundProjection.from_dict(_projection_round_trip(registry=None)) if False else True
 
 
 def test_contextual_orbit_address_rejects_misaligned_structural_memory_coordinate():
