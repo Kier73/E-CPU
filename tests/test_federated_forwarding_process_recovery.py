@@ -1112,10 +1112,10 @@ def test_terminal_peer_c_hard_process_kill_recovers_while_relay_b_survives(
 
 
 
-def test_terminal_then_relay_hard_kills_preserve_one_federated_operation_history(
+def test_relay_then_terminal_hard_kills_preserve_one_federated_operation_history(
     tmp_path: Path,
 ) -> None:
-    """C and then B die in separate generations while A retains one semantic operation history."""
+    """B and then C die in separate generations while A retains one semantic operation history."""
     root = Path(__file__).resolve().parents[1]
     relay_worker = root / "tests" / "helpers" / "federated_forwarding_relay_worker.py"
     terminal_worker = root / "tests" / "helpers" / "federated_forwarding_terminal_worker.py"
@@ -1128,12 +1128,12 @@ def test_terminal_then_relay_hard_kills_preserve_one_federated_operation_history
     authorities_b.mkdir(parents=True, exist_ok=True)
     membership_b_path = tmp_path / "membership-b.json"
     membership_b = SeedCommitMembership(
-        "federated-sequential-relay-peer-b",
+        "federated-reverse-relay-peer-b",
         1,
         ("peer-b", "anchor-c", "anchor-d"),
         "peer-b",
         1,
-        hashlib.sha256(b"mailcpu-federated-sequential-peer-b-v1").hexdigest(),
+        hashlib.sha256(b"mailcpu-federated-reverse-peer-b-v1").hexdigest(),
     )
     membership_b_path.write_text(
         json.dumps(membership_b.snapshot(), sort_keys=True, separators=(",", ":")),
@@ -1147,12 +1147,12 @@ def test_terminal_then_relay_hard_kills_preserve_one_federated_operation_history
     authorities_c.mkdir(parents=True, exist_ok=True)
     membership_c_path = tmp_path / "membership-c.json"
     membership_c = SeedCommitMembership(
-        "federated-sequential-terminal-peer-c",
+        "federated-reverse-terminal-peer-c",
         1,
         ("peer-c", "anchor-e", "anchor-f"),
         "peer-c",
         1,
-        hashlib.sha256(b"mailcpu-federated-sequential-peer-c-v1").hexdigest(),
+        hashlib.sha256(b"mailcpu-federated-reverse-peer-c-v1").hexdigest(),
     )
     membership_c_path.write_text(
         json.dumps(membership_c.snapshot(), sort_keys=True, separators=(",", ":")),
@@ -1198,9 +1198,8 @@ def test_terminal_then_relay_hard_kills_preserve_one_federated_operation_history
     runtime_path = tmp_path / "terminal-runtime.json"
     terminal_checkpoint_dir = tmp_path / "peer-c-checkpoints"
     relay_checkpoint_dir = tmp_path / "peer-b-checkpoints"
-    terminal_cut_marker = tmp_path / "peer-c-cut.json"
+    terminal_idle_marker = tmp_path / "peer-c-idle-checkpoint.json"
     terminal_result = tmp_path / "peer-c-result.json"
-    terminal_post_recovery_marker = tmp_path / "peer-c-post-recovery-checkpoint.json"
     relay_cut_marker = tmp_path / "peer-b-cut.json"
     relay_result = tmp_path / "peer-b-result.json"
 
@@ -1225,8 +1224,6 @@ def test_terminal_then_relay_hard_kills_preserve_one_federated_operation_history
         "runtime_path": str(runtime_path),
         "enable_live_checkpoint": True,
         "live_cut": "after_execution_commit",
-        "checkpoint_after_first_recovery": True,
-        "post_recovery_checkpoint_marker": str(terminal_post_recovery_marker),
         "restore_operations": 2,
     }
     config_path = tmp_path / "sequential-recovery-config.json"
@@ -1240,18 +1237,17 @@ def test_terminal_then_relay_hard_kills_preserve_one_federated_operation_history
     ]
     client_a: ComputationalFabricForwardingClient | None = None
     terminal_initial: subprocess.Popen[str] | None = None
-    terminal_after_c_recovery: subprocess.Popen[str] | None = None
     terminal_final: subprocess.Popen[str] | None = None
     relay_live: subprocess.Popen[str] | None = None
     relay_final: subprocess.Popen[str] | None = None
 
     try:
-        # Generation 0: C commits the terminal effect but dies before it can
-        # publish the response. B remains alive with its downstream frame.
+        # C remains alive after the first operation and seals a quiescent
+        # generation only after B has acknowledged its terminal response.
         terminal_initial = subprocess.Popen(
             [
-                sys.executable, str(terminal_worker), "prepare", str(config_path),
-                "after_execution_commit", str(terminal_cut_marker), str(terminal_checkpoint_dir),
+                sys.executable, str(terminal_worker), "live_idle", str(config_path),
+                "idle", str(terminal_idle_marker), str(terminal_checkpoint_dir),
             ],
             cwd=root,
             stdout=subprocess.PIPE,
@@ -1296,81 +1292,44 @@ def test_terminal_then_relay_hard_kills_preserve_one_federated_operation_history
         assert _send_federated_operation(client_a, first_envelope) == 1
         requester_snapshot = client_a.snapshot()
 
-        c_first_cut = _wait_json(terminal_cut_marker, terminal_initial)
-        assert c_first_cut["stage"] == "cut"
-        assert c_first_cut["pid"] == terminal_initial.pid
-        assert c_first_cut["cut"] == "after_execution_commit"
-        assert c_first_cut["generation"] == 1
-        assert c_first_cut["execution_count"] == 1
-        assert c_first_cut["request_receive_cursor"] == 1
-        assert c_first_cut["response_pending"] == []
-        assert c_first_cut["journal_valid"] is True
-        _kill(terminal_initial)
+        # B dies first, after it has durably committed C's terminal receipt.
+        # Its own response to A is still unpublished and A retains exact frame 1.
+        b_first_cut = _wait_json(relay_cut_marker, relay_live)
+        assert b_first_cut["stage"] == "cut"
+        assert b_first_cut["pid"] == relay_live.pid
+        assert b_first_cut["cut"] == "after_execution_commit"
+        assert b_first_cut["generation"] == 1
+        assert b_first_cut["execution_count"] == 1
+        assert b_first_cut["request_receive_cursor"] == 1
+        assert b_first_cut["response_pending"] == []
+        assert b_first_cut["downstream_seen"] == 1
+        assert b_first_cut["journal_valid"] is True
+        assert requester_snapshot["request_channel"]["pending"]["1"]
 
-        # C restores its committed effect and publishes the saved result.
-        # B then reaches its own commit boundary and seals an independent image.
-        terminal_after_c_recovery = subprocess.Popen(
-            [
-                sys.executable, str(terminal_worker), "restore", str(config_path),
-                "after_execution_commit", str(terminal_result), str(terminal_checkpoint_dir),
-            ],
-            cwd=root,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,
-        )
-        processes.append(terminal_after_c_recovery)
-        c_recovered_ready = _wait_ready(terminal_after_c_recovery)
-        assert c_recovered_ready["peer"] == "peer-c"
-        assert c_recovered_ready["pid"] != terminal_initial.pid
+        # C has consumed B's downstream request and its response has been
+        # acknowledged. Seal C's independent idle image before killing it.
+        c_idle = _wait_json(terminal_idle_marker, terminal_initial)
+        assert c_idle["stage"] == "idle_checkpoint"
+        assert c_idle["pid"] == terminal_initial.pid
+        assert c_idle["cut"] == "idle"
+        assert c_idle["generation"] == 1
+        assert c_idle["request_receive_cursor"] == 2
+        assert c_idle["response_pending"] == []
+        assert c_idle["execution_count"] == 1
+        assert c_idle["journal_valid"] is True
 
-        rebound = _rebind_live_relay(int(relay_ready["control_port"]))
-        assert rebound["ok"] is True, rebound
-        assert rebound["pid"] == relay_live.pid
-        assert rebound["peer_id"] == "peer-c"
-
-        b_second_cut = _wait_json(relay_cut_marker, relay_live)
-        assert b_second_cut["stage"] == "cut"
-        assert b_second_cut["pid"] == relay_live.pid
-        assert b_second_cut["cut"] == "after_execution_commit"
-        assert b_second_cut["generation"] == 1
-        assert b_second_cut["execution_count"] == 1
-        assert b_second_cut["request_receive_cursor"] == 1
-        assert b_second_cut["response_pending"] == []
-        assert b_second_cut["downstream_seen"] == 1
-        assert b_second_cut["journal_valid"] is True
-
-        # Require C's post-recovery channel cursor to be durably advanced
-        # before B's process is destroyed. This is a second C generation, not
-        # a revival of the first C image or its old transport lease.
-        c_post_recovery = _wait_json(
-            terminal_post_recovery_marker,
-            terminal_after_c_recovery,
-        )
-        assert c_post_recovery["stage"] == "post_recovery_idle"
-        assert c_post_recovery["pid"] == terminal_after_c_recovery.pid
-        assert c_post_recovery["generation"] == 2
-        assert c_post_recovery["request_receive_cursor"] == 2
-        assert c_post_recovery["response_pending"] == []
-        assert c_post_recovery["execution_count"] == 1
-        assert c_post_recovery["journal_valid"] is True
-
+        # Preserve the requested order: terminate relay B, then terminal C.
         _kill(relay_live)
         client_a.close()
         client_a = None
+        _kill(terminal_initial)
 
-        # The old C stream is no longer usable. Its replacement restores the
-        # post-recovery idle image, including the channel cursor consumed by B.
-        try:
-            terminal_after_c_recovery.wait(timeout=15)
-        except subprocess.TimeoutExpired:
-            _kill(terminal_after_c_recovery)
-
+        # Restore C first so the replacement B can establish a fresh mutual-TLS
+        # adjacency without inheriting the prior socket or transport object.
         terminal_final = subprocess.Popen(
             [
                 sys.executable, str(terminal_worker), "restore_latest", str(config_path),
-                "after_execution_commit", str(terminal_result), str(terminal_checkpoint_dir),
+                "idle", str(terminal_result), str(terminal_checkpoint_dir),
             ],
             cwd=root,
             stdout=subprocess.PIPE,
@@ -1381,10 +1340,7 @@ def test_terminal_then_relay_hard_kills_preserve_one_federated_operation_history
         processes.append(terminal_final)
         c_final_ready = _wait_ready(terminal_final)
         assert c_final_ready["peer"] == "peer-c"
-        assert c_final_ready["pid"] not in {
-            terminal_initial.pid,
-            terminal_after_c_recovery.pid,
-        }
+        assert c_final_ready["pid"] != terminal_initial.pid
 
         relay_final = subprocess.Popen(
             [
@@ -1464,7 +1420,7 @@ def test_terminal_then_relay_hard_kills_preserve_one_federated_operation_history
 
         assert c_final_state["stage"] == "restored_complete"
         assert c_final_state["pid"] == terminal_final.pid
-        assert c_final_state["cut"] == "after_execution_commit"
+        assert c_final_state["cut"] == "idle"
         assert c_final_state["execution_count"] == 2
         assert c_final_state["request_receive_cursor"] == 3
         assert c_final_state["response_pending"] == []
