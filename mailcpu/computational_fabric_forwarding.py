@@ -775,13 +775,36 @@ class ComputationalFabricForwardingClient:
             timeout=float(payload["timeout"]),
             max_payload_bytes=int(payload["max_payload_bytes"]),
         )
-        client.request = HypervisorOperationChannel(
-            ReliableChannel.from_snapshot(dict(payload["request_channel"]), transport)
+        restored_request = ReliableChannel.from_snapshot(
+            dict(payload["request_channel"]),
+            transport,
         )
-        client.response = HypervisorOperationResultChannel.from_snapshot(
+        if (
+            restored_request.source != client.local_peer_id
+            or restored_request.destination != endpoint.peer_id
+            or restored_request.channel != client.channel_id
+            or restored_request.peer is not None
+        ):
+            raise ComputationalFabricForwardingError(
+                "restored downstream request channel is bound to another peer or operation"
+            )
+        client.request = HypervisorOperationChannel(restored_request)
+        restored_response = HypervisorOperationResultChannel.from_snapshot(
             payload["response_channel"],
             transport,
         )
+        if (
+            restored_response.operation_source != client.local_peer_id
+            or restored_response.operation_channel != client.channel_id
+            or restored_response.channel.source != client.local_peer_id
+            or restored_response.channel.destination != client.local_peer_id
+            or restored_response.channel.peer != endpoint.peer_id
+            or restored_response.channel.channel != client.channel_id + _RESPONSE_SUFFIX
+        ):
+            raise ComputationalFabricForwardingError(
+                "restored downstream result channel is bound to another peer or operation"
+            )
+        client.response = restored_response
         return client
 
     def close(self) -> None:
@@ -1332,16 +1355,35 @@ class ComputationalFabricForwardingServer:
             timeout=float(payload["timeout"]),
             max_payload_bytes=int(payload["max_payload_bytes"]),
         )
-        server.inbound = HypervisorOperationChannel(
-            ReliableChannel.from_snapshot(
-                dict(payload["inbound_channel"]),
-                transport,
-            )
+        restored_inbound = ReliableChannel.from_snapshot(
+            dict(payload["inbound_channel"]),
+            transport,
         )
-        server.outbound = HypervisorOperationResultChannel.from_snapshot(
+        if (
+            restored_inbound.source != server.local_peer_id
+            or restored_inbound.destination != server.local_peer_id
+            or restored_inbound.peer != server.previous_peer_id
+            or restored_inbound.channel != server.channel_id
+        ):
+            raise ComputationalFabricForwardingError(
+                "restored inbound channel is bound to another peer or operation"
+            )
+        server.inbound = HypervisorOperationChannel(restored_inbound)
+        restored_outbound = HypervisorOperationResultChannel.from_snapshot(
             payload["outbound_channel"],
             transport,
         )
+        if (
+            restored_outbound.operation_source != server.previous_peer_id
+            or restored_outbound.operation_channel != server.channel_id
+            or restored_outbound.channel.source != server.local_peer_id
+            or restored_outbound.channel.destination != server.previous_peer_id
+            or restored_outbound.channel.channel != server.channel_id + _RESPONSE_SUFFIX
+        ):
+            raise ComputationalFabricForwardingError(
+                "restored outbound channel is bound to another peer or operation"
+            )
+        server.outbound = restored_outbound
         return server
 
     def serve_forever(
