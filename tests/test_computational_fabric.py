@@ -1839,7 +1839,7 @@ def test_discovery_service_reauthenticates_after_transport_loss_and_directory_re
                     expected_peer_dns="peer-a.fabric.test",
                     handshake_timeout=2.0,
                 )
-            except Exception as exc:
+            except Exception:
                 if stop.is_set():
                     return
                 # Listener timeouts and rejected/aborted handshakes are not
@@ -1936,6 +1936,9 @@ def test_discovery_service_reauthenticates_after_transport_loss_and_directory_re
             ("peer-a", local_snapshot.revision, local_snapshot.digest),
             ("peer-b", authority.revision, updated.snapshot_digest),
         )
+        # The runtime owner republishes its own current portable snapshot;
+        # local executable bindings are never reconstructed from the directory.
+        assert restored_directory.register_local_snapshot(local_snapshot)
         restored_service = ComputationalFabricDiscoveryService.from_bootstrap_snapshot(
             bootstrap,
             restored_directory,
@@ -1955,6 +1958,29 @@ def test_discovery_service_reauthenticates_after_transport_loss_and_directory_re
             "peer-b",
         )
         assert len(accepted_sessions) == 3
+
+        # Exercise the periodic refresh loop, not just the one-shot API.
+        cycles: list[tuple] = []
+        loop_stop = threading.Event()
+
+        def observe_cycle(reports) -> None:
+            cycles.append(reports)
+            if len(cycles) >= 2:
+                loop_stop.set()
+
+        loop_thread = threading.Thread(
+            target=restored_service.serve_forever,
+            args=(loop_stop,),
+            kwargs={"on_cycle": observe_cycle},
+            daemon=True,
+        )
+        loop_thread.start()
+        loop_thread.join(timeout=5.0)
+        loop_stop.set()
+        assert not loop_thread.is_alive()
+        assert len(cycles) >= 2
+        assert all(cycle[0].connected and cycle[0].refreshed for cycle in cycles)
+        assert all(cycle[0].changed is False for cycle in cycles)
 
         tampered = dict(bootstrap)
         tampered["refresh_interval"] = 99.0
