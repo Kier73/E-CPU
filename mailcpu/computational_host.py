@@ -630,7 +630,11 @@ class ComputationalHostReceipt:
         }
         if not isinstance(payload, Mapping) or set(payload) != expected:
             raise ComputationalBackendError("host receipt fields are invalid")
-        if payload["kind"] != _HOST_RECEIPT_KIND or payload["schema_version"] != _HOST_RECEIPT_SCHEMA_VERSION:
+        if (
+            payload["kind"] != _HOST_RECEIPT_KIND
+            or type(payload["schema_version"]) is not int
+            or payload["schema_version"] != _HOST_RECEIPT_SCHEMA_VERSION
+        ):
             raise ComputationalBackendError("unsupported host receipt kind or schema version")
         return cls(
             receipt_digest=payload["receipt_digest"],
