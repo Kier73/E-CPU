@@ -1824,6 +1824,7 @@ def test_discovery_service_reauthenticates_after_transport_loss_and_directory_re
 
     stop = threading.Event()
     accepted_sessions: list[SocketTransport] = []
+    listener_errors: list[Exception] = []
     peer_listener = ComputationalFabricPeerListener(
         authority,
         listener,
@@ -1836,6 +1837,7 @@ def test_discovery_service_reauthenticates_after_transport_loss_and_directory_re
         args=(stop,),
         kwargs={
             "on_session": lambda server: accepted_sessions.append(server.transport),
+            "on_error": listener_errors.append,
         },
         daemon=True,
     )
@@ -1962,6 +1964,13 @@ def test_discovery_service_reauthenticates_after_transport_loss_and_directory_re
                 restored_directory,
                 client_context,
             )
+
+        # Closing the listener also closes its active TLS session and is not
+        # surfaced as an unexpected peer failure.
+        peer_listener.close()
+        server_thread.join(timeout=5.0)
+        assert not server_thread.is_alive()
+        assert listener_errors == []
     finally:
         stop.set()
         if restored_service is not None:
