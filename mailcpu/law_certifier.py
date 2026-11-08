@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from functools import lru_cache
 from math import gcd
 from typing import Any, Callable, Sequence
 
@@ -361,34 +360,45 @@ def find_coordinate_gf2_bit(
     return len(initial) if feedback_parity == 0 else None
 
 
-@lru_cache(maxsize=256)
-def _finite_orbit_inverse_index(orbit: tuple[int, ...]) -> dict[int, int]:
-    r"""Compile the earliest-coordinate dictionary for one immutable finite orbit.
+class FiniteGraphInverseIndex:
+    """Reusable earliest-coordinate index over a stored finite functional-graph orbit.
 
-    Mathematics: construct I(x)=min{t | orbit[t]=x}; the O(N) build is cached
-    by the exact orbit tuple, making each subsequent inverse query expected O(1).
+    Mathematics: for O=(x_0,...,x_(N-1)), build I[x]=min{i | x_i=x} in O(N)
+    time; subsequent dictionary lookups are expected O(1).
     """
-    index: dict[int, int] = {}
-    for coordinate, value in enumerate(orbit):
-        index.setdefault(value, coordinate)
-    return index
+
+    def __init__(self, orbit: Sequence[int]) -> None:
+        """Mathematics: compile the finite orbit into an earliest-coordinate map in O(N)."""
+        if not isinstance(orbit, (tuple, list)):
+            raise ValueError("finite functional-graph orbit must be a finite sequence")
+        normalized = tuple(orbit)
+        if any(type(value) is not int for value in normalized):
+            raise ValueError("finite functional-graph orbit values must be integers")
+        self._orbit = normalized
+        self._coordinates: dict[int, int] = {}
+        for coordinate, value in enumerate(normalized):
+            self._coordinates.setdefault(value, coordinate)
+
+    def find(self, target: int) -> int | None:
+        """Mathematics: return the earliest stored coordinate for target in expected O(1)."""
+        if type(target) is not int:
+            return None
+        return self._coordinates.get(target)
+
+    @property
+    def orbit_size(self) -> int:
+        """Mathematics: return the number N of stored preperiod and cycle coordinates."""
+        return len(self._orbit)
 
 
 def find_coordinate_fgraph(orbit: Sequence[int], target: int) -> int | None:
-    r"""Invert a stored finite functional-graph orbit through its cached state index.
+    r"""Invert a stored finite functional-graph orbit by compiling its finite index.
 
-    Mathematics: compile the stored preperiod/cycle values once in O(N), then
-    return I(target) in expected O(1). This indexes supplied symbolic structure;
-    it does not execute the transition function or scan new orbit states.
+    Mathematics: construct the first-coordinate dictionary in O(N), then
+    return the requested coordinate in expected O(1). Repeated-query callers
+    should retain a FiniteGraphInverseIndex and reuse its find method.
     """
-    if type(target) is not int:
-        return None
-    if not isinstance(orbit, (tuple, list)):
-        raise ValueError("finite functional-graph orbit must be a finite sequence")
-    normalized = tuple(orbit)
-    if any(type(value) is not int for value in normalized):
-        raise ValueError("finite functional-graph orbit values must be integers")
-    return _finite_orbit_inverse_index(normalized).get(target)
+    return FiniteGraphInverseIndex(orbit).find(target)
 
 
 def brent_cycle(step_fn: Callable[[int], int], x0: int, limit: int = 1 << 22) -> tuple[int, int] | None:
@@ -582,7 +592,7 @@ class Law:
         Mathematics:
         - `int`: $\mathcal{O}(1)$ modular division.
         - `lcg`: $\mathcal{O}(\log m)$ 2-adic bit-lifting for $m = 2^r$, or $\mathcal{O}(\sqrt{m})$ BSGS.
-        - `fgraph`: $\mathcal{O}(1)$ orbit hash lookup.
+        - `fgraph`: $\mathcal{O}(N)$ one-time index construction, then expected $\mathcal{O}(1)$ lookup.
         Raises `Refused` for families without computable closed-form inverses.
 
         Args:
