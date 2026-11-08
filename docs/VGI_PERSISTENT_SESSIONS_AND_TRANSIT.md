@@ -41,7 +41,7 @@ manifest, and `Is` is the semantic interpretation identity. The semantic
 identity binds Ground, task, and Program; the compiled-plan identity
 additionally binds the compiler implementation.
 
-The M2 manifest has two components, `task.json` and `program.json`, with
+The M2 manifest has two components, **task.json** and **program.json**, with
 exact byte sizes and SHA-256 digests. Its metadata records the Ground, task,
 and Program identities. The descriptor also carries the canonical task and
 Program representations required to reconstruct the plan and independently
