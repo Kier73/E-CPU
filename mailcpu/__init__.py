@@ -119,6 +119,12 @@ from .subprocess_service import (
     SubprocessServiceSpec,
     SubprocessServiceSupervisor,
 )
+from .host_service import (
+    HostServiceAction,
+    HostServiceCommand,
+    HostServiceLifecycleAdapter,
+    HostServiceLifecycleError,
+)
 from .checkpoint import CheckpointError, load_checkpoint, save_checkpoint
 from .seed import (
     SYSTEM_SEED_ENVELOPE_KIND,
