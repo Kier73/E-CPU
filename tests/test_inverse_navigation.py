@@ -125,7 +125,7 @@ def test_finite_graph_inverse_uses_first_occurrence_in_preperiod_and_cycle():
     assert find_coordinate_fgraph(law.params["orbit"], 5) == 4
     assert find_coordinate_fgraph(law.params["orbit"], 99) is None
     assert law.find(3) == 3
-    assert law.navigate(8) == 5
+    assert law.navigate(8) == 2
 
 
 def test_contextual_orbit_navigator_inverts_gf2_and_fgraph_directly():
