@@ -868,8 +868,8 @@ class VirtualGroundProjection:
         if type(self.value) is not int:
             raise ObserverOrbitError("projection value must be a strict integer")
         _digest(self.value_digest, "value_digest")
-        if canonical_value_digest(self.value) != self.value_digest:
-            raise ObserverOrbitError("projection value digest does not match value")
+        if canonical_value_digest({"type": "integer", "value": self.value}) != self.value_digest:
+            raise ObserverOrbitError("projection value digest does not match Structural Memory integer digest")
         if not isinstance(self.read_receipt, StructuralMemoryReadReceipt):
             raise ObserverOrbitError("projection read_receipt is invalid")
         ref = self.structural_memory
