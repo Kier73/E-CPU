@@ -20,6 +20,7 @@ from mailcpu import (
     ComputationalFabricDirectory,
     ComputationalFabricDiscoveryError,
     ComputationalFabricDiscoveryService,
+    ComputationalFabricPeerListener,
     ComputationalFabricPeerClient,
     ComputationalFabricPeerServer,
     ComputationalFabricResolver,
@@ -1813,7 +1814,6 @@ def test_discovery_service_reauthenticates_after_transport_loss_and_directory_re
     server_context = _server_context(certificates)
     client_context = _client_context(certificates)
     listener = SocketTransport.listen("127.0.0.1", 0)
-    listener.settimeout(0.1)
     endpoint = ComputationalPeerEndpoint(
         "peer-b",
         "peer-b.fabric.test",
@@ -1826,47 +1826,22 @@ def test_discovery_service_reauthenticates_after_transport_loss_and_directory_re
     stop = threading.Event()
     accepted_sessions: list[SocketTransport] = []
     server_errors: list[BaseException] = []
-
-    def serve_reconnectable_peer() -> None:
-        """Accept a fresh direct authenticated stream for each discovery-service incarnation."""
-        while not stop.is_set():
-            try:
-                transport = accept_mutual_tls(
-                    listener,
-                    "peer-b",
-                    "peer-a",
-                    server_context,
-                    expected_peer_dns="peer-a.fabric.test",
-                    handshake_timeout=2.0,
-                )
-            except Exception:
-                if stop.is_set():
-                    return
-                # Listener timeouts and rejected/aborted handshakes are not
-                # directory observations and do not terminate the peer.
-                if listener.fileno() < 0:
-                    return
-                continue
-            accepted_sessions.append(transport)
-            server = ComputationalFabricPeerServer(
-                authority,
-                transport,
-                "peer-a",
-                expected_client_dns="peer-a.fabric.test",
-            )
-            try:
-                while not stop.is_set() and not transport.closed:
-                    try:
-                        if not server.service_once():
-                            time.sleep(0.002)
-                    except Exception as exc:
-                        if not stop.is_set():
-                            server_errors.append(exc)
-                        break
-            finally:
-                server.close()
-
-    server_thread = threading.Thread(target=serve_reconnectable_peer, daemon=True)
+    peer_listener = ComputationalFabricPeerListener(
+        authority,
+        listener,
+        "peer-a",
+        expected_client_dns="peer-a.fabric.test",
+        tls_context=server_context,
+    )
+    server_thread = threading.Thread(
+        target=peer_listener.serve_forever,
+        args=(stop,),
+        kwargs={
+            "on_session": lambda server: accepted_sessions.append(server.transport),
+            "on_error": server_errors.append,
+        },
+        daemon=True,
+    )
     server_thread.start()
 
     directory = ComputationalFabricDirectory(
@@ -1992,11 +1967,11 @@ def test_discovery_service_reauthenticates_after_transport_loss_and_directory_re
             )
         assert not server_errors
     finally:
+        stop.set()
         if restored_service is not None:
             restored_service.close()
         else:
             service.close()
-        stop.set()
-        listener.close()
+        peer_listener.close()
         server_thread.join(timeout=5.0)
     assert not server_thread.is_alive()
