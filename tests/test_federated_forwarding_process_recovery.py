@@ -57,7 +57,7 @@ from mailcpu.computational_fabric_forwarding import (
     COMPUTATIONAL_FABRIC_FORWARD_OPERATION,
     COMPUTATIONAL_FABRIC_FORWARD_RESOURCE,
 )
-from mailcpu.mtls_transport import accept_mutual_tls
+from mailcpu.mtls_transport import accept_mutual_tls, connect_mutual_tls
 
 
 CUTS = (
@@ -743,12 +743,13 @@ def test_relay_b_hard_process_kill_restarts_from_quorum_and_replays_same_operati
         assert relay_result["response_pending"] == []
         assert relay_result["downstream_seen"] == 1
         assert relay_result["journal_valid"] is True
-        expected_server_replay = cut in {"after_execution_commit", "after_response_publish"}
-        assert (
-            any(item["replayed"] for item in relay_result["results"])
-            if relay_result["results"]
-            else cut == "after_request_ack"
-        ) is expected_server_replay or cut == "after_request_ack"
+        if cut == "after_request_ack":
+            assert relay_result["results"] == []
+        else:
+            assert len(relay_result["results"]) == 1
+            assert relay_result["results"][0]["replayed"] is (
+                cut in {"after_execution_commit", "after_response_publish"}
+            )
         assert len(calls) == expected_final_calls
 
         relay_stdout, relay_stderr = relay_restored.communicate(timeout=20)
