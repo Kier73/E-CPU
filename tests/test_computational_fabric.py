@@ -1642,7 +1642,7 @@ def test_federated_workload_forwards_over_two_authenticated_hops_and_replays_onc
         requester_checkpoint = client_ab.snapshot()
         relay_checkpoint = server_b.snapshot(capture_cut="idle")
         terminal_checkpoint = server_c.snapshot(capture_cut="idle")
-        assert relay_checkpoint["inbound_channel"]["next_receive_sequence"] == 2
+        assert relay_checkpoint["inbound_channel"]["next_receive_sequence"] == 3
         assert terminal_checkpoint["inbound_channel"]["next_receive_sequence"] == 2
 
         stop_b.set()

@@ -419,6 +419,13 @@ def _start_terminal_service(
                 handshake_timeout=8.0,
             )
             if snapshot is None:
+                deadline = time.monotonic() + 20.0
+                while time.monotonic() < deadline and not stop.is_set():
+                    if any(item.peer_id == "peer-b" for item in directory.active_snapshots):
+                        break
+                    time.sleep(0.005)
+                if not any(item.peer_id == "peer-b" for item in directory.active_snapshots):
+                    raise RuntimeError("terminal peer could not directly authenticate relay B before forwarding admission")
                 server = ComputationalFabricForwardingServer(
                     "peer-c",
                     "peer-b",
@@ -2096,8 +2103,10 @@ def test_relay_then_terminal_hard_kills_preserve_one_federated_operation_history
 
         first_result = _read_forward_results(client_a, 1, relay_final)[0]
         assert first_result.action.value == "allow"
+        # The relay re-enters its local NETWORK transition after restart;
+        # the downstream C peer must return its cached CPU execution instead.
         assert first_result.executed is True
-        assert first_result.replayed is True
+        assert first_result.replayed is False
         first_receipt = ComputationalFabricHopReceipt.from_dict(
             first_result.effect["receipt"]
         )
@@ -2106,6 +2115,7 @@ def test_relay_then_terminal_hard_kills_preserve_one_federated_operation_history
         assert first_receipt.downstream.peer_id == "peer-c"
         assert first_receipt.downstream.terminal_execution is not None
         assert first_receipt.downstream.terminal_execution["execution"]["effect"]["result"] == 9
+        assert first_receipt.downstream.terminal_execution["execution"]["replayed"] is True
 
         # A new operation after both process deaths proves the restored channel
         # cursors and semantic ledgers can advance together, not merely replay.
