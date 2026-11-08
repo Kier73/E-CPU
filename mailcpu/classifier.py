@@ -266,12 +266,19 @@ class HypervisorRequest:
     def __post_init__(self) -> None:
         """Mathematics: require any control-plane intent projection to be detached finite JSON."""
         if self.intent_projection is not None:
+            if self.operation != "cpu register arithmetic instruction scheduling program execution virtual layer pure operator transformation":
+                raise ClassifierError("compact intent projection is reserved for receiver-verified Virtual Layer events")
             if not isinstance(self.intent_projection, Mapping):
                 raise ClassifierError("intent_projection must be a mapping or None")
             try:
-                detached = json.loads(_canonical_json_bytes(dict(self.intent_projection)).decode("utf-8"))
+                encoded_projection = _canonical_json_bytes(dict(self.intent_projection))
+                detached = json.loads(encoded_projection.decode("utf-8"))
             except (TypeError, ValueError, UnicodeDecodeError) as exc:
                 raise ClassifierError("intent_projection must be canonical finite JSON") from exc
+            if len(encoded_projection) > 4096:
+                raise ClassifierError("Virtual Layer intent projection exceeds its 4096-byte control-plane bound")
+            if detached.get("kind") != "mailcpu.virtual-layer.intent.v1":
+                raise ClassifierError("Virtual Layer intent projection has an unsupported schema")
             object.__setattr__(self, "intent_projection", detached)
 
     def state(self) -> dict[str, object]:
