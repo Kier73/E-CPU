@@ -42,6 +42,39 @@ class HypervisorOperationChannel:
             raise HypervisorOperationTransportError("operation identity does not match reliable channel source or channel")
         return self.channel.send({"kind": OPERATION_EVENT_KIND, "event": event.to_dict()})
 
+    def send_or_retransmit(self, event: HypervisorArbitrationEvent) -> int:
+        """Resume an identical unacknowledged operation frame instead of allocating a second transport sequence."""
+
+        if not isinstance(event, HypervisorArbitrationEvent):
+            raise HypervisorOperationTransportError("operation transport requires a HypervisorArbitrationEvent")
+        if event.source != self.channel.source or event.channel != self.channel.channel:
+            raise HypervisorOperationTransportError("operation identity does not match reliable channel source or channel")
+        matches: list[int] = []
+        for sequence, pending in tuple(self.channel._pending.items()):
+            frame = pending.frame
+            if frame.op != "RDATA" or len(frame.body) != 3 or frame.body[0] != self.channel.channel:
+                continue
+            existing = self._decode_payload(frame.body[2])
+            if existing.identity != event.identity:
+                continue
+            if existing.fingerprint != event.fingerprint:
+                raise HypervisorOperationTransportError(
+                    "pending operation identity is already bound to a different fingerprint"
+                )
+            matches.append(sequence)
+        if len(matches) > 1:
+            raise HypervisorOperationTransportError(
+                "multiple pending transport frames bind the same operation identity"
+            )
+        if matches:
+            sequence = matches[0]
+            if not self.channel.retransmit(sequence):
+                raise HypervisorOperationTransportError(
+                    "matching pending operation disappeared before retransmission"
+                )
+            return sequence
+        return self.send(event)
+
     def receive(self) -> HypervisorArbitrationEvent | None:
         """Mathematics: decode and peer-bind `e` while peeked, then consume and acknowledge only after typed reconstruction."""
 
