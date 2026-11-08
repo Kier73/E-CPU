@@ -13,17 +13,17 @@ The experiment composes existing owners rather than introducing a separate migra
 - C is the terminal logical host. It admits the M7 transfer into its local M1 backing, verifies the M3 lineage and the exact VGI interpretation, then advances one bounded M4 quantum.
 - C's Virtual Layer and Hypervisor independently admit the terminal operator. The route witness remains non-authoritative.
 
-The implementation is \`mailcpu/computational_fabric_vgi.py\`; the integrated exercise is \`test_persistent_vgi_session_transfers_through_fabric_and_replays_once\` in \`tests/test_computational_fabric.py\`.
+The implementation is `mailcpu/computational_fabric_vgi.py`; the integrated exercise is `test_persistent_vgi_session_transfers_through_fabric_and_replays_once` in `tests/test_computational_fabric.py`.
 
 ## 1. Typed stream request
 
-The sender builds a normal \`VirtualLayerWorkload\`. Its input value contains a typed VGI quantum request:
+The sender builds a normal `VirtualLayerWorkload`. Its input value contains a typed VGI quantum request:
 
 \[
 Q=(schema,\ bundle,\ q)
 \]
 
-where \`bundle\` is an M7 \`VGISessionTransferBundle\` mapping and \(q\) is the requested bounded VGI instruction quantum. The workload separately binds:
+where `bundle` is an M7 `VGISessionTransferBundle` mapping and \(q\) is the requested bounded VGI instruction quantum. The workload separately binds:
 
 - the E-CPU System Ground and causal frontier;
 - the destination operator contract and version;
@@ -38,14 +38,15 @@ The semantic M4 operation identity is derived from the workload digest, source s
 
 At C the terminal VLayer operator follows this order:
 
-1. Bound and canonically decode the M7 bundle.
-2. Verify the complete bundle digest and exact descriptor mapping against C's locally admitted \`VGICompiledSessionDescriptor\`.
-3. Extract the M3 checkpoint and confirm its session ID, revision, and checkpoint digest.
-4. If the session has no local latest checkpoint, import the exact state bytes through C's own M1 object store and require the admitted manifest to equal the source manifest.
-5. Verify the source recovery manifest and quorum proof against C's local view of the same fixed recovery membership.
-6. Confirm that C is at the exact source CAS base, or at the exact immediate successor of this same semantic quantum for a retry. Reject unrelated advancement.
-7. Invoke \`VGIPersistentSession.advance()\` with the source revision/checkpoint as compare-and-swap preconditions and logical time incremented once.
-8. Return a typed receipt binding the original session and interpretation to the new revision, checkpoint, lineage digest, predecessor checkpoint, backend profile, state schema, logical time, and replay status.
+1. Bound and canonically decode the M7 bundle. The Virtual Layer control-plane intent projection carries the workload goal and full input/workload digests, while the Hypervisor event retains the complete payload.
+2. Before local capability admission, C reconstructs and exactly compares that projection against its received workload, input, operator contract and resource bounds.
+3. Verify the complete bundle digest and exact descriptor mapping against C's locally admitted `VGICompiledSessionDescriptor`.
+4. Extract the M3 checkpoint and confirm its session ID, revision, and checkpoint digest.
+5. If the session has no local latest checkpoint, import the exact state bytes through C's own M1 object store and require the admitted manifest to equal the source manifest.
+6. Verify the source recovery manifest and quorum proof against C's local view of the same fixed recovery membership.
+7. Confirm that C is at the exact source CAS base, or at the exact immediate successor of this same semantic quantum for a retry. Reject unrelated advancement.
+8. Invoke `VGIPersistentSession.advance()` with the source revision/checkpoint as compare-and-swap preconditions and logical time incremented once.
+9. Return a typed receipt binding the original session and interpretation to the new revision, checkpoint, lineage digest, predecessor checkpoint, backend profile, state schema, logical time, and replay status.
 
 The VGI machine is reconstructed from canonical state under the locally admitted Ground and Program. Python handlers, PIDs, capabilities, and source process objects do not travel inside the session bundle. C must bind its own local operator handler and capability process.
 
@@ -76,7 +77,7 @@ The third distinction matters: a relay re-forward is not the same thing as repea
 
 ## 4. Measurements collected
 
-\`VGIFabricSessionOperator.last_measurement\` records bounded receiver-side measurements for the most recent semantic quantum:
+`VGIFabricSessionOperator.last_measurement` records bounded receiver-side measurements for the most recent semantic quantum:
 
 - transfer bundle byte extent;
 - exact VGI state byte extent;
@@ -86,11 +87,11 @@ The third distinction matters: a relay re-forward is not the same thing as repea
 - total operator handler time;
 - whether the M1/M3 session was imported during this call.
 
-The end-to-end test separately measures source M7 export, complete A→B→C forwarding round trip, and a full target M1 manifest verification. The test emits a \`FABRIC_VGI_MEASUREMENTS=\` JSON line when run with output capture disabled, for example:
+The end-to-end test separately measures source M7 export, complete A→B→C forwarding round trip, and a full target M1 manifest verification. The test emits a `FABRIC_VGI_MEASUREMENTS=` JSON line when run with output capture disabled, for example:
 
-\`\`\`sh
+```sh
 python -m pytest -q -s tests/test_computational_fabric.py::test_persistent_vgi_session_transfers_through_fabric_and_replays_once
-\`\`\`
+```
 
 These are observed wall-duration measurements for the test environment, not abstract operation costs or portable performance guarantees. Compare them with the same host, Python/runtime version, page size, payload size, fixed quorum topology, and warm/cold storage conditions. The per-operator fields isolate target-side stages; the end-to-end forwarding measurement includes transport, queueing, relay admission, and result receipts.
 

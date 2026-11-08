@@ -27,6 +27,12 @@ where:
 
 Transport sequence, physical arrival time, and semantic operation identity are separate coordinates. A retry may use a new transport sequence while preserving the same semantic operation. A receiver must reject a conflicting payload that reuses an identity already committed to different content.
 
+### Control-plane intent and bulk payload are separate projections
+
+A large typed input must not be embedded wholesale into the Hypervisor's semantic intent representation. The Virtual Layer supplies an explicit intent projection alongside the full payload. The projection is a bounded summary of the workload goal, System/Ground coordinate, operator contract, resource budget, logical time, input byte extent and SHA-256 input/workload identities. The complete request payload remains present in the event and is included in its event fingerprint. `HypervisorRequest.decision_state()` uses the compact projection plus the digest and byte length of the full payload for classifier/intent interpretation, while `state()` retains the complete request for replay, journaling and receiver execution.
+
+The projection is not accepted as a sender assertion. Before local capabilities are derived or a handler is prepared, the receiving Virtual Layer reconstructs the workload, resolves the local operator contract, remeasures the complete input, recomputes the projection, and requires exact equality. This is an interpretation-cost optimization, not a trust shortcut: a different bulk input changes the workload/input digest and event identity, and a forged intent summary is rejected. Requests without an explicit projection retain the original full-payload classification behavior.
+
 ## 2. Hosts interpret; links carry
 
 Let a path be:

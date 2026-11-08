@@ -580,7 +580,7 @@ pure execution is admitted by this path.
 The first executable composition of M0-M7 session state with the peer
 forwarding graph is described in
 [FABRIC_VGI_SESSION_COMPOSITION.md](FABRIC_VGI_SESSION_COMPOSITION.md) and
-implemented by \`mailcpu/computational_fabric_vgi.py\`.
+implemented by `mailcpu/computational_fabric_vgi.py`.
 
 The tested path is:
 
@@ -613,3 +613,35 @@ These measurements provide the first comparable baseline for deciding
 whether inline base64 transfer should be replaced by chunked M1 page streaming.
 They are empirical local-run measurements, not physical network speed
 claims or a general performance model.
+
+
+## 21. Intent interpretation versus payload materialization
+
+Virtual Layer requests now have two related but non-interchangeable
+representations:
+
+\[
+R=(\underbrace{\Pi(W)}_{\text{bounded intent}},\
+\underbrace{P(W)}_{\text{complete payload}},\
+d(W),\ |P(W)|)
+\]
+
+\(\Pi(W)\) contains the workload goal, Ground and system coordinates,
+operator contract, resource budget, logical time, and input metadata.
+\(P(W)\) is the full canonical workload and input, including any opaque state
+or object transfer. Its digest and byte length are included in the intent
+projection presented to the classifier.
+
+The classifier and intent embedding operate on the bounded projection.
+Event identity, replay conflict detection, durable request state, receiver
+execution and operator input validation retain the complete payload. The
+receiver independently recomputes \(\Pi(W)\) from \(P(W)\), the locally
+resolved operator contract and resource bounds before preparing the handler.
+A projection mismatch is rejected before the handler can run.
+
+This separates semantic interpretation cost from data materialization cost.
+It does not make payload bytes free: canonical hashing, event journaling,
+transport, object admission, state persistence and output encoding still
+consume measurable resources. The next optimization is to transfer M1 pages
+as bounded content-addressed chunks while retaining the manifest and digest
+checks; the intent projection remains the compact control-plane descriptor.
