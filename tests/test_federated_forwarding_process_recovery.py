@@ -605,6 +605,7 @@ def test_relay_b_hard_process_kill_restarts_from_quorum_and_replays_same_operati
     peer_a_port = 44001
     peer_b_port = _free_port()
     peer_c_port = _free_port()
+    sidecar_port = _free_port()
     endpoint_a = ComputationalPeerEndpoint(
         "peer-a", "peer-a.fabric.test", "127.0.0.1", peer_a_port
     )
@@ -656,6 +657,54 @@ def test_relay_b_hard_process_kill_restarts_from_quorum_and_replays_same_operati
         authority_c, "peer-b", certificates
     )
 
+    # B's A-facing discovery process has its own supervised lifetime and
+    # portable authority store. It is not a thread or socket owned by B's
+    # forwarding process, so the two can be terminated independently.
+    authority_store = ComputationalFabricAuthorityStore(
+        tmp_path / "peer-b-authority" / "authority.json"
+    )
+    authority_b = authority_store.open_authority(endpoint_b, lease_seconds=60)
+    authority_b.register_link(link_bc)
+    assert authority_b.snapshot().to_dict() == snapshot_b.to_dict()
+    sidecar_command = (
+        sys.executable,
+        "-m",
+        "mailcpu.computational_fabric_service",
+        "--snapshot-store",
+        str(authority_store.path),
+        "--peer-id",
+        "peer-b",
+        "--bind-host",
+        "127.0.0.1",
+        "--listen-port",
+        str(sidecar_port),
+        "--client-peer-id",
+        "peer-a",
+        "--expected-client-dns",
+        "peer-a.fabric.test",
+        "--certificate",
+        str(certificates["peer-b_cert"]),
+        "--private-key",
+        str(certificates["peer-b_key"]),
+        "--client-ca",
+        str(certificates["ca"]),
+    )
+    sidecar_supervisor = SubprocessServiceSupervisor()
+    sidecar_supervisor.register(
+        SubprocessServiceSpec(
+            name="peer-b-discovery-a",
+            command=sidecar_command,
+            readiness_directory=tmp_path / "sidecar-readiness",
+            restart=RestartPolicy.ON_FAILURE,
+            max_restarts=1,
+            readiness_timeout=10.0,
+            restart_delay=0.02,
+            shutdown_timeout=3.0,
+            cwd=root,
+            log_path=tmp_path / "peer-b-discovery-a.log",
+        )
+    )
+
     config = {
         "membership_path": str(membership_path),
         "lineage_root": str(lineage_root),
@@ -669,6 +718,7 @@ def test_relay_b_hard_process_kill_restarts_from_quorum_and_replays_same_operati
         },
         "peer_a_discovery_port_b": discovery_a_for_b[3],
         "peer_c_discovery_port_b": discovery_c_for_b[3],
+        "peer_a_discovery_port_b_advertised": sidecar_port,
     }
     config_path = tmp_path / "relay-config.json"
     config_path.write_text(
@@ -692,8 +742,18 @@ def test_relay_b_hard_process_kill_restarts_from_quorum_and_replays_same_operati
     terminal_stop_rebound: threading.Event | None = None
     terminal_holder_rebound: dict[str, Any] = {}
     terminal_failures_rebound: list[BaseException] = []
+    sidecar_pid: int | None = None
 
     try:
+        sidecar_started = sidecar_supervisor.start("peer-b-discovery-a")
+        assert sidecar_started.state == "running"
+        assert sidecar_started.pid is not None
+        assert sidecar_started.ready is not None
+        assert sidecar_started.ready["peer_id"] == "peer-b"
+        assert sidecar_started.ready["control_port"] == sidecar_port
+        assert sidecar_started.ready["forwarding_port"] == peer_b_port
+        sidecar_pid = sidecar_started.pid
+
         terminal_thread, terminal_stop, terminal_holder, terminal_failures = _start_terminal_service(
             terminal_listener,
             directory_c,
@@ -714,7 +774,7 @@ def test_relay_b_hard_process_kill_restarts_from_quorum_and_replays_same_operati
         relay_ready = _wait_ready(relay)
         assert relay_ready["peer"] == "peer-b"
         assert relay_ready["directory_peers"] == ["peer-a", "peer-b", "peer-c"]
-        assert relay_ready["discovery_port_a"] != endpoint_b.port
+        assert relay_ready["discovery_port_a"] == sidecar_port
         assert relay_ready["discovery_port_c"] != endpoint_b.port
 
         # A and C independently discover B from their own pinned control
@@ -729,7 +789,7 @@ def test_relay_b_hard_process_kill_restarts_from_quorum_and_replays_same_operati
             directory_a,
             "peer-a",
             {
-                "peer-b": int(relay_ready["discovery_port_a"]),
+                "peer-b": sidecar_port,
                 "peer-c": discovery_c_for_a[3],
             },
             certificates,
@@ -810,6 +870,28 @@ def test_relay_b_hard_process_kill_restarts_from_quorum_and_replays_same_operati
 
         _kill(relay)
         assert len(calls) == expected_pre_kill_executions
+        # The discovery child is a separate failure: terminate it as well,
+        # leaving neither B's forwarding process nor its A-facing discovery
+        # endpoint available. Its authority snapshot remains durable.
+        sidecar_supervisor.kill("peer-b-discovery-a")
+        sidecar_probe = ComputationalFabricDiscoveryService(
+            directory_a,
+            {
+                "peer-b": ComputationalPeerEndpoint(
+                    "peer-b", "peer-b.fabric.test", "127.0.0.1", sidecar_port
+                )
+            },
+            _client_context(certificates, "peer-a"),
+            timeout=1.0,
+            refresh_interval=10.0,
+        )
+        try:
+            sidecar_down = sidecar_probe.refresh_peer("peer-b")
+        finally:
+            sidecar_probe.close()
+        assert sidecar_down.connected is False
+        assert sidecar_down.refreshed is False
+        assert sidecar_down.active is True
         client_a.close()
         client_a = None
 
@@ -823,6 +905,23 @@ def test_relay_b_hard_process_kill_restarts_from_quorum_and_replays_same_operati
         assert "peer-b" in expired_c
         assert "peer-b" not in {item.peer_id for item in directory_a.active_snapshots}
         assert "peer-b" not in {item.peer_id for item in directory_c.active_snapshots}
+        expired_probe = ComputationalFabricDiscoveryService(
+            directory_a,
+            {
+                "peer-b": ComputationalPeerEndpoint(
+                    "peer-b", "peer-b.fabric.test", "127.0.0.1", sidecar_port
+                )
+            },
+            _client_context(certificates, "peer-a"),
+            timeout=1.0,
+            refresh_interval=10.0,
+        )
+        try:
+            while_down = expired_probe.refresh_peer("peer-b")
+        finally:
+            expired_probe.close()
+        assert while_down.connected is False
+        assert while_down.active is False
 
         # Reopen C's forwarding server from its own image while retaining its
         # separate direct-discovery listeners. B must reacquire C again too.
@@ -851,8 +950,22 @@ def test_relay_b_hard_process_kill_restarts_from_quorum_and_replays_same_operati
         restored_ready = _wait_ready(relay_restored)
         assert restored_ready["peer"] == "peer-b"
         assert restored_ready["pid"] != relay.pid
-        assert isinstance(restored_ready["discovery_port_a"], int)
+        assert restored_ready["discovery_port_a"] == sidecar_port
         assert isinstance(restored_ready["discovery_port_c"], int)
+
+        # B's quorum-restored forwarding process is ready independently of
+        # A's discovery plane. Restore only the sidecar now, under its own
+        # bounded restart budget, before A is allowed to rediscover B.
+        sidecar_restarted = sidecar_supervisor.reconcile()[0]
+        assert sidecar_restarted.state == "running"
+        assert sidecar_restarted.pid is not None
+        assert sidecar_restarted.pid != sidecar_pid
+        assert sidecar_restarted.restart_count == 1
+        assert sidecar_restarted.ready is not None
+        assert sidecar_restarted.ready["revision"] == snapshot_b.revision
+        assert sidecar_restarted.ready["snapshot_digest"] == snapshot_b.digest
+        assert sidecar_restarted.ready["control_port"] == sidecar_port
+        assert sidecar_restarted.ready["forwarding_port"] == peer_b_port
 
         # New B sockets mean new discovery handshakes. Reacquisition renews
         # the expired local B lease at A and C without changing B's advertised
@@ -867,7 +980,7 @@ def test_relay_b_hard_process_kill_restarts_from_quorum_and_replays_same_operati
             directory_a,
             "peer-a",
             {
-                "peer-b": int(restored_ready["discovery_port_a"]),
+                "peer-b": sidecar_port,
                 "peer-c": discovery_c_for_a[3],
             },
             certificates,
@@ -973,6 +1086,7 @@ def test_relay_b_hard_process_kill_restarts_from_quorum_and_replays_same_operati
         terminal_listener.close()
         if terminal_listener_rebound is not None:
             terminal_listener_rebound.close()
+        sidecar_supervisor.close()
         for discovery_listener in (
             discovery_a_for_b,
             discovery_c_for_a,
