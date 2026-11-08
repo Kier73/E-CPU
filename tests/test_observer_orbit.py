@@ -12,6 +12,7 @@ from mailcpu import (
     ObserverContract,
     ObserverOrbitError,
     ObserverReceipt,
+    OrbitValueResult,
     RepresentationRef,
     SchedulerReading,
     StructuralMemoryRegistry,
@@ -334,6 +335,7 @@ def test_locate_value_inverts_remote_full_period_lcg_without_enumerating_states(
     assert result.navigation.projection.coordinate.tick == base_address.base_ground.coordinate + expected_first_coordinate
     assert result.navigation.projection.value == target_value
     assert result.inverse_complexity_bound == "O(log m)"
+    assert OrbitValueResult.from_dict(result.to_dict()) == result
     assert result.navigation.expanded_states == 0
     assert result.expanded_states == 0
     assert calls == [expected_first_coordinate]
