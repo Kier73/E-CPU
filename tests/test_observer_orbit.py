@@ -356,4 +356,4 @@ def test_locate_value_refuses_unreachable_integer_without_search_fallback():
     registry, _, base_address, observer = _admitted_int(offset=0)
 
     with pytest.raises(ObserverOrbitError, match="not reachable"):
-        ContextualOrbitNavigator(registry).locate_value(base_address, observer, target_value=5)
+        ContextualOrbitNavigator(registry).locate_value(base_address, observer, target_value=102)
