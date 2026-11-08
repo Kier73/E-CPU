@@ -33,7 +33,7 @@ from .observer_orbit import (
 )
 from .semantic_translation import canonical_value_digest
 from .structural_memory import StructuralMemoryError, StructuralMemoryRegistry
-from .temporal import SchedulerReading, TemporalFrame
+from .temporal import SchedulerReading
 
 
 _SCHEMA = "mailcpu.predictive-description-selection.v1"
@@ -213,6 +213,7 @@ class PredictiveExecutionEvidence:
     route_network_costs: tuple[RouteMetric, ...] = ()
     route_host_costs: tuple[RouteMetric, ...] = ()
     route_total_costs: tuple[RouteMetric, ...] = ()
+    route_witness_json: str | None = None
 
     def __post_init__(self) -> None:
         _require_digest(self.result_digest, "hypervisor result digest")
@@ -261,10 +262,29 @@ class PredictiveExecutionEvidence:
         for values in route_sets:
             if not isinstance(values, (tuple, list)) or any(not isinstance(item, RouteMetric) for item in values):
                 raise PredictiveSelectionError("route evidence must contain typed RouteMetric values")
-        if self.route_witness_digest is None and any(route_sets):
-            raise PredictiveSelectionError("route metrics require a bound route witness digest")
-        if self.route_witness_digest is not None and any(not values for values in route_sets):
-            raise PredictiveSelectionError("a route witness must preserve all three cost decompositions")
+        if self.route_witness_digest is None and (any(route_sets) or self.route_witness_json is not None):
+            raise PredictiveSelectionError("route metrics and content require a bound route witness digest")
+        if self.route_witness_digest is not None:
+            if any(not values for values in route_sets) or not isinstance(self.route_witness_json, str):
+                raise PredictiveSelectionError("a route witness must preserve its content and all three cost decompositions")
+            try:
+                route_payload = json.loads(self.route_witness_json)
+            except json.JSONDecodeError as exc:
+                raise PredictiveSelectionError("route witness JSON is malformed") from exc
+            if not isinstance(route_payload, Mapping) or _canonical_json(route_payload, "route witness") != self.route_witness_json:
+                raise PredictiveSelectionError("route witness JSON must be canonical")
+            try:
+                restored_route = ComputationalFabricRouteWitness.from_dict(route_payload)
+            except ValueError as exc:
+                raise PredictiveSelectionError("route witness failed structural validation") from exc
+            if (
+                restored_route.digest != self.route_witness_digest
+                or restored_route.authoritative is not False
+                or restored_route.network_costs != tuple(self.route_network_costs)
+                or restored_route.host_costs != tuple(self.route_host_costs)
+                or restored_route.total_costs != tuple(self.route_total_costs)
+            ):
+                raise PredictiveSelectionError("route witness digest, authority or cost vectors differ from the retained evidence")
         object.__setattr__(self, "route_network_costs", tuple(self.route_network_costs))
         object.__setattr__(self, "route_host_costs", tuple(self.route_host_costs))
         object.__setattr__(self, "route_total_costs", tuple(self.route_total_costs))
@@ -312,15 +332,19 @@ class PredictiveExecutionEvidence:
         network_costs: tuple[RouteMetric, ...] = ()
         host_costs: tuple[RouteMetric, ...] = ()
         total_costs: tuple[RouteMetric, ...] = ()
+        route_json = None
         if route_witness is not None:
             if not isinstance(route_witness, ComputationalFabricRouteWitness):
                 raise PredictiveSelectionError("route_witness must be a ComputationalFabricRouteWitness")
             if route_witness.authoritative is not False:
                 raise PredictiveSelectionError("fabric route evidence must remain non-authoritative")
+            if effect.get("node_id") != route_witness.target_host.node_id:
+                raise PredictiveSelectionError("fabric route target node differs from the hypervisor execution node")
             route_digest = route_witness.digest
             network_costs = route_witness.network_costs
             host_costs = route_witness.host_costs
             total_costs = route_witness.total_costs
+            route_json = _canonical_json(route_witness.to_dict(), "route witness")
         return cls(
             result_digest=_digest(result.to_dict(), "hypervisor execution result"),
             source=result.source,
@@ -341,6 +365,7 @@ class PredictiveExecutionEvidence:
             route_network_costs=network_costs,
             route_host_costs=host_costs,
             route_total_costs=total_costs,
+            route_witness_json=route_json,
         )
 
     @property
@@ -371,6 +396,7 @@ class PredictiveExecutionEvidence:
             "route_network_costs": [item.to_dict() for item in self.route_network_costs],
             "route_host_costs": [item.to_dict() for item in self.route_host_costs],
             "route_total_costs": [item.to_dict() for item in self.route_total_costs],
+            "route_witness": None if self.route_witness_json is None else json.loads(self.route_witness_json),
             "route_authoritative": False if self.route_witness_digest is not None else None,
         }
 
@@ -382,7 +408,7 @@ class PredictiveExecutionEvidence:
             "decision_receipt", "fingerprint", "action", "executed", "replayed", "node_id",
             "substrate", "estimated_energy", "estimated_virtual_ticks", "measured_metrics",
             "route_witness_digest", "route_network_costs", "route_host_costs",
-            "route_total_costs", "route_authoritative",
+            "route_total_costs", "route_witness", "route_authoritative",
         }
         if not isinstance(payload, Mapping) or set(payload) != expected:
             raise PredictiveSelectionError("execution evidence fields are invalid")
@@ -415,6 +441,10 @@ class PredictiveExecutionEvidence:
             route_network_costs=tuple(RouteMetric.from_dict(item) for item in payload["route_network_costs"]),
             route_host_costs=tuple(RouteMetric.from_dict(item) for item in payload["route_host_costs"]),
             route_total_costs=tuple(RouteMetric.from_dict(item) for item in payload["route_total_costs"]),
+            route_witness_json=(
+                None if payload["route_witness"] is None
+                else _canonical_json(payload["route_witness"], "route witness")
+            ),
         )
 
 
@@ -593,6 +623,11 @@ class PredictivePartitionMetrics:
     residual_leaf_count: int
     unmodeled_changed_leaf_count: int
     navigation_work_units: int
+    navigation_evidence_digest: str
+    distinct_observed_component_states: int
+    distinct_predicted_component_states: int
+    distinct_matched_component_states: int
+    component_state_space_coverage: float
     refusal_counts: tuple[tuple[str, int], ...]
     coverage_ratio: float
     component_accuracy: float
@@ -606,13 +641,28 @@ class PredictivePartitionMetrics:
             "sample_count", "covered_samples", "expected_components", "predicted_components",
             "correct_components", "exact_state_matches", "residual_leaf_count",
             "unmodeled_changed_leaf_count", "navigation_work_units",
+            "distinct_observed_component_states", "distinct_predicted_component_states",
+            "distinct_matched_component_states",
         ):
             _require_int(getattr(self, name), name)
         if self.covered_samples > self.sample_count or self.exact_state_matches > self.covered_samples:
             raise PredictiveSelectionError("partition sample counters are inconsistent")
+        if (
+            self.distinct_observed_component_states > self.sample_count
+            or self.distinct_predicted_component_states > self.covered_samples
+            or self.distinct_matched_component_states > min(
+                self.distinct_observed_component_states,
+                self.distinct_predicted_component_states,
+            )
+            or sum(count for _, count in self.refusal_counts) > self.sample_count
+        ):
+            raise PredictiveSelectionError("partition distinct-state or refusal counters are inconsistent")
         if self.correct_components > self.predicted_components or self.predicted_components > self.expected_components:
             raise PredictiveSelectionError("partition component counters are inconsistent")
-        for name in ("coverage_ratio", "component_accuracy", "predictive_yield", "full_state_match_rate"):
+        _require_digest(self.navigation_evidence_digest, "navigation evidence digest")
+        if self.distinct_matched_component_states > self.distinct_observed_component_states:
+            raise PredictiveSelectionError("matched component-state count exceeds observed distinct states")
+        for name in ("coverage_ratio", "component_accuracy", "predictive_yield", "full_state_match_rate", "component_state_space_coverage"):
             value = getattr(self, name)
             if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value) or not 0 <= value <= 1:
                 raise PredictiveSelectionError(f"{name} must be a finite ratio in [0, 1]")
@@ -622,6 +672,21 @@ class PredictivePartitionMetrics:
                 raise PredictiveSelectionError("refusal_counts must contain (error_name,count) pairs")
             _require_int(item[1], "refusal count")
         object.__setattr__(self, "refusal_counts", refusals)
+        expected_ratios = {
+            "coverage_ratio": self.covered_samples / self.sample_count if self.sample_count else 0.0,
+            "component_accuracy": self.correct_components / self.predicted_components if self.predicted_components else 0.0,
+            "predictive_yield": self.correct_components / self.expected_components if self.expected_components else 0.0,
+            "full_state_match_rate": self.exact_state_matches / self.sample_count if self.sample_count else 0.0,
+            "component_state_space_coverage": (
+                self.distinct_matched_component_states / self.distinct_observed_component_states
+                if self.distinct_observed_component_states else 0.0
+            ),
+        }
+        if any(
+            not math.isclose(getattr(self, name), expected, rel_tol=1e-12, abs_tol=1e-12)
+            for name, expected in expected_ratios.items()
+        ):
+            raise PredictiveSelectionError("partition ratios do not agree with their integer evidence counts")
 
     @property
     def mean_navigation_work_units(self) -> float:
@@ -641,6 +706,11 @@ class PredictivePartitionMetrics:
             "residual_leaf_count": self.residual_leaf_count,
             "unmodeled_changed_leaf_count": self.unmodeled_changed_leaf_count,
             "navigation_work_units": self.navigation_work_units,
+            "navigation_evidence_digest": self.navigation_evidence_digest,
+            "distinct_observed_component_states": self.distinct_observed_component_states,
+            "distinct_predicted_component_states": self.distinct_predicted_component_states,
+            "distinct_matched_component_states": self.distinct_matched_component_states,
+            "component_state_space_coverage": self.component_state_space_coverage,
             "mean_navigation_work_units": self.mean_navigation_work_units,
             "refusal_counts": [{"error": name, "count": count} for name, count in self.refusal_counts],
             "coverage_ratio": self.coverage_ratio,
@@ -804,7 +874,7 @@ def _navigation_work_units(family: str, parameters: Mapping[str, Any], order: in
         modulus = parameters.get("mod")
         if type(modulus) is not int or modulus < 2:
             raise PredictiveSelectionError("admitted LCG description has an invalid modulus")
-        return max(1, (modulus - 1).bit_length())
+        return max(1, coordinate.bit_length())
     if family == "gf2":
         return max(1, order ** 3 * max(1, (coordinate + 1).bit_length()))
     raise PredictiveSelectionError(f"unsupported generator family {family!r}")
@@ -888,6 +958,10 @@ class PredictiveDescriptionSelector:
         unmodeled_changed_leaf_count = 0
         navigation_work_units = 0
         refusal_counts: dict[str, int] = defaultdict(int)
+        navigation_evidence: list[dict[str, Any]] = []
+        observed_component_states: set[str] = set()
+        predicted_component_states: set[str] = set()
+        matched_component_states: set[str] = set()
         template = candidate.address.template
         component_paths = tuple(item.field_path for item in candidate.address.components)
 
@@ -896,6 +970,13 @@ class PredictiveDescriptionSelector:
             unmodeled_changed_leaf_count += _unmodeled_change_count(
                 template, observed, component_paths
             )
+            observed_vector = []
+            for component in candidate.address.components:
+                expected = _read_path(observed, component.field_path, "observed state")
+                _validate_component_value(expected, component.value_kind, "observed component")
+                observed_vector.append([component.component_id, expected])
+            observed_vector_json = _canonical_json(observed_vector, "observed component state")
+            observed_component_states.add(observed_vector_json)
             relative_coordinate = sample.tick - candidate.address.base_ground.coordinate
             for version in versions:
                 navigation_work_units += _navigation_work_units(
@@ -907,22 +988,42 @@ class PredictiveDescriptionSelector:
             try:
                 sample_address = _address_at_tick(candidate.address, sample.tick)
                 result = self.navigator.locate(sample_address)
-            except (ComposedGroundError, StructuralMemoryError, ObserverOrbitError):
+            except (ComposedGroundError, StructuralMemoryError, ObserverOrbitError) as exc:
                 refusal_counts["guarded_navigation_refusal"] += 1
+                navigation_evidence.append({
+                    "tick": sample.tick,
+                    "disposition": "refused",
+                    "error_type": type(exc).__name__,
+                })
                 continue
             if result.expanded_states != 0:
                 raise PredictiveSelectionError("candidate evaluation unexpectedly expanded intermediate states")
             covered += 1
             predicted_components += component_count
             projection = result.projection
+            navigation_evidence.append({
+                "tick": sample.tick,
+                "disposition": "predicted",
+                "address_digest": projection.address_digest,
+                "state_digest": projection.state_digest,
+                "projection_digest": projection.projection_digest,
+                "read_evidence_digest": projection.evidence_digest,
+            })
             predicted_by_id = {
                 item.address.component_id: item.projection.value
                 for item in projection.components
             }
+            predicted_vector = [
+                [component.component_id, predicted_by_id[component.component_id]]
+                for component in candidate.address.components
+            ]
+            predicted_vector_json = _canonical_json(predicted_vector, "predicted component state")
+            predicted_component_states.add(predicted_vector_json)
+            if predicted_vector_json == observed_vector_json:
+                matched_component_states.add(observed_vector_json)
             for component in candidate.address.components:
-                expected = _read_path(observed, component.field_path, "observed state")
-                _validate_component_value(expected, component.value_kind, "observed component")
                 actual = predicted_by_id[component.component_id]
+                expected = _read_path(observed, component.field_path, "observed state")
                 if actual == expected:
                     correct_components += 1
             if projection.state_digest == canonical_value_digest(observed):
@@ -950,6 +1051,14 @@ class PredictiveDescriptionSelector:
             residual_leaf_count=residual_leaf_count,
             unmodeled_changed_leaf_count=unmodeled_changed_leaf_count,
             navigation_work_units=navigation_work_units,
+            navigation_evidence_digest=_digest(navigation_evidence, "partition navigation evidence"),
+            distinct_observed_component_states=len(observed_component_states),
+            distinct_predicted_component_states=len(predicted_component_states),
+            distinct_matched_component_states=len(matched_component_states),
+            component_state_space_coverage=(
+                len(matched_component_states) / len(observed_component_states)
+                if observed_component_states else 0.0
+            ),
             refusal_counts=tuple(sorted(refusal_counts.items())),
             coverage_ratio=coverage_ratio,
             component_accuracy=component_accuracy,
@@ -967,6 +1076,7 @@ class PredictiveDescriptionSelector:
         rm = right.partition("validation")
         left_values = (
             lm.predictive_yield,
+            lm.component_state_space_coverage,
             lm.coverage_ratio,
             lm.component_accuracy,
             lm.full_state_match_rate,
@@ -976,6 +1086,7 @@ class PredictiveDescriptionSelector:
         )
         right_values = (
             rm.predictive_yield,
+            rm.component_state_space_coverage,
             rm.coverage_ratio,
             rm.component_accuracy,
             rm.full_state_match_rate,
@@ -1162,6 +1273,7 @@ class PredictiveDescriptionSelector:
             metrics = evaluation.partition("validation")
             return (
                 -metrics.predictive_yield,
+                -metrics.component_state_space_coverage,
                 -metrics.coverage_ratio,
                 -metrics.component_accuracy,
                 -metrics.full_state_match_rate,

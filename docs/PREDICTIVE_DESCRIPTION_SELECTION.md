@@ -65,6 +65,10 @@ The evaluator records:
 | Full-state match rate | Fraction of samples where the assembled composed projection exactly equals the observed state. |
 | Residual leaves | Unequal state leaves between the composed projection and the observation on covered samples. |
 | Unmodeled changed leaves | Observation/template changes outside the candidate's declared component paths. |
+| Distinct component states | Number of unique observed, predicted, and exactly matched component-value tuples in the sample partition. |
+| Component-state-space coverage | Matched distinct observed tuples divided by all distinct observed tuples. This is coverage of the sampled support, not an enumeration or estimate of the globally reachable state space. |
+| Navigation evidence digest | Digest of each sample's target coordinate, composed projection/state identity, component read-receipt digest, or guarded refusal. |
+| Navigation evidence digest | Hash of each sample's target coordinate, composed projection/state identity, component read-evidence digest, or guarded refusal. |
 
 Coverage and conditional accuracy are separate by design. A candidate that predicts very accurately only for a small fraction of the observed coordinates cannot hide its refusal rate inside a high accuracy score. Predictive yield makes that trade-off explicit.
 
@@ -79,7 +83,7 @@ The report charges each candidate in three distinct ways:
 3. **Navigation work units:** a deterministic algorithmic proxy derived from the admitted family and queried coordinate:
    - integer progression: one unit;
    - indexed finite graph read: one unit after its admitted representation is available;
-   - LCG: modulus bit length;
+   - LCG: queried coordinate bit length;
    - GF(2): recurrence-order cubed times the queried coordinate bit length.
 
 These units compare the known algebraic cost profiles. They are not measured instruction counts, elapsed time, energy, or asymptotic proofs for an entire OS. Physical execution measurements, when supplied separately, remain separate fields.
@@ -91,7 +95,7 @@ The selector constructs a Pareto frontier from validation results. A candidate d
 - predictive yield, coverage, component accuracy, and full-state match rate (maximize);
 - description bytes, mean navigation work units, and verification witness units (minimize).
 
-The frontier is ordered deterministically by predictive yield, coverage, component accuracy, full-state match rate, mean navigation work, description size, witness units, then candidate ID. This is a transparent prediction-first tie-break, not a hidden weighted score. The full frontier remains in the report so a later policy can apply an explicit resource preference without discarding the measured trade-off.
+The frontier is ordered deterministically by predictive yield, matched distinct component-state coverage, sample coverage, component accuracy, full-state match rate, mean navigation work, description size, witness units, then candidate ID. This is a transparent prediction-first tie-break, not a hidden weighted score. The full frontier remains in the report so a later policy can apply an explicit resource preference without discarding the measured trade-off.
 
 The selected ID is a recommendation only. Admission, execution, and checkpoint authority remain with their existing owners.
 
@@ -106,9 +110,9 @@ PredictiveExecutionEvidence.from_hypervisor_result accepts only a typed Hypervis
 
 The distinction matters: estimated_energy and estimated_virtual_ticks come from the operator contract and runtime preflight. A measured handler_total_ms is an elapsed measurement. Neither should be mislabeled as the other.
 
-An optional ComputationalFabricRouteWitness contributes its typed network, host, and total route-cost vectors. The witness validates the additive relation total = network + host, but its authoritative property is false. The selector therefore preserves the route witness digest and costs as planning context, not as proof of execution, an observed latency, or a prediction label. Likewise, the typed hypervisor result and its digest are not a digital signature: callers must source the result from the trusted host hypervisor/effect ledger rather than accept a caller-constructed object as attestation.
+An optional ComputationalFabricRouteWitness contributes its typed network, host, and total route-cost vectors. When the hypervisor effect names a node, the adapter requires it to match the route witness target node. The witness validates the additive relation total = network + host, but its authoritative property is false. The selector therefore preserves the route witness digest and costs as planning context, not as proof of execution, an observed latency, or a prediction label. Likewise, the typed hypervisor result and its digest are not a digital signature: callers must source the result from the trusted host hypervisor/effect ledger rather than accept a caller-constructed object as attestation.
 
-The current ranking does not blend these operational measurements into the prediction objective. They are reported separately so future experiments can compare the model's predictive utility with the cost of obtaining and using its observations without conflating host placement with model correctness.
+The current ranking does not blend these operational measurements into the prediction objective. Instead, the report aggregates hypervisor execution counts, replay counts, declared energy/tick estimates, measured handler metrics, route witness counts, and route metric totals in a separate operational profile. They are reported separately so future experiments can compare the model's predictive utility with the cost of obtaining and using its observations without conflating host placement with model correctness.
 
 ## 8. Anti-enumeration and failure semantics
 

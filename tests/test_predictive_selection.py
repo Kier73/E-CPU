@@ -38,6 +38,11 @@ from mailcpu.virtual_layer import OperatorSpec
 from test_composed_ground import _fixture
 
 
+def _laws_map(laws):
+    """Project the fixture component tuples into a component-ID to Law mapping."""
+    return {item[0]: item[4] for item in laws}
+
+
 def _candidate_address(
     registry: StructuralMemoryRegistry,
     base: ComposedVirtualGroundAddress,
@@ -134,6 +139,7 @@ def _make_observations(
                 actor_id=contract.observer_id,
                 scheduler=SchedulerReading(address.coordinate.scheduler_id, tick),
             ),
+            subject_state_before_digest=canonical_value_digest(address.template),
             subject_state_after_digest=canonical_value_digest(state),
         )
         observations.append(
@@ -190,7 +196,7 @@ def _route_witness() -> ComputationalFabricRouteWitness:
 
 def test_selector_ranks_composed_descriptions_on_chronological_holdouts():
     registry, address, original_laws = _fixture()
-    alternative_laws = dict(original_laws)
+    alternative_laws = _laws_map(original_laws)
     alternative_laws["program-counter"] = Law(
         "int",
         {"x0": 7, "step": 4, "mod": 101},
@@ -209,7 +215,7 @@ def test_selector_ranks_composed_descriptions_on_chronological_holdouts():
     )
     observations = _make_observations(
         address,
-        dict(original_laws),
+        _laws_map(original_laws),
         (511, 512, 513, 514, 515, 516),
     )
 
@@ -232,9 +238,13 @@ def test_selector_ranks_composed_descriptions_on_chronological_holdouts():
     assert grounded.partition("validation").component_accuracy == 1.0
     assert grounded.partition("validation").predictive_yield == 1.0
     assert grounded.partition("validation").full_state_match_rate == 1.0
+    assert grounded.partition("validation").distinct_observed_component_states == 2
+    assert grounded.partition("validation").distinct_matched_component_states == 2
+    assert grounded.partition("validation").component_state_space_coverage == 1.0
     assert alternative.partition("validation").component_accuracy < 1.0
     assert alternative.partition("validation").predictive_yield < 1.0
     assert grounded.partition("validation").navigation_work_units > 0
+    assert len(grounded.partition("validation").navigation_evidence_digest) == 64
     assert grounded.description_bytes > 0
     assert grounded.verification_witness_units >= 6
     assert report.recommendation_authoritative is False
@@ -252,7 +262,7 @@ def test_test_partition_changes_do_not_change_validation_selection():
 
     observations = _make_observations(
         address,
-        dict(laws),
+        _laws_map(laws),
         (511, 512, 513, 514, 515, 516),
         mutate_state=alter_test_state,
     )
@@ -272,7 +282,7 @@ def test_test_partition_changes_do_not_change_validation_selection():
 
 def test_observer_receipt_must_bind_the_exact_experiment_and_scheduler():
     _, address, laws = _fixture()
-    valid = _make_observations(address, dict(laws), (511, 512))[0]
+    valid = _make_observations(address, _laws_map(laws), (511, 512))[0]
     wrong_contract = replace(
         valid.observer_contract,
         context_digest="9" * 64,
@@ -333,6 +343,38 @@ def test_hypervisor_and_fabric_evidence_keep_estimates_separate_from_execution()
     assert evidence.to_dict()["route_authoritative"] is False
     restored = PredictiveExecutionEvidence.from_dict(evidence.to_dict())
     assert restored == evidence
+    tampered = evidence.to_dict()
+    tampered["route_witness"]["total_costs"][0]["amount"] += 1
+    with pytest.raises(PredictiveSelectionError, match="route witness"):
+        PredictiveExecutionEvidence.from_dict(tampered)
+    mismatched_route = replace(
+        route,
+        target_host=replace(route.target_host, node_id="other-node"),
+    )
+    with pytest.raises(PredictiveSelectionError, match="target node"):
+        PredictiveExecutionEvidence.from_hypervisor_result(
+            result,
+            route_witness=mismatched_route,
+        )
+
+    registry, address, laws = _fixture()
+    observations = list(_make_observations(address, _laws_map(laws), (511, 512)))
+    observations[0] = replace(observations[0], execution_evidence=evidence)
+    report = PredictiveDescriptionSelector(registry).evaluate(
+        (PredictiveDescriptionCandidate("grounded", address),),
+        tuple(observations),
+        development_through_tick=511,
+        validation_through_tick=512,
+    )
+    operational = report.identity_payload()["operational_profile"]
+    assert operational["hypervisor_executed_samples"] == 1
+    assert operational["estimated_energy_sum"] == 17
+    assert operational["fabric_route_witness_samples"] == 1
+    assert operational["fabric_route_cost_sums"] == [
+        {"cost_scope": "host", "name": "latency", "unit": "ms", "amount": 2},
+        {"cost_scope": "network", "name": "latency", "unit": "ms", "amount": 3},
+        {"cost_scope": "total", "name": "latency", "unit": "ms", "amount": 5},
+    ]
 
 
 def test_hypervisor_adapter_refuses_denied_or_unexecuted_results():
@@ -355,7 +397,7 @@ def test_hypervisor_adapter_refuses_denied_or_unexecuted_results():
 
 def test_observation_round_trip_revalidates_receipt_and_state_digest():
     registry, address, laws = _fixture()
-    observation = _make_observations(address, dict(laws), (511,))[0]
+    observation = _make_observations(address, _laws_map(laws), (511,))[0]
 
     restored = PredictiveGroundObservation.from_dict(observation.to_dict())
 
@@ -365,7 +407,7 @@ def test_observation_round_trip_revalidates_receipt_and_state_digest():
 
 def test_selector_refuses_an_empty_validation_window():
     registry, address, laws = _fixture()
-    observations = _make_observations(address, dict(laws), (511, 512))
+    observations = _make_observations(address, _laws_map(laws), (511, 512))
 
     with pytest.raises(PredictiveSelectionError, match="validation partition"):
         PredictiveDescriptionSelector(registry).evaluate(
