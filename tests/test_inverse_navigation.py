@@ -153,7 +153,8 @@ def test_contextual_orbit_navigator_inverts_gf2_and_fgraph_directly():
         verdict="GROUND",
     )
     registry, _, _, base_address, observer = _admitted_law(graph, "fgraph-orbit")
-    result = ContextualOrbitNavigator(registry).locate_value(
+    navigator = ContextualOrbitNavigator(registry)
+    result = navigator.locate_value(
         base_address,
         observer,
         target_value=5,
@@ -161,6 +162,10 @@ def test_contextual_orbit_navigator_inverts_gf2_and_fgraph_directly():
     assert result.orbit_coordinate == 4
     assert result.inverse_complexity_bound == "O(1) after O(N) index compilation"
     assert result.navigation.projection.value == 5
+    again = navigator.locate_value(base_address, observer, target_value=3)
+    assert again.orbit_coordinate == 3
+    assert len(navigator._fgraph_inverse_indexes) == 1
+    assert navigator._fgraph_inverse_indexes[next(iter(navigator._fgraph_inverse_indexes))].orbit_size == 5
 
 
 def _linear_process() -> ProcessDescriptor:
@@ -206,6 +211,8 @@ def test_process_path_index_directly_locates_state_in_verified_history():
     assert verify_navigation_witness(descriptor, address, context, result)
     restored = ProcessPathIndex.from_dict(index.to_dict())
     assert restored.digest == index.digest
+    with pytest.raises(ProcessPathIndexError, match="must be verified"):
+        restored.locate_state(descriptor, address, context, {"count": 3})
     assert restored.verify(descriptor, context)
     assert restored.locate_state(descriptor, address, context, {"count": 3}).path == result.path
 
