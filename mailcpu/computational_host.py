@@ -475,14 +475,14 @@ class ComputationalBackendProfile:
     backend_id: str
     implementation_id: str
     implementation_digest: str
+    deterministic: bool
+    effect_mode: str
     device: str = "cpu"
     substrates: tuple[str, ...] = ("cpu",)
     runtime_versions: Mapping[str, str] = field(default_factory=dict)
     configuration: Mapping[str, Any] = field(default_factory=dict)
     max_input_bytes: int = 1_000_000
     max_output_bytes: int = 2_000_000
-    deterministic: bool = True
-    effect_mode: str = "pure"
 
     def __post_init__(self) -> None:
         """Mathematics: Validate stable backend identity, explicit implementation digest, resource bounds, and finite profile data."""

@@ -280,6 +280,7 @@ def test_backend_fingerprint_binds_implementation_runtime_and_configuration() ->
     changed_implementation = _profile(
         implementation_digest=hashlib.sha256(b"other implementation").hexdigest()
     )
+    changed_effect_contract = _profile(deterministic=False)
 
     assert len(first.fingerprint) == 64
     assert len({
@@ -287,7 +288,8 @@ def test_backend_fingerprint_binds_implementation_runtime_and_configuration() ->
         changed_runtime.fingerprint,
         changed_config.fingerprint,
         changed_implementation.fingerprint,
-    }) == 4
+        changed_effect_contract.fingerprint,
+    }) == 5
 
 
 def test_virtual_layer_adapter_refuses_non_replay_safe_backend(tmp_path) -> None:
@@ -304,6 +306,17 @@ def test_virtual_layer_adapter_refuses_non_replay_safe_backend(tmp_path) -> None
     )
     with pytest.raises(ComputationalBackendError, match="deterministic pure"):
         make_computational_host_operator(host, operator_id="artifact.non-deterministic")
+
+    impure_profile = _profile(deterministic=True, effect_mode="idempotent")
+    impure_host = LocalComputationalHost(
+        host_id="host-local-2",
+        manifest=manifest,
+        artifact_root=root,
+        profile=impure_profile,
+        adapter=EchoAdapter(),
+    )
+    with pytest.raises(ComputationalBackendError, match="deterministic pure"):
+        make_computational_host_operator(impure_host, operator_id="artifact.impure")
 
 
 def test_local_host_lazily_loads_and_emits_deterministic_receipts(tmp_path) -> None:

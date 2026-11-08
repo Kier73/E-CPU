@@ -83,7 +83,7 @@ This is content integrity under the SHA-256 assumption, not origin authenticatio
 A backend profile declares:
 
 \[
-B=(I_B,I_{\mathrm{impl}},h_{\mathrm{impl}},D,\mathcal{S},V,C,L_{\mathrm{in}},L_{\mathrm{out}})
+B=(I_B,I_{\mathrm{impl}},h_{\mathrm{impl}},D,\mathcal{S},V,C,L_{\mathrm{in}},L_{\mathrm{out}},\delta,E)
 \]
 
 where:
@@ -96,6 +96,8 @@ where:
 - \(V\) is the declared runtime-version map;
 - \(C\) is finite JSON configuration;
 - \(L_{\mathrm{in}}\) and \(L_{\mathrm{out}}\) are the input and output byte ceilings.
+- \(\delta\) is the explicit deterministic-execution declaration;
+- \(E\) is the declared effect mode (pure, idempotent, or transactional).
 
 The profile fingerprint is:
 
@@ -104,6 +106,8 @@ F_B=\operatorname{SHA256}(\operatorname{Canonical}(B))
 \]
 
 A single immutable artifact can therefore be interpreted by multiple backends while retaining a common \(I_A\) and distinct \(F_B\) values.
+
+The deterministic declaration and effect mode are required profile fields with no permissive defaults; both are included in the backend fingerprint.
 
 The implementation digest is explicit rather than guessed from a class name. The profile fingerprint binds the declared facts, but is not a signature or a hardware attestation. Device/runtime declarations must not be presented as proof that a particular physical accelerator, driver, or precision mode actually executed the operation. An adapter that performs fallback or runtime substitution must expose that fact in its own declared or observed profile rather than silently treating requested and actual execution loci as identical.
 
