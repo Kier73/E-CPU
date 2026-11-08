@@ -49,6 +49,7 @@ class HypervisorOperationChannel:
             raise HypervisorOperationTransportError("operation transport requires a HypervisorArbitrationEvent")
         if event.source != self.channel.source or event.channel != self.channel.channel:
             raise HypervisorOperationTransportError("operation identity does not match reliable channel source or channel")
+        fingerprint = HypervisorArbitrationLoop._fingerprint(event)
         matches: list[int] = []
         for sequence, pending in tuple(self.channel._pending.items()):
             frame = pending.frame
@@ -57,7 +58,7 @@ class HypervisorOperationChannel:
             existing = self._decode_payload(frame.body[2])
             if existing.identity != event.identity:
                 continue
-            if existing.fingerprint != event.fingerprint:
+            if HypervisorArbitrationLoop._fingerprint(existing) != fingerprint:
                 raise HypervisorOperationTransportError(
                     "pending operation identity is already bound to a different fingerprint"
                 )
