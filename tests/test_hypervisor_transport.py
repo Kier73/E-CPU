@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from mailcpu import (
     Capability,
     HeadlessOS,
@@ -11,6 +13,7 @@ from mailcpu import (
     ReliableChannel,
     SocketTransport,
 )
+from mailcpu.hypervisor_transport import HypervisorOperationTransportError
 
 
 def _tcp_pair() -> tuple[SocketTransport, SocketTransport]:
@@ -178,3 +181,57 @@ def test_operation_event_round_trips_over_real_tcp_and_receiver_rebuilds_authori
         for transport in (origin_transport, replica_transport):
             if not transport.closed:
                 transport.close()
+
+
+def test_send_or_retransmit_reuses_pending_sequence_and_refuses_identity_conflict() -> None:
+    """A reconnecting sender reuses the exact pending event frame and refuses a changed payload under its identity."""
+    origin_transport, replica_transport = _tcp_pair()
+    policy = ReliabilityPolicy(lease_ticks=1, max_attempts=3, window_size=4)
+    sender = HypervisorOperationChannel(
+        ReliableChannel(origin_transport, "origin", "replica", "ops", policy)
+    )
+    receiver = HypervisorOperationChannel(
+        ReliableChannel(replica_transport, "replica", "replica", "ops", policy, peer="origin")
+    )
+    try:
+        event = _event(1)
+        first_sequence = sender.send(event)
+        assert first_sequence == 1
+        origin_transport.service()
+        assert receiver.receive() == event
+
+        # The receiver's ACK has not yet been processed by the sender, so an
+        # identical semantic retry must retransmit frame 1, not allocate 2.
+        assert sender.send_or_retransmit(event) == first_sequence
+        assert sender.channel.pending_sequences() == (1,)
+        origin_transport.service()
+        assert replica_transport.service() == 1
+        assert receiver.receive() is None  # transport duplicate is ACKed, not redelivered
+
+        conflicting = HypervisorArbitrationEvent(
+            event.source,
+            event.channel,
+            event.sequence,
+            event.logical_time,
+            HypervisorRequest(
+                "different operation",
+                "/different/resource",
+                {"changed": True},
+                frozenset({"execute"}),
+                frozenset({"execute"}),
+            ),
+        )
+        with pytest.raises(HypervisorOperationTransportError, match="different fingerprint"):
+            sender.send_or_retransmit(conflicting)
+
+        replica_transport.service()
+        origin_transport.service()
+        assert sender.channel.process_ack() == (1,)
+        assert sender.channel.pending_sequences() == ()
+        # Once transport ACK has removed frame 1, the same semantic event
+        # may be carried by a new transport sequence without changing its ID.
+        assert sender.send_or_retransmit(event) == 2
+        assert sender.send_or_retransmit(event) == 2
+    finally:
+        origin_transport.close()
+        replica_transport.close()

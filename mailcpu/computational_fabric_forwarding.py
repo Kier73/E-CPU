@@ -674,7 +674,7 @@ class ComputationalFabricForwardingClient:
             request,
         )
         try:
-            self.request.send(event)
+            self.request.send_or_retransmit(event)
         except Exception as exc:
             raise ComputationalFabricForwardingError(f"could not enqueue forwarding operation: {exc}") from exc
 
@@ -687,6 +687,18 @@ class ComputationalFabricForwardingClient:
                 result = self.response.receive()
             except Exception as exc:
                 raise ComputationalFabricForwardingError(f"forwarding peer stream failed: {exc}") from exc
+            if (
+                result is not None
+                and result.source == self.local_peer_id
+                and result.channel == child.channel_id
+                and result.sequence < child.origin_sequence
+            ):
+                # A recovered downstream peer may re-publish an older result.
+                # It can be a semantic duplicate already seen here, or a
+                # first delivery if the prior relay process died before reading
+                # it. In either case it belongs to an earlier operation, so
+                # consume/ACK it and keep waiting for this operation's result.
+                continue
             if result is not None:
                 break
             now = time.monotonic()
@@ -1256,6 +1268,46 @@ class ComputationalFabricForwardingServer:
         """Mathematics: Hold the peer transition lock across capture, durable publication, and quorum anchoring."""
         with self._transition_lock:
             yield
+
+    def rebind_next_hop_transport(
+        self,
+        peer_id: str,
+        transport: SocketTransport,
+    ) -> ComputationalFabricForwardingClient:
+        """Replace a failed downstream stream while preserving that hop's exact reliable-channel state."""
+
+        peer = _peer(peer_id, "peer_id")
+        if not isinstance(transport, SocketTransport):
+            raise ComputationalFabricForwardingError("downstream rebind requires a SocketTransport")
+        with self._transition_lock:
+            previous = self.next_hop_clients.get(peer)
+            if previous is None:
+                raise ComputationalFabricForwardingError(
+                    f"peer {peer!r} is not a configured next-hop client"
+                )
+            active = _active_snapshot_map(self.directory)
+            observed = active.get(peer)
+            if observed is None or observed.endpoint != previous.remote_endpoint:
+                raise ComputationalFabricForwardingError(
+                    "downstream rebind target differs from the active receiver-local peer view"
+                )
+            try:
+                replacement = ComputationalFabricForwardingClient.from_snapshot(
+                    previous.snapshot(),
+                    transport,
+                )
+            except Exception:
+                transport.close()
+                raise
+            if replacement.remote_endpoint != observed.endpoint:
+                transport.close()
+                raise ComputationalFabricForwardingError(
+                    "fresh downstream transport is not bound to the configured peer endpoint"
+                )
+            self.next_hop_clients[peer] = replacement
+            if previous.transport is not transport:
+                previous.close()
+            return replacement
 
     def snapshot(self, *, capture_cut: str = "idle") -> dict[str, Any]:
         """Mathematics: Capture OS replay state and every hop-local reliable channel at one serialized boundary.

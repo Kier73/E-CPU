@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import ssl
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -249,18 +251,29 @@ def main(arguments: list[str]) -> int:
     if len(arguments) != 5:
         raise ValueError("relay worker requires mode, config, cut, marker/result path, and checkpoint directory")
     mode, config_path, cut, marker_or_result, checkpoint_directory = arguments
-    if mode not in {"prepare", "restore"}:
+    if mode not in {"prepare", "restore", "live"}:
         raise ValueError(f"unsupported relay mode {mode!r}")
     config = json.loads(Path(config_path).read_text(encoding="utf-8"))
     config["checkpoint_directory"] = checkpoint_directory
     directory = _directory(config)
-    store, coordinator = _open_store(config)
-    verified = store.load_latest() if mode == "restore" else None
-    if verified is not None and verified.manifest.capture_cut != cut:
-        raise ValueError("relay restart cut differs from the quorum-anchored capture cut")
+    store = None
+    coordinator = None
+    verified = None
+    if mode != "live":
+        store, coordinator = _open_store(config)
+        verified = store.load_latest() if mode == "restore" else None
+        if verified is not None and verified.manifest.capture_cut != cut:
+            raise ValueError("relay restart cut differs from the quorum-anchored capture cut")
 
     server_context, client_context = _tls_contexts(config)
     listener = SocketTransport.listen("127.0.0.1", int(config["peer_b_port"]))
+    control_listener: socket.socket | None = None
+    if mode == "live":
+        control_listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        control_listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        control_listener.bind(("127.0.0.1", 0))
+        control_listener.listen(4)
+        control_listener.settimeout(0.25)
     downstream: SocketTransport | None = None
     inbound: SocketTransport | None = None
     server: ComputationalFabricForwardingServer | None = None
@@ -268,12 +281,135 @@ def main(arguments: list[str]) -> int:
         "pid": os.getpid(),
         "peer": "peer-b",
         "port": int(config["peer_b_port"]),
+        "control_port": None if control_listener is None else control_listener.getsockname()[1],
         "mode": mode,
     }, sort_keys=True), flush=True)
 
     try:
         downstream = _connect_c(config, client_context)
         inbound = _accept_a(listener, config, server_context, directory)
+        if mode == "live":
+            operating_system = HeadlessOS()
+            operating_system.hypervisor.policy = HypervisorPolicy(
+                review_confidence=0.0,
+                automatic_confidence=0.0,
+                destructive_confidence=0.0,
+                danger_review_probability=1.0,
+            )
+            authority_pid = operating_system.environment.kernel.spawn(
+                "federated-process-relay-b-live",
+                capabilities=(Capability(
+                    "/network/computational-fabric/forward",
+                    frozenset({"forward"}),
+                ),),
+                parent_pid=operating_system.environment.init_pid,
+            )
+            server = _new_server(
+                config,
+                directory,
+                operating_system,
+                authority_pid,
+                inbound,
+                downstream,
+            )
+            assert control_listener is not None
+
+            def serve_control() -> None:
+                """Accept loopback-only supervisor commands to replace a failed downstream stream."""
+                while True:
+                    try:
+                        connection, _address = control_listener.accept()
+                    except socket.timeout:
+                        continue
+                    except OSError:
+                        return
+                    with connection:
+                        try:
+                            connection.settimeout(20.0)
+                            chunks = bytearray()
+                            while b"\\n" not in chunks and len(chunks) <= 4096:
+                                part = connection.recv(1024)
+                                if not part:
+                                    break
+                                chunks.extend(part)
+                            command = json.loads(bytes(chunks).split(b"\\n", 1)[0].decode("utf-8"))
+                            if command.get("command") != "rebind_next_hop":
+                                raise ValueError("unsupported relay control command")
+                            peer_id = str(command.get("peer_id", ""))
+                            replacement_transport = _connect_c(config, client_context)
+                            replacement = server.rebind_next_hop_transport(
+                                peer_id,
+                                replacement_transport,
+                            )
+                            reply = {
+                                "ok": True,
+                                "peer_id": peer_id,
+                                "remote": replacement.remote_endpoint.peer_id,
+                                "pid": os.getpid(),
+                            }
+                        except Exception as exc:
+                            reply = {
+                                "ok": False,
+                                "error": f"{type(exc).__name__}: {exc}",
+                                "pid": os.getpid(),
+                            }
+                        connection.sendall(
+                            json.dumps(reply, sort_keys=True, separators=(",", ":")).encode("utf-8")
+                            + b"\\n"
+                        )
+
+            control_thread = threading.Thread(target=serve_control, daemon=True)
+            control_thread.start()
+            completed: list[dict[str, Any]] = []
+            deadline = time.monotonic() + 90.0
+            while time.monotonic() < deadline:
+                try:
+                    result = server.serve_once()
+                except Exception as exc:
+                    # A downstream process may be absent during its restart
+                    # window. Preserve B's unacknowledged inbound operation and
+                    # its pending downstream frame; the supervisor can rebind
+                    # the transport and this loop will retry the same identity.
+                    server.last_error = f"{type(exc).__name__}: {exc}"
+                    time.sleep(0.01)
+                    continue
+                if result is not None:
+                    completed.append({
+                        "sequence": result.sequence,
+                        "replayed": bool(result.replayed),
+                        "action": result.action.value,
+                        "domain": result.domain.value,
+                        "executed": bool(result.executed),
+                    })
+                downstream_client = server.next_hop_clients["peer-c"]
+                if (
+                    server.inbound.channel.next_receive_sequence >= 3
+                    and not server.outbound.channel.pending_sequences()
+                    and not downstream_client.request.channel.pending_sequences()
+                    and not downstream_client.response.channel.pending_sequences()
+                    and len(completed) >= 2
+                ):
+                    _write_json_durable(Path(marker_or_result), {
+                        "stage": "live_complete",
+                        "pid": os.getpid(),
+                        "results": completed,
+                        "execution_count": len(
+                            server.operating_system.hypervisor_arbitration.snapshot()["executions"]
+                        ),
+                        "request_receive_cursor": server.inbound.channel.next_receive_sequence,
+                        "response_pending": list(server.outbound.channel.pending_sequences()),
+                        "downstream_request_pending": list(
+                            downstream_client.request.channel.pending_sequences()
+                        ),
+                        "downstream_response_seen": len(
+                            downstream_client.response.snapshot()["seen"]
+                        ),
+                        "journal_valid": server.operating_system.environment.kernel.journal.verify(),
+                    })
+                    return 0
+                time.sleep(0.002)
+            raise TimeoutError("live relay did not settle two terminal operations")
+
         if mode == "prepare":
             operating_system = HeadlessOS()
             operating_system.hypervisor.policy = HypervisorPolicy(
@@ -353,7 +489,10 @@ def main(arguments: list[str]) -> int:
         if downstream is not None and not downstream.closed:
             downstream.close()
         listener.close()
-        coordinator.close()
+        if control_listener is not None:
+            control_listener.close()
+        if coordinator is not None:
+            coordinator.close()
 
 
 if __name__ == "__main__":

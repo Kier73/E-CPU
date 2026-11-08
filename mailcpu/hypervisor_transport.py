@@ -42,6 +42,43 @@ class HypervisorOperationChannel:
             raise HypervisorOperationTransportError("operation identity does not match reliable channel source or channel")
         return self.channel.send({"kind": OPERATION_EVENT_KIND, "event": event.to_dict()})
 
+    def send_or_retransmit(self, event: HypervisorArbitrationEvent) -> int:
+        """Resume an identical unacknowledged operation frame instead of allocating a second transport sequence."""
+
+        if not isinstance(event, HypervisorArbitrationEvent):
+            raise HypervisorOperationTransportError("operation transport requires a HypervisorArbitrationEvent")
+        if event.source != self.channel.source or event.channel != self.channel.channel:
+            raise HypervisorOperationTransportError("operation identity does not match reliable channel source or channel")
+        fingerprint = HypervisorArbitrationLoop._fingerprint(event)
+        matches: list[int] = []
+        for sequence, pending in tuple(self.channel._pending.items()):
+            frame = pending.frame
+            if frame.op != "RDATA" or len(frame.body) != 3 or frame.body[0] != self.channel.channel:
+                continue
+            existing = self._decode_payload(
+                frame.body[2],
+                expected_source=self.channel.source,
+            )
+            if existing.identity != event.identity:
+                continue
+            if HypervisorArbitrationLoop._fingerprint(existing) != fingerprint:
+                raise HypervisorOperationTransportError(
+                    "pending operation identity is already bound to a different fingerprint"
+                )
+            matches.append(sequence)
+        if len(matches) > 1:
+            raise HypervisorOperationTransportError(
+                "multiple pending transport frames bind the same operation identity"
+            )
+        if matches:
+            sequence = matches[0]
+            if not self.channel.retransmit(sequence):
+                raise HypervisorOperationTransportError(
+                    "matching pending operation disappeared before retransmission"
+                )
+            return sequence
+        return self.send(event)
+
     def receive(self) -> HypervisorArbitrationEvent | None:
         """Mathematics: decode and peer-bind `e` while peeked, then consume and acknowledge only after typed reconstruction."""
 
@@ -162,8 +199,13 @@ class HypervisorOperationChannel:
         if received is not None and received[0] != transport_sequence:
             raise HypervisorOperationTransportError("operation frame sequence changed after execution")
 
-    def _decode_payload(self, payload: Any) -> HypervisorArbitrationEvent:
-        """Mathematics: invert wire relation `W=(kind,event)` only for expected kind and peer-bound source/channel identity."""
+    def _decode_payload(
+        self,
+        payload: Any,
+        *,
+        expected_source: str | None = None,
+    ) -> HypervisorArbitrationEvent:
+        """Invert an operation frame with either inbound peer binding or explicit sender-side binding."""
 
         if not isinstance(payload, Mapping) or payload.get("kind") != OPERATION_EVENT_KIND:
             raise HypervisorOperationTransportError("operation payload kind is invalid")
@@ -174,8 +216,9 @@ class HypervisorOperationChannel:
             event = HypervisorArbitrationEvent.from_dict(raw_event)
         except (ClassifierError, TypeError, ValueError, OverflowError) as exc:
             raise HypervisorOperationTransportError(f"operation payload is invalid: {exc}") from exc
-        if event.source != self.channel.peer or event.channel != self.channel.channel:
-            raise HypervisorOperationTransportError("operation payload source or channel is not peer-bound")
+        source = self.channel.peer if expected_source is None else expected_source
+        if event.source != source or event.channel != self.channel.channel:
+            raise HypervisorOperationTransportError("operation payload source or channel is not bound to this channel")
         return event
 
 
