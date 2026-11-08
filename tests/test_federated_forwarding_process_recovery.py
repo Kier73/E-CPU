@@ -54,6 +54,7 @@ from mailcpu import (
     SocketTransport,
 )
 from mailcpu.computational_fabric_forwarding import (
+    COMPUTATIONAL_FABRIC_EXECUTE_RESOURCE,
     COMPUTATIONAL_FABRIC_FORWARD_OPERATION,
     COMPUTATIONAL_FABRIC_FORWARD_RESOURCE,
 )
@@ -387,7 +388,7 @@ def _wait_terminal_response_ack(server: ComputationalFabricForwardingServer, tim
 
 
 def _make_workload(operating_system: HeadlessOS) -> tuple[ComputationalAddress, ComputationalHostCatalogue, list[str], int]:
-    """Create C's deterministic terminal operator and the exact portable address A will route."""
+    """Create C's deterministic terminal operator and return its distinct network receive authority PID."""
     system_identity = SystemIdentity("federated-process-recovery-system", 1)
     seed = SystemSeed.from_system(operating_system)
     seed_envelope = SystemSeedEnvelope(
@@ -425,6 +426,17 @@ def _make_workload(operating_system: HeadlessOS) -> tuple[ComputationalAddress, 
         implementation_fingerprint=IMPLEMENTATION_FP,
     )
     catalogue = ComputationalHostCatalogue((locus,))
+    # The terminal NETWORK-domain gate is distinct from the host process's
+    # Virtual Layer compute right; the selected host still receives its own
+    # independently checked CPU/compute admission at the destination.
+    forwarding_pid = operating_system.environment.kernel.spawn(
+        "federated-terminal-network-gate",
+        capabilities=(Capability(
+            COMPUTATIONAL_FABRIC_EXECUTE_RESOURCE,
+            frozenset({"execute"}),
+        ),),
+        parent_pid=operating_system.environment.init_pid,
+    )
     address_workload = VirtualLayerWorkload(
         workload_id="federated-process-recovery-sum",
         system=system_identity,
@@ -445,7 +457,7 @@ def _make_workload(operating_system: HeadlessOS) -> tuple[ComputationalAddress, 
         program_fingerprint=PROGRAM_FP,
         metric_order=METRICS,
     )
-    return address, catalogue, calls, compute_pid
+    return address, catalogue, calls, forwarding_pid
 
 
 def _read_forward_results(
