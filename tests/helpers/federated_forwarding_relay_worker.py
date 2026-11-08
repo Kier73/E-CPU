@@ -18,6 +18,7 @@ sys.path.insert(0, str(ROOT))
 from mailcpu import (  # noqa: E402
     Capability,
     ComputationalFabricAuthority,
+    ComputationalFabricAuthorityStore,
     ComputationalFabricDirectory,
     ComputationalFabricDiscoveryService,
     ComputationalFabricForwardingClient,
@@ -97,6 +98,17 @@ def _directory(config: dict[str, Any]) -> ComputationalFabricDirectory:
         peer_id: ComputationalPeerSnapshot.from_dict(raw)
         for peer_id, raw in config["peer_snapshots"].items()
     }
+    authority_store_path = config.get("peer_b_authority_store")
+    if authority_store_path is not None:
+        durable_local = ComputationalFabricAuthorityStore(
+            authority_store_path
+        ).load(expected_peer_id="peer-b")
+        configured_local = snapshots["peer-b"]
+        if durable_local.digest != configured_local.digest:
+            raise RuntimeError(
+                "relay bootstrap snapshot differs from its durable peer authority"
+            )
+        snapshots["peer-b"] = durable_local
     trusted = {
         peer_id: snapshots[peer_id].endpoint.tls_server_name
         for peer_id in ("peer-a", "peer-c")
@@ -339,6 +351,15 @@ def main(arguments: list[str]) -> int:
     local_snapshot = ComputationalPeerSnapshot.from_dict(
         config["peer_snapshots"]["peer-b"]
     )
+    if config.get("peer_b_authority_store") is not None:
+        durable_local = ComputationalFabricAuthorityStore(
+            config["peer_b_authority_store"]
+        ).load(expected_peer_id="peer-b")
+        if durable_local.digest != local_snapshot.digest:
+            raise RuntimeError(
+                "relay local snapshot differs from its durable peer authority"
+            )
+        local_snapshot = durable_local
     authority = ComputationalFabricAuthority.from_snapshot(local_snapshot)
     discovery_listeners: list[
         tuple[ComputationalFabricPeerListener, threading.Event, threading.Thread, int]

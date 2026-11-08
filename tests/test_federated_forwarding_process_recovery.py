@@ -578,7 +578,7 @@ def test_relay_b_hard_process_kill_restarts_from_quorum_and_replays_same_operati
     cut: str,
     tmp_path: Path,
 ) -> None:
-    """A restarted relay reacquires its direct A/C directory leases over fresh TLS before forwarding resumes."""
+    """B's forwarding process and A-facing discovery sidecar recover independently at every forwarding crash cut."""
     root = Path(__file__).resolve().parents[1]
     worker = root / "tests" / "helpers" / "federated_forwarding_relay_worker.py"
     certificates = _certificates(tmp_path)
@@ -603,9 +603,10 @@ def test_relay_b_hard_process_kill_restarts_from_quorum_and_replays_same_operati
     anchor_d, anchor_d_port = _start_anchor(root, "anchor-d", membership_path, anchors_dir)
 
     peer_a_port = 44001
-    peer_b_port = _free_port()
-    peer_c_port = _free_port()
-    sidecar_port = _free_port()
+    reserved_ports = {peer_a_port}
+    while len(reserved_ports) < 4:
+        reserved_ports.add(_free_port())
+    _unused_a, peer_b_port, peer_c_port, sidecar_port = sorted(reserved_ports)
     endpoint_a = ComputationalPeerEndpoint(
         "peer-a", "peer-a.fabric.test", "127.0.0.1", peer_a_port
     )
@@ -709,6 +710,7 @@ def test_relay_b_hard_process_kill_restarts_from_quorum_and_replays_same_operati
         "membership_path": str(membership_path),
         "lineage_root": str(lineage_root),
         "peer_b_port": peer_b_port,
+        "peer_b_authority_store": str(authority_store.path),
         "peer_b_cert": str(certificates["peer-b_cert"]),
         "peer_b_key": str(certificates["peer-b_key"]),
         "ca_cert": str(certificates["ca"]),
