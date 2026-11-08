@@ -1323,11 +1323,22 @@ class ComputationalFabricForwardingServer:
             or not isinstance(payload.get("next_hop_clients"), Mapping)
         ):
             raise ComputationalFabricForwardingError("forwarding server snapshot fields or version are invalid")
-        restored_os = operating_system or HeadlessOS.from_snapshot(
-            dict(payload["operating_system"])
-        )
-        if not isinstance(restored_os, HeadlessOS):
-            raise ComputationalFabricForwardingError("restore requires a receiver-local HeadlessOS")
+        if operating_system is None:
+            restored_os = HeadlessOS.from_snapshot(dict(payload["operating_system"]))
+        else:
+            if not isinstance(operating_system, HeadlessOS):
+                raise ComputationalFabricForwardingError("restore requires a receiver-local HeadlessOS")
+            try:
+                supplied_state = operating_system.snapshot()
+            except Exception as exc:
+                raise ComputationalFabricForwardingError(
+                    f"supplied receiver-local HeadlessOS is not checkpointable: {exc}"
+                ) from exc
+            if supplied_state != dict(payload["operating_system"]):
+                raise ComputationalFabricForwardingError(
+                    "supplied receiver-local HeadlessOS does not match the verified peer snapshot"
+                )
+            restored_os = operating_system
         raw_clients = payload["next_hop_clients"]
         supplied_transports = dict(next_hop_transports or {})
         if set(supplied_transports) != set(raw_clients):
