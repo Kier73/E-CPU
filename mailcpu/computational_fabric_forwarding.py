@@ -1291,10 +1291,14 @@ class ComputationalFabricForwardingServer:
                 raise ComputationalFabricForwardingError(
                     "downstream rebind target differs from the active receiver-local peer view"
                 )
-            replacement = ComputationalFabricForwardingClient.from_snapshot(
-                previous.snapshot(),
-                transport,
-            )
+            try:
+                replacement = ComputationalFabricForwardingClient.from_snapshot(
+                    previous.snapshot(),
+                    transport,
+                )
+            except Exception:
+                transport.close()
+                raise
             if replacement.remote_endpoint != observed.endpoint:
                 transport.close()
                 raise ComputationalFabricForwardingError(
