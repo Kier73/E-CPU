@@ -783,7 +783,7 @@ class ComputationalFabricForwardingClient:
             restored_request.source != client.local_peer_id
             or restored_request.destination != endpoint.peer_id
             or restored_request.channel != client.channel_id
-            or restored_request.peer is not None
+            or restored_request.peer != endpoint.peer_id
         ):
             raise ComputationalFabricForwardingError(
                 "restored downstream request channel is bound to another peer or operation"
@@ -1389,6 +1389,7 @@ class ComputationalFabricForwardingServer:
             or restored_outbound.operation_channel != server.channel_id
             or restored_outbound.channel.source != server.local_peer_id
             or restored_outbound.channel.destination != server.previous_peer_id
+            or restored_outbound.channel.peer != server.previous_peer_id
             or restored_outbound.channel.channel != server.channel_id + _RESPONSE_SUFFIX
         ):
             raise ComputationalFabricForwardingError(
