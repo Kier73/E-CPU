@@ -183,7 +183,11 @@ def composed_component_context(
         raise ComposedGroundError(f"unsupported component scalar kind {value_kind!r}")
     if not isinstance(template, Mapping):
         raise ComposedGroundError("state template must be an object")
-    _read_path(template, normalized_path)
+    template_leaf = _read_path(template, normalized_path)
+    if isinstance(template_leaf, (Mapping, list, tuple)):
+        raise ComposedGroundError("component field must identify a scalar template leaf")
+    if extensions is not None and not isinstance(extensions, Mapping):
+        raise ComposedGroundError("component extensions must be an object")
     user_extensions = {} if extensions is None else _clone_json(dict(extensions), "component extensions")
     if not isinstance(user_extensions, dict):
         raise ComposedGroundError("component extensions must be an object")
@@ -333,7 +337,9 @@ class ComposedVirtualGroundAddress:
             )
             if _clone_json(dict(address.structural_memory.context), "component memory context") != expected_context:
                 raise ComposedGroundError(f"component {component.component_id!r} Structural Memory context is not bound to this composition")
-            _read_path(template, component.field_path)
+            template_leaf = _read_path(template, component.field_path)
+            if isinstance(template_leaf, (Mapping, list, tuple)):
+                raise ComposedGroundError(f"component {component.component_id!r} must target a scalar template leaf")
         object.__setattr__(self, "components", components)
         object.__setattr__(self, "extensions", _freeze_json(user_extensions))
 
@@ -655,10 +661,12 @@ class ComposedGroundNavigationResult:
         """Mathematics: bind each component to one declared family and its supported forward complexity."""
         if not isinstance(self.projection, ComposedVirtualGroundProjection):
             raise ComposedGroundError("composed navigation projection is invalid")
-        profiles = tuple(self.generator_profiles)
+        if not isinstance(self.generator_profiles, (tuple, list)):
+            raise ComposedGroundError("generator_profiles must be a finite sequence")
+        profiles = tuple(tuple(item) if isinstance(item, (tuple, list)) else item for item in self.generator_profiles)
         expected_ids = {item.address.component_id for item in self.projection.components}
         if any(
-            not isinstance(item, (tuple, list))
+            not isinstance(item, tuple)
             or len(item) != 3
             or not isinstance(item[0], str)
             or not isinstance(item[1], str)
