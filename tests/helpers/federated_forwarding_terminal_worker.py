@@ -35,7 +35,6 @@ from mailcpu import (  # noqa: E402
     SystemIdentity,
     SystemSeed,
     SystemSeedEnvelope,
-    VirtualGroundRef,
     VirtualLayerRuntime,
 )
 from mailcpu.computational_fabric_forwarding import COMPUTATIONAL_FABRIC_EXECUTE_RESOURCE  # noqa: E402
@@ -205,7 +204,6 @@ def _initial_runtime(config: dict[str, Any]):
     )
     _write_json_durable(Path(config["runtime_path"]), {
         "compute_pid": compute_pid,
-        "execute_pid": execute_pid,
     })
     catalogue = _catalogue(operating_system, compute_pid, Path(config["calls_path"]))
     advertisement = ComputationalHostAdvertisement.from_locus(catalogue.loci[0], "peer-c")
