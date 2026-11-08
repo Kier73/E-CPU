@@ -131,6 +131,8 @@ It lazily loads on first execution. Before initialization, it re-verifies the lo
 
 The host serializes adapter lifecycle and request execution under a local lock. This is a safe initial lifecycle contract, not a throughput or concurrency scheduler. A later extension may introduce bounded concurrent sessions when a backend declares its state and concurrency semantics.
 
+The local verification occurs immediately before adapter initialization; it is not an immutable filesystem snapshot or a defense against another privileged local process changing files between verification and backend reads. Deployments must provision the admitted artifact root as controlled, non-writable input for untrusted actors. Backends that require stronger isolation should load from an independently protected or content-addressed materialization.
+
 The adapter is trusted local implementation code. No request can supply Python code or replace the adapter implementation.
 
 ## 5. Typed operation and temporal context
@@ -194,6 +196,8 @@ The host receipt status is EXECUTED, not COMMITTED.
 Its digest provides deterministic result integrity and linkage. It is not a digital signature, a durable ledger entry, or a proof of origin. The enclosing Virtual Layer/Hypervisor operation remains responsible for receiver-local capability reconstruction, policy arbitration, semantic replay identity, effect commitment, publication, and acknowledgement. Only that existing commit boundary can establish the committed effect.
 
 The host must not independently claim that a state transition is durably committed merely because its adapter returned a value.
+
+The local host does not persist request identifiers or deduplicate direct local retries. When used through the existing Virtual Layer/Hypervisor path, replay protection comes from the enclosing semantic operation identity and Hypervisor ledger. Direct callers remain responsible for their own retry and side-effect policy; a deterministic receipt alone does not provide exactly-once execution.
 
 ## 7. Virtual Layer and Transit composition
 

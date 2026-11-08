@@ -174,8 +174,13 @@ def _excluded(relative_path: str, exclusions: tuple[str, ...]) -> bool:
     return any(relative_path == item or relative_path.startswith(item + "/") for item in exclusions)
 
 
-def _artifact_files(root: Path, exclusions: tuple[str, ...]) -> list[tuple[str, Path]]:
-    """Mathematics: Enumerate regular artifact files without following or admitting symlinks."""
+def _artifact_files(
+    root: Path,
+    exclusions: tuple[str, ...],
+    *,
+    max_files: int = _DEFAULT_MAX_ARTIFACT_FILES,
+) -> list[tuple[str, Path]]:
+    """Mathematics: Enumerate regular artifact files without following symlinks or exceeding the file-count bound."""
     if root.is_symlink() or not root.is_dir():
         raise ComputationalArtifactError("artifact root must be an existing non-symlink directory")
     resolved_root = root.resolve()
@@ -194,6 +199,8 @@ def _artifact_files(root: Path, exclusions: tuple[str, ...]) -> list[tuple[str, 
         if not resolved_item.is_relative_to(resolved_root):
             raise ComputationalArtifactError(f"artifact path escapes its root: {relative}")
         files.append((_artifact_path(relative), item))
+        if len(files) > max_files:
+            raise ComputationalArtifactError("artifact directory contains too many files")
     return files
 
 
@@ -278,6 +285,8 @@ class ComputationalArtifactManifest:
         _strict_integer(self.total_size_bytes, "total_size_bytes")
         if self.total_size_bytes > _DEFAULT_MAX_ARTIFACT_BYTES:
             raise ComputationalArtifactError("artifact exceeds the supported logical size")
+        if len(self.components) > _DEFAULT_MAX_ARTIFACT_FILES:
+            raise ComputationalArtifactError("artifact exceeds the supported component count")
         if type(self.schema_version) is not int or self.schema_version != _ARTIFACT_SCHEMA_VERSION:
             raise ComputationalArtifactError("unsupported computational artifact schema version")
         components = tuple(self.components)
@@ -365,10 +374,12 @@ def admit_computational_artifact_directory(
     _strict_integer(max_files, "max_files", minimum=1)
     if max_total_size > _DEFAULT_MAX_ARTIFACT_BYTES:
         raise ComputationalArtifactError("max_total_size exceeds the supported artifact bound")
+    if max_files > _DEFAULT_MAX_ARTIFACT_FILES:
+        raise ComputationalArtifactError("max_files exceeds the supported artifact component count")
     if not isinstance(exclude_paths, (tuple, list)):
         raise ComputationalArtifactError("exclude_paths must be a sequence of relative path prefixes")
     exclusions = tuple(sorted({_artifact_path(item) for item in exclude_paths}))
-    files = _artifact_files(root, exclusions)
+    files = _artifact_files(root, exclusions, max_files=max_files)
     if not files:
         raise ComputationalArtifactError("artifact directory contains no admitted regular files")
     if len(files) > max_files:
