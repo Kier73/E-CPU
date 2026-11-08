@@ -501,3 +501,34 @@ explicit backend compatibility when the backend fingerprint differs.
 M3 persists and anchors state; it does not interpret the bytes, execute the
 domain transition, atomically commit arbitrary external effects, or perform
 membership reconfiguration.
+
+
+## 18. Stateful interpretation and compiled virtual grounds
+
+The M4 extension is specified in
+[COMPUTATIONAL_SESSION_INTERPRETATION.md](COMPUTATIONAL_SESSION_INTERPRETATION.md)
+and implemented by mailcpu/computational_transition.py.
+
+A transition adapter admits only a declared deterministic pure backend. It
+starts from a ComputationalSessionSnapshot already verified against M1
+state pages and the existing quorum lineage, builds a context digest binding
+the session revision, checkpoint, lineage root, artifact, backend, state
+schema, interpretation, input and operation, and asks the local backend for
+candidate successor bytes. The existing session store performs the revision
+and checkpoint compare-and-swap and quorum seal. The adapter does not infer
+state semantics from bytes and does not make arbitrary external effects
+transactional.
+
+The VGI adapter compiles a typed TaskSpec under the explicit Signal8
+GroundSpec into an immutable Program IR and caches that plan by
+computational-Ground fingerprint, E-CPU/VGI source implementation identity,
+and canonical task digest. Every execution still constructs a fresh mutable
+SignalStateMachine from its own validated input state. The plan digest is
+included in the receipt and may be used as the generic transition contract's
+interpretation fingerprint.
+
+This is compilation of declared semantics, not inference of an unknown
+Ground from opaque bytes. The admitted E-CPU System Ground, the VGI
+Computational Ground, the compiled program, the session state, and the
+execution host remain distinct identities. Cached IR is an optimization;
+M1 pages and the quorum-anchored session checkpoint remain authoritative.

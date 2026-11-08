@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import dataclass
 import sys
 from collections.abc import Mapping
 from functools import lru_cache
@@ -133,6 +134,126 @@ def vgi_signal8_implementation_fingerprint(
     })
 
 
+@dataclass(frozen=True, slots=True)
+class VGICompiledTaskPlan:
+    """Immutable compiled interpretation plan shared by requests with identical Ground and task identities."""
+
+    task: Any
+    program: Any
+    ground_fingerprint: str
+    implementation_fingerprint: str
+    task_digest: str
+    program_fingerprint: str
+    plan_digest: str
+
+
+@lru_cache(maxsize=128)
+def _cached_vgi_signal8_plan(
+    ground_fingerprint: str,
+    implementation_fingerprint: str,
+    canonical_task_json: str,
+) -> VGICompiledTaskPlan:
+    """Mathematics: Compile one immutable VGI Program for the exact Ground, implementation, and canonical TaskSpec key."""
+    try:
+        from vgi import SIGNAL8_GROUND, TaskSpec, VirtualGroundInterpreter
+    except ImportError as exc:
+        raise VGIHostError("VGI is required to compile a Signal8 interpretation plan") from exc
+    if ground_fingerprint != SIGNAL8_GROUND.fingerprint:
+        raise VGIHostError("VGI computational Ground fingerprint does not match the local Signal8 Ground")
+    if implementation_fingerprint != vgi_signal8_implementation_fingerprint():
+        raise VGIHostError("VGI compiler implementation fingerprint changed during plan compilation")
+    try:
+        task = TaskSpec.from_json(canonical_task_json)
+        interpreter = VirtualGroundInterpreter(ground=SIGNAL8_GROUND)
+        program = interpreter.compile_task(task)
+        unsupported = program.instruction_set - set(SIGNAL8_GROUND.instruction_set)
+        if unsupported:
+            raise VGIHostError(
+                "compiled program contains instructions outside its declared Ground: "
+                + ", ".join(sorted(unsupported))
+            )
+        program_bytes = json.dumps(
+            program.to_dict(),
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        program_fingerprint = hashlib.sha256(program_bytes).hexdigest()
+        task_digest = _canonical_digest(task.to_dict())
+        plan_digest = _canonical_digest({
+            "schema": "vgi.signal8.compiled-task-plan.v1",
+            "ground_fingerprint": ground_fingerprint,
+            "implementation_fingerprint": implementation_fingerprint,
+            "task_digest": task_digest,
+            "program_fingerprint": program_fingerprint,
+        })
+        return VGICompiledTaskPlan(
+            task=task,
+            program=program,
+            ground_fingerprint=ground_fingerprint,
+            implementation_fingerprint=implementation_fingerprint,
+            task_digest=task_digest,
+            program_fingerprint=program_fingerprint,
+            plan_digest=plan_digest,
+        )
+    except VGIHostError:
+        raise
+    except (TypeError, ValueError, RuntimeError) as exc:
+        raise VGIHostError(f"VGI task compilation refused: {exc}") from exc
+
+
+def compile_vgi_signal8_task(
+    task_data: Mapping[str, Any],
+    ground_fingerprint: str,
+) -> VGICompiledTaskPlan:
+    """Mathematics: Compile or retrieve immutable Signal8 IR from its explicit Ground and typed task declaration."""
+    if not isinstance(task_data, Mapping):
+        raise VGIHostError("VGI task must be a typed task-expression object")
+    if (
+        not isinstance(ground_fingerprint, str)
+        or len(ground_fingerprint) != 64
+        or any(character not in "0123456789abcdef" for character in ground_fingerprint)
+    ):
+        raise VGIHostError("VGI computational Ground fingerprint must be a lowercase SHA-256 digest")
+    try:
+        from vgi import SIGNAL8_GROUND
+    except ImportError as exc:
+        raise VGIHostError("VGI is required to compile a Signal8 interpretation plan") from exc
+    if ground_fingerprint != SIGNAL8_GROUND.fingerprint:
+        raise VGIHostError("VGI computational Ground fingerprint does not match the local Signal8 Ground")
+    try:
+        canonical_task_json = json.dumps(
+            dict(task_data),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+    except (TypeError, ValueError) as exc:
+        raise VGIHostError("VGI task must be a finite canonical JSON object") from exc
+    implementation_fingerprint = vgi_signal8_implementation_fingerprint()
+    return _cached_vgi_signal8_plan(
+        ground_fingerprint,
+        implementation_fingerprint,
+        canonical_task_json,
+    )
+
+
+def vgi_signal8_compilation_cache_info() -> dict[str, int]:
+    """Mathematics: Expose bounded compiled-plan cache counters for tests and local diagnostics."""
+    info = _cached_vgi_signal8_plan.cache_info()
+    return {
+        "hits": info.hits,
+        "misses": info.misses,
+        "maxsize": info.maxsize or 0,
+        "currsize": info.currsize,
+    }
+
+
+def clear_vgi_signal8_compilation_cache() -> None:
+    """Mathematics: Discard derived compiled plans; no session state or durable identity depends on this cache."""
+    _cached_vgi_signal8_plan.cache_clear()
+
+
 def _positive_integer(value: Any, name: str, maximum: int) -> int:
     """Mathematics: Admit exactly the positive integers bounded above by the supplied maximum."""
     if (
@@ -204,7 +325,6 @@ def execute_vgi_signal8(
         from vgi import (
             SIGNAL8_GROUND,
             SignalValue,
-            TaskSpec,
             VirtualGroundInterpreter,
             __version__ as vgi_version,
         )
@@ -232,7 +352,9 @@ def execute_vgi_signal8(
         raise VGIHostError("VGI initial_memory must be an object")
 
     try:
-        task = TaskSpec.from_dict(task_data)
+        plan = compile_vgi_signal8_task(task_data, supplied_fingerprint)
+        task = plan.task
+        program = plan.program
         if set(raw_memory) != set(task.inputs):
             raise VGIHostError(
                 "VGI initial_memory addresses must exactly match the task's declared inputs"
@@ -242,7 +364,6 @@ def execute_vgi_signal8(
             for address, value in raw_memory.items()
         }
         interpreter = VirtualGroundInterpreter(ground=SIGNAL8_GROUND)
-        program = interpreter.compile_task(task)
         machine = interpreter.instantiate(program, memory)
         result = machine.run(max_steps=max_steps)
         snapshot = machine.snapshot()
@@ -273,7 +394,9 @@ def execute_vgi_signal8(
         },
         "program": {
             "name": task.name,
+            "task_fingerprint": plan.task_digest,
             "fingerprint": result.program_fingerprint,
+            "compiled_plan_digest": plan.plan_digest,
             "instruction_count": len(program.instructions),
         },
         "execution": {

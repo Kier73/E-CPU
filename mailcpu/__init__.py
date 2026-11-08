@@ -685,6 +685,14 @@ from .computational_session import (
     ComputationalSessionStore,
 )
 
+from .computational_transition import (
+    ComputationalSessionTransitionAdapter,
+    ComputationalTransitionBackend,
+    ComputationalTransitionContext,
+    ComputationalTransitionContract,
+    ComputationalTransitionError,
+)
+
 from .computational_execution import (
     ComputationalExecutionAdmissionCoordinator,
     ComputationalExecutionAdmissionError,
@@ -1416,6 +1424,11 @@ __all__ = [
     "ComputationalSessionPendingError",
     "ComputationalSessionSnapshot",
     "ComputationalSessionStore",
+    "ComputationalSessionTransitionAdapter",
+    "ComputationalTransitionBackend",
+    "ComputationalTransitionContext",
+    "ComputationalTransitionContract",
+    "ComputationalTransitionError",
     "LocalComputationalHost",
     "TransitComputationalHost",
     "admit_computational_artifact_directory",

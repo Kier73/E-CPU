@@ -322,6 +322,72 @@ def test_vgi_host_checkpoint_restores_under_the_same_program_and_ground() -> Non
         SignalStateMachine.restore(interpreter, changed_program, receipt["checkpoint"])
 
 
+def test_vgi_host_reuses_immutable_compiled_plan_across_distinct_state_inputs(monkeypatch) -> None:
+    """The same declared Ground and task reuse Program IR but execute in separate fresh machines."""
+    from vgi import VirtualGroundInterpreter
+
+    from mailcpu.vgi_host import (
+        clear_vgi_signal8_compilation_cache,
+        vgi_signal8_compilation_cache_info,
+    )
+
+    clear_vgi_signal8_compilation_cache()
+    original_compile = VirtualGroundInterpreter.compile_task
+    compile_calls: list[str] = []
+
+    def counted_compile(self, task):
+        compile_calls.append(task.name)
+        return original_compile(self, task)
+
+    monkeypatch.setattr(VirtualGroundInterpreter, "compile_task", counted_compile)
+    _, workload, _, _, _, _, request = _case()
+    _, handler = make_vgi_signal8_operator(max_steps=256)
+
+    first = handler(request, workload)
+    changed_request = dict(request)
+    changed_memory = dict(request["initial_memory"])
+    changed_memory["input.a"] = Signal8Backend().encode_symbol(1, observer=1).to_dict()
+    changed_request["initial_memory"] = changed_memory
+    changed_workload = replace(workload, input_value=changed_request)
+    second = handler(changed_request, changed_workload)
+
+    first_program = first["program"]
+    second_program = second["program"]
+    assert first_program["fingerprint"] == second_program["fingerprint"]
+    assert first_program["compiled_plan_digest"] == second_program["compiled_plan_digest"]
+    assert first_program["task_fingerprint"] == second_program["task_fingerprint"]
+    assert first["execution"]["outputs"] != second["execution"]["outputs"]
+    assert first["checkpoint"]["state_digest"] != second["checkpoint"]["state_digest"]
+    assert compile_calls == ["add-then-select"]
+    cache = vgi_signal8_compilation_cache_info()
+    assert cache["misses"] == 1
+    assert cache["hits"] == 1
+    assert cache["maxsize"] == 128
+
+
+def test_vgi_compiled_plan_identity_changes_with_task() -> None:
+    """Distinct typed task declarations produce distinct cached plans under the same Ground."""
+    from mailcpu.vgi_host import (
+        clear_vgi_signal8_compilation_cache,
+        compile_vgi_signal8_task,
+    )
+
+    _, _, _, _, _, _, request = _case()
+    clear_vgi_signal8_compilation_cache()
+    first = compile_vgi_signal8_task(request["task"], request["ground_fingerprint"])
+    changed_task = dict(request["task"])
+    changed_task["outputs"] = [{
+        "label": "selected",
+        "expression": {"type": "input", "address": "input.a"},
+    }]
+    second = compile_vgi_signal8_task(changed_task, request["ground_fingerprint"])
+
+    assert first.task_digest != second.task_digest
+    assert first.program_fingerprint != second.program_fingerprint
+    assert first.plan_digest != second.plan_digest
+    assert first.ground_fingerprint == second.ground_fingerprint == request["ground_fingerprint"]
+
+
 def test_vgi_implementation_identity_binds_host_class_and_execution_profile() -> None:
     """The Transit implementation identity changes with the concrete host or its configured step ceiling."""
 
