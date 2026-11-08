@@ -42,9 +42,9 @@ def _positive_seconds(value: float, field: str, *, maximum: float = 3600.0) -> f
     if (
         not isinstance(value, (int, float))
         or isinstance(value, bool)
-        or not math.isfinite(float(value))
         or value <= 0
         or value > maximum
+        or not math.isfinite(float(value))
     ):
         raise ComputationalFabricDiscoveryError(
             f"{field} must be positive and no greater than {maximum:g} seconds"
