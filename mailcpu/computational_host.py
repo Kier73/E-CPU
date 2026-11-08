@@ -307,6 +307,8 @@ class ComputationalArtifactManifest:
         paths = [component.path for component in components]
         if paths != sorted(paths) or len(paths) != len(set(paths)):
             raise ComputationalArtifactError("artifact component paths must be unique and lexicographically ordered")
+        if any(_excluded(path, exclusions) for path in paths):
+            raise ComputationalArtifactError("artifact component path overlaps an excluded prefix")
         if sum(component.size_bytes for component in components) != self.total_size_bytes:
             raise ComputationalArtifactError("artifact total_size_bytes does not match its components")
         if not isinstance(self.metadata, Mapping):

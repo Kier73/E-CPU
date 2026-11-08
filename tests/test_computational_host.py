@@ -218,6 +218,8 @@ def test_excluded_paths_are_bound_and_reused_by_host_loading(tmp_path) -> None:
     )
     assert normalized.excluded_paths == (".staging",)
     assert normalized.manifest_digest == concise.manifest_digest
+    restored = ComputationalArtifactManifest.from_dict(normalized.to_dict())
+    assert restored == normalized
     assert verify_computational_artifact_directory(normalized, root)
 
     changed_policy = admit_computational_artifact_directory(
