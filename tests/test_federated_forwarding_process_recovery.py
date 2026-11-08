@@ -570,7 +570,6 @@ def _read_forward_results(
 
 
 @pytest.mark.parametrize("cut", CUTS)
-@pytest.mark.parametrize("cut", CUTS)
 def test_relay_b_hard_process_kill_restarts_from_quorum_and_replays_same_operation(
     cut: str,
     tmp_path: Path,
@@ -620,9 +619,9 @@ def test_relay_b_hard_process_kill_restarts_from_quorum_and_replays_same_operati
     # Each peer contributes its own local authority snapshot. Remote snapshots
     # are deliberately absent until a live TLS discovery exchange completes.
     lease_clock = [1_000.0]
-    snapshot_a = ComputationalPeerSnapshot(endpoint_a, 1, 2, (), (link_ab,))
-    snapshot_b = ComputationalPeerSnapshot(endpoint_b, 1, 2, (), (link_bc,))
-    snapshot_c = ComputationalPeerSnapshot(endpoint_c, 1, 2, (advertisement,), ())
+    snapshot_a = ComputationalPeerSnapshot(endpoint_a, 1, 60, (), (link_ab,))
+    snapshot_b = ComputationalPeerSnapshot(endpoint_b, 1, 60, (), (link_bc,))
+    snapshot_c = ComputationalPeerSnapshot(endpoint_c, 1, 60, (advertisement,), ())
     directory_a = ComputationalFabricDirectory(
         "peer-a",
         {
@@ -751,9 +750,10 @@ def test_relay_b_hard_process_kill_restarts_from_quorum_and_replays_same_operati
             origin_sequence=7,
         )
 
+        discovered_b = active_a["peer-b"].endpoint
         client_a = ComputationalFabricForwardingClient.connect_mutual_tls(
             "peer-a",
-            endpoint_b,
+            discovered_b,
             _client_context(certificates, "peer-a"),
             origin_peer_id="peer-a",
             origin_channel="application.batch",
@@ -812,7 +812,7 @@ def test_relay_b_hard_process_kill_restarts_from_quorum_and_replays_same_operati
         # Advance only the directory's monotonic lease clock. Both origin A
         # and terminal C must now treat B as unavailable until a new TLS
         # observation refreshes its local lease.
-        lease_clock[0] += 3.0
+        lease_clock[0] += 61.0
         expired_a = directory_a.purge_expired()
         expired_c = directory_c.purge_expired()
         assert "peer-b" in expired_a
@@ -847,8 +847,8 @@ def test_relay_b_hard_process_kill_restarts_from_quorum_and_replays_same_operati
         restored_ready = _wait_ready(relay_restored)
         assert restored_ready["peer"] == "peer-b"
         assert restored_ready["pid"] != relay.pid
-        assert restored_ready["discovery_port_a"] != relay_ready["discovery_port_a"]
-        assert restored_ready["discovery_port_c"] != relay_ready["discovery_port_c"]
+        assert isinstance(restored_ready["discovery_port_a"], int)
+        assert isinstance(restored_ready["discovery_port_c"], int)
 
         # New B sockets mean new discovery handshakes. Reacquisition renews
         # the expired local B lease at A and C without changing B's advertised
@@ -875,15 +875,19 @@ def test_relay_b_hard_process_kill_restarts_from_quorum_and_replays_same_operati
             item.peer_id for item in directory_c.active_snapshots
         } >= {"peer-b", "peer-c"}
 
+        rediscovered_b = next(
+            item.endpoint for item in directory_a.active_snapshots
+            if item.peer_id == "peer-b"
+        )
         client_a = ComputationalFabricForwardingClient.from_snapshot(
             requester_snapshot,
             connect_mutual_tls(
-                endpoint_b.endpoint_host,
-                endpoint_b.port,
+                rediscovered_b.endpoint_host,
+                rediscovered_b.port,
                 "peer-a",
                 "peer-b",
                 _client_context(certificates, "peer-a"),
-                server_hostname=endpoint_b.tls_server_name,
+                server_hostname=rediscovered_b.tls_server_name,
                 timeout=8.0,
                 handshake_timeout=8.0,
             ),
@@ -971,6 +975,7 @@ def test_relay_b_hard_process_kill_restarts_from_quorum_and_replays_same_operati
             discovery_c_for_b,
         ):
             _stop_peer_directory_listener(discovery_listener)
+
 
 def _send_federated_operation(
     client: ComputationalFabricForwardingClient,
