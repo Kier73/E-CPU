@@ -168,6 +168,7 @@ def test_symbolic_orbit_navigation_jumps_to_remote_coordinate_without_expansion(
     second = navigator.locate(address, observer, expected_value=expected)
 
     assert first.projection.value == expected
+    assert first.projection.value_digest == canonical_value_digest({"type": "integer", "value": expected})
     assert first.projection.coordinate == address.coordinate
     assert first.projection.base_ground == address.base_ground
     assert first.complexity_bound == "O(log n)"
