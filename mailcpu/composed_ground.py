@@ -264,8 +264,6 @@ class ComposedVirtualGroundAddress:
             for right in paths[index + 1:]:
                 if left == right or left == right[:len(left)] or right == left[:len(right)]:
                     raise ComposedGroundError("component field paths must be disjoint and non-overlapping")
-        if len({(item.type_id, item.schema_version, item.content_digest) for item in (self.state_schema,)}) != 1:
-            raise ComposedGroundError("state schema identity is invalid")
         offset = self.coordinate.tick - self.base_ground.coordinate
         user_extensions = _clone_json(dict(self.extensions), "composed address extensions")
         if not isinstance(user_extensions, dict):
@@ -443,9 +441,9 @@ class ComposedVirtualGroundProjection:
             raise ComposedGroundError("assembled state digest does not match its content")
         if not isinstance(self.components, (tuple, list)) or not self.components:
             raise ComposedGroundError("composed projection requires component evidence")
-        components = tuple(sorted(self.components, key=lambda item: item.address.component_id))
-        if any(not isinstance(item, ComposedComponentProjection) for item in components):
+        if any(not isinstance(item, ComposedComponentProjection) for item in self.components):
             raise ComposedGroundError("composed components must contain typed projections")
+        components = tuple(sorted(self.components, key=lambda item: item.address.component_id))
         ids = [item.address.component_id for item in components]
         if len(set(ids)) != len(ids):
             raise ComposedGroundError("composed projection component identities must be unique")
@@ -555,6 +553,8 @@ class ComposedVirtualGroundProjection:
         expected_template_ref = _template_ref(json.loads(projection.template_json))
         if RepresentationRef.from_dict(payload["template_ref"]) != expected_template_ref:
             raise ComposedGroundError("projection template reference does not match template content")
+        if payload["components"] != projection.identity_payload()["components"]:
+            raise ComposedGroundError("component identity summary differs from component projection evidence")
         if payload["orbit_offset"] != projection.orbit_offset:
             raise ComposedGroundError("projection orbit offset differs from its coordinates")
         if payload["projection_digest"] != projection.projection_digest:
@@ -578,6 +578,15 @@ class ComposedGroundNavigationResult:
             raise ComposedGroundError("composed navigation projection is invalid")
         profiles = tuple(self.generator_profiles)
         expected_ids = {item.address.component_id for item in self.projection.components}
+        if any(
+            not isinstance(item, (tuple, list))
+            or len(item) != 3
+            or not isinstance(item[0], str)
+            or not isinstance(item[1], str)
+            or not isinstance(item[2], str)
+            for item in profiles
+        ):
+            raise ComposedGroundError("generator profiles must be (component_id, family, complexity) triples")
         if {item[0] for item in profiles} != expected_ids or len(profiles) != len(expected_ids):
             raise ComposedGroundError("generator profile set differs from the composed component set")
         if any(_FORWARD_COMPLEXITY.get(family) != complexity for _, family, complexity in profiles):
