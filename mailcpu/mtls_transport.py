@@ -6,7 +6,7 @@ import socket
 import ssl
 from typing import Any
 
-from .socket_transport import SocketTransport
+from .socket_transport import SocketListener, SocketTransport
 
 
 class MutualTLSTransportError(RuntimeError):
@@ -104,7 +104,7 @@ def connect_mutual_tls(
 
 
 def accept_mutual_tls(
-    listener: socket.socket,
+    listener: socket.socket | SocketListener,
     local_endpoint: str,
     peer_endpoint: str,
     context: ssl.SSLContext,
@@ -117,14 +117,18 @@ def accept_mutual_tls(
     """Mathematics: accept authenticated stream S only if client chain verifies and SAN_DNS contains expected_peer_dns."""
 
     _validate_context(context, server_side=True)
-    if not isinstance(listener, socket.socket):
-        raise TypeError("listener must be a socket.socket")
+    if not isinstance(listener, (socket.socket, SocketListener)):
+        raise TypeError("listener must be a SocketListener or socket.socket")
     if handshake_timeout <= 0:
         raise MutualTLSTransportError("TLS handshake timeout must be positive")
     raw_socket: socket.socket | None = None
     tls_socket: ssl.SSLSocket | None = None
     try:
-        raw_socket, _address = listener.accept()
+        raw_socket, _address = (
+            listener.accept_raw()
+            if isinstance(listener, SocketListener)
+            else listener.accept()
+        )
         raw_socket.settimeout(float(handshake_timeout))
         tls_socket = context.wrap_socket(
             raw_socket,

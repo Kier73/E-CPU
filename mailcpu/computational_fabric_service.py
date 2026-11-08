@@ -228,7 +228,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         arguments.private_key,
         arguments.client_ca,
     )
-    listener_socket = SocketTransport.listen(arguments.bind_host, arguments.listen_port)
+    listener_socket = SocketTransport.open_listener(arguments.bind_host, arguments.listen_port)
     listener = ComputationalFabricPeerListener(
         authority,
         listener_socket,

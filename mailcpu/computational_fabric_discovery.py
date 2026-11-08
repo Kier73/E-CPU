@@ -6,7 +6,6 @@ import hashlib
 import json
 import math
 import ssl
-import socket
 import threading
 import time
 from dataclasses import dataclass, replace
@@ -20,6 +19,7 @@ from .computational_fabric import (
     ComputationalPeerEndpoint,
 )
 from .reliability import ReliabilityPolicy
+from .socket_transport import SocketListener
 
 
 class ComputationalFabricDiscoveryError(RuntimeError):
@@ -86,7 +86,7 @@ class ComputationalFabricPeerListener:
     def __init__(
         self,
         authority: ComputationalFabricAuthority,
-        listener: socket.socket,
+        listener: SocketListener,
         client_peer_id: str,
         *,
         expected_client_dns: str,
@@ -99,8 +99,8 @@ class ComputationalFabricPeerListener:
             raise ComputationalFabricDiscoveryError(
                 "peer listener requires a ComputationalFabricAuthority"
             )
-        if not isinstance(listener, socket.socket):
-            raise ComputationalFabricDiscoveryError("peer listener requires a socket listener")
+        if not isinstance(listener, SocketListener):
+            raise ComputationalFabricDiscoveryError("peer listener requires a SocketListener transport handle")
         if not isinstance(tls_context, ssl.SSLContext):
             raise ComputationalFabricDiscoveryError("peer listener requires a server SSLContext")
         if not isinstance(client_peer_id, str) or not client_peer_id:

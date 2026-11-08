@@ -58,6 +58,7 @@ from mailcpu import (
     VirtualLayerRuntime,
     VirtualLayerWorkload,
     VirtualOperatorRef,
+    SocketListener,
     SocketTransport,
 )
 from mailcpu.computational_fabric_forwarding import (
@@ -333,7 +334,7 @@ def _start_peer_directory_listener(
     port = int(listener_socket.getsockname()[1])
     listener = ComputationalFabricPeerListener(
         authority,
-        listener_socket,
+        SocketListener.wrap(listener_socket),
         client_peer_id,
         expected_client_dns=f"{client_peer_id}.fabric.test",
         tls_context=_server_context(certificates, authority.endpoint.peer_id),
@@ -722,6 +723,8 @@ def test_relay_b_hard_process_kill_restarts_from_quorum_and_replays_same_operati
     config = {
         "membership_path": str(membership_path),
         "lineage_root": str(lineage_root),
+        "anchor_c_port": anchor_c_port,
+        "anchor_d_port": anchor_d_port,
         "peer_b_port": peer_b_port,
         "peer_b_authority_store": str(authority_store.path),
         "peer_b_cert": str(certificates["peer-b_cert"]),
@@ -1718,7 +1721,7 @@ def test_terminal_peer_c_hard_process_kill_recovers_while_relay_b_survives(
         assert cut_state["response_pending"] == (
             [1] if cut in {"after_response_publish", "after_request_ack"} else []
         )
-        assert cut_state["execution_count"] == (0 if cut == "before_execution" else 1)
+        assert cut_state["execution_count"] == (0 if cut == "before_execution" else 2)
         assert cut_state["journal_valid"] is True
 
         _kill(terminal_initial)
@@ -1799,7 +1802,7 @@ def test_terminal_peer_c_hard_process_kill_recovers_while_relay_b_survives(
         assert c_state["stage"] == "restored_complete"
         assert c_state["pid"] == terminal_restored.pid
         assert c_state["cut"] == cut
-        assert c_state["execution_count"] == 2
+        assert c_state["execution_count"] == 4
         assert c_state["request_receive_cursor"] == 3
         assert c_state["response_pending"] == []
         assert c_state["call_count"] == 2
@@ -2029,7 +2032,7 @@ def test_relay_then_terminal_hard_kills_preserve_one_federated_operation_history
         assert c_idle["generation"] == 1
         assert c_idle["request_receive_cursor"] == 2
         assert c_idle["response_pending"] == []
-        assert c_idle["execution_count"] == 1
+        assert c_idle["execution_count"] == 2
         assert c_idle["journal_valid"] is True
 
         # Preserve the requested order: terminate relay B, then terminal C.
@@ -2135,7 +2138,7 @@ def test_relay_then_terminal_hard_kills_preserve_one_federated_operation_history
         assert c_final_state["stage"] == "restored_complete"
         assert c_final_state["pid"] == terminal_final.pid
         assert c_final_state["cut"] == "idle"
-        assert c_final_state["execution_count"] == 2
+        assert c_final_state["execution_count"] == 4
         assert c_final_state["request_receive_cursor"] == 3
         assert c_final_state["response_pending"] == []
         assert c_final_state["call_count"] == 2

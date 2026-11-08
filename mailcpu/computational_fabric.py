@@ -1000,7 +1000,12 @@ class ComputationalFabricDirectory:
                 if snapshot.revision == previous_revision and snapshot.digest != previous_digest:
                     raise ComputationalFabricError("peer equivocated at an existing snapshot revision")
             observed_at = self._validate_capacity(snapshot, replacing_peer=peer_id)
-            changed = previous is None or previous.digest != snapshot.digest
+            known_digest = (
+                previous.digest
+                if previous is not None
+                else None if high_water is None else high_water[1]
+            )
+            changed = known_digest != snapshot.digest
             self._snapshots[peer_id] = snapshot
             self._revision_high_water[peer_id] = (snapshot.revision, snapshot.digest)
             self._deadlines[peer_id] = observed_at + min(

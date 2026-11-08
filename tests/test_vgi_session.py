@@ -191,6 +191,7 @@ def test_m6_bounded_quanta_resume_the_same_machine_and_exact_retry_is_idempotent
         descriptor,
         max_quantum_steps=2,
         max_total_steps=100,
+        max_state_bytes=STATE_LIMIT,
     )
     resumed = restarted_runtime.load()
     assert resumed.total_steps == first.total_steps

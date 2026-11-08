@@ -485,7 +485,7 @@ def main(arguments: list[str]) -> int:
                             if command.get("command") != "rebind_next_hop":
                                 raise ValueError("unsupported relay control command")
                             peer_id = str(command.get("peer_id", ""))
-                            replacement_transport = _connect_c(config, client_context)
+                            replacement_transport = _connect_c(config, client_context, directory)
                             replacement = server.rebind_next_hop_transport(
                                 peer_id,
                                 replacement_transport,

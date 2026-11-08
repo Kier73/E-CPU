@@ -1,0 +1,147 @@
+# Communication Streams as Computational Substrate
+
+## Purpose
+
+This document describes a direction for E-CPU: treat communication infrastructure as a navigable computational substrate in which ports, services, queues, translators, memory providers, and execution hosts can participate as typed operational loci.
+
+The claim is deliberately narrower than “the Internet is already a computer.” A network link transports information. A receiver becomes a computational host only when it exposes a stable identity, an interpretable request contract, a transition relation, local authority, bounded resources, and an observable result. A path becomes computational when its participating hosts compose those contracts.
+
+## 1. The stream carries a state description
+
+A message stream is not merely an opaque byte pipe. It can carry a continuation descriptor:
+
+\[
+m = (id, schema, payload, context, t, prerequisites, authority, budget)
+\]
+
+where:
+
+- id is the stable semantic operation identity, distinct from a transport frame sequence;
+- schema identifies the representation and its decoding rules;
+- payload carries the value or a reference to content-addressed state;
+- context binds the exact interpretation, Ground, revision, and relevant environment;
+- t is the declared logical-time coordinate;
+- prerequisites express causal dependencies;
+- authority declares the receiver-side capability requirements;
+- budget bounds bytes, work, time, hops, and other applicable resources.
+
+Transport sequence, physical arrival time, and semantic operation identity are separate coordinates. A retry may use a new transport sequence while preserving the same semantic operation. A receiver must reject a conflicting payload that reuses an identity already committed to different content.
+
+## 2. Hosts interpret; links carry
+
+Let a path be:
+
+\[
+P = H_0 \xrightarrow{e_1} H_1 \xrightarrow{e_2} \cdots
+\xrightarrow{e_n} H_n
+\]
+
+Each e_i is a communication substrate edge. Each H_i is a logical host with its own identity, operational state, transition relation, capabilities, and lineage:
+
+\[
+H_i=(I_i,C_i,S_i,T_i,K_i,L_i).
+\]
+
+At a receiver, a message can pass through:
+
+\[
+\text{frame}
+\rightarrow \text{decode}
+\rightarrow \text{interpret}
+\rightarrow \text{validate}
+\rightarrow \text{authorize}
+\rightarrow \text{transition}
+\rightarrow \text{receipt / continuation}.
+\]
+
+The network does not execute the semantic transition merely by moving bytes. Computation occurs at the host that interprets and applies the transition. A port is not automatically a host; it becomes an operational locus when a service behind it exposes a defined request/reply relation and owns the relevant state.
+
+This creates a composable alternative to one machine containing every execution primitive. One host may decode a representation, another may perform a bounded transformation, another may supply memory, and another may verify the result. The path is useful only when adjacent schemas, identities, causal relations, authority, and resource contracts agree.
+
+## 3. Meaningful interpretation is not free computation
+
+The proposal is to navigate toward an interpretation that already exists at a receiver, instead of transporting every request to a single monolithic execution point. This can avoid unnecessary work or state movement, but it does not eliminate physical cost.
+
+A path cost should retain separate dimensions:
+
+\[
+C(P)=(L, B, W, V, Q, R)
+\]
+
+where L is measured latency, B bytes moved, W execution work, V verification work, Q queue/retry pressure, and R recovery risk. Units must remain explicit. A route cannot honestly claim to compute “at network speed” without measuring receiver service time, transport latency, queueing, verification, and recovery overhead on the actual substrate.
+
+The useful optimization target is not maximum raw clock rate. It is the least costly admissible path that preserves the required observation and authority contract.
+
+## 4. Symbolic coordinates and the finite observer
+
+A finite representation can denote a very large or infinite state family without materializing every member. For example, the decimal position of a digit can be represented symbolically:
+
+\[
+d=(\text{radix}=10,\ \text{leading\_zeros}=10^{12},\
+\text{digit}=1).
+\]
+
+This descriptor denotes a decimal value whose explicit expansion would contain a trillion leading fractional zeroes before the 1. The descriptor is finite; the expanded string is not stored. An observer can ask for a bounded window, compare coordinates, or apply an algebraic transformation without enumerating the entire prefix.
+
+The distinction is essential:
+
+- Description capacity is the set denoted by a finite rule.
+- Materialized state is the finite portion actually generated or stored.
+- Navigation is an operation on symbolic coordinates or transitions.
+- Observation is a bounded query whose result and cost must be explicit.
+
+The descriptor does not physically contain infinite information. It contains a finite rule that denotes an unbounded family. If a request asks to materialize n digits, the work and storage still grow with n. If an operation supports a verified jump or symbolic coordinate transform, it may avoid linear enumeration; the cost then depends on the arithmetic representation, operand size, algorithm, and proof obligations.
+
+A finite observer cannot traverse an infinite space linearly. It can navigate it by symbolic position, composition, indexing, or verified transformations. This only works when the representation defines those operations and a verifier can check their results.
+
+## 5. Describe → resolve → realize
+
+The slogan “Describe what you want, and it exists as a result” is a design aspiration with an operational qualification.
+
+A description becomes actionable when the system can:
+
+1. parse it into a typed goal or representation;
+2. resolve the exact Ground, context, and target observation;
+3. find a host with the required transition and available resources;
+4. obtain receiver-side authority;
+5. perform a bounded transition;
+6. verify the resulting observation;
+7. commit or publish the result with stable identity and lineage.
+
+A description alone does not allocate unlimited memory, grant capabilities, or prove that a solution exists. It creates an addressable request. Realization is a separately admitted and measured transition.
+
+## 6. How this composes with E-CPU
+
+The current repository already provides several necessary pieces:
+
+- ComputationalFabricDirectory carries peer-owned host and directed-link descriptions under direct mutual-TLS authentication, revisions, and receiver-local leases.
+- ComputationalFabricResolver selects a bounded network path but does not grant execution authority.
+- ComputationalFabricForwardingServer revalidates the local hop and dispatches through the receiver's Hypervisor and local computational resolver.
+- M1 provides content-addressed bytes; M3 provides quorum-anchored current session state; M4 provides a context-bound pure transition boundary.
+- M5-M7 bind VGI interpretation, bounded instruction quanta, and portable host transfer to those persistent-state contracts.
+- E-GPU provides a bounded local example of a composite host whose method is selected through an internal operational graph.
+
+The next useful composition is therefore not another generic router. It is a stateful stream protocol that carries a persistent session descriptor and a bounded quantum request to an eligible host, imports state into the receiver's own M1 backing, verifies the M3 lineage and interpretation, advances the same semantic session, and returns a receipt containing the new revision and checkpoint identity.
+
+## 7. Proof obligations
+
+A stream-based computational path must establish:
+
+- exact representation and decoder identity;
+- stable logical host identity separately from placement and peer identity;
+- authenticated adjacent transport and receiver-local lease validity;
+- local capability checks at every effectful host;
+- bounded payload, queue, execution, and verification work;
+- semantic deduplication independent of transport retries;
+- explicit state ownership and revision/lineage continuity;
+- observable equivalence or a declared result contract;
+- recovery behavior at each publication and acknowledgement cut;
+- measured path cost, including communication and interpretation overhead.
+
+Physical ports, servers, or network operators do not become mutually trusted merely because they communicate. Direct trust roots, authority membership, and failure-domain claims require explicit evidence. The model is compatible with heterogeneous hardware, but it does not replace CPU/GPU execution semantics where those are required.
+
+## 8. Development rule
+
+Prefer a receiver that can interpret a small typed request using existing local state over shipping a complete machine image. Move state only when the receiving host cannot already resolve the required content. Preserve semantic identity as a request crosses new transport frames or hosts. Use symbolic coordinates to avoid unnecessary materialization, but measure the actual arithmetic, memory, communication, and verification cost.
+
+The target is a fluid computational fabric: not a machine that has no hardware, but a system in which hardware endpoints become interpreters and state-transition hosts, and communication paths compose those hosts into larger computational structures.
