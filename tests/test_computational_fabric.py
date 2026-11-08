@@ -1690,7 +1690,6 @@ def test_federated_workload_forwards_over_two_authenticated_hops_and_replays_onc
                     transport,
                     directory_c,
                     catalogue=catalogue,
-                    operating_system=restored_os,
                 )
             except BaseException as exc:
                 rebound_failures.append(exc)
@@ -1712,7 +1711,6 @@ def test_federated_workload_forwards_over_two_authenticated_hops_and_replays_onc
                     transport,
                     directory_b,
                     next_hop_transports={"peer-c": transport_bc_rebound},
-                    operating_system=restored_os,
                 )
             except BaseException as exc:
                 rebound_failures.append(exc)

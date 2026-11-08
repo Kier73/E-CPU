@@ -438,7 +438,6 @@ def _start_terminal_service(
                     transport,
                     directory,
                     catalogue=catalogue,
-                    operating_system=restored_os,
                 )
             holder["server"] = server
             listener.close()

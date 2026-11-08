@@ -254,23 +254,14 @@ class VerifiedComputationalFabricForwardingCheckpoint:
             )
         snapshot = self._verified_snapshot()
         try:
-            restored_os = HeadlessOS.from_snapshot(
-                dict(snapshot["operating_system"]),
-                structural_memory_admission_policy=structural_memory_admission_policy,
-            )
-        except Exception as exc:
-            raise ComputationalFabricForwardingRecoveryError(
-                f"cannot reconstruct receiver-local HeadlessOS state: {exc}"
-            ) from exc
-        restored_catalogue = catalogue if catalogue_factory is None else catalogue_factory(restored_os)
-        try:
             return ComputationalFabricForwardingServer.from_snapshot(
                 snapshot,
                 transport,
                 directory,
                 next_hop_transports=next_hop_transports,
-                catalogue=restored_catalogue,
-                operating_system=restored_os,
+                catalogue=catalogue,
+                catalogue_factory=catalogue_factory,
+                structural_memory_admission_policy=structural_memory_admission_policy,
             )
         except Exception as exc:
             raise ComputationalFabricForwardingRecoveryError(

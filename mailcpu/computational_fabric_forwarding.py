@@ -9,7 +9,7 @@ import hashlib
 import json
 import threading
 import time
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 from .classifier import (
     HypervisorAction,
@@ -1357,7 +1357,9 @@ class ComputationalFabricForwardingServer:
         *,
         next_hop_transports: Mapping[str, SocketTransport] | None = None,
         catalogue: ComputationalHostCatalogue | None = None,
+        catalogue_factory: Callable[[HeadlessOS], ComputationalHostCatalogue] | None = None,
         operating_system: HeadlessOS | None = None,
+        structural_memory_admission_policy: Callable[[Any], bool] | None = None,
     ) -> "ComputationalFabricForwardingServer":
         """Mathematics: Rebind one verified peer checkpoint to fresh streams and caller-reconstructed host runtimes."""
         expected = {
@@ -1382,8 +1384,13 @@ class ComputationalFabricForwardingServer:
             or not isinstance(payload.get("next_hop_clients"), Mapping)
         ):
             raise ComputationalFabricForwardingError("forwarding server snapshot fields or version are invalid")
+        if catalogue is not None and catalogue_factory is not None:
+            raise ComputationalFabricForwardingError("supply either a catalogue or a catalogue_factory, not both")
         if operating_system is None:
-            restored_os = HeadlessOS.from_snapshot(dict(payload["operating_system"]))
+            restored_os = HeadlessOS.from_snapshot(
+                dict(payload["operating_system"]),
+                structural_memory_admission_policy=structural_memory_admission_policy,
+            )
         else:
             if not isinstance(operating_system, HeadlessOS):
                 raise ComputationalFabricForwardingError("restore requires a receiver-local HeadlessOS")
@@ -1398,6 +1405,9 @@ class ComputationalFabricForwardingServer:
                     "supplied receiver-local HeadlessOS does not match the verified peer snapshot"
                 )
             restored_os = operating_system
+        restored_catalogue = catalogue if catalogue_factory is None else catalogue_factory(restored_os)
+        if restored_catalogue is not None and not isinstance(restored_catalogue, ComputationalHostCatalogue):
+            raise ComputationalFabricForwardingError("catalogue_factory must return a ComputationalHostCatalogue")
         raw_clients = payload["next_hop_clients"]
         supplied_transports = dict(next_hop_transports or {})
         if set(supplied_transports) != set(raw_clients):
@@ -1420,7 +1430,7 @@ class ComputationalFabricForwardingServer:
             int(payload["authority_pid"]),
             origin_peer_id=str(payload["origin_peer_id"]),
             origin_channel=str(payload["origin_channel"]),
-            catalogue=catalogue,
+            catalogue=restored_catalogue,
             next_hop_clients=clients,
             timeout=float(payload["timeout"]),
             max_payload_bytes=int(payload["max_payload_bytes"]),
