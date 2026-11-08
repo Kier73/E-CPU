@@ -189,7 +189,12 @@ class ComputationalFabricPeerListener:
                     except Exception as exc:
                         with self._lock:
                             closed = self._closed
-                        if on_error is not None and not stop_event.is_set() and not closed:
+                        if (
+                            on_error is not None
+                            and not stop_event.is_set()
+                            and not closed
+                            and not server.transport.closed
+                        ):
                             on_error(exc)
                         break
                     if not serviced:
@@ -408,8 +413,10 @@ class ComputationalFabricDiscoveryService:
                         policy=self.policy,
                     )
                     self._clients[peer_id] = client
-                changed = client.refresh(self.directory)
+                previous_revision, previous_digest = self._last_known(peer_id)
+                client.refresh(self.directory)
                 revision, snapshot_digest = self._last_known(peer_id)
+                changed = (previous_revision, previous_digest) != (revision, snapshot_digest)
                 active = any(
                     item.peer_id == peer_id
                     for item in self.directory.active_snapshots

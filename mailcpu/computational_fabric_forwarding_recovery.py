@@ -199,7 +199,7 @@ class VerifiedComputationalFabricForwardingCheckpoint:
     def _verified_snapshot(self) -> dict[str, Any]:
         """Mathematics: Revalidate the current in-memory projection against its immutable quorum-bound payload digest."""
         snapshot = _validate_snapshot(self.snapshot, self.manifest.capture_cut)
-        payload = _canonical_json(snapshot) + b"\\n"
+        payload = _canonical_json(snapshot) + b"\n"
         try:
             self.manifest.verify_payload(payload)
         except RecoveryLineageError as exc:
