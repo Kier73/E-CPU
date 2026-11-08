@@ -24,7 +24,16 @@ import json
 import re
 from typing import Any, Mapping, Sequence
 
-from .law_certifier import HorizonExceeded, Law, Refused, find_coordinate_int, find_coordinate_lcg_adic, navigate_guarded
+from .law_certifier import (
+    HorizonExceeded,
+    Law,
+    Refused,
+    find_coordinate_gf2_bit,
+    FiniteGraphInverseIndex,
+    find_coordinate_int,
+    find_coordinate_lcg_adic,
+    navigate_guarded,
+)
 from .seed import SystemIdentity
 from .semantic_translation import (
     ObservationContract,
@@ -51,7 +60,7 @@ _COMPLEXITY = {
     "int": "O(1)",
     "fgraph": "O(1)",
     "lcg": "O(log n)",
-    "gf2": "O(log n)",
+    "gf2": "O(L^3 log n)",
 }
 
 
@@ -1050,6 +1059,8 @@ class OrbitValueResult:
         expected_inverse_bound = {
             "int": "O(1)",
             "lcg": "O(log m)",
+            "gf2": "O(L)",
+            "fgraph": "O(1) after O(N) index compilation",
         }.get(self.navigation.generator_family)
         if self.inverse_complexity_bound != expected_inverse_bound:
             raise ObserverOrbitError("inverse complexity bound does not match the supported generator family")
@@ -1096,9 +1107,19 @@ class ContextualOrbitNavigator:
     """
 
     def __init__(self, registry: StructuralMemoryRegistry) -> None:
+        """Mathematics: bind the navigator to one receiver-local Structural Memory registry and its reusable inverse indexes."""
         if not isinstance(registry, StructuralMemoryRegistry):
             raise ObserverOrbitError("ContextualOrbitNavigator requires a StructuralMemoryRegistry")
         self.registry = registry
+        self._fgraph_inverse_indexes: dict[str, FiniteGraphInverseIndex] = {}
+
+    def _find_fgraph_coordinate(self, spec_digest: str, orbit: Sequence[int], target: int) -> int | None:
+        """Mathematics: compile each pinned finite orbit once per navigator, then answer later lookups in expected O(1)."""
+        index = self._fgraph_inverse_indexes.get(spec_digest)
+        if index is None:
+            index = FiniteGraphInverseIndex(orbit)
+            self._fgraph_inverse_indexes[spec_digest] = index
+        return index.find(target)
 
     def _version_for_address(self, address: ContextualOrbitAddress):
         """Mathematics: resolve the exact admitted memory revision and recheck its spec and certificate digests."""
@@ -1238,8 +1259,10 @@ class ContextualOrbitNavigator:
           * int: exact modular/non-modular progression inverse, O(1);
           * lcg: full-period power-of-two bit lifting, O(log m).
 
-        It never invokes Law.find(), because that method may select BSGS O(sqrt(m))
-        or a linear finite-graph scan for other families.
+        It never invokes the general BSGS fallback. GF(2) inversion is bounded by
+        the recurrence register order. Finite-graph inversion compiles a reusable
+        hash index from the stored preperiod/cycle values, then performs O(1)
+        expected lookup; no transition steps are executed during index creation.
         """
         if not isinstance(base_address, ContextualOrbitAddress):
             raise ObserverOrbitError("locate_value requires a base ContextualOrbitAddress")
@@ -1306,6 +1329,20 @@ class ContextualOrbitNavigator:
                     target_value,
                 )
             inverse_complexity = "O(log m)"
+        elif family == "gf2":
+            candidate = find_coordinate_gf2_bit(
+                params["C"],
+                params["init"],
+                target_value,
+            )
+            inverse_complexity = "O(L)"
+        elif family == "fgraph":
+            candidate = self._find_fgraph_coordinate(
+                version.spec.digest,
+                params["orbit"],
+                target_value,
+            )
+            inverse_complexity = "O(1) after O(N) index compilation"
         else:
             raise ObserverOrbitError(
                 f"direct inverse navigation is not yet admitted for {family!r}; no scan or BSGS fallback is permitted"

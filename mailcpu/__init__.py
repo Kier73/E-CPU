@@ -429,6 +429,7 @@ from .vantage_transform import (
     vp_stride,
 )
 from .law_certifier import (
+    FiniteGraphInverseIndex,
     HorizonExceeded,
     Law,
     Refused,
@@ -840,6 +841,18 @@ from .observer_orbit import (
     verify_observer_receipt,
 )
 
+from .composed_ground import (
+    ComposedComponentAddress,
+    ComposedComponentProjection,
+    ComposedGroundError,
+    ComposedGroundNavigationResult,
+    ComposedVirtualGroundAddress,
+    ComposedVirtualGroundNavigator,
+    ComposedVirtualGroundProjection,
+    composed_component_context,
+)
+from .inverse_navigation import ProcessPathIndex, ProcessPathIndexError
+
 __all__ = [
     "CoordinationDisposition",
     "ExecutionAdmissionRequest",
@@ -891,6 +904,16 @@ __all__ = [
     "compose_observer_receipts",
     "contextual_orbit_context",
     "verify_observer_receipt",
+    "ComposedComponentAddress",
+    "ComposedComponentProjection",
+    "ComposedGroundError",
+    "ComposedGroundNavigationResult",
+    "ComposedVirtualGroundAddress",
+    "ComposedVirtualGroundNavigator",
+    "ComposedVirtualGroundProjection",
+    "composed_component_context",
+    "ProcessPathIndex",
+    "ProcessPathIndexError",
     "AbstractNavigationCompiler",
     "CompiledNavigation",
     "NavigationCompilationError",
@@ -1304,6 +1327,7 @@ __all__ = [
     "vp_modulus",
     "vp_origin",
     "vp_stride",
+    "FiniteGraphInverseIndex",
     "HorizonExceeded",
     "Law",
     "Refused",

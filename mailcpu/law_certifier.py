@@ -21,7 +21,8 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from math import gcd
-from typing import Any, Callable, Sequence
+from types import MappingProxyType
+from typing import Any, Callable, Mapping, Sequence
 
 
 class Refused(Exception):
@@ -322,6 +323,90 @@ def lfsr_jump(c: Sequence[int], state: Sequence[int], k: int) -> list[int]:
     return [sum(acc_mat[i][j] & state[j] for j in range(n)) & 1 for i in range(n)]
 
 
+
+
+def find_coordinate_gf2_bit(
+    coefficients: Sequence[int],
+    initial: Sequence[int],
+    target: int,
+) -> int | None:
+    r"""Find the first occurrence of one output bit without traversing the LFSR orbit.
+
+    Mathematics:
+    The first L register outputs are exactly the initial register bits. If the
+    requested bit is absent there, the register is uniform: 0^L or 1^L.
+    The zero register is fixed. The all-one register advances to itself when
+    the feedback XOR is one, otherwise its next output is zero at coordinate L.
+    Thus the first coordinate is determined by at most L input-bit checks and
+    one feedback-parity calculation, independent of the orbit period.
+    """
+    if type(target) is not int or target not in (0, 1):
+        return None
+    if not isinstance(coefficients, (tuple, list)) or not isinstance(initial, (tuple, list)) or not initial:
+        raise ValueError("GF(2) coefficients and initial register must be finite bit sequences")
+    if len(coefficients) < len(initial) + 1 or coefficients[0] != 1:
+        raise ValueError("GF(2) connection polynomial must have a constant term and sufficient order")
+    if any(type(bit) is not int or bit not in (0, 1) for bit in initial):
+        raise ValueError("GF(2) initial register must contain only bits")
+    if any(type(bit) is not int or bit not in (0, 1) for bit in coefficients):
+        raise ValueError("GF(2) coefficients must contain only bits")
+    for coordinate, bit in enumerate(initial):
+        if bit == target:
+            return coordinate
+    # Absence from the initial register implies a uniform opposite state.
+    if target == 1:  # initial register is all zero, a fixed point
+        return None
+    feedback_parity = 0
+    for index in range(1, len(initial) + 1):
+        feedback_parity ^= coefficients[index]
+    return len(initial) if feedback_parity == 0 else None
+
+@dataclass(frozen=True)
+class FiniteGraphInverseIndex:
+    """Reusable immutable earliest-coordinate index over a finite functional-graph orbit.
+
+    Mathematics: for O=(x_0,...,x_(N-1)), build I[x]=min{i | x_i=x} in O(N)
+    time; subsequent dictionary lookups are expected O(1).
+    """
+
+    orbit: tuple[int, ...]
+    _coordinates: Mapping[int, int] = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        """Mathematics: compile the immutable finite orbit into an O(1)-query earliest-coordinate index."""
+        if not isinstance(self.orbit, (tuple, list)):
+            raise ValueError("finite functional-graph orbit must be a finite sequence")
+        normalized = tuple(self.orbit)
+        if any(type(value) is not int for value in normalized):
+            raise ValueError("finite functional-graph orbit values must be integers")
+        coordinates: dict[int, int] = {}
+        for coordinate, value in enumerate(normalized):
+            coordinates.setdefault(value, coordinate)
+        object.__setattr__(self, "orbit", normalized)
+        object.__setattr__(self, "_coordinates", MappingProxyType(coordinates))
+
+    def find(self, target: int) -> int | None:
+        """Mathematics: return the earliest stored coordinate for target in expected O(1)."""
+        if type(target) is not int:
+            return None
+        return self._coordinates.get(target)
+
+    @property
+    def orbit_size(self) -> int:
+        """Mathematics: return the number N of stored preperiod and cycle coordinates."""
+        return len(self.orbit)
+
+
+def find_coordinate_fgraph(orbit: Sequence[int], target: int) -> int | None:
+    r"""Invert a stored finite functional-graph orbit by compiling its finite index.
+
+    Mathematics: construct the first-coordinate dictionary in O(N), then
+    return the requested coordinate in expected O(1). Repeated-query callers
+    should retain a FiniteGraphInverseIndex and reuse its find method.
+    """
+    return FiniteGraphInverseIndex(orbit).find(target)
+
+
 def brent_cycle(step_fn: Callable[[int], int], x0: int, limit: int = 1 << 22) -> tuple[int, int] | None:
     r"""Discover pre-period $\mu$ and cycle length $\lambda$ via Brent's algorithm.
 
@@ -511,17 +596,19 @@ class Law:
         r"""Invert the law to find coordinate $t$ where $\mathcal{G}(t) = \text{target}$.
 
         Mathematics:
-        - `int`: $\mathcal{O}(1)$ modular division.
-        - `lcg`: $\mathcal{O}(\log m)$ 2-adic bit-lifting for $m = 2^r$, or $\mathcal{O}(\sqrt{m})$ BSGS.
-        - `fgraph`: $\mathcal{O}(1)$ orbit hash lookup.
+        - `int`: exact modular progression inverse, $\\mathcal{O}(1)$.
+        - `lcg`: 2-adic bit lifting for eligible powers of two, or bounded BSGS otherwise.
+        - `gf2`: scalar output-bit inverse bounded by register order L, $\\mathcal{O}(L)$.
+        - `fgraph`: $\\mathcal{O}(N)$ index construction per direct call; retain a
+          `FiniteGraphInverseIndex` for repeated expected $\\mathcal{O}(1)$ lookups.
         Raises `Refused` for families without computable closed-form inverses.
 
         Args:
             target: Target state value.
-            max_order: Optional orbit exploration ceiling.
+            max_order: Optional orbit exploration ceiling for the LCG BSGS fallback.
 
         Returns:
-            Smallest coordinate $t \ge 0$, or None if target is unreachable.
+            Smallest coordinate $t \\ge 0$, or None if target is unreachable.
         """
         if not self.is_ground:
             raise Refused("a non-ground law cannot be inverted")
@@ -542,12 +629,11 @@ class Law:
                     return cand
             return find_coordinate_lcg(a, c, m, x0, target, max_order=max_order)
 
+        if fam == "gf2":
+            return find_coordinate_gf2_bit(p["C"], p["init"], target)
+
         if fam == "fgraph":
-            orbit = p["orbit"]
-            for i, val in enumerate(orbit):
-                if val == target:
-                    return i
-            return None
+            return find_coordinate_fgraph(p["orbit"], target)
 
         raise Refused(f"inversion unsupported for law family {fam!r}")
 

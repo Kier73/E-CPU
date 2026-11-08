@@ -675,3 +675,30 @@ transport, object admission, state persistence and output encoding still
 consume measurable resources. The next optimization is to transfer M1 pages
 as bounded content-addressed chunks while retaining the manifest and digest
 checks; the intent projection remains the compact control-plane descriptor.
+
+
+## 22. Compositional Virtual Ground and inverse state navigation
+
+The executable composition layer is specified in [COMPOSED_VIRTUAL_GROUND.md](COMPOSED_VIRTUAL_GROUND.md) and implemented by `mailcpu.composed_ground`. It separates the two descriptions that must remain coupled:
+
+\[
+\text{Structural information}
+\quad\leftrightarrow\quad
+\text{Interpreted structure}.
+\]
+
+Structural information names bytes, fields, register/memory layout, component identities, state coordinates, generator parameters and digests. Interpreted structure names the Computational Ground, state schema, each field's meaning, scalar encoding, invariants and admitted transition semantics.
+
+`ComposedVirtualGroundAddress` binds one SystemIdentity, base VirtualGroundRef, Computational Ground, typed scheduler coordinate, state schema, canonical template and a set of independently pinned component Structural Memory revisions. Each component binds a disjoint field path and content-addressed representation. All components share the same base-relative orbit coordinate. `ComposedVirtualGroundNavigator` evaluates each admitted generator directly at that coordinate and assembles a state-shaped Virtual Ground projection, retaining an independent receipt for each component and a digest for the composed result.
+
+This projection is not automatically a HeadlessOS checkpoint. Full checkpoint promotion requires the state schema to establish complete VM/OS subsystem coverage and the state owner to validate the result through the existing restore path.
+
+Inverse routes now include:
+- GF(2) scalar-output-bit inversion from the initial register and feedback parity in O(L).
+- Finite functional-graph inversion with a reusable earliest-coordinate index, O(N) build then expected O(1) lookup.
+- `ProcessPathIndex` for one explicitly supplied declarative transition path, O(P) validation/index build then expected O(1) exact-state lookup. A deserialized index must be revalidated against its descriptor and context; path-index absence is not global unreachability.
+- Existing arithmetic progression and eligible 2-adic LCG inverses.
+
+The process path index verifies the declared transition sequence, guards, resource conditions and invariants. It is a proof about the declarative process model, not a claim that a physical host executed the transitions. An actual execution trace still needs the owning host's execution evidence.
+
+These mechanisms reduce avoidable trajectory materialization but do not implement the future model-selection optimizer. Ranking candidate descriptions by predictive coverage, withheld error, description cost, navigation cost and verification cost remains a distinct next layer. The aspiration that the E-CPU abstraction outperform the system it describes is a research objective, not a guarantee established by state composition alone.
