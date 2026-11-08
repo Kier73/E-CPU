@@ -946,7 +946,11 @@ class ClassifierHypervisor:
         decision_state = request.decision_state()
         batch = self.classifier.evaluate(decision_state, questions)
         intent_prediction = self.intent_model.predict(decision_state)
-        virtual_cost = estimate_virtual_cost(state, self.virtual_capacity)
+        virtual_cost = estimate_virtual_cost(
+            state,
+            self.virtual_capacity,
+            token_value=decision_state,
+        )
         domain_answer = batch.answers["domain"]
         danger_answer = batch.answers["danger"]
         if not isinstance(domain_answer, ChoiceAnswer) or not isinstance(danger_answer, NoulAnswer):
