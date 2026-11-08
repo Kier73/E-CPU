@@ -165,3 +165,16 @@ def test_forwarding_recovery_rejects_unknown_transaction_cut(tmp_path: Path) -> 
     )
     with pytest.raises(ComputationalFabricForwardingRecoveryError, match="capture_cut"):
         store.seal_snapshot(_snapshot("somewhere"), "somewhere")
+
+def test_forwarding_restore_refuses_mutated_verified_checkpoint_projection(tmp_path: Path) -> None:
+    """A caller cannot mutate the loaded object after disk verification and restore a different peer state."""
+    store = ComputationalFabricForwardingRecoveryStore(
+        tmp_path / "forwarding-checkpoints",
+        _coordinator(tmp_path / "authorities"),
+    )
+    sealed = store.seal_snapshot(_snapshot("after_execution_commit"), "after_execution_commit")
+    sealed.snapshot["origin_channel"] = "forged.operation"
+
+    with pytest.raises(ComputationalFabricForwardingRecoveryError, match="modified in memory"):
+        sealed.restore_operating_system()
+
