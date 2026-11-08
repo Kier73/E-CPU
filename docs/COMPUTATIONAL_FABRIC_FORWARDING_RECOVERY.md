@@ -54,6 +54,8 @@ For a relay, its Hypervisor handler may synchronously complete a downstream hop 
 
 A generation that is locally durable but not quorum-anchored is not recoverable. `load_latest()` obtains the quorum high-water first, verifies the exact stored payload digest, canonical manifest, and matching generation, then returns a `VerifiedComputationalFabricForwardingCheckpoint`. Modified, unanchored, or older generations are rejected.
 
+The `seal(server, cut)` path holds the peer's re-entrant transition lock through the durable file publication and quorum commit. The serving transition cannot advance beyond the selected cut while that generation is being anchored. Callers using `seal_snapshot(value, cut)` provide an already captured immutable projection and are responsible for coordinating that capture with the peer's transition lock.
+
 The caller then:
 
 1. loads the verified peer generation before constructing a replacement service;
