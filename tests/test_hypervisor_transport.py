@@ -228,7 +228,10 @@ def test_send_or_retransmit_reuses_pending_sequence_and_refuses_identity_conflic
         origin_transport.service()
         assert sender.channel.process_ack() == (1,)
         assert sender.channel.pending_sequences() == ()
-        assert sender.send_or_retransmit(_event(2)) == 2
+        # Once transport ACK has removed frame 1, the same semantic event
+        # may be carried by a new transport sequence without changing its ID.
+        assert sender.send_or_retransmit(event) == 2
+        assert sender.send_or_retransmit(event) == 2
     finally:
         origin_transport.close()
         replica_transport.close()
