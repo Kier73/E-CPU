@@ -53,8 +53,7 @@ Index of specification documents. Documents use defined terms from `GLOSSARY.md`
 | 45 | [`VGI_VIRTUAL_LAYER.md`](VGI_VIRTUAL_LAYER.md) | Hosted VGI Signal8 computation, dual-Ground identity, bounded compile/execute, signal-valued receipts, checkpoints, and semantic replay |
 | 46 | [`COMPUTATIONAL_FABRIC.md`](COMPUTATIONAL_FABRIC.md) | Mutual-TLS peer discovery, portable host advertisements, revision/lease handling, directed multi-hop route planning, and integration boundaries |
 | 47 | [`COMPUTATIONAL_FABRIC_FORWARDING_RECOVERY.md`](COMPUTATIONAL_FABRIC_FORWARDING_RECOVERY.md) | Per-peer Hypervisor and reliable-channel checkpoints, quorum-anchored recovery generations, fresh TLS rebinding, capture cuts, and crash-recovery proof limits |
-| 48 | [`FEDERATED_FORWARDING_PROCESS_RECOVERY.md`](FEDERATED_FORWARDING_PROCESS_RECOVERY.md) | Hard relay-process termination and restart at every forwarding request/commit/publication/ACK cut with independent recovery authorities and fresh mutual-TLS streams |
-| 49 | [`FEDERATED_FORWARDING_PROCESS_RECOVERY.md`](FEDERATED_FORWARDING_PROCESS_RECOVERY.md) | Independent relay and terminal-peer hard-kill recovery, peer-scoped quorums, downstream stream rebinding, and semantic replay continuity |
+| 48 | [`FEDERATED_FORWARDING_PROCESS_RECOVERY.md`](FEDERATED_FORWARDING_PROCESS_RECOVERY.md) | Independent relay and terminal-peer hard-kill recovery, peer-scoped quorums, downstream stream rebinding, and semantic replay continuity |
 
 ## Document classes
 
