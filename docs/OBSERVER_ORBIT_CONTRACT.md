@@ -93,27 +93,27 @@ The E0 Structural Memory generator families have direct coordinate operations:
 
 | Family | Forward navigation | Bound |
 |---|---|---|
-| \`int\` | Arithmetic coordinate formula | \(O(1)\) |
-| \`fgraph\` | Preperiod/cycle coordinate indexing | \(O(1)\) |
-| \`lcg\` | Modular exponentiation and geometric sum | \(O(\log n)\) |
-| \`gf2\` | Binary companion-matrix exponentiation | \(O(L^3\log n)\), where L is recurrence order |
+| `int` | Arithmetic coordinate formula | \(O(1)\) |
+| `fgraph` | Preperiod/cycle coordinate indexing | \(O(1)\) |
+| `lcg` | Modular exponentiation and geometric sum | \(O(\log n)\) |
+| `gf2` | Binary companion-matrix exponentiation | \(O(L^3\log n)\), where L is recurrence order |
 
-The result reports \`expanded_states = 0\`: it does not construct states at \(k_0+1,\ldots,k-1\). The generator itself is still evaluated according to its family-specific arithmetic; zero intermediate expansion does not mean every generator has constant computational cost.
+The result reports `expanded_states = 0`: it does not construct states at \(k_0+1,\ldots,k-1\). The generator itself is still evaluated according to its family-specific arithmetic; zero intermediate expansion does not mean every generator has constant computational cost.
 
 The contextual path is deliberately **no-fallback**. An unknown revision, mismatched context, non-admitted law, prefix-horizon escape, or unsupported family refuses. It does not silently switch to BFS or SystemSeed replay.
 
 ### Target-state inversion without trajectory enumeration
 
-\`ContextualOrbitNavigator.locate_value\` derives the first supported relative coordinate for a requested scalar value:
+`ContextualOrbitNavigator.locate_value` derives the first supported relative coordinate for a requested scalar value:
 
 | Generator | Inverse used | Cost |
 |---|---|---|
-| \`int\` | Exact modular or non-modular progression inversion | \(O(1)\) |
-| eligible \`lcg\` | Full-period power-of-two 2-adic bit lifting | \(O(\log m)\) |
-| \`gf2\` | Initial register inspection and feedback parity for one scalar output bit | \(O(L)\) |
-| \`fgraph\` | Earliest-coordinate hash index over stored preperiod/cycle | \(O(N)\) build, then expected \(O(1)\) |
+| `int` | Exact modular or non-modular progression inversion | \(O(1)\) |
+| eligible `lcg` | Full-period power-of-two 2-adic bit lifting | \(O(\log m)\) |
+| `gf2` | Initial register inspection and feedback parity for one scalar output bit | \(O(L)\) |
+| `fgraph` | Earliest-coordinate hash index over stored preperiod/cycle | \(O(N)\) build, then expected \(O(1)\) |
 
-The finite-graph inverse index is retained by a \`ContextualOrbitNavigator\` and keyed by the admitted Structural Memory spec digest. The first query compiles the stored orbit; later queries against the same revision reuse the index. It does not execute or scan additional transitions.
+The finite-graph inverse index is retained by a `ContextualOrbitNavigator` and keyed by the admitted Structural Memory spec digest. The first query compiles the stored orbit; later queries against the same revision reuse the index. It does not execute or scan additional transitions.
 
 The GF(2) inverse is deliberately for the scalar output bit, not an arbitrary LFSR register vector. Since the first L outputs are the initial register, a missing target bit implies a uniform all-zero or all-one register, whose next output is determined by feedback parity.
 
@@ -121,11 +121,11 @@ The candidate coordinate is forward-verified with the guarded law before a targe
 
 ### General path-dependent transitions
 
-A universal inverse does not exist for arbitrary guarded, context-dependent, non-injective transitions. \`ProcessPathIndex\` therefore compiles a supplied declarative transition path. Compilation applies only those named transitions, validating every guard, resource requirement, update and invariant; its cost is linear in the supplied path length P. It stores state digests and prefix resource envelopes so exact-state lookup is expected O(1), with zero path expansions at query time.
+A universal inverse does not exist for arbitrary guarded, context-dependent, non-injective transitions. `ProcessPathIndex` therefore compiles a supplied declarative transition path. Compilation applies only those named transitions, validating every guard, resource requirement, update and invariant; its cost is linear in the supplied path length P. It stores state digests and prefix resource envelopes so exact-state lookup is expected O(1), with zero path expansions at query time.
 
-The index is bound to the exact descriptor, context and start-state digest. A locally built index is immediately validated; a portable index reconstructed from JSON must be revalidated against the descriptor and context before lookup. Its witness can then be independently checked with \`verify_navigation_witness\`.
+The index is bound to the exact descriptor, context and start-state digest. A locally built index is immediately validated; a portable index reconstructed from JSON must be revalidated against the descriptor and context before lookup. Its witness can then be independently checked with `verify_navigation_witness`.
 
-This is an inverse of the supplied path, not the entire branching state graph. Absence from one path index is not proof of global unreachability. Finding a new route still requires the existing bounded \`ContextualNavigator\` or another explicitly budgeted graph/index construction. \`SystemSeed\` remains exact replay when the complete OS transition semantics are needed and no admitted symbolic representation applies.
+This is an inverse of the supplied path, not the entire branching state graph. Absence from one path index is not proof of global unreachability. Finding a new route still requires the existing bounded `ContextualNavigator` or another explicitly budgeted graph/index construction. `SystemSeed` remains exact replay when the complete OS transition semantics are needed and no admitted symbolic representation applies.
 
 The VirtualGroundRef v1 structure contains a numeric base coordinate but no scheduler identifier. The contextual address binds the declared scheduler ID into the Structural Memory context; it cannot independently prove which scheduler originally minted the base coordinate. The caller that forms the address must therefore supply that mapping from trusted system context.
 
