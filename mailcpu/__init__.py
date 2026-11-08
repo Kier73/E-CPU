@@ -680,6 +680,20 @@ from .computational_fabric_recovery import (
     VerifiedComputationalFabricCheckpoint,
 )
 
+from .computational_fabric_forwarding import (
+    COMPUTATIONAL_FABRIC_EXECUTE_OPERATION,
+    COMPUTATIONAL_FABRIC_EXECUTE_RESOURCE,
+    COMPUTATIONAL_FABRIC_FORWARD_OPERATION,
+    COMPUTATIONAL_FABRIC_FORWARD_RESOURCE,
+    COMPUTATIONAL_FABRIC_FORWARD_RESULT_KIND,
+    ComputationalFabricForwardingClient,
+    ComputationalFabricForwardingEnvelope,
+    ComputationalFabricForwardingError,
+    ComputationalFabricForwardingServer,
+    ComputationalFabricHopReceipt,
+    computational_fabric_forward_channel_id,
+)
+
 from .navigation_admission import (
     HypervisorNavigationAdmissionCoordinator,
     NavigationAdmissionError,
@@ -1339,6 +1353,17 @@ __all__ = [
     "ComputationalFabricRecoveryError",
     "ComputationalFabricRecoveryStore",
     "VerifiedComputationalFabricCheckpoint",
+    "COMPUTATIONAL_FABRIC_EXECUTE_OPERATION",
+    "COMPUTATIONAL_FABRIC_EXECUTE_RESOURCE",
+    "COMPUTATIONAL_FABRIC_FORWARD_OPERATION",
+    "COMPUTATIONAL_FABRIC_FORWARD_RESOURCE",
+    "COMPUTATIONAL_FABRIC_FORWARD_RESULT_KIND",
+    "ComputationalFabricForwardingClient",
+    "ComputationalFabricForwardingEnvelope",
+    "ComputationalFabricForwardingError",
+    "ComputationalFabricForwardingServer",
+    "ComputationalFabricHopReceipt",
+    "computational_fabric_forward_channel_id",
     "ComputationalHostAdvertisement",
     "ComputationalNetworkLink",
     "ComputationalPeerEndpoint",

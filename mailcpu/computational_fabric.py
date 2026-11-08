@@ -709,8 +709,8 @@ class ComputationalFabricDirectory:
             raise ComputationalFabricError("monotonic must be callable")
         self._monotonic = monotonic
         self.max_peers = _positive(max_peers, "max_peers", maximum=4096)
-        if len(normalized) + 1 > self.max_peers:
-            raise ComputationalFabricError("trusted peer mapping exceeds the aggregate peer bound")
+        # Trust is a bootstrap allowlist, not an active topology count.
+        # max_peers is enforced against the live lease set during admission.
         self.max_hosts = _positive(max_hosts, "max_hosts", maximum=65_536)
         self.max_links = _positive(max_links, "max_links", maximum=262_144)
         self._snapshots: dict[str, ComputationalPeerSnapshot] = {}
@@ -971,6 +971,10 @@ class ComputationalFabricDirectory:
             if peer_id != replacing_peer
             and observed_at < self._deadlines.get(peer_id, float("-inf"))
         }
+        # Keep the live remote view separate from the local snapshot. A trusted
+        # peer may be known but offline; max_peers bounds active leases, not the
+        # size of the explicit bootstrap trust map.
+        remote_snapshots = dict(snapshots)
         local_snapshot = self._local_snapshot
         if incoming.peer_id == self.local_peer_id:
             local_snapshot = incoming
