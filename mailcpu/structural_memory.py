@@ -1130,6 +1130,34 @@ class StructuralMemoryRegistry:
                 )
             return version
 
+    def admitted_versions(
+        self,
+        memory_id: str | None = None,
+    ) -> tuple[StructuralMemoryVersion, ...]:
+        """List immutable admitted revisions in stable identity order without performing reads.
+
+        Mathematics: project the admitted relation A onto unique versions v and
+        return sort_{memory_id,revision,digest}(A), optionally restricted to
+        one memory identity. Staged proposals are excluded.
+        """
+        if memory_id is not None:
+            _require_nonempty_string(memory_id, "memory_id")
+        with self._lock:
+            unique = {
+                (
+                    version.spec.memory_id,
+                    version.spec.revision,
+                    version.spec.digest,
+                    version.certificate.digest,
+                ): version
+                for version in self._admitted.values()
+                if memory_id is None or version.spec.memory_id == memory_id
+            }
+            return tuple(
+                unique[key]
+                for key in sorted(unique)
+            )
+
     def active_version(self, memory_id: str) -> StructuralMemoryVersion | None:
         """Return the currently admitted immutable version, if one exists. Mathematics: projects the active registry mapping at memory identity m, or the empty value when absent."""
         _require_nonempty_string(memory_id, "memory_id")

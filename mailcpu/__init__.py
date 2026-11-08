@@ -852,6 +852,20 @@ from .composed_ground import (
     composed_component_context,
 )
 from .inverse_navigation import ProcessPathIndex, ProcessPathIndexError
+from .predictive_selection import (
+    PredictiveCandidateEvaluation,
+    PredictiveCandidatePool,
+    PredictiveCandidatePoolBuilder,
+    PredictiveComponentMetrics,
+    PredictiveDescriptionCandidate,
+    PredictiveDescriptionSelector,
+    PredictiveExecutionEvidence,
+    PredictiveGroundObservation,
+    PredictivePartitionMetrics,
+    PredictiveSelectionError,
+    PredictiveSelectionReport,
+    predictive_experiment_digest,
+)
 
 __all__ = [
     "CoordinationDisposition",
@@ -914,6 +928,18 @@ __all__ = [
     "composed_component_context",
     "ProcessPathIndex",
     "ProcessPathIndexError",
+    "PredictiveCandidateEvaluation",
+    "PredictiveCandidatePool",
+    "PredictiveCandidatePoolBuilder",
+    "PredictiveComponentMetrics",
+    "PredictiveDescriptionCandidate",
+    "PredictiveDescriptionSelector",
+    "PredictiveExecutionEvidence",
+    "PredictiveGroundObservation",
+    "PredictivePartitionMetrics",
+    "PredictiveSelectionError",
+    "PredictiveSelectionReport",
+    "predictive_experiment_digest",
     "AbstractNavigationCompiler",
     "CompiledNavigation",
     "NavigationCompilationError",

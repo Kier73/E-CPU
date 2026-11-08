@@ -702,3 +702,32 @@ Inverse routes now include:
 The process path index verifies the declared transition sequence, guards, resource conditions and invariants. It is a proof about the declarative process model, not a claim that a physical host executed the transitions. An actual execution trace still needs the owning host's execution evidence.
 
 These mechanisms reduce avoidable trajectory materialization but do not implement the future model-selection optimizer. Ranking candidate descriptions by predictive coverage, withheld error, description cost, navigation cost and verification cost remains a distinct next layer. The aspiration that the E-CPU abstraction outperform the system it describes is a research objective, not a guarantee established by state composition alone.
+
+
+## 23. Predictive description selection over observed Virtual Grounds
+
+The next layer is specified in [PREDICTIVE_DESCRIPTION_SELECTION.md](PREDICTIVE_DESCRIPTION_SELECTION.md) and implemented by mailcpu.predictive_selection. It compares fixed, admitted composed descriptions against independently captured state observations.
+
+For one experiment identity \(E\), the same observations are evaluated by each candidate \(C_j\):
+
+\[
+\hat S_{j,t}
+=
+\operatorname{Compose}(C_j,t),
+\qquad
+\epsilon_{j,t}
+=
+\operatorname{Compare}(\hat S_{j,t},S_t^{\mathrm{observed}}).
+\]
+
+The experiment digest binds the system incarnation, base Ground, Computational Ground, scheduler, schema, template, component paths and encodings while excluding the candidate-specific generator revisions. An ObserverContract and ObserverReceipt bind every observed state to that experiment and its typed scheduler tick.
+
+Selection is chronological: development observations are diagnostic, validation determines the Pareto frontier and recommendation, and later test observations report post-selection performance without changing the ranking. The evidence dimensions include whole-sample coverage, component accuracy, predictive yield, exact full-state match, residual/unmodeled state changes, description bytes, certificate witness count and a family-aware navigation-work proxy. It also counts distinct observed, predicted and matched component-value tuples, reporting matched distinct observed support as component-state-space coverage. This covers the states present in the sampled trajectory only; it does not enumerate or estimate the global reachable set. Each partition now includes per-component observed/predicted value support, point accuracy, changed/unchanged detection, false positives/missed changes, and exact sampled before/after transition matches. Component support is set-based and independent of timing; pointwise and transition metrics retain temporal alignment. The forward navigation-work proxy charges finite-graph reads for stored-orbit materialization and treats GF(2) initial-register outputs separately from matrix-jump coordinates. A sampled transition spans adjacent supplied observations; a refused prediction breaks transition continuity rather than being bridged.
+
+PredictiveCandidatePoolBuilder now constructs a bounded baseline-plus-one-factor pool from already-admitted Structural Memory versions with exact matching component contexts. It never crosses every component revision combination; pool order, candidate budget and omitted count are deterministic and digest-bound. Candidate discovery is advisory and does not stage or admit revisions. The evaluate_pool path binds the exact pool digest, maximum candidate budget, and discovered/included/omitted counts into the selection report.
+
+The selector uses ComposedVirtualGroundNavigator for direct reads at each observed coordinate. A guarded refusal lowers coverage; there is no hidden breadth-first search, orbit enumeration or SystemSeed replay. Each partition carries a navigation-evidence digest over the requested coordinates, projection identities and component read-receipt digests (including refusal outcomes).
+
+The hypervisor adapter retains the complete canonical typed executed ALLOW result from the Virtual Layer and cross-checks its content digest, placement, estimated virtual energy/ticks, replay state and measured handler metrics during deserialization. An optional compute-fabric route witness contributes network/host/total cost vectors only as a non-authoritative route estimate, and its target node must match the hypervisor effect's execution node. Neither evidence source becomes a prediction label or an implicit selection weight; operational measurements remain a separate report profile.
+
+The recommendation does not admit revisions, alter hypervisor policy, establish a physical checkpoint, or prove the observer was honest. The existing Hypervisor shadow-and-witness revision admission and idempotent proposal ledger are documented as the future promotion pattern, while the current selector remains advisory. The typed ComputationalAddress and fabric route/decomposition path are documented as the future distribution substrate; current evaluation remains local and route witnesses remain planning context. This creates an auditable first model-selection loop; candidate synthesis, vector/page generators, distributed evaluation and online policy promotion remain later work.
