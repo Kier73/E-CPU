@@ -674,6 +674,11 @@ from .computational_fabric import (
     ComputationalPeerSnapshot,
 )
 
+from .computational_fabric_discovery import (
+    ComputationalFabricDiscoveryError,
+    ComputationalFabricDiscoveryService,
+    ComputationalFabricPeerRefresh,
+)
 from .computational_fabric_recovery import (
     ComputationalFabricRecoveryError,
     ComputationalFabricRecoveryStore,
@@ -1345,6 +1350,9 @@ __all__ = [
     "ComputationalResolutionResult",
     "ComputationalResolutionStatus",
     "ComputationalRouteWitness",
+    "ComputationalFabricDiscoveryError",
+    "ComputationalFabricDiscoveryService",
+    "ComputationalFabricPeerRefresh",
     "ComputationalFabricAuthority",
     "ComputationalFabricBlocker",
     "ComputationalFabricBlockerCode",
