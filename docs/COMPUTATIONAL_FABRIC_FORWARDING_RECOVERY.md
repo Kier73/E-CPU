@@ -86,7 +86,7 @@ Separate recovery-store tests verify quorum anchoring, reopening with the same d
 
 ## Explicit proof boundary
 
-This is a per-peer image and fresh-stream rebind/replay proof under one supervising test process. It is **not yet** the hard OS-process termination/restart proof for a federated relay or terminal peer. The next experiment is a subprocess harness that kills B or C at every named cut, independently restarts that peer from its anchored generation, restores adjacent sender/receiver channel state, and checks the same at-most-once handler-entry and eventual receipt behavior.
+The in-process A→B→C rebind test remains useful for isolating the recovery adapter, but it does not itself prove OS-process recovery. A dedicated hard-relay-process-kill experiment is now added in [FEDERATED_FORWARDING_PROCESS_RECOVERY.md](FEDERATED_FORWARDING_PROCESS_RECOVERY.md): it launches B and two independent quorum anchors as separate child processes, kills B at all four named cuts, restarts B from its disk image, reconnects A and C over fresh mutual-TLS streams, and checks replay/receipt behavior. That experiment is pending CI validation on the new branch; until its exact head passes, it should be treated as an implementation and test proposal rather than a verified result.
 
 The per-peer checkpoint does not make a multi-peer snapshot globally atomic. Each peer has its own quorum-anchored generation and channel state; recovery must reconcile those states by retransmitting the same immutable operation identity through the existing Hypervisor ledgers.
 
