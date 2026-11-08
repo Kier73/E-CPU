@@ -534,7 +534,7 @@ class ComputationalSessionStore:
             proposal = self._pending_proposal(next_generation)
             if proposal is None:
                 raise ComputationalSessionError("no prepared session checkpoint is pending")
-            if proposal.predecessor_digest != predecessor:
+            if proposal.predecessor_state_digest != predecessor:
                 raise ComputationalSessionIntegrityError("pending checkpoint does not extend the current quorum high-water")
             path = self._record_path(next_generation, proposal.result_state_digest)
             record = self._read_record(path)
@@ -596,7 +596,7 @@ class ComputationalSessionStore:
             try:
                 verified_proof = self.lineage.verify_state(recovery_manifest)
             except RecoveryLineageError as exc:
-                raise ComputationalSessionIntegrityError(f"exported checkpoint is not the current quorum state: {exc}") from exc
+                raise ComputationalSessionIntegrityError(f"exported checkpoint is not the latest quorum-anchored state: {exc}") from exc
             if (
                 exported_proof.proposal.digest != verified_proof.proposal.digest
                 or exported_proof.certificate.snapshot() != verified_proof.certificate.snapshot()
@@ -799,8 +799,8 @@ class ComputationalSessionStore:
                 raise
             raise ComputationalSessionIntegrityError("session checkpoint envelope contains malformed manifests") from exc
 
-    @staticmethod
     def _is_exact_retry(
+        self,
         current: ComputationalSessionSnapshot,
         *,
         expected_revision: int,

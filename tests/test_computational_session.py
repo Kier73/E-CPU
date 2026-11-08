@@ -251,6 +251,7 @@ def test_exact_retry_after_backend_profile_change_is_not_assumed(tmp_path: Path)
     compatibility = lambda source_fp, target_fp, schema: (
         source_fp == BACKEND_A and target_fp == BACKEND_B and schema == STATE_SCHEMA
     )
+    target.restore_export(source.export_latest(), backend_compatibility=compatibility)
     with pytest.raises(ComputationalSessionConflictError):
         target.commit_state(
             b"committed-by-A",
