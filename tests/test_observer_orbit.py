@@ -97,6 +97,40 @@ def _admitted_lcg(*, offset: int = 10**12 + 3):
     return registry, law, address, observer
 
 
+def _admitted_int(*, offset: int = 0):
+    system, base_ground, interpretation = _base()
+    context = contextual_orbit_context(
+        system, base_ground, interpretation,
+        scheduler_id="vm-scheduler",
+        extensions={"lane": "primary", "purpose": "test"},
+    )
+    law = Law(family="int", params={"step": 7, "mod": 101, "x0": 4}, order=1, verdict="GROUND")
+    registry = StructuralMemoryRegistry(admission_policy=lambda proposal: True)
+    proposal = registry.propose(
+        "integer-orbit", law,
+        {coordinate: law.navigate(coordinate) for coordinate in range(8)},
+        domain="contextual-orbit-test", context=context,
+    )
+    version = registry.admit(proposal.proposal_id, expected_revision=0)
+    memory_ref = VirtualStructuralMemoryRef.from_version("orbit-generator", version, offset)
+    address = ContextualOrbitAddress(
+        system_identity=system, base_ground=base_ground, computational_ground=interpretation,
+        coordinate=SchedulerReading("vm-scheduler", base_ground.coordinate + offset),
+        structural_memory=memory_ref,
+        context_extensions={"lane": "primary", "purpose": "test"},
+    )
+    observer = ObserverContract(
+        observer_id="integer-orbit-observer", revision=1,
+        subject=structural_memory_spec_representation_ref(version.spec),
+        interpretation=interpretation,
+        observation=ObservationContract.from_definition(
+            "mailcpu.orbit.integer-value", 1,
+            {"fields": ["coordinate", "value", "value_digest"]},
+        ),
+        context_digest=canonical_value_digest(context),
+    )
+    return registry, law, address, observer
+
 def test_contextual_orbit_address_round_trip_binds_system_ground_clock_and_offset():
     _, _, address, _ = _admitted_lcg()
 
@@ -277,3 +311,49 @@ def test_observer_composition_rejects_missing_member_and_disagreeing_scheduler()
         compose_observer_receipts(composition, (first,))
     with pytest.raises(ObserverOrbitError, match="scheduler coordinates"):
         compose_observer_receipts(composition, (first, second))
+
+
+def test_locate_value_inverts_remote_full_period_lcg_without_enumerating_states(monkeypatch):
+    registry, law, base_address, observer = _admitted_lcg(offset=0)
+    calls: list[int] = []
+    original = registry.generators.navigate_guarded
+
+    def counted(spec, coordinate):
+        calls.append(coordinate)
+        return original(spec, coordinate)
+
+    monkeypatch.setattr(registry.generators, "navigate_guarded", counted)
+    target_coordinate = 10**12 + 3
+    target_value = law.navigate(target_coordinate)
+
+    result = ContextualOrbitNavigator(registry).locate_value(base_address, observer, target_value)
+
+    expected_first_coordinate = target_coordinate % (2**32)
+    assert result.target_value == target_value
+    assert result.orbit_coordinate == expected_first_coordinate
+    assert result.navigation.projection.coordinate.tick == base_address.base_ground.coordinate + expected_first_coordinate
+    assert result.navigation.projection.value == target_value
+    assert result.inverse_complexity_bound == "O(log m)"
+    assert result.navigation.expanded_states == 0
+    assert result.expanded_states == 0
+    assert calls == [expected_first_coordinate]
+
+
+def test_locate_value_uses_constant_time_integer_inverse():
+    registry, law, base_address, observer = _admitted_int(offset=0)
+    target_coordinate = 37
+    target_value = law.navigate(target_coordinate)
+
+    result = ContextualOrbitNavigator(registry).locate_value(base_address, observer, target_value)
+
+    assert result.orbit_coordinate == target_coordinate
+    assert result.navigation.projection.value == target_value
+    assert result.inverse_complexity_bound == "O(1)"
+    assert result.expanded_states == 0
+
+
+def test_locate_value_refuses_unreachable_integer_without_search_fallback():
+    registry, _, base_address, observer = _admitted_int(offset=0)
+
+    with pytest.raises(ObserverOrbitError, match="not reachable"):
+        ContextualOrbitNavigator(registry).locate_value(base_address, observer, target_value=5)
