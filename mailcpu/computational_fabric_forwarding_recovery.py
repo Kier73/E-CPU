@@ -326,8 +326,18 @@ class ComputationalFabricForwardingRecoveryStore:
         server: ComputationalFabricForwardingServer,
         capture_cut: str,
     ) -> VerifiedComputationalFabricForwardingCheckpoint:
-        """Mathematics: Persist a consistent per-hop capture cut, then quorum-commit its content root."""
-        return self.seal_snapshot(server.snapshot(capture_cut=capture_cut), capture_cut)
+        """Mathematics: Persist a consistent per-hop capture cut while excluding later peer transitions until the quorum anchor commits."""
+        if not isinstance(server, ComputationalFabricForwardingServer):
+            raise ComputationalFabricForwardingRecoveryError(
+                "seal requires a ComputationalFabricForwardingServer"
+            )
+        if capture_cut not in _CAPTURE_CUTS:
+            raise ComputationalFabricForwardingRecoveryError(
+                f"capture_cut must be one of {sorted(_CAPTURE_CUTS)}"
+            )
+        with server.recovery_guard():
+            snapshot = server.snapshot(capture_cut=capture_cut)
+            return self.seal_snapshot(snapshot, capture_cut)
 
     def seal_snapshot(
         self,
