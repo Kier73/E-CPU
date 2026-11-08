@@ -95,7 +95,23 @@ A structural-memory binding is read-only. This integration does not replicate me
 
 For local execution, `execute_operator()` prepares the typed event, asks `HeadlessOS.hypervisor_authorize_event()` to reconstruct local grants, and calls `HypervisorArbitrationLoop.execute()`.
 
-For remote execution, `receive_and_execute()` composes with `HypervisorOperationChannel.receive_and_execute()`. It validates the peer-bound frame while it remains pending, reconstructs the workload, checks the selected operator contract and ground identity, resolves a local handler, replaces any sender-side grant claim with receiver-local process capabilities, and then submits the operation to the existing hypervisor. The reliable request is acknowledged only after a typed execution result exists. Exact retries return the cached effect; a changed payload under the same source/channel/sequence identity is refused by the existing arbitration/effect ledger.
+Before the event is submitted for arbitration, `VirtualLayerRuntime` builds a
+compact `mailcpu.virtual-layer.intent.v1` projection. It binds the workload
+identity/digest, E-CPU System and Ground coordinate, declared goal, selected
+operator contract/reference, full input digest and byte extent, pinned
+Structural Memory references, resource budget, logical time, placement and
+recalculated virtual-cost claims. The projection has a 4 KiB canonical JSON
+bound. The full workload and input remain in the event payload and its
+fingerprint.
+
+The receiver reconstructs the workload, resolves its local operator
+contract, remeasures the input and cost, rebuilds the projection, and requires
+exact equality before preparing the handler. `HeadlessOS` preserves this
+projection while replacing sender grants with receiver-local rights. The
+classifier sees the compact projection; the operator receives the complete
+decoded input. A mismatched projection is rejected before the handler can run.
+
+For remote execution, `receive_and_execute()` composes with `HypervisorOperationChannel.receive_and_execute()`. It validates the peer-bound frame while it remains pending, reconstructs the workload, checks the selected operator contract and Ground identity, resolves a local handler, replaces any sender-side grant claim with receiver-local process capabilities, and then submits the operation to the existing hypervisor. The reliable request is acknowledged only after a typed execution result exists. Exact retries return the cached effect; a changed payload under the same source/channel/sequence identity is refused by the existing arbitration/effect ledger.
 
 The receiver checks that declared rights match its local operator contract. Sender-provided `granted_rights` are not trusted. Missing local rights produce `DENY` and no handler call. Classifier and intent-model outputs remain proposals; neither can grant authority.
 

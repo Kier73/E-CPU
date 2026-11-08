@@ -58,21 +58,39 @@ decision is a finite object that can be checkpointed, inspected, and replayed.
 
 ### 2.2 Request state
 
-A request is the finite relation
+A request's complete durable relation is
 
 ```text
 x = (operation, resource, payload, required_rights,
-     granted_rights, destructive, temporal)
+     granted_rights, destructive, temporal, intent_projection?)
 ```
 
-`HypervisorRequest.state()` gives the shared state to every advisory model and
-to the exact gates. Required and granted rights are sorted before entering the
-state projection. The optional temporal projection carries scheduler epoch
-fields such as event lambda, chronon phase, and chemical time.
+`HypervisorRequest.state()` preserves the full payload and optional projection
+for event identity, replay conflict detection, journaling and receiver
+execution. Required and granted rights are sorted before entering the state
+projection. The optional temporal projection carries scheduler epoch fields
+such as event lambda, chronon phase, and chemical time.
 
-The state is deliberately shared: the classifier, intent embedding, virtual
-cost, and policy see one canonical request rather than separately reconstructed
-descriptions.
+For receiver-verified Virtual Layer and computational-fabric operations only,
+`intent_projection` supplies a bounded semantic view alongside the full
+payload. Its operation-specific schema is checked at construction and its
+canonical representation is bounded to 4 KiB. `decision_state()` replaces only
+the classifier-facing payload with that view and adds the digest and byte
+extent of the original payload. The complete payload remains part of
+`state()` and the arbitration event fingerprint. Requests without a verified
+projection continue to present their complete state to the advisory models.
+
+The projection is not a sender-controlled way to suppress inconvenient input.
+The Virtual Layer recomputes its projection from the workload and local
+operator contract; the fabric receiver decodes the complete route envelope
+and derives its own projection before local capability grants. Supplied
+projections must match exactly. Other operation types cannot opt in merely by
+attaching a mapping.
+
+This separates semantic interpretation from payload materialization without
+making data free: the classifier sees the bounded view, but the event journal,
+hashing, transport, state verification and handler still retain and process
+the complete payload.
 
 ## 3. Question and proposal layer
 
@@ -199,14 +217,21 @@ energy is the sustained movement and coherent representation of information
 through a request path. The current implementation gives this relation an E0
 receipt rather than leaving it implicit.
 
-For canonical JSON `J(x)`, structural token sequence `T(x)`, chemical time
-`τ_chem(J(x))`, and path capacity `C`:
+For canonical full request JSON `J(x)`, a structural token sequence `T(z)`,
+chemical time `τ_chem(J(x))`, and path capacity `C`:
 
 ```text
 semantic_bits = 8 |J(x)|
-E_v = max(1, semantic_bits + 8 |T(x)| + ceil(16 τ_chem(J(x))) + 1)
+E_v = max(1, semantic_bits + 8 |T(z)| + ceil(16 τ_chem(J(x))) + 1)
 τ_v = ceil(E_v / C)
 ```
+
+For ordinary requests, `z=x`. For a receiver-verified compact intent
+projection, `z=decision_state(x)`: the complete request still determines
+serialized semantic bits and chemical complexity, while the bounded
+projection determines structural token count. This prevents a bulk transfer
+bundle from being mistaken for an unbounded natural-language intent without
+discounting its byte extent or verification work.
 
 `VirtualCost` records:
 
