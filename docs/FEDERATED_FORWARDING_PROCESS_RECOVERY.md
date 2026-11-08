@@ -165,6 +165,48 @@ directory control socket nor the route witness grants execution authority.
 Every forwarding hop still revalidates its live direct-neighbor leases and
 receiver-local Hypervisor capability.
 
+## Forwarding continuity through discovery-sidecar loss
+
+The next composition test keeps the relay B process and both forwarding
+adjacencies alive while its A-facing discovery listener is hard-killed as an
+independent supervised child process. The sidecar reloads the same
+`ComputationalFabricAuthorityStore` snapshot when the parent supervisor
+restarts it; it owns neither B's forwarding socket nor B's live forwarding
+server.
+
+The test uses a shorter receiver-local lease for B than for terminal C so the
+failure can be isolated to B:
+
+1. A starts with only its own local snapshot. B starts its live forwarding
+   worker, learns A and C through direct mutual-TLS discovery, connects to C,
+   and accepts A over the forwarding endpoint advertised by B's snapshot.
+2. A directly discovers B through the separately supervised B→A discovery
+   sidecar and discovers C through C's own listener. It resolves the directed
+   A→B→C path and opens one A→B forwarding stream.
+3. The A-facing B sidecar is hard-killed. A's next discovery refresh fails and
+   drops that control stream, but the last authenticated B snapshot remains
+   usable until A's own monotonic lease deadline. A submits operation sequence
+   7 over the already established forwarding stream; B and C complete it.
+4. A advances only its own lease clock past B's deadline. B disappears from
+   A's active directory while C remains active; the resolver cannot produce
+   a new A→B→C route from the expired observation. The B relay and A→B data
+   stream remain alive.
+5. The existing bounded subprocess supervisor restarts only the A-facing
+   discovery sidecar. A authenticates a fresh TLS session, reacquires the same
+   B revision and forwarding endpoint, and the resolver reconstructs the route.
+6. The same live A→B stream carries a distinct sequence-8 operation and then
+   the original sequence-7 semantic event in a new reliable transport frame.
+   B returns the original committed effect as a replay; terminal C is entered
+   only once per distinct semantic operation.
+
+This proves a narrow but important continuity law: the forwarding process and
+its already established data-plane path can outlive discovery availability,
+while route planning remains gated by receiver-local lease validity. Recovery
+re-establishes discovery authority without restarting B or rebinding its
+forwarding channels. The test does not claim that a peer may continue creating
+new routes after its discovery lease expires, nor that arbitrary external
+side effects become exactly-once.
+
 ## Boundaries and next tests
 
 The new B crash matrix uses live mutual-TLS discovery for A/B/C directory
@@ -183,9 +225,10 @@ do these tests prove a globally atomic multi-peer snapshot, endpoint rotation,
 hardware/storage power-loss durability, malicious-host attestation, or
 recursive/gossip-based discovery. Direct peers are still configured trust roots.
 
-The next gate is to combine discovery-listener process failure and restart with
-the forwarding crash cuts, then separately test endpoint host/port revision
-changes while preserving peer ID and TLS DNS identity.
+The A-facing discovery-sidecar outage is now composed with a live A→B→C
+forwarding path and semantic replay. The next gate is to combine the discovery
+outage with the named forwarding crash cuts, then separately test endpoint
+host/port revision changes while preserving peer ID and TLS DNS identity.
 
 ## Tests
 
