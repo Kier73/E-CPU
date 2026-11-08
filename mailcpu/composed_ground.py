@@ -408,6 +408,7 @@ class ComposedVirtualGroundProjection:
     """Structured multi-component state projection under one exact base system Ground."""
 
     address_digest: str
+    address_json: str
     system_identity: SystemIdentity
     base_ground: VirtualGroundRef
     computational_ground: RepresentationRef
@@ -420,14 +421,33 @@ class ComposedVirtualGroundProjection:
 
     def __post_init__(self) -> None:
         """Mathematics: verify component evidence, reconstruct the assembled state, and bind the resulting digest."""
-        if not isinstance(self.address_digest, str) or len(self.address_digest) != 64:
-            raise ComposedGroundError("address_digest must be a SHA-256 digest")
+        if not isinstance(self.address_digest, str) or re.fullmatch(r"[0-9a-f]{64}", self.address_digest) is None:
+            raise ComposedGroundError("address_digest must be a lowercase SHA-256 digest")
+        try:
+            address_payload = json.loads(self.address_json)
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise ComposedGroundError("projection address JSON is malformed") from exc
+        if _canonical_json(address_payload, "composed address") != self.address_json:
+            raise ComposedGroundError("projection address JSON is not canonical")
+        address = ComposedVirtualGroundAddress.from_dict(address_payload)
+        if address.digest != self.address_digest:
+            raise ComposedGroundError("projection address digest does not match its embedded address")
         if not isinstance(self.system_identity, SystemIdentity) or not isinstance(self.base_ground, VirtualGroundRef):
             raise ComposedGroundError("composed projection system identity or base Ground is invalid")
         if not isinstance(self.computational_ground, RepresentationRef) or not isinstance(self.state_schema, RepresentationRef):
             raise ComposedGroundError("composed projection interpretations are invalid")
         if not isinstance(self.coordinate, SchedulerReading):
             raise ComposedGroundError("composed projection coordinate is invalid")
+        if self.coordinate.tick < self.base_ground.coordinate:
+            raise ComposedGroundError("composed projection coordinate precedes its base Virtual Ground")
+        if (
+            address.system_identity != self.system_identity
+            or address.base_ground != self.base_ground
+            or address.computational_ground != self.computational_ground
+            or address.coordinate != self.coordinate
+            or address.state_schema != self.state_schema
+        ):
+            raise ComposedGroundError("embedded composed address differs from projection system/time/schema identity")
         try:
             template = json.loads(self.template_json)
             state = json.loads(self.state_json)
@@ -447,6 +467,17 @@ class ComposedVirtualGroundProjection:
         ids = [item.address.component_id for item in components]
         if len(set(ids)) != len(ids):
             raise ComposedGroundError("composed projection component identities must be unique")
+        expected_addresses = tuple(item.to_dict() for item in address.components)
+        actual_addresses = tuple(item.address.to_dict() for item in components)
+        if actual_addresses != expected_addresses:
+            raise ComposedGroundError("component projection set differs from the embedded composed address")
+        if self.template_json != address.template_json:
+            raise ComposedGroundError("projection template differs from the embedded composed address")
+        paths = [item.address.field_path for item in components]
+        for index, left in enumerate(paths):
+            for right in paths[index + 1:]:
+                if left == right or left == right[:len(left)] or right == left[:len(right)]:
+                    raise ComposedGroundError("composed projection field paths overlap")
         rebuilt = json.loads(self.template_json)
         for item in components:
             orbit = item.address.orbit_address
@@ -513,6 +544,7 @@ class ComposedVirtualGroundProjection:
         """Mathematics: serialize the structured state, stable projection identity, and independent component receipts."""
         return {
             **self.identity_payload(),
+            "address": json.loads(self.address_json),
             "template_json": self.template_json,
             "state_json": self.state_json,
             "projection_digest": self.projection_digest,
@@ -527,7 +559,7 @@ class ComposedVirtualGroundProjection:
             "schema", "scope", "address_digest", "system_identity", "base_ground",
             "computational_ground", "coordinate", "orbit_offset", "state_schema",
             "template_ref", "state_digest", "components", "template_json", "state_json",
-            "projection_digest", "evidence_digest", "component_projections",
+            "projection_digest", "evidence_digest", "component_projections", "address",
         }
         if not isinstance(payload, Mapping) or set(payload) != expected:
             raise ComposedGroundError("composed projection fields are invalid")
@@ -538,8 +570,10 @@ class ComposedVirtualGroundProjection:
         coordinate = payload["coordinate"]
         if not isinstance(coordinate, Mapping) or set(coordinate) != {"scheduler_id", "tick"}:
             raise ComposedGroundError("composed projection scheduler coordinate is invalid")
+        embedded_address = ComposedVirtualGroundAddress.from_dict(payload["address"])
         projection = cls(
             address_digest=payload["address_digest"],
+            address_json=_canonical_json(embedded_address.to_dict(), "composed address"),
             system_identity=SystemIdentity.from_snapshot(payload["system_identity"]),
             base_ground=VirtualGroundRef.from_dict(payload["base_ground"]),
             computational_ground=RepresentationRef.from_dict(payload["computational_ground"]),
@@ -689,6 +723,7 @@ class ComposedVirtualGroundNavigator:
             raise ComposedGroundError("generated composed state differs from expected_state_digest")
         projection = ComposedVirtualGroundProjection(
             address_digest=address.digest,
+            address_json=_canonical_json(address.to_dict(), "composed address"),
             system_identity=address.system_identity,
             base_ground=address.base_ground,
             computational_ground=address.computational_ground,
