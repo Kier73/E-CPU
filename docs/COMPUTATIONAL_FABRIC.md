@@ -119,15 +119,15 @@ The fabric result and route witness both report `authoritative=False`. They are 
 
 This branch implements **direct peer discovery and multi-hop planning**, not multi-hop forwarding or remote execution. The origin currently needs a direct authenticated snapshot for every peer in the topology view, including intermediate and destination peers. The resolver does not recursively discover neighbours, relay requests, select a backend process at the destination, or call a remote operator.
 
-A later execution pipeline must add a separately admitted operation at every hop. At the destination it must:
-1. receive a typed workload over the existing reliable Transit operation channel;
-2. resolve the address against a local `ComputationalHostCatalogue` and current HeadlessOS state;
-3. verify exact local host/runtime implementation and pinned Structural Memory state;
-4. invoke `ComputationalExecutionAdmissionCoordinator`;
-5. allow Virtual Layer capability reconstruction and Hypervisor policy/effect/replay to decide the operation;
-6. return evidence and receipts correlated with the original semantic request.
+The first forwarding execution pipeline now adds a separately admitted operation at every hop. At the destination it:
+1. receives a typed workload over the existing reliable operation channel;
+2. resolves the address against a local `ComputationalHostCatalogue` and current HeadlessOS state;
+3. verifies exact local host/runtime implementation and pinned Structural Memory state;
+4. invokes `ComputationalExecutionAdmissionCoordinator`;
+5. allows Virtual Layer capability reconstruction and Hypervisor policy/effect/replay to decide the operation;
+6. returns evidence and receipts correlated with the original semantic request.
 
-Forwarding requires its own limits and proof: peer-local authority, source/destination binding, sequence/replay identity, deadline, hop decrement, payload/frame bound, loop prevention, failure/timeout semantics, route freshness, and per-hop receipts. An intermediate router must not convert a remote route witness into rights. End-to-end result provenance and crash recovery will need checkpoint/replay identities and, for rollback-sensitive persistent fabric state, a RecoveryLineage commitment.
+Forwarding has explicit peer-local authority, source/destination binding, sequence/replay identity, hop decrement, payload/frame bounds, route freshness, and digest-linked per-hop receipts. An intermediate router does not convert a remote route witness into rights. The receipt tree is content-linked but not digitally signed: immediate neighbors authenticate one another with mutual TLS, while origin trust remains transitive through configured relays.
 
 ## 7. Testable milestones
 
@@ -141,3 +141,25 @@ The NETWORK-domain hop event governs receiving and forwarding the transport requ
 The current server loop stops on an unhandled downstream failure while leaving the reliable request unacknowledged; it does not spin indefinitely on that same frame. A supervisor must decide whether and how to rebind the per-peer service. That restart path is not yet a forwarding-specific crash-recovery proof.
 
 The original origin identity is carried through the path and used by the terminal semantic execution ledger, but this first version does not include an origin signature. Intermediate peers authenticate their immediate neighbors with mutual TLS; trust in the end-to-end origin claim is therefore transitive through those explicitly trusted relays.
+
+## 8. Per-peer forwarding recovery
+
+`ComputationalFabricForwardingServer.snapshot()` captures one peer's local operational state under a service transition lock. The image contains:
+- the complete receiver-local `HeadlessOS` snapshot, including Hypervisor decisions, committed effects, replay identities and the event journal;
+- the inbound reliable request channel, including its receive cursor, delivered set, pending frames and retry state;
+- the outbound `HypervisorOperationResultChannel`, including its reliable pending response frames and semantic result ledger;
+- each downstream `ComputationalFabricForwardingClient` request and response channel pair, including the downstream semantic-result `seen` ledger;
+- the operation's origin identity, peer adjacency identity, authority PID, and bounded service settings.
+
+The snapshot is local to one peer. It does not serialize TLS sockets, active remote snapshots/leases, local runtime callables, or portable capability grants. After restart, the caller must load the checkpoint, restore the local `HeadlessOS`, rebuild any terminal catalogue/runtime binding against that restored OS, reconnect every adjacent peer using mutual TLS, and supply a freshly observed `ComputationalFabricDirectory`. `ComputationalFabricForwardingServer.from_snapshot()` rejects a downstream transport map whose peer keys differ from the captured client set. The normal constructor rechecks the authenticated previous peer, configured certificate DNS name, and active directory lease before the reliable channel snapshots are rebound.
+
+`ComputationalFabricForwardingRecoveryStore` writes a canonical peer image and `RecoveryStateManifest` into an immutable generation directory, fsyncs both files and the directory where supported, then anchors the exact image digest through the existing strict-majority `RecoveryLineageCoordinator`. A modified image, an unanchored generation, or a valid but older generation is refused. The capture-cut names correspond to the existing operation-channel order:
+- `before_execution`: authority has been reconstructed and the inbound request remains unacknowledged; the handler has not started;
+- `after_execution_commit`: the local Hypervisor effect/replay entry is committed, but the response has not yet been published and the inbound request remains unacknowledged;
+- `after_response_publish`: the response is in the outbound reliable queue, while the inbound request is still unacknowledged;
+- `after_request_ack`: the inbound request is consumed/acknowledged, while the response remains available for reliable retransmission until its own ACK;
+- `idle`: the service is between operations.
+
+The transition lock makes each local capture internally consistent with respect to `serve_once` and downstream `forward` calls. The fault hook can capture these cuts on the serving thread; the lock is re-entrant for that purpose. This is **not a distributed atomic snapshot**: the upstream requester, this peer, and its downstream peer each own independent channel and recovery state. A multi-hop recovery sequence must restore peers from their own quorum-anchored images and reconcile the same immutable semantic operation identity through the existing replay ledgers. It must not infer a global commit from one peer's checkpoint.
+
+This PR verifies the store's quorum/immutability/anti-rollback behavior and checks that the existing A→B→C integration's B and C peer snapshots preserve their Hypervisor execution projections and channel ledgers. It does not yet constitute the complete operating-system subprocess kill/restart proof for a federated relay or terminal peer. It also does not prove recovery of arbitrary external side effects; those still require a durable effect journal or idempotency contract at the actual side-effect owner.
