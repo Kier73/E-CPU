@@ -1928,7 +1928,12 @@ def test_discovery_service_reauthenticates_after_transport_loss_and_directory_re
             directory_checkpoint
         )
         assert restored_directory.active_snapshots == ()
+        local_snapshot = _snapshot(
+            "peer-a",
+            links=(_link("peer-a", "peer-b", 2),),
+        )
         assert restored_directory.peer_revision_high_water == (
+            ("peer-a", local_snapshot.revision, local_snapshot.digest),
             ("peer-b", authority.revision, updated.snapshot_digest),
         )
         restored_service = ComputationalFabricDiscoveryService.from_bootstrap_snapshot(
