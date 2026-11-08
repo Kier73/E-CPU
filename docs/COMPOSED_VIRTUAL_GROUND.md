@@ -95,7 +95,7 @@ For an L-register output recurrence, the first L outputs are already present in 
 
 ### Finite functional graph
 
-The E0 representation already stores its finite preperiod and cycle. A cached inverse index maps each stored state value to its earliest coordinate. Index compilation is linear in the stored orbit description; subsequent queries are expected constant-time. The index does not invoke the transition function to discover new states.
+The E0 representation already stores its finite preperiod and cycle. A cached inverse index maps each stored state value to its earliest coordinate. Index compilation is linear in the stored orbit description; a ContextualOrbitNavigator retains the compiled index per admitted Structural Memory spec, so subsequent queries through that navigator are expected constant-time. The index does not invoke the transition function to discover new states.
 
 ### General path-dependent transitions
 
@@ -104,6 +104,8 @@ There is no universal algebraic inverse for arbitrary guarded transitions, espec
 The path index provides direct lookup for exact states already present in that validated path and returns an existing NavigationWitness. A portable index must be revalidated against the exact descriptor and context after deserialization before lookup. verify_navigation_witness independently replays the returned path under the descriptor and context.
 
 This is an inverse of the indexed path, not an inverse of the entire branching state graph. Absence from one path index is not a proof of global unreachability. Discovering a path that has not been supplied still requires the existing bounded ContextualNavigator or another explicitly budgeted graph/index construction.
+
+The GF(2) *forward* jump uses binary companion-matrix exponentiation and is (O(L^3\log n)) for recurrence order L; the (O(L)) inverse above is only for locating a scalar output bit.
 
 ## 6. Anti-enumeration policy
 
