@@ -591,8 +591,15 @@ def main(arguments: list[str]) -> int:
                     })
                     return 0
                 time.sleep(0.002)
+            downstream_client = server.next_hop_clients["peer-c"]
             raise TimeoutError(
-                f"live relay did not settle {expected_live_operations} terminal operations"
+                f"live relay did not settle {expected_live_operations} terminal operations; "
+                f"completed={completed!r}; receive_cursor={server.inbound.channel.next_receive_sequence}; "
+                f"pending_inbound={server.inbound.channel.pending_sequences()}; "
+                f"pending_outbound={server.outbound.channel.pending_sequences()}; "
+                f"downstream_request_pending={downstream_client.request.channel.pending_sequences()}; "
+                f"downstream_response_pending={downstream_client.response.channel.pending_sequences()}; "
+                f"last_error={server.last_error!r}"
             )
 
         if mode == "prepare":

@@ -1025,7 +1025,15 @@ class VirtualLayerRuntime:
             computational_admission=validated_admission,
         )
         if request.intent_projection != expected_intent_projection:
-            raise VirtualLayerError("intent projection does not match the receiver-recomputed workload and input digests")
+            mismatched_fields = sorted(
+                key
+                for key in set(request.intent_projection or {}) | set(expected_intent_projection)
+                if (request.intent_projection or {}).get(key) != expected_intent_projection.get(key)
+            )
+            raise VirtualLayerError(
+                "intent projection does not match the receiver-recomputed workload and input digests; "
+                f"mismatched_fields={mismatched_fields!r}"
+            )
         for field_name, expected in (("input_bytes", input_bytes), ("estimated_energy", energy), ("estimated_virtual_ticks", ticks)):
             claimed = payload.get(field_name)
             if not isinstance(claimed, int) or isinstance(claimed, bool) or claimed != expected:

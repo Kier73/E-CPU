@@ -1088,9 +1088,11 @@ def test_relay_b_hard_process_kill_restarts_from_quorum_and_replays_same_operati
             f"{terminal_failures_rebound!r}"
         )
         terminal_restored = terminal_holder_rebound["server"]
-        assert len(
-            terminal_restored.operating_system.hypervisor_arbitration.snapshot()["executions"]
-        ) == 1
+        terminal_executions = terminal_restored.operating_system.hypervisor_arbitration.snapshot()["executions"]
+        assert len(terminal_executions) == 2
+        terminal_domains = [item["domain"] for item in terminal_executions]
+        assert terminal_domains.count("network") == 1
+        assert terminal_domains.count("cpu") == 1
         assert not terminal_failures_rebound
 
         relay_result = _wait_json(result_path, relay_restored)
