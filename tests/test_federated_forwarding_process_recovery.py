@@ -439,12 +439,30 @@ def _start_terminal_service(
                     timeout=8.0,
                 )
             else:
-                restored_os = HeadlessOS.from_snapshot(snapshot["operating_system"])
+                def restore_catalogue(restored_os: HeadlessOS) -> ComputationalHostCatalogue:
+                    """Mathematics: Rebind C's trusted local handler to its restored authority process and the verified OS image."""
+                    original = catalogue.loci[0]
+                    restored_os.environment.kernel._process(original.authority_pid)
+                    restored_locus = ComputationalHostLocus.from_runtime(
+                        host_id=original.host_id,
+                        runtime=original.runtime_binding,
+                        authority_pid=original.authority_pid,
+                        operator_id=original.operator_spec.operator_id,
+                        computational_ground_fingerprints=original.computational_ground_fingerprints,
+                        costs=original.costs,
+                        program_fingerprints=original.program_fingerprints,
+                        supports_ground_program_compilation=original.supports_ground_program_compilation,
+                        version=original.operator_spec.version,
+                        supports_structural_memory=original.supports_structural_memory,
+                        implementation_fingerprint=original.implementation_fingerprint,
+                    )
+                    return ComputationalHostCatalogue((restored_locus,))
+
                 server = ComputationalFabricForwardingServer.from_snapshot(
                     snapshot,
                     transport,
                     directory,
-                    catalogue=catalogue,
+                    catalogue_factory=restore_catalogue,
                 )
             holder["server"] = server
             listener.close()
@@ -1065,6 +1083,10 @@ def test_relay_b_hard_process_kill_restarts_from_quorum_and_replays_same_operati
 
         expected_final_calls = 1
         assert calls == ["federated-process-recovery-sum"]
+        assert "server" in terminal_holder_rebound, (
+            "terminal peer could not bind its verified recovery image: "
+            f"{terminal_failures_rebound!r}"
+        )
         terminal_restored = terminal_holder_rebound["server"]
         assert len(
             terminal_restored.operating_system.hypervisor_arbitration.snapshot()["executions"]
