@@ -1535,7 +1535,11 @@ def test_federated_forwarding_continues_through_discovery_sidecar_loss_and_repla
             True,
         ]
         terminal_executions = terminal_holder["server"].operating_system.hypervisor_arbitration.snapshot()["executions"]
-        assert len(terminal_executions) == 2
+        assert len(terminal_executions) == 4
+        terminal_domains = [item["domain"] for item in terminal_executions]
+        assert terminal_domains.count("network") == 2
+        assert terminal_domains.count("cpu") == 2
+        assert len(calls) == 2
         assert not terminal_failures
 
         stdout, stderr = relay.communicate(timeout=15)
@@ -2137,7 +2141,9 @@ def test_relay_then_terminal_hard_kills_preserve_one_federated_operation_history
         assert first_receipt.downstream.peer_id == "peer-c"
         assert first_receipt.downstream.terminal_execution is not None
         assert first_receipt.downstream.terminal_execution["execution"]["effect"]["result"] == 9
-        assert first_receipt.downstream.terminal_execution["execution"]["replayed"] is True
+        # B replays its cached NETWORK result; this nested C receipt is the
+        # original successful terminal execution, not a second C execution.
+        assert first_receipt.downstream.terminal_execution["execution"]["replayed"] is False
 
         # A new operation after both process deaths proves the restored channel
         # cursors and semantic ledgers can advance together, not merely replay.
