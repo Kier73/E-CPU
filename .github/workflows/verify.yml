@@ -9,6 +9,12 @@ on:
 permissions:
   contents: read
 
+# A push and its associated PR use the same head-branch group. Keep the
+# newest verification attempt; stale queued matrices cannot validate HEAD.
+concurrency:
+  group: verify-${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   gate:
     name: specification gate
