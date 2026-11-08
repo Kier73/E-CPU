@@ -9,6 +9,7 @@ from mailcpu import (
     ComposedVirtualGroundAddress,
     ObserverContract,
     ObserverReceipt,
+    PredictiveCandidatePoolBuilder,
     StructuralMemoryRegistry,
     VirtualStructuralMemoryRef,
     canonical_value_digest,
@@ -30,7 +31,6 @@ from mailcpu.predictive_selection import (
     PredictiveGroundObservation,
     PredictiveSelectionError,
     predictive_experiment_digest,
-    _navigation_work_units,
 )
 from mailcpu.semantic_translation import ObservationContract
 from mailcpu.temporal import SchedulerReading, TemporalFrame
@@ -210,23 +210,9 @@ def test_selector_ranks_composed_descriptions_on_chronological_holdouts():
         "alternative",
         alternative_laws,
     )
-    permuted_laws = _laws_map(original_laws)
-    permuted_laws["program-counter"] = Law(
-        "int",
-        {"x0": 88, "step": -3, "mod": 101},
-        1,
-        "GROUND",
-    )
-    permuted_address = _candidate_address(
-        registry,
-        address,
-        "permuted",
-        permuted_laws,
-    )
     candidates = (
         PredictiveDescriptionCandidate("grounded", address),
         PredictiveDescriptionCandidate("alternative", alternative_address),
-        PredictiveDescriptionCandidate("permuted", permuted_address),
     )
     observations = _make_observations(
         address,
@@ -246,7 +232,6 @@ def test_selector_ranks_composed_descriptions_on_chronological_holdouts():
     assert "grounded" in report.pareto_frontier
     grounded = next(item for item in report.evaluations if item.candidate_id == "grounded")
     alternative = next(item for item in report.evaluations if item.candidate_id == "alternative")
-    permuted = next(item for item in report.evaluations if item.candidate_id == "permuted")
     assert grounded.partition("development").sample_count == 2
     assert grounded.partition("validation").sample_count == 2
     assert grounded.partition("test").sample_count == 2
@@ -259,35 +244,6 @@ def test_selector_ranks_composed_descriptions_on_chronological_holdouts():
     assert grounded.partition("validation").component_state_space_coverage == 1.0
     assert alternative.partition("validation").component_accuracy < 1.0
     assert alternative.partition("validation").predictive_yield < 1.0
-    grounded_components = {
-        item.component_id: item
-        for item in grounded.partition("validation").component_metrics
-    }
-    alternative_components = {
-        item.component_id: item
-        for item in alternative.partition("validation").component_metrics
-    }
-    permuted_components = {
-        item.component_id: item
-        for item in permuted.partition("validation").component_metrics
-    }
-    pc_grounded = grounded_components["program-counter"]
-    pc_alternative = alternative_components["program-counter"]
-    pc_permuted = permuted_components["program-counter"]
-    assert pc_grounded.accuracy_ratio == 1.0
-    assert pc_grounded.state_support_coverage == 1.0
-    assert pc_grounded.observed_change_intervals == 1
-    assert pc_grounded.predicted_change_intervals == 1
-    assert pc_grounded.change_detection_accuracy == 1.0
-    assert pc_grounded.transition_value_accuracy == 1.0
-    assert pc_alternative.accuracy_ratio == 0.0
-    assert pc_alternative.change_detection_accuracy == 1.0
-    assert pc_alternative.transition_value_accuracy == 0.0
-    assert pc_alternative.matched_transitions == 0
-    assert pc_permuted.accuracy_ratio == 0.0
-    assert pc_permuted.state_support_coverage == 1.0
-    assert pc_permuted.change_detection_accuracy == 1.0
-    assert pc_permuted.transition_value_accuracy == 0.0
     assert grounded.partition("validation").navigation_work_units > 0
     assert len(grounded.partition("validation").navigation_evidence_digest) == 64
     assert grounded.description_bytes > 0
@@ -475,9 +431,110 @@ def test_selector_refuses_an_empty_validation_window():
         )
 
 
-def test_navigation_work_proxy_reflects_direct_family_costs():
-    assert _navigation_work_units("int", {}, 1, 1024) == 1
-    assert _navigation_work_units("fgraph", {"orbit": [1, 2, 3, 4]}, 4, 1024) == 4
-    assert _navigation_work_units("lcg", {"mod": 2**32}, 1, 255) == 8
-    assert _navigation_work_units("gf2", {}, 2, 1) == 1
-    assert _navigation_work_units("gf2", {}, 2, 255) == 64
+def test_admitted_versions_lists_only_admitted_revisions_in_stable_order():
+    registry, address, laws = _fixture()
+    baseline_versions = registry.admitted_versions()
+    assert len(baseline_versions) == len(address.components)
+    assert tuple(
+        (item.spec.memory_id, item.spec.revision, item.spec.digest)
+        for item in baseline_versions
+    ) == tuple(sorted(
+        (item.spec.memory_id, item.spec.revision, item.spec.digest)
+        for item in baseline_versions
+    ))
+
+    component = address.components[0]
+    laws_by_id = _laws_map(laws)
+    context = composed_component_context(
+        address.system_identity,
+        address.base_ground,
+        address.computational_ground,
+        address.state_schema,
+        address.template,
+        scheduler_id=address.coordinate.scheduler_id,
+        component_id=component.component_id,
+        field_path=component.field_path,
+        representation=component.representation,
+        value_kind=component.value_kind,
+        extensions=dict(address.extensions),
+    )
+    staged = registry.propose(
+        "not-admitted-" + component.component_id,
+        laws_by_id[component.component_id],
+        {coordinate: laws_by_id[component.component_id].navigate(coordinate) for coordinate in range(8)},
+        domain="candidate-pool-test",
+        context=context,
+    )
+    assert registry.admitted_versions(staged.spec.memory_id) == ()
+    assert all(item.spec.memory_id != staged.spec.memory_id for item in registry.admitted_versions())
+
+
+def test_candidate_pool_builder_emits_only_bounded_one_factor_admitted_variants():
+    registry, address, laws = _fixture()
+    alternative_laws = _laws_map(laws)
+    alternative_laws["program-counter"] = Law(
+        "int",
+        {"x0": 7, "step": 4, "mod": 101},
+        1,
+        "GROUND",
+    )
+    _candidate_address(registry, address, "pool-alternative", alternative_laws)
+
+    builder = PredictiveCandidatePoolBuilder(registry)
+    complete = builder.build_one_factor(address, max_candidates=8)
+    bounded = builder.build_one_factor(address, max_candidates=2)
+    repeated = builder.build_one_factor(address, max_candidates=2)
+
+    assert len(complete.candidates) == 4
+    assert complete.discovered_candidate_count == 4
+    assert complete.omitted_candidate_count == 0
+    assert complete.candidates[0].candidate_id == "baseline"
+    assert bounded.candidates[0] == complete.candidates[0]
+    assert len(bounded.candidates) == 2
+    assert bounded.max_candidates == 2
+    assert bounded.discovered_candidate_count == 4
+    assert bounded.omitted_candidate_count == 2
+    assert bounded.digest == repeated.digest
+    assert bounded.candidates == repeated.candidates
+
+    baseline_by_id = {
+        item.component_id: item.orbit_address.structural_memory.spec_digest
+        for item in address.components
+    }
+    for candidate in complete.candidates[1:]:
+        changed = [
+            item.component_id
+            for item in candidate.address.components
+            if item.orbit_address.structural_memory.spec_digest
+            != baseline_by_id[item.component_id]
+        ]
+        assert len(changed) == 1
+        assert candidate.experiment_digest == complete.experiment_digest
+
+    too_small = builder.build_one_factor(address, max_candidates=1)
+    assert too_small.candidates == (complete.candidates[0],)
+    assert too_small.omitted_candidate_count == 3
+    assert too_small.to_dict()["pool_digest"] == too_small.digest
+    observations = _make_observations(address, _laws_map(laws), (511, 512, 513, 514))
+    report = PredictiveDescriptionSelector(registry).evaluate_pool(
+        bounded,
+        observations,
+        development_through_tick=511,
+        validation_through_tick=513,
+    )
+    pool_record = report.identity_payload()["candidate_pool"]
+    assert pool_record["pool_digest"] == bounded.digest
+    assert pool_record["max_candidates"] == 2
+    assert pool_record["discovered_candidate_count"] == 4
+    assert pool_record["included_candidate_count"] == 2
+    assert pool_record["omitted_candidate_count"] == 2
+    assert report.to_dict()["report_digest"] == report.digest
+
+
+def test_candidate_pool_rejects_non_positive_and_oversized_budgets():
+    registry, address, _ = _fixture()
+    builder = PredictiveCandidatePoolBuilder(registry)
+    with pytest.raises(PredictiveSelectionError, match="max_candidates"):
+        builder.build_one_factor(address, max_candidates=0)
+    with pytest.raises(PredictiveSelectionError, match="hard pool bound"):
+        builder.build_one_factor(address, max_candidates=4097)

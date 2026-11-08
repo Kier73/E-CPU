@@ -51,6 +51,22 @@ Candidate laws are fixed and admitted before this function runs. In this first v
 
 The evaluator requires at least one development and one validation observation. A test partition may be empty, but the report then makes no out-of-window test claim. Scheduler ticks must be unique and the observed state must contain every declared component field with the declared scalar encoding.
 
+## 3A. Bounded candidate discovery from admitted memory
+
+PredictiveCandidatePoolBuilder constructs a deterministic baseline-plus-one-factor candidate pool from the receiver-local StructuralMemoryRegistry.
+
+For each component, it looks up already-admitted versions whose canonical Structural Memory context is byte-for-byte equivalent to that component's pinned context. A variant replaces exactly one component revision while preserving the common SystemIdentity, base Ground, Computational Ground, scheduler, state schema, template, field path, representation and scalar encoding. The baseline is always first.
+
+The planner does not:
+- fit or infer generator laws from observations;
+- stage, authorize, or admit Structural Memory proposals;
+- combine every revision across every component; or
+- enumerate component state trajectories.
+
+The pool is bounded by max_candidates (hard maximum 4096, default 64). Alternatives are sorted by component identity and immutable spec digest; if the budget is reached, the omitted count is explicit. The pool digest binds the strategy, experiment, candidate identities, budget, discovered count and truncation count. A deterministic one-factor scan costs O(V + K) after retrieving V admitted versions, where K is the number of context-matching variants materialized. It avoids the Cartesian product \(\prod_i |R_i|\) of all component revisions. The selector's evaluate_pool method binds that pool digest, strategy, discovered/included/omitted counts into the final selection report digest, including the maximum candidate budget, so the recommendation is traceable to the exact bounded search space.
+
+Candidate versions remain proposals for comparison only. A high-ranking historical or alternative revision does not become active, and its presence in the pool grants no new authority. The evaluator must still score the pool against independent chronological observations, and any later promotion must use its own holdout witnesses and admission gate.
+
 ## 4. Prediction and residual metrics
 
 Each candidate is rebound to the observed absolute scheduler tick while retaining its exact base Ground, context, Structural Memory revision, spec digest, and certificate digest. ComposedVirtualGroundNavigator.locate evaluates every component directly at that common coordinate.

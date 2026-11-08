@@ -32,8 +32,9 @@ from .observer_orbit import (
     verify_observer_receipt,
 )
 from .semantic_translation import canonical_value_digest
-from .structural_memory import StructuralMemoryError, StructuralMemoryRegistry
+from .structural_memory import StructuralMemoryError, StructuralMemoryRegistry, StructuralMemoryVersion
 from .temporal import SchedulerReading
+from .virtual_layer import VirtualStructuralMemoryRef
 
 
 _SCHEMA = "mailcpu.predictive-description-selection.v1"
@@ -1002,6 +1003,11 @@ class PredictiveSelectionReport:
     selected_candidate_id: str
     evaluations: tuple[PredictiveCandidateEvaluation, ...]
     operational_profile_json: str
+    candidate_pool_digest: str | None = None
+    candidate_pool_strategy: str | None = None
+    candidate_pool_max_candidates: int | None = None
+    candidate_pool_discovered_count: int | None = None
+    candidate_pool_omitted_count: int | None = None
     recommendation_authoritative: bool = False
 
     def __post_init__(self) -> None:
@@ -1026,6 +1032,28 @@ class PredictiveSelectionReport:
             raise PredictiveSelectionError("report Pareto frontier is invalid")
         if self.recommendation_authoritative is not False:
             raise PredictiveSelectionError("predictive selection recommendations are never execution authority")
+        pool_fields = (
+            self.candidate_pool_strategy,
+            self.candidate_pool_max_candidates,
+            self.candidate_pool_discovered_count,
+            self.candidate_pool_omitted_count,
+        )
+        if self.candidate_pool_digest is None:
+            if any(item is not None for item in pool_fields):
+                raise PredictiveSelectionError("candidate pool metadata requires a candidate pool digest")
+        else:
+            _require_digest(self.candidate_pool_digest, "candidate pool digest")
+            if self.candidate_pool_strategy != "one-factor-admitted-revisions.v1":
+                raise PredictiveSelectionError("candidate pool report strategy is unsupported")
+            _require_int(self.candidate_pool_max_candidates, "candidate pool max candidates", minimum=1)
+            if self.candidate_pool_max_candidates > 4096:
+                raise PredictiveSelectionError("candidate pool report exceeds the hard budget")
+            if len(evaluations) > self.candidate_pool_max_candidates:
+                raise PredictiveSelectionError("candidate pool report includes more candidates than its budget")
+            _require_int(self.candidate_pool_discovered_count, "candidate pool discovered count", minimum=1)
+            _require_int(self.candidate_pool_omitted_count, "candidate pool omitted count")
+            if self.candidate_pool_discovered_count != len(evaluations) + self.candidate_pool_omitted_count:
+                raise PredictiveSelectionError("candidate pool report counts do not balance")
         try:
             profile = json.loads(self.operational_profile_json)
         except (TypeError, json.JSONDecodeError) as exc:
@@ -1049,6 +1077,14 @@ class PredictiveSelectionReport:
             "selected_candidate_id": self.selected_candidate_id,
             "candidate_evaluations": [item.to_dict() for item in self.evaluations],
             "operational_profile": json.loads(self.operational_profile_json),
+            "candidate_pool": None if self.candidate_pool_digest is None else {
+                "pool_digest": self.candidate_pool_digest,
+                "strategy": self.candidate_pool_strategy,
+                "max_candidates": self.candidate_pool_max_candidates,
+                "discovered_candidate_count": self.candidate_pool_discovered_count,
+                "included_candidate_count": len(self.evaluations),
+                "omitted_candidate_count": self.candidate_pool_omitted_count,
+            },
             "recommendation_authoritative": False,
             "selection_scope": "offline-predictive-description-recommendation",
         }
@@ -1101,6 +1137,176 @@ def _navigation_work_units(family: str, parameters: Mapping[str, Any], order: in
             return 1
         return max(1, order ** 3 * coordinate.bit_length())
     raise PredictiveSelectionError(f"unsupported generator family {family!r}")
+
+
+@dataclass(frozen=True)
+class PredictiveCandidatePool:
+    """Bounded, deterministic pool of one-factor variants over admitted component revisions."""
+
+    experiment_digest: str
+    candidates: tuple[PredictiveDescriptionCandidate, ...]
+    max_candidates: int
+    discovered_candidate_count: int
+    omitted_candidate_count: int
+    strategy: str = "one-factor-admitted-revisions.v1"
+
+    def __post_init__(self) -> None:
+        """Mathematics: bind a non-empty candidate subset to one experiment and account exactly for budget truncation."""
+        _require_digest(self.experiment_digest, "candidate pool experiment digest")
+        _require_int(self.max_candidates, "max_candidates", minimum=1)
+        if self.max_candidates > 4096:
+            raise PredictiveSelectionError("max_candidates exceeds the hard pool bound of 4096")
+        _require_int(self.discovered_candidate_count, "discovered_candidate_count", minimum=1)
+        _require_int(self.omitted_candidate_count, "omitted_candidate_count")
+        if not isinstance(self.candidates, (tuple, list)):
+            raise PredictiveSelectionError("candidate pool candidates must be a finite sequence")
+        candidates = tuple(self.candidates)
+        if not candidates or len(candidates) > self.max_candidates:
+            raise PredictiveSelectionError("candidate pool is empty or exceeds its declared budget")
+        if any(not isinstance(item, PredictiveDescriptionCandidate) for item in candidates):
+            raise PredictiveSelectionError("candidate pool must contain PredictiveDescriptionCandidate values")
+        if candidates[0].candidate_id != "baseline":
+            raise PredictiveSelectionError("candidate pool must retain the baseline as its first candidate")
+        if any(item.experiment_digest != self.experiment_digest for item in candidates):
+            raise PredictiveSelectionError("candidate pool contains a different experiment identity")
+        ids = [item.candidate_id for item in candidates]
+        digests = [item.digest for item in candidates]
+        if len(set(ids)) != len(ids) or len(set(digests)) != len(digests):
+            raise PredictiveSelectionError("candidate pool IDs and candidate descriptions must be unique")
+        if self.discovered_candidate_count != len(candidates) + self.omitted_candidate_count:
+            raise PredictiveSelectionError("candidate pool discovery and truncation counts do not balance")
+        if self.strategy != "one-factor-admitted-revisions.v1":
+            raise PredictiveSelectionError("candidate pool strategy is unsupported")
+        object.__setattr__(self, "candidates", candidates)
+
+    @property
+    def digest(self) -> str:
+        """Mathematics: identify the deterministic candidate pool, discovery count, budget and omitted work."""
+        return _digest(self.identity_payload(), "predictive candidate pool")
+
+    def identity_payload(self) -> dict[str, Any]:
+        """Mathematics: project every candidate address and pool-budget outcome into one canonical identity."""
+        return {
+            "schema": "mailcpu.predictive-candidate-pool.v1",
+            "experiment_digest": self.experiment_digest,
+            "strategy": self.strategy,
+            "max_candidates": self.max_candidates,
+            "discovered_candidate_count": self.discovered_candidate_count,
+            "included_candidate_count": len(self.candidates),
+            "omitted_candidate_count": self.omitted_candidate_count,
+            "candidates": [item.to_dict() for item in self.candidates],
+            "authority": "advisory-candidate-discovery-only",
+        }
+
+    def to_dict(self) -> dict[str, Any]:
+        """Mathematics: serialize the pool identity and its reproducible content digest."""
+        return {**self.identity_payload(), "pool_digest": self.digest}
+
+
+class PredictiveCandidatePoolBuilder:
+    """Construct bounded one-component-at-a-time alternatives from admitted Structural Memory versions."""
+
+    def __init__(self, registry: StructuralMemoryRegistry) -> None:
+        """Mathematics: bind the planner to one receiver-local registry of already-admitted immutable versions."""
+        if not isinstance(registry, StructuralMemoryRegistry):
+            raise PredictiveSelectionError("candidate pool builder requires a StructuralMemoryRegistry")
+        self.registry = registry
+
+    def build_one_factor(
+        self,
+        address: ComposedVirtualGroundAddress,
+        *,
+        max_candidates: int = 64,
+    ) -> PredictiveCandidatePool:
+        """Build a deterministic baseline-plus-one-component-variant pool under a hard candidate budget.
+
+        Mathematics:
+        For baseline composition C=(g_1,...,g_m), enumerate eligible admitted
+        revisions R_i sharing component i's exact immutable context. Emit C
+        and each C[i <- r] independently. Do not form cross-component products;
+        therefore discovery is O(V + K), where V is the number of all admitted
+        versions and K is the number of exact-context matches emitted. It
+        cannot grow as a Cartesian product of component revision counts.
+        """
+        if not isinstance(address, ComposedVirtualGroundAddress):
+            raise PredictiveSelectionError("candidate discovery requires a ComposedVirtualGroundAddress")
+        budget = _require_int(max_candidates, "max_candidates", minimum=1)
+        if budget > 4096:
+            raise PredictiveSelectionError("max_candidates exceeds the hard pool bound of 4096")
+
+        baseline = PredictiveDescriptionCandidate("baseline", address)
+        admitted_versions = self.registry.admitted_versions()
+        versions_by_context: dict[str, list[StructuralMemoryVersion]] = defaultdict(list)
+        for version in admitted_versions:
+            versions_by_context[
+                _canonical_json(version.spec.context, "admitted component context")
+            ].append(version)
+        alternatives: list[tuple[str, str, PredictiveDescriptionCandidate]] = []
+        for component in address.components:
+            current_ref = component.orbit_address.structural_memory
+            current_version = self.registry.version_for_revision(
+                current_ref.memory_id,
+                current_ref.revision,
+            )
+            if (
+                current_version.spec.digest != current_ref.spec_digest
+                or current_version.certificate.digest != current_ref.certificate_digest
+                or current_version.spec.context != dict(current_ref.context)
+            ):
+                raise PredictiveSelectionError(
+                    f"baseline component {component.component_id!r} no longer matches its admitted revision"
+                )
+            component_context = _canonical_json(dict(current_ref.context), "component context")
+            for version in versions_by_context.get(component_context, ()):
+                if (
+                    version.spec.digest == current_ref.spec_digest
+                    and version.certificate.digest == current_ref.certificate_digest
+                ):
+                    continue
+                if _canonical_json(version.spec.context, "admitted component context") != component_context:
+                    continue
+                memory_ref = VirtualStructuralMemoryRef.from_version(
+                    current_ref.binding,
+                    version,
+                    current_ref.coordinate,
+                )
+                orbit_address = replace(
+                    component.orbit_address,
+                    structural_memory=memory_ref,
+                )
+                replacement_component = replace(component, orbit_address=orbit_address)
+                replacement_components = tuple(
+                    replacement_component if item.component_id == component.component_id else item
+                    for item in address.components
+                )
+                candidate_address = replace(address, components=replacement_components)
+                variant_identity = {
+                    "component_id": component.component_id,
+                    "memory_id": version.spec.memory_id,
+                    "revision": version.spec.revision,
+                    "spec_digest": version.spec.digest,
+                    "certificate_digest": version.certificate.digest,
+                }
+                candidate_id = "variant-" + _digest(variant_identity, "candidate variant identity")[:24]
+                candidate = PredictiveDescriptionCandidate(candidate_id, candidate_address)
+                alternatives.append((
+                    component.component_id,
+                    version.spec.digest,
+                    candidate,
+                ))
+
+        alternatives.sort(key=lambda item: (item[0], item[1], item[2].candidate_id))
+        discovered_count = 1 + len(alternatives)
+        selected = (baseline,) + tuple(
+            item[2] for item in alternatives[: max(0, budget - 1)]
+        )
+        return PredictiveCandidatePool(
+            experiment_digest=baseline.experiment_digest,
+            candidates=selected,
+            max_candidates=budget,
+            discovered_candidate_count=discovered_count,
+            omitted_candidate_count=discovered_count - len(selected),
+        )
 
 
 class PredictiveDescriptionSelector:
@@ -1458,6 +1664,38 @@ class PredictiveDescriptionSelector:
                 "fabric_route_cost_sums": "sum of typed route metric amounts in their declared units",
             },
         }
+
+    def evaluate_pool(
+        self,
+        pool: PredictiveCandidatePool,
+        observations: Sequence[PredictiveGroundObservation],
+        *,
+        development_through_tick: int,
+        validation_through_tick: int,
+    ) -> PredictiveSelectionReport:
+        """Evaluate a bounded candidate pool and bind its discovery/truncation record into the report.
+
+        Mathematics: evaluate P.candidates with the same chronological selector,
+        then bind H(P), |P_discovered| and |P_omitted| into the immutable report
+        identity. The omitted candidates are explicit; no unseen pool member is
+        silently treated as evaluated.
+        """
+        if not isinstance(pool, PredictiveCandidatePool):
+            raise PredictiveSelectionError("evaluate_pool requires a PredictiveCandidatePool")
+        report = self.evaluate(
+            pool.candidates,
+            observations,
+            development_through_tick=development_through_tick,
+            validation_through_tick=validation_through_tick,
+        )
+        return replace(
+            report,
+            candidate_pool_digest=pool.digest,
+            candidate_pool_strategy=pool.strategy,
+            candidate_pool_max_candidates=pool.max_candidates,
+            candidate_pool_discovered_count=pool.discovered_candidate_count,
+            candidate_pool_omitted_count=pool.omitted_candidate_count,
+        )
 
     def evaluate(
         self,
