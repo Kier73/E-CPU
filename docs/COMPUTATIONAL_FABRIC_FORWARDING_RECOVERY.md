@@ -94,6 +94,8 @@ The digest is an integrity binding and the RecoveryLineage quorum supplies the r
 ```sh
 python -m pytest tests/test_computational_fabric_forwarding_recovery.py -q
 python -m pytest tests/test_computational_fabric.py -k federated_workload_forwards_over_two_authenticated_hops_and_replays_once -q
+python -m pytest tests/test_hypervisor_transport.py -q
+python -m pytest tests/test_federated_forwarding_process_recovery.py -q
 python scripts/verify_invariants.py
 python scripts/verify_repo.py
 ```
