@@ -410,10 +410,6 @@ class ComputationalFabricForwardingRecoveryStore:
             raise ComputationalFabricForwardingRecoveryError(
                 "forwarding recovery manifest is not canonically persisted"
             )
-        if _canonical_json(snapshot) + b"\n" != snapshot_bytes:
-            raise ComputationalFabricForwardingRecoveryError(
-                "forwarding snapshot is not canonically persisted"
-            )
         if manifest.generation != selected or manifest.capture_cut != snapshot["capture_cut"]:
             raise ComputationalFabricForwardingRecoveryError(
                 "forwarding manifest generation or capture cut differs from the artifact"
@@ -425,6 +421,10 @@ class ComputationalFabricForwardingRecoveryStore:
             raise ComputationalFabricForwardingRecoveryError(
                 f"forwarding generation {selected} refused: {exc}"
             ) from exc
+        if _canonical_json(snapshot) + b"\n" != snapshot_bytes:
+            raise ComputationalFabricForwardingRecoveryError(
+                "forwarding snapshot is not canonically persisted"
+            )
         return VerifiedComputationalFabricForwardingCheckpoint(
             manifest,
             proof,
