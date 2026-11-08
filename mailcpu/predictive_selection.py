@@ -1269,7 +1269,7 @@ class PredictiveDescriptionSelector:
         ))
 
         def ranking_key(candidate_id: str) -> tuple[Any, ...]:
-            """Order candidates using validation prediction first, followed by explicit resource costs."""
+            """Mathematics: Order candidates by validation prediction, then explicit navigation, description, and verification costs."""
             evaluation = by_id[candidate_id]
             metrics = evaluation.partition("validation")
             return (
