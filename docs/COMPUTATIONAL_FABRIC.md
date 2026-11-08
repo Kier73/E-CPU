@@ -117,7 +117,17 @@ the local mutual-TLS client context, RPC timeout, and refresh cadence.
 The service therefore preserves the distinction between durable trust/rollback
 memory and ephemeral authenticated observations. It discovers configured
 direct peers only; it does not treat relayed topology claims as direct TLS
-observations, and it does not yet supervise the remote peer's listener process.
+observations.
+
+On the peer-owning side, `ComputationalFabricPeerListener` owns a listening
+socket and repeatedly accepts mutual-TLS sessions for one configured direct
+client identity. Each accepted stream receives a fresh
+`ComputationalFabricPeerServer` and fresh reliable directory channels. When a
+client disconnects or a session fails, the listener closes that session and
+returns to accept; a replacement client must complete a new TLS handshake and
+DNS identity check. The listener is a per-process service loop, not a process
+supervisor: the deployment/service owner remains responsible for restarting
+the listener process and re-registering its current local authority snapshot.
 
 ## 5. Multi-hop route selection
 
