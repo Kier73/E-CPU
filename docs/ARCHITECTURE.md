@@ -24,6 +24,11 @@ Feature = (state, authority, request, transition, reply, persistence, failure)
 Each element is total. A feature with an undefined element is not specified and
 MUST NOT be exposed.
 
+For a cross-subsystem account of the mathematical models and their proof
+boundaries, see [SYSTEM_MATHEMATICAL_MAP.md](SYSTEM_MATHEMATICAL_MAP.md). The map
+connects the models without collapsing their separate state owners or authority
+contracts.
+
 ## 3. Kernel state and transition boundary
 
 The kernel evaluates a request as a transition over a product state:

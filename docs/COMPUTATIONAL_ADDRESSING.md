@@ -4,7 +4,7 @@
 
 This note formalizes one architectural direction for E-CPU: a computational system can be treated as a persistent, addressable transition structure whose state and operations are reached through communication. The execution substrate may be a local CPU, an E-GPU method, another server, or a later distributed backend. Computational identity should not be confused with the machine or process that realizes one transition.
 
-This is an architectural synthesis, not a claim that E-CPU already has a universal network-wide state-space resolver. The current implementation supplies several necessary primitives: typed Virtual Layer workloads, Ground and operator identities, exact Transit routing, receiver-local authority reconstruction, execution ledgers, durable channel state, and quorum-gated recovery bundles.
+This is an architectural synthesis, not a claim that E-CPU already has a universal network-wide state-space resolver. For the broader mathematical relationship among computational addresses, state-space navigation, operational hosts, causality, evidence, and recovery, see [SYSTEM_MATHEMATICAL_MAP.md](SYSTEM_MATHEMATICAL_MAP.md). The current implementation supplies several necessary primitives: typed Virtual Layer workloads, Ground and operator identities, exact Transit routing, receiver-local authority reconstruction, execution ledgers, durable channel state, and quorum-gated recovery bundles.
 
 ## 1. Computational structure
 

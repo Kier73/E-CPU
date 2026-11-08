@@ -15,6 +15,11 @@ Every observation belongs to one of four evidence classes:
 
 An architectural possibility can be important before it is implemented. It must not be presented as a demonstrated capability. Likewise, this document does not claim that an idea is the first of its kind in the history of computing. Such a priority claim would require a dedicated prior-art review.
 
+The cross-subsystem mathematical inventory is maintained in
+[SYSTEM_MATHEMATICAL_MAP.md](SYSTEM_MATHEMATICAL_MAP.md). Read it as a map of
+composable models and evidence boundaries, not as a claim that all subsystems
+share one graph, clock, or solver.
+
 ## 1. Present system: what it can do
 
 The following describes mainline after PRs #16–22. In addition to the original Structural Memory registry, the merged work now binds pinned structural references to Virtual Layer operators, exposes them through a read-only VFS provider, and uses them as content-addressed demand-page backing for virtual memory. This review records integrated boundaries, not claims of universal execution or production deployment.
