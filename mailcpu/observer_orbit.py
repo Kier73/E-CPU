@@ -28,8 +28,8 @@ from .law_certifier import (
     HorizonExceeded,
     Law,
     Refused,
-    find_coordinate_fgraph,
     find_coordinate_gf2_bit,
+    FiniteGraphInverseIndex,
     find_coordinate_int,
     find_coordinate_lcg_adic,
     navigate_guarded,
@@ -1107,9 +1107,19 @@ class ContextualOrbitNavigator:
     """
 
     def __init__(self, registry: StructuralMemoryRegistry) -> None:
+        """Mathematics: bind the navigator to one receiver-local Structural Memory registry and its reusable inverse indexes."""
         if not isinstance(registry, StructuralMemoryRegistry):
             raise ObserverOrbitError("ContextualOrbitNavigator requires a StructuralMemoryRegistry")
         self.registry = registry
+        self._fgraph_inverse_indexes: dict[str, FiniteGraphInverseIndex] = {}
+
+    def _find_fgraph_coordinate(self, spec_digest: str, orbit: Sequence[int], target: int) -> int | None:
+        """Mathematics: compile each pinned finite orbit once per navigator, then answer later lookups in expected O(1)."""
+        index = self._fgraph_inverse_indexes.get(spec_digest)
+        if index is None:
+            index = FiniteGraphInverseIndex(orbit)
+            self._fgraph_inverse_indexes[spec_digest] = index
+        return index.find(target)
 
     def _version_for_address(self, address: ContextualOrbitAddress):
         """Mathematics: resolve the exact admitted memory revision and recheck its spec and certificate digests."""
@@ -1327,7 +1337,8 @@ class ContextualOrbitNavigator:
             )
             inverse_complexity = "O(L)"
         elif family == "fgraph":
-            candidate = find_coordinate_fgraph(
+            candidate = self._find_fgraph_coordinate(
+                version.spec.digest,
                 params["orbit"],
                 target_value,
             )
