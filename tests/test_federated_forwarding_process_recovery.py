@@ -1803,6 +1803,9 @@ def test_terminal_peer_c_hard_process_kill_recovers_while_relay_b_survives(
         assert first_receipt.downstream.peer_id == "peer-c"
         assert first_receipt.downstream.terminal_execution is not None
         assert first_receipt.downstream.terminal_execution["execution"]["effect"]["result"] == 9
+        assert first_receipt.downstream.terminal_execution["execution"]["replayed"] is (
+            cut != "before_execution"
+        )
 
         # A second, new operation forces B to drain any old duplicate C result
         # before accepting the current result; it proves the rebinding path
