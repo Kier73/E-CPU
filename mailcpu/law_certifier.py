@@ -22,7 +22,7 @@ import math
 from dataclasses import dataclass, field
 from math import gcd
 from types import MappingProxyType
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 
 class Refused(Exception):
