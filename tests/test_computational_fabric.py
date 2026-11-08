@@ -446,15 +446,18 @@ def test_directory_trust_map_is_detached_from_caller_mutation() -> None:
                 "peer-c": "shared.fabric.test",
             },
         )
-    with pytest.raises(ComputationalFabricError, match="aggregate peer bound"):
-        ComputationalFabricDirectory(
-            "peer-a",
-            {
-                "peer-b": "peer-b.fabric.test",
-                "peer-c": "peer-c.fabric.test",
-            },
-            max_peers=2,
-        )
+    broader_trust = ComputationalFabricDirectory(
+        "peer-a",
+        {
+            "peer-b": "peer-b.fabric.test",
+            "peer-c": "peer-c.fabric.test",
+        },
+        max_peers=2,
+    )
+    assert broader_trust.trusted_peers == {
+        "peer-b": "peer-b.fabric.test",
+        "peer-c": "peer-c.fabric.test",
+    }
     snapshot = _snapshot("peer-b")
     assert directory.trusted_peers == {"peer-b": "peer-b.fabric.test"}
     assert directory._merge_verified_peer_snapshot(
@@ -653,7 +656,7 @@ def test_expired_peer_snapshots_do_not_consume_live_directory_capacity() -> None
             "peer-c": "peer-c.fabric.test",
         },
         monotonic=lambda: clock[0],
-        max_peers=1,
+        max_peers=2,
         max_hosts=1,
     )
     assert directory._merge_verified_peer_snapshot(
@@ -677,6 +680,31 @@ def test_expired_peer_snapshots_do_not_consume_live_directory_capacity() -> None
         ("peer-b", 1, _snapshot("peer-b", hosts=(host_b,), lease=5).digest),
         ("peer-c", 1, _snapshot("peer-c", hosts=(host_c,), lease=30).digest),
     )
+
+
+
+
+def test_directory_rejects_a_second_live_remote_when_local_slot_is_reserved() -> None:
+    """Mathematics: max_peers bounds the reserved local identity plus simultaneously live remote leases."""
+    directory = ComputationalFabricDirectory(
+        "peer-a",
+        {
+            "peer-b": "peer-b.fabric.test",
+            "peer-c": "peer-c.fabric.test",
+        },
+        max_peers=2,
+    )
+    assert directory._merge_verified_peer_snapshot(
+        _snapshot("peer-b"),
+        authenticated_peer_id="peer-b",
+        authenticated_server_name="peer-b.fabric.test",
+    )
+    with pytest.raises(ComputationalFabricError, match="peer bound"):
+        directory._merge_verified_peer_snapshot(
+            _snapshot("peer-c"),
+            authenticated_peer_id="peer-c",
+            authenticated_server_name="peer-c.fabric.test",
+        )
 
 
 def test_fabric_resolver_selects_lowest_cost_multi_hop_peer_path() -> None:
