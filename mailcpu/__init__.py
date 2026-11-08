@@ -677,6 +677,7 @@ from .computational_fabric import (
 from .computational_fabric_discovery import (
     ComputationalFabricDiscoveryError,
     ComputationalFabricDiscoveryService,
+    ComputationalFabricPeerListener,
     ComputationalFabricPeerRefresh,
 )
 from .computational_fabric_recovery import (
@@ -1352,6 +1353,7 @@ __all__ = [
     "ComputationalRouteWitness",
     "ComputationalFabricDiscoveryError",
     "ComputationalFabricDiscoveryService",
+    "ComputationalFabricPeerListener",
     "ComputationalFabricPeerRefresh",
     "ComputationalFabricAuthority",
     "ComputationalFabricBlocker",
