@@ -281,12 +281,12 @@ class SubprocessServiceSupervisor:
             return self.statuses()
 
     def run_forever(
-        """Poll and reconcile child lifetimes until the supplied stop event is set."""
         self,
         stop_event: threading.Event,
         *,
         poll_interval: float = 0.1,
     ) -> None:
+        """Poll and reconcile child lifetimes until the supplied stop event is set."""
         if not isinstance(stop_event, threading.Event):
             raise SubprocessServiceError("stop_event must be a threading.Event")
         if (
