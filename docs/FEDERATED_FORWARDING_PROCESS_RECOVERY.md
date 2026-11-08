@@ -2,13 +2,13 @@
 
 ## Scope
 
-This specification records two complementary A→B→C process-failure experiments built on the per-peer checkpoint in `COMPUTATIONAL_FABRIC_FORWARDING_RECOVERY.md`.
+This specification records three related A→B→C process-failure experiments built on the per-peer checkpoint in `COMPUTATIONAL_FABRIC_FORWARDING_RECOVERY.md`: the isolated B and C crash matrices, plus one successive C-then-B crash sequence over a continuous semantic operation history.
 
 The first experiment hard-kills relay B at its own forwarding transaction cuts. B owns its local HeadlessOS/Hypervisor ledger, its inbound and outbound reliable channels, its B→C client ledgers, and its peer-scoped recovery journal. A retains the original sender state. C is independently checkpointed and rebound by the test supervisor. Anchor C and anchor D are independent authority processes for B's lineage.
 
 The second experiment reverses the failure boundary: B remains alive while terminal C is hard-killed at its own terminal execution/publication/ACK cuts. C owns its terminal HeadlessOS, Hypervisor ledger, local host catalogue and runtime, inbound/outbound channel state, and a separate peer-scoped recovery lineage. Anchor E and anchor F are separate authority processes for C. B reconnects to the replacement C over fresh mutual TLS without discarding the downstream reliable-channel image.
 
-These are independent peer recovery generations, not a globally atomic cluster checkpoint. Each peer has its own fixed-membership quorum and owner journal.
+These are independent peer recovery generations, not a globally atomic cluster checkpoint. Each peer has its own fixed-membership quorum and owner journal. The successive experiment explicitly checkpoints C again after its first recovery so its channel cursor is durable before B's later checkpoint is restored.
 
 ## Process topology and state ownership
 
@@ -16,7 +16,7 @@ These are independent peer recovery generations, not a globally atomic cluster c
 |---|---|---|
 | A | Test/supervisor process | Origin operation identity, reliable request sender, result receive cursor and semantic result history |
 | B | Child Python interpreter | Relay-local HeadlessOS/Hypervisor ledger; A↔B inbound/outbound channels; B→C request/result channels |
-| C | Child Python interpreter in the terminal-crash experiment; supervisor-owned service in the relay-crash experiment | Terminal HeadlessOS/Hypervisor ledger, C's inbound/outbound channels, and locally reconstructed host catalogue/runtime |
+| C | Child Python interpreter; supervisor-owned service in the isolated relay-crash experiment | Terminal HeadlessOS/Hypervisor ledger, C's inbound/outbound channels, and locally reconstructed host catalogue/runtime |
 | Anchor C and Anchor D | Independent child interpreters | B's peer-scoped RecoveryLineageParticipant journals |
 | Anchor E and Anchor F | Independent child interpreters | C's distinct peer-scoped RecoveryLineageParticipant journals |
 
@@ -107,7 +107,7 @@ A and the recovery anchors remain outside the peer kill boundaries; the experime
 
 The workload is deterministic pure computation. These tests do not establish exactly-once behavior for arbitrary external side effects. Such effects require durable idempotency or an effect journal at the actual side-effect owner. Nor do these tests prove a globally atomic multi-peer snapshot, hardware/storage power-loss durability, or malicious-host attestation.
 
-The next escalation is a repeated multi-peer crash sequence: kill B, restore B, then kill C (and reverse the order), keeping the same A operation identity and peer-scoped quorum histories across both restarts. The next step after that is to replace fixture directory snapshots with restart-safe peer discovery/lease refresh over authenticated network exchanges.
+The remaining crash-order proof is the reverse **B-then-C** sequence, retaining the same A operation identity and both peer-specific quorum histories. After both orders pass, replace fixture directory snapshots with restart-safe peer discovery/lease refresh over authenticated network exchanges.
 
 ## Tests
 
