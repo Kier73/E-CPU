@@ -39,7 +39,7 @@ For this experiment B and both remote recovery anchors are real child processes.
 
 ## Terminal C crash cuts
 
-The second test starts A, B, C, and four lineage anchors as independent processes (A is the supervisor-owned client process). C seals its own image at the named terminal cut, writes a durable marker only after quorum commitment, and then blocks until the supervisor hard-kills it. B remains alive throughout.
+The second test starts A, B, C, and two lineage anchors as independent processes (A is the supervisor-owned client process). C seals its own image at the named terminal cut, writes a durable marker only after quorum commitment, and then blocks until the supervisor hard-kills it. B remains alive throughout.
 
 | Cut | C's state at death | Expected recovery |
 |---|---|---|
@@ -58,7 +58,7 @@ The downstream forwarding client uses `send_or_retransmit(event)`: if the exact 
 
 For the terminal-C experiment, each cut follows this sequence:
 
-1. Start independent anchor processes C/D for B's peer-scoped lineage and E/F for C's distinct lineage.
+1. Start independent anchor processes E/F for C's peer-scoped lineage. (The separate relay-B experiment uses its own anchor processes C/D.)
 2. Start C in its prepare mode. It builds a receiver-local HeadlessOS, creates the network execute authority and separate Virtual Layer compute authority, and registers a local terminal catalogue.
 3. Start B as a live relay child process. It connects to C over mutual TLS, accepts A over mutual TLS, and serves the A→B→C route.
 4. A sends the original semantic operation identity. C reaches the selected fault hook, durably writes its exact per-peer checkpoint, quorum-seals the manifest, and writes the cut marker.
