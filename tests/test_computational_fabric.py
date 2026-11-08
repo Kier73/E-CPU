@@ -1609,6 +1609,21 @@ def test_federated_workload_forwards_over_two_authenticated_hops_and_replays_onc
         restored_receipt = ComputationalFabricHopReceipt.from_dict(receipt.to_dict())
         assert restored_receipt.digest == receipt.digest
 
+        # A per-peer capture includes the Hypervisor effect ledger, inbound
+        # request cursor, outbound result queue, and every next-hop client's
+        # semantic result ledger under one local service transition lock.
+        relay_checkpoint = server_b.snapshot(capture_cut="idle")
+        assert relay_checkpoint["capture_cut"] == "idle"
+        assert relay_checkpoint["inbound_channel"]["next_receive_sequence"] == 2
+        assert len(relay_checkpoint["operating_system"]["hypervisor_arbitration"]["executions"]) == 1
+        downstream_checkpoint = relay_checkpoint["next_hop_clients"]["peer-c"]
+        assert len(downstream_checkpoint["response_channel"]["seen"]) == 1
+        restored_relay_os = HeadlessOS.from_snapshot(relay_checkpoint["operating_system"])
+        assert (
+            restored_relay_os.hypervisor_arbitration.snapshot()
+            == relay_checkpoint["operating_system"]["hypervisor_arbitration"]
+        )
+
         replay = client_ab.forward(envelope, directory_a)
         assert replay.digest == receipt.digest
         assert replay.succeeded
