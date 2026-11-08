@@ -50,6 +50,41 @@ _DEFAULT_MAX_FRAME = 1 << 20
 _RECV_CHUNK = 64 << 10
 
 
+class SocketListener:
+    """Transport-owned handle for accepting external streams without leaking raw sockets to semantic hosts."""
+
+    def __init__(self, listener: socket.socket) -> None:
+        """Mathematics: bind a live listening socket behind the bounded external-stream adapter."""
+        if not isinstance(listener, socket.socket):
+            raise TypeError("listener must be a socket.socket")
+        self._listener = listener
+
+    @classmethod
+    def wrap(cls, listener: socket.socket) -> "SocketListener":
+        """Wrap an existing listening socket at the transport boundary."""
+        return cls(listener)
+
+    def accept_raw(self) -> tuple[socket.socket, Any]:
+        """Accept one raw stream for immediate authentication by the TLS adapter."""
+        return self._listener.accept()
+
+    def settimeout(self, timeout: float | None) -> None:
+        """Set a finite accept timeout through the transport-owned listener."""
+        self._listener.settimeout(timeout)
+
+    def fileno(self) -> int:
+        """Return the listener descriptor for closed-state observation."""
+        return self._listener.fileno()
+
+    def getsockname(self) -> Any:
+        """Return the bound endpoint projection without exposing the underlying socket."""
+        return self._listener.getsockname()
+
+    def close(self) -> None:
+        """Close the external listener and reject subsequent accepts."""
+        self._listener.close()
+
+
 def _canonical_frame(message: Message) -> bytes:
     """Mathematics: encode `C(m)=JSON_canonical(version,message)` as one deterministic byte string."""
 
@@ -259,6 +294,15 @@ class SocketTransport:
         except OSError as error:
             listener.close()
             raise SocketTransportError(f"socket listener failed: {error}") from error
+
+    @staticmethod
+    def open_listener(
+        host: str = "127.0.0.1",
+        port: int = 0,
+        backlog: int = 16,
+    ) -> SocketListener:
+        """Create an external listener and retain it behind the transport boundary."""
+        return SocketListener(SocketTransport.listen(host, port, backlog))
 
     def send(self, addr: str, msg: Message) -> Message:
         """Mathematics: allocate identity `m_n`, append its frame to `S`, and return the exact routed message."""

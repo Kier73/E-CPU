@@ -501,7 +501,7 @@ from .substrate_sim import (
     NetworkStats,
     WanSubstrateSimulator,
 )
-from .socket_transport import SocketTransport, SocketTransportClosed, SocketTransportError
+from .socket_transport import SocketListener, SocketTransport, SocketTransportClosed, SocketTransportError
 from .mtls_transport import (
     MutualTLSTransportError,
     accept_mutual_tls,
@@ -990,6 +990,10 @@ __all__ = [
     "FaultObservation",
     "FaultProfile",
     "HeadlessOS",
+    "HostServiceAction",
+    "HostServiceCommand",
+    "HostServiceLifecycleAdapter",
+    "HostServiceLifecycleError",
     "HeadlessNetworkDevice",
     "ExecutionRegime",
     "ExecutableImage",
@@ -1318,6 +1322,7 @@ __all__ = [
     "GilbertElliottChannel",
     "NetworkStats",
     "WanSubstrateSimulator",
+    "SocketListener",
     "SocketTransport",
     "SocketTransportClosed",
     "SocketTransportError",

@@ -62,6 +62,7 @@ Index of specification documents. Documents use defined terms from `GLOSSARY.md`
 | 53 | [COMPUTATIONAL_SESSIONS_AND_STATE.md](COMPUTATIONAL_SESSIONS_AND_STATE.md) | M3 persistent computational sessions, immutable state checkpoints, quorum-anchored revisions, CAS continuation, and host migration |
 | 54 | [COMPUTATIONAL_SESSION_INTERPRETATION.md](COMPUTATIONAL_SESSION_INTERPRETATION.md) | M4 pure state-transition adapters, compiled interpretation identities, VGI Ground/task plan reuse, session-bound context, and cache authority boundaries |
 | 55 | [VGI_PERSISTENT_SESSIONS_AND_TRANSIT.md](VGI_PERSISTENT_SESSIONS_AND_TRANSIT.md) | M5 persistent VGI machine state, M6 bounded resumable instruction quanta, M7 portable session transfer, target M1 re-admission, and backend compatibility |
+| 56 | [COMMUNICATION_STREAM_COMPUTATION.md](COMMUNICATION_STREAM_COMPUTATION.md) | Typed communication streams as computational state carriers, host-side interpretation, symbolic navigation, and finite-observer resource bounds |
 
 ## Document classes
 
@@ -77,7 +78,7 @@ Index of specification documents. Documents use defined terms from `GLOSSARY.md`
 
 **Runtime & Navigation.** `COMPUTATIONAL_OBJECTS_AND_TIME.md`, `TRANSIT_BYTE_OBJECTS.md`,  `COMMUNICATION_HOST_MODEL.md`, `COMPUTATIONAL_FABRIC.md`, `COMPUTATIONAL_FABRIC_FORWARDING_RECOVERY.md`, `FEDERATED_FORWARDING_PROCESS_RECOVERY.md`, `EGPU_NAVIGABLE_FABRIC.md`, `WORKGROUP_SHARED_MEMORY.md`, `VGI_VIRTUAL_LAYER.md`, `NAVIGABLE_COMPUTATION_DAG.md`, `NAVIGABLE_COMPUTATION_RECOVERY.md`, `REPEATED_JOINT_PROCESS_RECOVERY.md`, `PROCESS_CRASH_BOUNDARIES.md`, `RECOVERY_LINEAGE.md`, `RECOVERY_BUNDLE.md`, `RECOVERY_LINEAGE_PROCESSES.md`, `RECOVERY_LINEAGE_SERVICE.md`, `RECOVERY_LINEAGE_DEPLOYMENT.md`, `SEMANTIC_TRANSLATION.md`, `TRANSIT_COMPUTE.md`, `TRANSIT_PATH_STATE.md`, `STATE_SPACE_NAVIGATION.md`, `CONTEXTUAL_PROCESS_NAVIGATION.md`, `FORMAL_NAVIGATION.md`, `NAVIGATION_BRIDGE.md`, `NAVIGATION_COORDINATOR.md`, `NAVIGATION_ADMISSION.md`, `NAVIGATION_EXECUTION.md`, `NATIVE_VCPU_CONTEXT.md`, `STRUCTURAL_MEMORY.md`. Native vCPU context commits, bounded transit execution, persistent path state, orbit scheduling, symbolic capacity, contextual resolution, replayable derivation, abstract reachability, process equivalence, causal dependencies, conservative compilation, coordinated navigation plans, hypervisor-owned execution admission, crash-recoverable state execution, and verified generative memory.
 
-**Research & Theory.** `COMPUTATIONAL_OBJECTS_AND_TIME.md`,  `COMMUNICATION_SUBSTRATES_AND_INFORMATION_THEORY.md`, `COMMUNICATION_HOST_MODEL.md`, `CROSS_SYSTEM_SYNTHESIS_TIME_COMPUTATION_MODELS.md`, `ARCHITECTURAL_EMERGENCE.md`. Substrate information theory, temporal models, cross-paradigm synthesis, and the distinction between demonstrated capability and architectural possibility.
+**Research & Theory.** `COMPUTATIONAL_OBJECTS_AND_TIME.md`,  `COMMUNICATION_SUBSTRATES_AND_INFORMATION_THEORY.md`, `COMMUNICATION_HOST_MODEL.md`, `COMMUNICATION_STREAM_COMPUTATION.md`, `CROSS_SYSTEM_SYNTHESIS_TIME_COMPUTATION_MODELS.md`, `ARCHITECTURAL_EMERGENCE.md`. Substrate information theory, temporal models, cross-paradigm synthesis, and the distinction between demonstrated capability and architectural possibility.
 
 ## Cross-reference integrity
 

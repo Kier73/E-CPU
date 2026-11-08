@@ -53,7 +53,7 @@ from mailcpu import (
 )
 from mailcpu.computational_fabric import ComputationalFabricError
 from mailcpu.mtls_transport import accept_mutual_tls
-from mailcpu.socket_transport import SocketTransport
+from mailcpu.socket_transport import SocketListener, SocketTransport
 
 GROUND_FP = "a" * 64
 PROGRAM_FP = "b" * 64
@@ -1833,7 +1833,7 @@ def test_discovery_service_reauthenticates_after_transport_loss_and_directory_re
     listener_errors: list[Exception] = []
     peer_listener = ComputationalFabricPeerListener(
         authority,
-        listener,
+        SocketListener.wrap(listener),
         "peer-a",
         expected_client_dns="peer-a.fabric.test",
         tls_context=server_context,
