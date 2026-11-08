@@ -439,3 +439,32 @@ The two distributed model-execution forms share this foundation:
 Neither a global object resolver nor partitioned neural execution is claimed
 by M1. The current remote composition reuses `RemotePageStore` and its
 existing replicated-mailbox page transitions.
+
+
+## 16. General computational artifact hosting
+
+The M2 local-hosting contract is specified in
+[COMPUTATIONAL_HOSTING.md](COMPUTATIONAL_HOSTING.md) and implemented in
+mailcpu/computational_host.py.
+
+It composes a multi-file artifact identity from component path, media type,
+logical size, byte digest, metadata, and optional nested M1 byte-object
+manifests. The artifact identity remains separate from the backend profile
+fingerprint, operation identity, host identity, and output digest.
+
+Backend adapters are trusted local implementations. The common contract
+specifies load, execute, and unload, while domain-specific runtimes retain
+their own Ground and representation semantics. Requests and results use a
+bounded finite-JSON control envelope; large binary state remains in the M1
+page/object plane and is referenced rather than embedded into ordinary
+Virtual Layer workloads.
+
+A deterministic host receipt binds artifact, backend, workload, logical time,
+input, and output identities. Local monotonic duration is an independent
+measurement and is not placed in a replayed pure-operation receipt. The
+receipt status is EXECUTED, not a claim of durable commitment, signature, or
+origin authentication. Existing Virtual Layer, receiver-local Hypervisor,
+reliable channels, and Transit workers remain the authority and commit path.
+
+This is a local hosting contract, not a general artifact catalog, hardware
+attestation layer, session-state migration mechanism, or partition scheduler.
