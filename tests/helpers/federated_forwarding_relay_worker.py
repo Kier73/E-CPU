@@ -223,7 +223,6 @@ def _wait_for_recovery_completion(
         if (
             server.inbound.channel.next_receive_sequence >= expected_operations + 1
             and not server.outbound.channel.pending_sequences()
-            and len(results) >= expected_operations
         ):
             break
         time.sleep(0.002)
