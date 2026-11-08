@@ -373,7 +373,7 @@ The composition order is important. Routing precedes neither authority nor seman
 | Causal computation dependencies | [NAVIGABLE_COMPUTATION_DAG.md](NAVIGABLE_COMPUTATION_DAG.md), [TEMPORAL_CLOCK_FABRIC.md](TEMPORAL_CLOCK_FABRIC.md) |
 | Semantic equivalence and oracle evidence | [SEMANTIC_TRANSLATION.md](SEMANTIC_TRANSLATION.md), mailcpu/transit_oracles.py |
 | Generative memory, revision, and context | [STRUCTURAL_MEMORY.md](STRUCTURAL_MEMORY.md), mailcpu/structural_memory.py, mailcpu/law_certifier.py |
-| Authenticated peer discovery, lease refresh, and forwarding | [COMPUTATIONAL_FABRIC.md](COMPUTATIONAL_FABRIC.md), mailcpu/computational_fabric_discovery.py, [FEDERATED_FORWARDING_PROCESS_RECOVERY.md](FEDERATED_FORWARDING_PROCESS_RECOVERY.md) |
+| Authenticated peer discovery, lease refresh, and reconnectable listener | [COMPUTATIONAL_FABRIC.md](COMPUTATIONAL_FABRIC.md), mailcpu/computational_fabric_discovery.py, [FEDERATED_FORWARDING_PROCESS_RECOVERY.md](FEDERATED_FORWARDING_PROCESS_RECOVERY.md) |
 | Checkpoint integrity and rollback detection | [RECOVERY_BUNDLE.md](RECOVERY_BUNDLE.md), [RECOVERY_LINEAGE.md](RECOVERY_LINEAGE.md), [COMPUTATIONAL_FABRIC_FORWARDING_RECOVERY.md](COMPUTATIONAL_FABRIC_FORWARDING_RECOVERY.md) |
 | vCPU and accelerator integration | [NATIVE_VCPU_CONTEXT.md](NATIVE_VCPU_CONTEXT.md), [EGPU_NAVIGABLE_FABRIC.md](EGPU_NAVIGABLE_FABRIC.md), mailcpu/elf.py |
 | Candidate physical/information substrates | [COMMUNICATION_SUBSTRATES_AND_INFORMATION_THEORY.md](COMMUNICATION_SUBSTRATES_AND_INFORMATION_THEORY.md) |
@@ -387,7 +387,7 @@ These are development directions, not fixed exclusions. Each item is an active e
 
 - **Global semantic resolution — in progress:** extend the existing computational address and receiver-local resolver into coordinated search over host, state, checkpoint, implementation, and evidence catalogues. Keep resolution proposals separate from local authority and execution.
 - **Authenticated topology discovery — in progress:** extend direct-peer refresh into restart-aware topology reconciliation across larger federations. Add controlled peer federation/gossip only with verifiable origin and revision evidence; a relayed claim must never be mistaken for a direct TLS observation.
-- **Peer-service lifecycle — in progress:** add supervised listener acceptance, reconnect policy, lease-expiry recovery, endpoint revision, and multi-peer refresh telemetry so both sides of directory exchange can recover cleanly.
+- **Peer-service supervision — in progress:** extend the reconnectable listener and refresh manager into process-supervised services with lifecycle telemetry, endpoint rotation/revision, restart policy, and deployment-managed local authority re-registration.
 - **Multi-objective navigation — in progress:** evolve deterministic bounded routing into Pareto-aware or policy-lexicographic selection using measured latency, transfer volume, resource cost, verification work, and recovery risk. Calibrate physical energy claims against declared instruments and workloads.
 - **General state-space acceleration — in progress:** broaden sound abstract interpretation and exact witness reconstruction beyond current affine and finite transition subsets; compose symbolic constraints with concrete path replay.
 - **Structural Memory growth — in progress:** add further typed generator families, composable law forms, richer context mappings, and verified revisions while retaining safe admission rather than turning memory descriptions into arbitrary code execution.
