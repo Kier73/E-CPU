@@ -34,6 +34,8 @@ where `bundle` is an M7 `VGISessionTransferBundle` mapping and \(q\) is the requ
 
 The semantic M4 operation identity is derived from the workload digest, source session ID, descriptor digest, M7 bundle digest, source revision/checkpoint digest, and requested quantum. It is not a TCP frame number. Repeated delivery of the same typed request therefore retains the same semantic operation identity even when the reliable transport retransmits a frame.
 
+At each NETWORK hop, the forwarding receiver separately derives a compact control-plane projection from the complete forwarding envelope. This keeps route interpretation bounded while the full envelope, transfer bytes, and semantic operation identity remain bound to the event fingerprint. At C, the Virtual Layer independently recomputes its workload/input projection before CPU capability admission. The NETWORK projection describes the communication transition; the Virtual Layer projection describes the computation.
+
 ## 2. Receiver-side composition
 
 At C the terminal VLayer operator follows this order:
