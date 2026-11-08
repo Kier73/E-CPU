@@ -1024,6 +1024,7 @@ def test_mutual_tls_peer_client_discovers_and_merges_remote_host_snapshot(tmp_pa
     authority.register_host(ComputationalHostAdvertisement.from_locus(_locus(), "peer-b"))
 
     server_result: dict[str, object] = {}
+    server_errors: list[BaseException] = []
     stop = threading.Event()
 
     def serve() -> None:
@@ -1823,7 +1824,6 @@ def test_discovery_service_reauthenticates_after_transport_loss_and_directory_re
 
     stop = threading.Event()
     accepted_sessions: list[SocketTransport] = []
-    server_errors: list[BaseException] = []
     peer_listener = ComputationalFabricPeerListener(
         authority,
         listener,
@@ -1962,7 +1962,6 @@ def test_discovery_service_reauthenticates_after_transport_loss_and_directory_re
                 restored_directory,
                 client_context,
             )
-        assert not server_errors
     finally:
         stop.set()
         if restored_service is not None:
