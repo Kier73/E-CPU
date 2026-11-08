@@ -389,6 +389,12 @@ def _wait_terminal_response_ack(server: ComputationalFabricForwardingServer, tim
 
 def _make_workload(operating_system: HeadlessOS) -> tuple[ComputationalAddress, ComputationalHostCatalogue, list[str], int]:
     """Create C's deterministic terminal operator and return its distinct network receive authority PID."""
+    operating_system.hypervisor.policy = HypervisorPolicy(
+        review_confidence=0.0,
+        automatic_confidence=0.0,
+        destructive_confidence=0.0,
+        danger_review_probability=1.0,
+    )
     system_identity = SystemIdentity("federated-process-recovery-system", 1)
     seed = SystemSeed.from_system(operating_system)
     seed_envelope = SystemSeedEnvelope(
