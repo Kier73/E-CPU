@@ -42,7 +42,7 @@ _CAPTURE_CUTS = frozenset({
 
 
 def _canonical_json(value: Any) -> bytes:
-    """Encode one finite record into the unique sorted compact JSON byte form."""
+    """Mathematics: Encode one finite record into the unique sorted compact JSON byte form."""
     try:
         return json.dumps(
             value,
@@ -58,7 +58,7 @@ def _canonical_json(value: Any) -> bytes:
 
 
 def _fsync_directory(path: Path) -> None:
-    """Best-effort persistence of directory-entry updates on supported filesystems."""
+    """Mathematics: Best-effort persistence of directory-entry updates on supported filesystems."""
     try:
         descriptor = os.open(str(path), os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
     except OSError:
@@ -72,7 +72,7 @@ def _fsync_directory(path: Path) -> None:
 
 
 def _validate_snapshot(value: Any, capture_cut: str | None = None) -> dict[str, Any]:
-    """Validate the forwarding snapshot envelope without interpreting runtime-owned state."""
+    """Mathematics: Validate the forwarding snapshot envelope without interpreting runtime-owned state."""
     if not isinstance(value, Mapping):
         raise ComputationalFabricForwardingRecoveryError(
             "forwarding checkpoint root must be an object"
@@ -185,11 +185,11 @@ class VerifiedComputationalFabricForwardingCheckpoint:
 
     @property
     def generation(self) -> int:
-        """Return the monotonic recovery generation sealed by the quorum proof."""
+        """Mathematics: Return the monotonic recovery generation sealed by the quorum proof."""
         return self.manifest.generation
 
     def restore_operating_system(self) -> HeadlessOS:
-        """Restore the local VM, capabilities, Hypervisor decision/effect ledger, and journal state."""
+        """Mathematics: Restore the local VM, capabilities, Hypervisor decision/effect ledger, and journal state."""
         try:
             return HeadlessOS.from_snapshot(dict(self.snapshot["operating_system"]))
         except Exception as exc:
@@ -206,7 +206,7 @@ class VerifiedComputationalFabricForwardingCheckpoint:
         catalogue: Any = None,
         operating_system: HeadlessOS | None = None,
     ) -> ComputationalFabricForwardingServer:
-        """Rebind a verified peer snapshot to fresh authenticated transports and live local policy objects."""
+        """Mathematics: Rebind a verified peer snapshot to fresh authenticated transports and live local policy objects."""
         restored_os = operating_system or self.restore_operating_system()
         try:
             return ComputationalFabricForwardingServer.from_snapshot(
@@ -244,7 +244,7 @@ class ComputationalFabricForwardingRecoveryStore:
         self.coordinator = coordinator
 
     def _generation_directory(self, generation: int) -> Path:
-        """Map one positive recovery slot to a stable immutable on-disk coordinate."""
+        """Mathematics: Map one positive recovery slot to a stable immutable on-disk coordinate."""
         if type(generation) is not int or generation <= 0:
             raise ComputationalFabricForwardingRecoveryError(
                 "forwarding recovery generation must be a positive integer"
@@ -257,7 +257,7 @@ class ComputationalFabricForwardingRecoveryStore:
         snapshot_bytes: bytes,
         manifest: RecoveryStateManifest,
     ) -> Path:
-        """Fsync the full peer snapshot and manifest before atomically publishing the generation."""
+        """Mathematics: Fsync the full peer snapshot and manifest before atomically publishing the generation."""
         target = self._generation_directory(generation)
         expected = {
             self.SNAPSHOT_FILE: snapshot_bytes,
@@ -307,7 +307,7 @@ class ComputationalFabricForwardingRecoveryStore:
         server: ComputationalFabricForwardingServer,
         capture_cut: str,
     ) -> VerifiedComputationalFabricForwardingCheckpoint:
-        """Persist a consistent per-hop capture cut, then quorum-commit its content root."""
+        """Mathematics: Persist a consistent per-hop capture cut, then quorum-commit its content root."""
         return self.seal_snapshot(server.snapshot(capture_cut=capture_cut), capture_cut)
 
     def seal_snapshot(
@@ -315,7 +315,7 @@ class ComputationalFabricForwardingRecoveryStore:
         value: Mapping[str, Any],
         capture_cut: str,
     ) -> VerifiedComputationalFabricForwardingCheckpoint:
-        """Quorum-seal an already captured server snapshot without reopening runtime objects."""
+        """Mathematics: Quorum-seal an already captured server snapshot without reopening runtime objects."""
         if capture_cut not in _CAPTURE_CUTS:
             raise ComputationalFabricForwardingRecoveryError(
                 f"capture_cut must be one of {sorted(_CAPTURE_CUTS)}"
@@ -358,7 +358,7 @@ class ComputationalFabricForwardingRecoveryStore:
         self,
         generation: int | None = None,
     ) -> VerifiedComputationalFabricForwardingCheckpoint:
-        """Load only the exact current quorum high-water artifact; stale peer snapshots are never admitted."""
+        """Mathematics: Load only the exact current quorum high-water artifact; stale peer snapshots are never admitted."""
         try:
             latest = self.coordinator.latest_proof()
         except RecoveryLineageError as exc:
@@ -414,5 +414,5 @@ class ComputationalFabricForwardingRecoveryStore:
         )
 
     def load_latest(self) -> VerifiedComputationalFabricForwardingCheckpoint:
-        """Resolve and load exactly the latest quorum-anchored peer generation."""
+        """Mathematics: Resolve and load exactly the latest quorum-anchored peer generation."""
         return self.load()
