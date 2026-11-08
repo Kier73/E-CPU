@@ -2330,7 +2330,7 @@ def test_persistent_vgi_session_transfers_through_fabric_and_replays_once(tmp_pa
         def backend_fingerprint(self) -> str:
             return original_transition_backend.backend_fingerprint
 
-        def transition(self, state_bytes: bytes, input_bytes: bytes, context: Any) -> bytes:
+        def transition(self, state_bytes: bytes, input_bytes: bytes, context) -> bytes:
             transition_contexts.append(context.to_dict())
             return original_transition_backend.transition(state_bytes, input_bytes, context)
 
@@ -2651,6 +2651,7 @@ def test_persistent_vgi_session_transfers_through_fabric_and_replays_once(tmp_pa
         assert target_session.load().revision == source_base.revision + 1
         assert len(destination_os.hypervisor_arbitration.snapshot()["executions"]) == after_first_execution_count
         assert binding.last_measurement == first_measurement
+        assert len(transition_contexts) == 1
 
         # The same operation identity is also idempotent at the M3/M4 boundary,
         # including a retry after a lost outer Hypervisor receipt.
@@ -2658,6 +2659,7 @@ def test_persistent_vgi_session_transfers_through_fabric_and_replays_once(tmp_pa
         assert m3_retry["replayed"] is True
         assert m3_retry["revision"] == source_base.revision + 1
         assert target_session.load().revision == source_base.revision + 1
+        assert len(transition_contexts) == 1
 
         verify_started = time.perf_counter()
         assert target_store.object_store.verify(target_snapshot.checkpoint.state_manifest)
