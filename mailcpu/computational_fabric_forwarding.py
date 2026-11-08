@@ -689,15 +689,15 @@ class ComputationalFabricForwardingClient:
                 raise ComputationalFabricForwardingError(f"forwarding peer stream failed: {exc}") from exc
             if (
                 result is not None
-                and result.replayed
                 and result.source == self.local_peer_id
                 and result.channel == child.channel_id
                 and result.sequence < child.origin_sequence
             ):
-                # A recovered downstream peer may replay a response whose
-                # semantic operation already completed before its process died.
-                # Consume and ACK that older duplicate, then keep waiting for
-                # the current operation's result.
+                # A recovered downstream peer may re-publish an older result.
+                # It can be a semantic duplicate already seen here, or a
+                # first delivery if the prior relay process died before reading
+                # it. In either case it belongs to an earlier operation, so
+                # consume/ACK it and keep waiting for this operation's result.
                 continue
             if result is not None:
                 break
