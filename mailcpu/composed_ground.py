@@ -71,6 +71,7 @@ class _FrozenDict(dict):
     """Mathematics: preserve JSON mapping semantics while rejecting post-admission mutation."""
 
     def _immutable(self, *args: Any, **kwargs: Any) -> None:
+        """Mathematics: reject mutation so admitted context mappings retain stable content identity."""
         raise TypeError("composed Ground context is immutable")
 
     __setitem__ = _immutable
