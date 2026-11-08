@@ -52,9 +52,11 @@ For a relay, its Hypervisor handler may synchronously complete a downstream hop 
 5. flushes and fsyncs both files and the staging directory, atomically publishes the generation directory, and best-effort fsyncs its parent;
 6. commits the manifest root through the configured strict-majority `RecoveryLineageCoordinator`.
 
-A generation that is locally durable but not quorum-anchored is not recoverable. `load_latest()` obtains the quorum high-water first, verifies the exact stored payload digest, canonical manifest, and matching generation, then returns a `VerifiedComputationalFabricForwardingCheckpoint`. Modified, unanchored, or older generations are rejected.
+A generation that is locally durable but not quorum-anchored is not recoverable. `load_latest()` obtains the quorum high-water first, verifies the exact stored payload digest, canonical manifest, and matching generation, then returns a `VerifiedComputationalFabricForwardingCheckpoint`. Modified, unanchored, or older generations are rejected. The returned object rechecks its in-memory snapshot projection against the same immutable payload digest before any OS/service restore, so mutating the loaded Python mapping cannot alter the restored state.
 
 The `seal(server, cut)` path holds the peer's re-entrant transition lock through the durable file publication and quorum commit. The serving transition cannot advance beyond the selected cut while that generation is being anchored. Callers using `seal_snapshot(value, cut)` provide an already captured immutable projection and are responsible for coordinating that capture with the peer's transition lock.
+
+Each peer must have a peer-scoped `RecoveryLineageCoordinator` and its own fixed-membership authority journals (with a peer-specific lineage/system identity). Do not share one single-state high-water coordinator across several peers: each `load_latest()` would otherwise refer to whichever peer most recently advanced that shared lineage. A future cluster-wide atomic snapshot would need a distinct multi-peer manifest that binds all participating peer artifacts together, not reuse of this single-peer store.
 
 The caller then:
 
