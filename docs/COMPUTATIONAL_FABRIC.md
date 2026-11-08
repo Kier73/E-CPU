@@ -91,6 +91,44 @@ The client refresh flow is deliberately narrow:
 
 No PID, callable, handler, capability grant, or executable code is transmitted. The server returns only the peer's own current snapshot.
 
+### Restart-aware discovery and lease refresh
+
+`ComputationalFabricDiscoveryService` manages direct peer refresh for a local
+directory. Its bootstrap inputs are the configured direct peer endpoints,
+the local mutual-TLS client context, RPC timeout, and refresh cadence.
+
+- `refresh_peer(peer_id)` reuses a healthy authenticated client or creates a
+  fresh TLS client, obtains the peer's current revisioned snapshot, and merges
+  it only through the directory's authenticated-transport validation.
+- `refresh_all()` refreshes configured peers in stable peer-ID order, then
+  purges leases that have expired according to this receiver's monotonic clock.
+- `serve_forever(stop_event)` repeats the refresh cycle at the configured
+  cadence. Failed streams are closed and discarded; a later cycle makes a
+  fresh authenticated connection.
+- An unchanged snapshot can still renew the receiver-local lease. A failed
+  refresh does not erase a still-live last-known observation; it remains
+  usable only until its local lease expires.
+- `bootstrap_snapshot()` persists endpoint and cadence configuration, not
+  TLS streams, certificates/private keys, active snapshots, or lease deadlines.
+  The separately quorum-anchored directory checkpoint preserves revision/digest
+  high-water marks. After restore, all remote leases begin inactive and the
+  discovery service must authenticate each peer again.
+
+The service therefore preserves the distinction between durable trust/rollback
+memory and ephemeral authenticated observations. It discovers configured
+direct peers only; it does not treat relayed topology claims as direct TLS
+observations.
+
+On the peer-owning side, `ComputationalFabricPeerListener` owns a listening
+socket and repeatedly accepts mutual-TLS sessions for one configured direct
+client identity. Each accepted stream receives a fresh
+`ComputationalFabricPeerServer` and fresh reliable directory channels. When a
+client disconnects or a session fails, the listener closes that session and
+returns to accept; a replacement client must complete a new TLS handshake and
+DNS identity check. The listener is a per-process service loop, not a process
+supervisor: the deployment/service owner remains responsible for restarting
+the listener process and re-registering its current local authority snapshot.
+
 ## 5. Multi-hop route selection
 
 `ComputationalFabricResolver` consumes one captured active directory view and binds its directory and topology digests into every result. It builds adjacency only from enabled directed links whose destination peer has an active authenticated snapshot, whose route-cost dimensions and units match the address objective, and whose advertised frame bound can carry the canonical address planning envelope.
@@ -133,12 +171,12 @@ Forwarding has explicit peer-local authority, source/destination binding, sequen
 
 **Demonstrated by this slice:** portable host advertisement strips receiver authority; peer snapshots enforce ownership; direct peer identity and DNS trust are checked; revisions cannot roll back or equivocate within a directory process or across its checkpoint reconstruction; restored remote peers have no live lease until directly re-authenticated; expired snapshots do not consume live directory capacity; route search follows directed links, respects cost/hop/frame limits, selects deterministically, preserves short feasible alternatives, and round-trips its non-authoritative route receipt; a live three-peer test directly discovers B and C over distinct mutual-TLS identities, resolves A→B→C, expires the lower-cost destination's receiver-local lease, fails over to a compatible but more expensive host on B, then re-observes C over its authenticated channel and returns to the lower-cost A→B→C route; a single-artifact directory checkpoint is persisted and sealed through the existing strict-majority RecoveryLineage coordinator, and restore rejects modified, stale, and unanchored generations without reviving remote leases; a second integration test carries the discovered host identity through a fresh destination-local semantic resolution and Hypervisor execution, without treating the fabric witness as authority.
 
-**Next:** add an authenticated multi-peer topology discovery protocol (gossip or directory federation) without trusting relayed peer claims; implement hop-by-hop request forwarding with its own Hypervisor admission and end-to-end operation identity; dispatch at the terminal host through the existing local resolver and execution coordinator; calibrate route estimates from measured path/service telemetry; exercise peer loss, forwarding retries, intermediate crash, destination crash and end-to-end recovery.
+**Next:** extend direct refresh into authenticated multi-peer topology federation without treating relayed peer claims as direct observations; add supervised listener acceptance and peer-service restart; calibrate route estimates from measured path/service telemetry; continue exercising peer loss, forwarding retries, intermediate crash, destination crash and end-to-end recovery. Hop-by-hop request forwarding and per-peer process recovery now have separate executable specifications and tests.
 
 
 The NETWORK-domain hop event governs receiving and forwarding the transport request. The terminal computation is a nested, separate CPU-domain operation and still requires the selected local host process's compute right. The forwarding receipt does not collapse those authority planes.
 
-The current server loop stops on an unhandled downstream failure while leaving the reliable request unacknowledged; it does not spin indefinitely on that same frame. A supervisor must decide whether and how to rebind the per-peer service. That restart path is not yet a forwarding-specific crash-recovery proof.
+The current per-connection peer server services one authenticated stream at a time. The discovery client can discard and recreate its outbound stream; supervising listener acceptance across remote peer-process restarts remains an additional service-lifecycle build.
 
 The original origin identity is carried through the path and used by the terminal semantic execution ledger, but this first version does not include an origin signature. Intermediate peers authenticate their immediate neighbors with mutual TLS; trust in the end-to-end origin claim is therefore transitive through those explicitly trusted relays.
 
