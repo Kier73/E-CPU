@@ -544,7 +544,7 @@ def main(arguments: list[str]) -> int:
                     })
                 downstream_client = server.next_hop_clients["peer-c"]
                 if (
-                    server.inbound.channel.next_receive_sequence >= 3
+                    server.inbound.channel.next_receive_sequence >= expected_live_operations + 1
                     and not server.outbound.channel.pending_sequences()
                     and not downstream_client.request.channel.pending_sequences()
                     and not downstream_client.response.channel.pending_sequences()
@@ -569,7 +569,9 @@ def main(arguments: list[str]) -> int:
                     })
                     return 0
                 time.sleep(0.002)
-            raise TimeoutError("live relay did not settle two terminal operations")
+            raise TimeoutError(
+                f"live relay did not settle {expected_live_operations} terminal operations"
+            )
 
         if mode == "prepare":
             operating_system = HeadlessOS()

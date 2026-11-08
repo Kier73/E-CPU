@@ -1013,11 +1013,10 @@ def test_federated_forwarding_continues_through_discovery_sidecar_loss_and_repla
     worker = root / "tests" / "helpers" / "federated_forwarding_relay_worker.py"
     certificates = _certificates(tmp_path)
 
-    peer_a_port = _free_port()
-    peer_b_port = _free_port()
-    peer_c_port = _free_port()
-    sidecar_port = _free_port()
-    assert len({peer_a_port, peer_b_port, peer_c_port, sidecar_port}) == 4
+    selected_ports: set[int] = set()
+    while len(selected_ports) < 4:
+        selected_ports.add(_free_port())
+    peer_a_port, peer_b_port, peer_c_port, sidecar_port = sorted(selected_ports)
 
     endpoint_a = ComputationalPeerEndpoint(
         "peer-a", "peer-a.fabric.test", "127.0.0.1", peer_a_port
@@ -1371,7 +1370,8 @@ def test_federated_forwarding_continues_through_discovery_sidecar_loss_and_repla
             False,
             True,
         ]
-        assert len(terminal_holder["server"].operating_system.hypervisor_arbitration.snapshot()["executions"]) == 2
+        terminal_executions = terminal_holder["server"].operating_system.hypervisor_arbitration.snapshot()["executions"]
+        assert len(terminal_executions) == 2
         assert not terminal_failures
 
         stdout, stderr = relay.communicate(timeout=15)
