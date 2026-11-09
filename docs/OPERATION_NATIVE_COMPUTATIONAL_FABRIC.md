@@ -6,7 +6,7 @@ This specification composes the bounded MailCPU dataflow compiler with the exist
 
 The computational object distributed by this profile is not a VM image or a complete process. It is a semantic operation over an explicitly described set of inputs. The algorithm remains a dependency graph. The fabric locates a receiver that advertises a compatible local implementation, and the receiver revalidates and executes the operation under its own Ground and Hypervisor authority.
 
-The initial operation-native profile is deliberately bounded to two pure binary families: ADD and COMPARE. A ready frontier may contain either family; ADD frontiers are routed when an ADD dispatcher is supplied, while COMPARE remains local unless a COMPARE dispatcher is explicitly supplied. SET, COPY and HALT remain local. Both remote families use the same binary lane, receiver-side Virtual Layer admission, fabric resolver, operation receipt shape and origin-side scalar oracle.
+The operation-native profile is deliberately bounded to three pure binary families: ADD, COMPARE and MUL. A ready frontier may contain any of these families; ADD frontiers are routed when an ADD dispatcher is supplied, while COMPARE and MUL remain local unless their operation-specific dispatchers are explicitly supplied. SET, COPY and HALT remain local. All remote families use the same binary lane, receiver-side Virtual Layer admission, fabric resolver, operation receipt structure and origin-side scalar oracle.
 
 ## The topologies are separate objects
 
@@ -71,14 +71,14 @@ Different realizations may share one semantic operator contract. The CPU impleme
 \operatorname{Obs}(T_o(X_o))
 \]
 
-The ADD contract applies strict bounded integer addition and returns the ordered values vector. The second contract, mailcpu.dataflow.compare_frontier@1, applies the MailCPU relation compare_values(a,b)=sgn(a-b), returning exactly -1, 0 or 1. CPU comparison calls the existing scalar compare_values law. E-GPU comparison uses its existing simt.kernel method with LT predicates and structured IF/ENDIF masks, then checks the result against the same scalar law. These are separate versioned operator contracts; a CPU or E-GPU implementation is admissible only when it advertises the matching contract and preserves its declared observation. This does not imply that arbitrary CPU, GPU, signal or programmable-network implementations are interchangeable.
+The ADD contract applies strict bounded integer addition and returns the ordered values vector. The COMPARE contract, mailcpu.dataflow.compare_frontier@1, applies the MailCPU relation compare_values(a,b)=sgn(a-b), returning exactly -1, 0 or 1. The MUL contract, mailcpu.dataflow.multiply_frontier@1, applies strict integer multiplication and returns the exact bounded product. CPU and E-GPU implementations are admissible only when they advertise the matching contract and preserve its declared observation. This does not imply that arbitrary CPU, GPU, signal or programmable-network implementations are interchangeable.
 
 ## Operation context and state-space navigation
 
 The portable object is the semantic operation contract; its meaning is instantiated by a particular Ground, input and observation context. Binary laws can be written independently of any one machine:
 
 [
-o_ADD(a,b)=a+b;  o_COMPARE(a,b)=sgn(a-b)
+o_ADD(a,b)=a+b;  o_COMPARE(a,b)=sgn(a-b);  o_MUL(a,b)=a*b
 ]
 
 But an execution is not identified by that law alone. It also requires the concrete operand sources, the Ground that defines their interpretation, the state/Virtual Ground coordinate, any pinned Structural Memory references, resource limits, and the terminal observation expected by the caller.
@@ -108,13 +108,13 @@ The compiled MailCPU plan supplies immutable ComputationNode identities and dete
 The operation-native executor:
 
 1. Reads the exact operands from immutable initial values or already committed predecessor results. A symbolic Structural Memory operand remains an address at this point; it is not eagerly read by the compiler or coordinator. A contextual-orbit source remains a typed DAG predecessor and is not flattened into an untracked initial integer.
-2. Selects the remote binary nodes in the ready frontier by registered operation family and orders each family by stable node_id. COMPARE stays local when no COMPARE dispatcher is configured.
-3. Constructs one operation-specific typed frontier request binding the plan digest, context digest, frontier index, node digests, destination registers, ordered scalar operands, and any contextual-orbit predecessor evidence recovered from DAG ancestry. ADD and COMPARE have distinct versioned request schemas while sharing DataflowBinaryLane.
+2. Selects the remote binary nodes in the ready frontier by registered operation family and orders each family by stable node_id. COMPARE and MUL stay local when their respective operation dispatchers are not configured.
+3. Constructs one operation-specific typed frontier request binding the plan digest, context digest, frontier index, node digests, destination registers, ordered scalar operands, and any contextual-orbit predecessor evidence recovered from DAG ancestry. ADD, COMPARE and MUL have distinct versioned request schemas while sharing DataflowBinaryLane.
 4. Builds one pure VirtualLayerWorkload for the selected operator contract. Inline values travel as values; symbolic Structural Memory references travel as schema-v2 Virtual Layer addresses containing the memory identity, exact revision, context, coordinate, specification digest and certificate digest. A contextual-orbit operand travels as a typed descriptor containing its scalar projection and complete predecessor input(s). Only the selected query/result evidence is sent; no orbit trajectory or full VM image is shipped.
 5. Uses ComputationalFabricResolver to select an advertised host and directed peer route.
 6. Sends the operation through the existing authenticated per-hop forwarding protocol. Relay peers apply their local forwarding policy; the terminal peer re-resolves the workload and executes its local operator.
 7. Verifies that the typed terminal effect binds the workload, Ground, operator contract, input and implementation route. When symbolic memory is present, it also requires the exact receiver-generated read receipts for every requested binding. The CPU and E-GPU handlers revalidate every contextual-orbit predecessor object in the operation input.
-8. Independently recomputes every returned lane with the declared scalar law: z_i=a_i+b_i for ADD or z_i=sgn(a_i-b_i) for COMPARE. Receiver memory values are used only after their pinned read receipts are checked. The contextual-orbit receipt remains provenance for the selected input; it does not replace the independent scalar oracle. The executor checks lane cardinality and the exact ordered node-ID map.
+8. Independently recomputes every returned lane with the declared scalar law: z_i=a_i+b_i for ADD, z_i=sgn(a_i-b_i) for COMPARE, or z_i=a_i*b_i for MUL. Receiver memory values are used only after their pinned read receipts are checked. The contextual-orbit receipt remains provenance for the selected input; it does not replace the independent scalar oracle. The executor checks lane cardinality and the exact ordered node-ID map.
 9. Only after all lanes pass does it commit the results to their original ComputationNode IDs. Each remote result commit retains the typed frontier receipt, receipt digest, request digest, operator ID/version and operator-contract digest inside the DAG result, so the navigable snapshot remains execution-evidence-bearing.
 
 The route receipt and scalar oracle establish different properties. The receipt provides path and receiver-local admission provenance; the scalar oracle checks operation meaning. Neither is substituted for the other. A failed identity or value check prevents the affected frontier from being committed.
@@ -125,7 +125,7 @@ A ContextualOrbitDataflowInput binds one origin-verified routed inverse result t
 
 The compiler's v3 dataflow plan creates one orbit-input source node per supplied register and adds ordinary dependency edges from consuming instructions. The source node commits the selected integer together with the typed input and receipt identities. For an operation-native descendant, the executor follows the DAG ancestry and includes the relevant typed inputs alongside the current scalar operand. This also works after intermediate DAG operations: the value may have been transformed, while the compact predecessor evidence remains traceable through its dependency lineage.
 
-The operation-native ADD request/receipt schemas and shared CPU/E-GPU ADD operator contract are v3; COMPARE has its own v1 request/receipt and operator contract. The receiving handler rehydrates and validates each contextual-orbit input before executing the selected binary operation; the requester still verifies the returned scalar result independently before commit. Only coordinate/value projections are accepted in this slice, the compiled profile remains bounded, and evidence digests are integrity/provenance bindings rather than signatures or hardware attestation.
+The operation-native ADD request/receipt schemas and shared CPU/E-GPU ADD operator contract are v3; COMPARE and MUL each have their own v1 request/receipt and operator contract. The receiving handler rehydrates and validates each contextual-orbit input before executing the selected binary operation; the requester still verifies the returned scalar result independently before commit. Only coordinate/value projections are accepted in this slice, the compiled profile remains bounded, and evidence digests are integrity/provenance bindings rather than signatures or hardware attestation.
 
 This profile dispatches at most one homogeneous binary-operator batch per ready frontier for each configured operation family. A frontier is not yet split across several hosts, and the RPCs are sequential. The local DAG coordinator retains the result mapping and sends the next dependent frontier only after its predecessor frontier has committed.
 
@@ -157,7 +157,8 @@ The CPU and E-GPU implementations of the binary operation contracts use one expl
 - each input and result has at most 4096 bits;
 - deterministic, pure, ordered output lanes;
 - ADD returns the exact integer sum and retains the 4096-bit result bound;
-- COMPARE returns exactly one of -1, 0 or 1 under the sign(left-right) observation.
+- COMPARE returns exactly one of -1, 0 or 1 under the sign(left-right) observation;
+- MUL returns the exact integer product and refuses any result exceeding the shared 4096-bit bound.
 
 The CPU handler enforces the operand and ADD result bounds even though Python integers are unbounded. The E-GPU handler is admitted for these contracts only when its configured SIMT lane and integer bounds can realize the whole declared operand domain. A smaller E-GPU profile must not advertise a compatible operator contract. CPU and E-GPU implementations retain distinct implementation fingerprints even when they share one semantic operator contract.
 
@@ -169,9 +170,17 @@ The v1 COMPARE frontier request carries the same DataflowBinaryLane shape as ADD
 
 The CPU handler applies compare_values directly. The E-GPU handler uses the existing bounded TransitSIMTHost custom-kernel method: load both lane arrays, compute less-than predicates in both directions, and use structured IF/ENDIF masks to select -1, 0 or 1. The handler checks every returned lane against compare_values before returning. The origin then independently applies that same law again before committing the DAG node.
 
-A caller opts into remote COMPARE by passing operation_dispatchers={"COMPARE": compare_dispatcher} to execute_dataflow_operation_native. Without that dispatcher, COMPARE remains in the local coordinator as before. When it is remote, its full typed receipt is committed into the DAG result; from_dict rehydrates ADD and COMPARE receipts under their respective schemas. A subsequent operation can inspect the graph snapshot and recover the exact operator and route evidence associated with an earlier remote result.
+A caller opts into remote COMPARE by passing operation_dispatchers={"COMPARE": compare_dispatcher} to execute_dataflow_operation_native. Without that dispatcher, COMPARE remains in the local coordinator as before. Remote MUL is independently enabled with operation_dispatchers={"MUL": multiply_dispatcher}; without it, MUL remains local. When routed, its full typed receipt is committed into the DAG result; from_dict rehydrates ADD, COMPARE and MUL receipts under their distinct schemas. A subsequent operation can inspect the graph snapshot and recover the exact operator and route evidence associated with an earlier remote result.
 
-The end-to-end integration test uses one authenticated A→B→C route: C first performs contextual inverse navigation on its local CPU operator, then the compiled DAG dispatches COMPARE and a dependent ADD to separately advertised E-GPU operator loci at C. The second operation still receives the original orbit predecessor through DAG ancestry; the selected-coordinate Structural Memory read is not repeated.
+The end-to-end integration test uses one authenticated A→B→C route: C first performs contextual inverse navigation on its local CPU operator, then the compiled DAG dispatches COMPARE, MUL and a dependent ADD to separately advertised E-GPU operator loci at C. Each transformed operand retains the original orbit predecessor through DAG ancestry; the selected-coordinate Structural Memory read is not repeated.
+
+## MUL as the third binary operation family
+
+MUL extends the same operation-neutral DataflowBinaryLane and ComputationalFabricDataflowBinaryDispatcher. It adds no new transport layer, host-selection path, receiver runtime or DAG representation. The MailCPU opcode defines the scalar law a*b; the versioned operator contract is mailcpu.dataflow.multiply_frontier@1.
+
+The MUL request and receipt each have their own v1 schema. CPU multiplication enforces the shared 64-lane, 4096-bit operand/result domain. The E-GPU realization reuses its registered vector.multiply method, which compiles through the existing bounded TransitSIMT mul instruction. Its returned vector is checked against the same independent scalar product law, first at the receiver handler and again at the origin before the original DAG node is committed. Products that exceed 4096 bits are refused rather than silently widening the remote contract.
+
+MUL is locally interpreted unless the caller supplies operation_dispatchers={"MUL": multiply_dispatcher}. A remote multiplication result embeds its typed receipt, request digest, operator identity/version and contract digest in the DAG snapshot, preserving the same lineage and provenance guarantees as ADD and COMPARE.
 
 ## Receiver-resolved Structural Memory
 
@@ -236,7 +245,7 @@ This bounded binary-operation profile does not yet:
 - split one frontier across multiple target hosts;
 - pipeline intermediate results directly from one terminal host to the next without returning through the origin coordinator;
 - execute concurrently merely because the DAG contains independent nodes;
-- resolve symbolic Structural Memory for operation families outside the supported ADD and COMPARE binary frontiers;
+- resolve symbolic Structural Memory for operation families outside the supported ADD, COMPARE and MUL binary frontiers;
 - choose a host by an empirically trained adaptive cost model; target eligibility is declared by the caller in the current experiment;
 - perform computation inside passive network links; or
 - demonstrate physical GPU acceleration or lower end-to-end latency.
