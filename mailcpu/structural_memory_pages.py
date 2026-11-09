@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections import OrderedDict
 from collections.abc import Mapping
 from typing import Any
 
@@ -24,15 +25,16 @@ class StructuralMemoryPageBacking:
     SNAPSHOT_KIND = "structural_memory_page_backing"
     SNAPSHOT_VERSION = 1
     MAX_PAGE_SIZE = 65_536
+    MAX_CACHED_PAGES = 4
 
     def __init__(self, registry: Any | None = None) -> None:
-        """Initialize an inert content-addressed backing with an optional local registry."""
+        """Initialize an inert content-addressed backing with a bounded four-page host cache and optional local registry."""
         self._registry: Any | None = None
         self._references: dict[str, StructuralMemoryFileRef] = {}
         self._providers: dict[str, StructuralMemoryFileProvider] = {}
         self._local_pages: dict[str, bytes] = {}
-        self._page_cache: dict[str, bytes] = {}
-        self._receipts: dict[str, StructuralMemoryFileReadReceipt] = {}
+        self._page_cache: OrderedDict[str, bytes] = OrderedDict()
+        self._receipts: OrderedDict[str, StructuralMemoryFileReadReceipt] = OrderedDict()
         if registry is not None:
             self.bind_registry(registry)
 
@@ -119,6 +121,8 @@ class StructuralMemoryPageBacking:
             return local
         cached = self._page_cache.get(digest)
         if cached is not None:
+            self._page_cache.move_to_end(digest)
+            self._receipts.move_to_end(digest)
             return cached
         provider = self._providers.get(digest)
         reference = self._references.get(digest)
@@ -135,9 +139,48 @@ class StructuralMemoryPageBacking:
             or receipt.content_digest != digest
         ):
             raise ValueError("structural-memory page bytes do not match the pinned page identity")
-        self._page_cache[digest] = content
-        self._receipts[digest] = receipt
+        # The provider has already returned complete byte-level evidence.
+        # Its coordinate cache is redundant once the immutable page exists:
+        # future hot access uses _page_cache, and an evicted page can regenerate
+        # the same receipt identities from the pinned revision.
+        provider._discard_value_cache()
+        self._cache_structural_page(digest, content, receipt)
         return content
+
+    def _cache_structural_page(
+        self,
+        digest: str,
+        content: bytes,
+        receipt: StructuralMemoryFileReadReceipt,
+    ) -> None:
+        """Mathematics: retain the most-recent min(4,|P|) verified structural pages and their receipts; evict the least-recent pair together."""
+        self._page_cache[digest] = content
+        self._page_cache.move_to_end(digest)
+        self._receipts[digest] = receipt
+        self._receipts.move_to_end(digest)
+        while len(self._page_cache) > self.MAX_CACHED_PAGES:
+            evicted_digest, _evicted_content = self._page_cache.popitem(last=False)
+            self._receipts.pop(evicted_digest, None)
+
+    @property
+    def cached_page_count(self) -> int:
+        """Mathematics: expose |dom(P_cache)|, the number of reconstructed structural pages retained by this backing."""
+        return len(self._page_cache)
+
+    @property
+    def cached_page_bytes(self) -> int:
+        """Mathematics: expose Σ_{h∈dom(P_cache)} |P_cache[h]|, the exact retained duplicate-page byte count."""
+        return sum(len(content) for content in self._page_cache.values())
+
+    @property
+    def cached_receipt_coordinate_count(self) -> int:
+        """Mathematics: expose Σ_h |ρ_h.value_receipt_ids| over retained structural-page receipts."""
+        return sum(len(receipt.value_receipt_ids) for receipt in self._receipts.values())
+
+    @property
+    def cached_provider_coordinate_count(self) -> int:
+        """Mathematics: expose Σ_p |V_cache(p)| across bound providers after page faults."""
+        return sum(provider.cached_coordinate_count for provider in self._providers.values())
 
     def put_page(self, data: bytes) -> str:
         """Mathematics: map private page bytes `b` to immutable identity `h=SHA256(b)`, preserving any structural owner of `h`."""
@@ -151,7 +194,8 @@ class StructuralMemoryPageBacking:
                 raise ValueError("published page conflicts with its structural-memory reference")
         else:
             self._local_pages[digest] = bytes(data)
-        self._page_cache[digest] = bytes(data)
+        # Locally backed COW pages are already durably represented in
+        # _local_pages; retaining a second page-cache copy is unnecessary.
         return digest
 
     def read_receipt(self, digest: str) -> StructuralMemoryFileReadReceipt | None:
