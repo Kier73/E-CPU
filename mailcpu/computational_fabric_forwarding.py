@@ -1156,6 +1156,7 @@ class ComputationalFabricForwardingServer:
                 max_payload_bytes=max_payload_bytes,
                 policy=policy,
                 timing_probe=timing_probe,
+                claim_coordinator=claim_coordinator,
             )
         except Exception:
             transport.close()
@@ -1743,6 +1744,7 @@ class ComputationalFabricForwardingServer:
             next_hop_clients=clients,
             timeout=float(payload["timeout"]),
             max_payload_bytes=int(payload["max_payload_bytes"]),
+            claim_coordinator=claim_coordinator,
         )
         restored_inbound = ReliableChannel.from_snapshot(
             dict(payload["inbound_channel"]),
