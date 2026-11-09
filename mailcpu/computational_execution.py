@@ -353,23 +353,28 @@ class ComputationalExecutionAdmissionCoordinator:
                 reason="fresh receiver-local resolution did not reproduce the exact supplied route witness",
             )
 
-        if self.timing_probe is None:
+        def validate_host_binding() -> tuple[tuple[ComputationalHostLocus, ...], bool, str]:
             matches = tuple(
                 item for item in catalogue.loci
                 if item.host_id == witness.host_id
                 and item.operator_spec.operator_id == address.operator_id
                 and item.operator_spec.version == witness.operator_version
             )
-            runtime_matches, runtime_reason = self._runtime_matches(address, witness, matches[0], runtime) if len(matches) == 1 else (False, "selected host locus is absent or ambiguous")
+            if len(matches) != 1:
+                return matches, False, "selected host locus is absent or ambiguous"
+            runtime_matches, runtime_reason = self._runtime_matches(
+                address,
+                witness,
+                matches[0],
+                runtime,
+            )
+            return matches, runtime_matches, runtime_reason
+
+        if self.timing_probe is None:
+            matches, runtime_matches, runtime_reason = validate_host_binding()
         else:
             with self.timing_probe.measure("receiver_host_binding_validation", correlation_id=address.digest):
-                matches = tuple(
-                    item for item in catalogue.loci
-                    if item.host_id == witness.host_id
-                    and item.operator_spec.operator_id == address.operator_id
-                    and item.operator_spec.version == witness.operator_version
-                )
-                runtime_matches, runtime_reason = self._runtime_matches(address, witness, matches[0], runtime) if len(matches) == 1 else (False, "selected host locus is absent or ambiguous")
+                matches, runtime_matches, runtime_reason = validate_host_binding()
         if len(matches) != 1:
             return self._refuse(
                 address, witness, source=source, channel=channel, sequence=sequence,
