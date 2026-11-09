@@ -35,6 +35,19 @@ jobs:
         run: python scripts/verify_repo.py
       - name: Run invariant registry
         run: python scripts/verify_invariants.py
+      - name: Compare resident and Structural Memory-backed VM pages
+        run: |
+          python -m pytest -q tests/test_structural_memory_vm_benchmark.py
+          python scripts/benchmark_structural_memory_vm.py --pretty --output structural-memory-vm-comparison.json
+
+      - name: Upload Structural Memory VM comparison report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: structural-memory-vm-comparison
+          path: structural-memory-vm-comparison.json
+          if-no-files-found: ignore
+
       - name: Run two-process scheduler benchmark
         run: python examples/scheduler_relation_benchmark.py --cycles 12
       - name: Compare Python, direct MailCPU, and remote MailCPU compute
