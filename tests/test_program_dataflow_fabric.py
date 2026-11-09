@@ -5,6 +5,7 @@ from dataclasses import replace
 import pytest
 
 from mailcpu.assembler import assemble
+from mailcpu.computation_dag import NavigableComputationDAG
 from mailcpu.program_dataflow import MailCPUDataflowCompiler, compare_dataflow_with_reference
 from mailcpu import (
     ContextualOrbitAddress,
@@ -26,8 +27,17 @@ from mailcpu.semantic_translation import ObservationContract, canonical_value_di
 from mailcpu.seed import SystemIdentity
 from mailcpu.program_dataflow_fabric import (
     DataflowAddFrontierReceipt,
+    DataflowCompareFrontierReceipt,
+    DataflowMultiplyFrontierReceipt,
     OperationNativeDataflowError,
+    dataflow_compare_operator_spec,
+    dataflow_multiply_operator_spec,
+    dataflow_add_operator_spec,
     execute_dataflow_operation_native,
+    make_cpu_dataflow_compare_handler,
+    make_egpu_dataflow_compare_handler,
+    make_cpu_dataflow_multiply_handler,
+    make_egpu_dataflow_multiply_handler,
 )
 
 
@@ -146,6 +156,167 @@ def _contextual_orbit_inputs():
     )
 
 
+
+
+def _good_compare_receipt(request):
+    from mailcpu.interpreter import compare_values
+
+    values = tuple(
+        (lane.node_id, compare_values(lane.left, lane.right))
+        for lane in request.lanes
+    )
+    return DataflowCompareFrontierReceipt(
+        request_digest=request.digest,
+        results=values,
+        host_id="logical-gpu",
+        peer_id="peer-b",
+        peer_path=("peer-a", "peer-b"),
+        route_witness_digest="f" * 64,
+        forwarding_receipt_digest="e" * 64,
+        operator_effect_digest="d" * 64,
+        implementation_fingerprint="c" * 64,
+        backend_receipt_digest="b" * 64,
+    )
+
+
+def _good_multiply_receipt(request):
+    values = tuple(
+        (lane.node_id, lane.left * lane.right)
+        for lane in request.lanes
+    )
+    return DataflowMultiplyFrontierReceipt(
+        request_digest=request.digest,
+        results=values,
+        host_id="logical-gpu",
+        peer_id="peer-b",
+        peer_path=("peer-a", "peer-b"),
+        route_witness_digest="9" * 64,
+        forwarding_receipt_digest="8" * 64,
+        operator_effect_digest="7" * 64,
+        implementation_fingerprint="6" * 64,
+        backend_receipt_digest="5" * 64,
+    )
+
+
+def test_operation_native_multiply_frontier_preserves_orbit_provenance_and_receipt() -> None:
+    """MUL transports the same typed predecessor evidence and commits its own receipt schema."""
+    coordinate_input, value_input = _contextual_orbit_inputs()
+    program = assemble(
+        "mul partial orbit_coordinate orbit_value\n"
+        "mul answer partial orbit_value\n"
+        "halt"
+    )
+    plan = MailCPUDataflowCompiler().compile_program(
+        program,
+        contextual_orbit_inputs={
+            "orbit_coordinate": coordinate_input,
+            "orbit_value": value_input,
+        },
+    )
+    requests = []
+
+    def dispatch_multiply(request):
+        requests.append(request)
+        return _good_multiply_receipt(request)
+
+    dispatch_multiply.operator_spec = dataflow_multiply_operator_spec()
+    report = execute_dataflow_operation_native(
+        plan,
+        operation_dispatchers={"MUL": dispatch_multiply},
+    )
+
+    assert len(requests) == 2
+    first_lane, second_lane = requests[0].lanes[0], requests[1].lanes[0]
+    assert requests[0].to_dict()["schema"] == "mailcpu.dataflow.multiply-frontier-request.v1"
+    assert requests[1].to_dict()["schema"] == "mailcpu.dataflow.multiply-frontier-request.v1"
+    assert [item.digest for item in first_lane.left_orbit_inputs] == [coordinate_input.digest]
+    assert [item.digest for item in first_lane.right_orbit_inputs] == [value_input.digest]
+    assert {item.digest for item in second_lane.left_orbit_inputs} == {
+        coordinate_input.digest, value_input.digest,
+    }
+    assert [item.digest for item in second_lane.right_orbit_inputs] == [value_input.digest]
+    assert report.execution.observation["registers"]["partial"] == coordinate_input.value * value_input.value
+    assert report.execution.observation["registers"]["answer"] == coordinate_input.value * (value_input.value ** 2)
+    assert len(report.frontier_receipts) == 2
+    for receipt, request in zip(report.frontier_receipts, requests):
+        assert receipt.to_dict()["schema"] == "mailcpu.dataflow.multiply-frontier-receipt.v1"
+        restored_receipt = DataflowMultiplyFrontierReceipt.from_dict(receipt.to_dict())
+        assert restored_receipt.digest == receipt.digest
+        assert receipt.request_digest == request.digest
+    from mailcpu.computation_dag import NavigableComputationDAG
+    restored = NavigableComputationDAG.from_snapshot(report.execution.dag_snapshot)
+    multiply_result = restored.result("pc-000001")
+    assert multiply_result["operation"] == "MUL"
+    assert multiply_result["operator_id"] == "mailcpu.dataflow.multiply_frontier"
+    assert multiply_result["operator_version"] == 1
+    assert multiply_result["operation_receipt"]["schema"] == "mailcpu.dataflow.multiply-frontier-receipt.v1"
+    assert compare_dataflow_with_reference(plan, report.execution, program).equivalent is True
+
+
+def test_cpu_and_egpu_multiply_handlers_share_bounded_product_semantics() -> None:
+    """The existing SIMT mul and E-GPU vector.multiply method realize the same product law."""
+    from mailcpu import EGPUHost
+
+    payload = {
+        "lanes": [
+            {"node_id": "pc-000001", "left": {"kind": "inline", "value": 3}, "right": {"kind": "inline", "value": 7}},
+            {"node_id": "pc-000002", "left": {"kind": "inline", "value": -5}, "right": {"kind": "inline", "value": 4}},
+            {"node_id": "pc-000003", "left": {"kind": "inline", "value": 0}, "right": {"kind": "inline", "value": 99}},
+        ],
+        "max_steps": 32,
+    }
+    cpu = make_cpu_dataflow_multiply_handler()(payload, None)
+    egpu = make_egpu_dataflow_multiply_handler(EGPUHost(host_id="egpu.multiply"))(payload, None)
+    assert cpu["values"] == [21, -20, 0]
+    assert egpu["values"] == cpu["values"]
+    assert cpu["backend_method"] == "cpu.vector.multiply"
+    assert egpu["backend_method"] == "egpu.vector.multiply"
+    assert len(egpu["backend_receipt_digest"]) == 64
+    assert dataflow_multiply_operator_spec().substrates == ("cpu", "gpu")
+
+
+def test_multiply_remains_local_when_no_remote_multiply_dispatcher_is_supplied() -> None:
+    """MUL is locally interpreted by default while existing remote ADD dispatch remains available."""
+    program = assemble(
+        "set left 9\n"
+        "set right 4\n"
+        "mul product left right\n"
+        "add answer product left\n"
+        "halt"
+    )
+    plan = MailCPUDataflowCompiler().compile_program(program)
+    requests = []
+
+    def dispatch_add(request):
+        requests.append(request)
+        return _good_receipt(request)
+
+    report = execute_dataflow_operation_native(plan, dispatch_add)
+    assert len(requests) == 1
+    assert report.execution.observation["registers"]["product"] == 36
+    assert report.execution.observation["registers"]["answer"] == 45
+    from mailcpu.computation_dag import NavigableComputationDAG
+    restored = NavigableComputationDAG.from_snapshot(report.execution.dag_snapshot)
+    assert "operation_receipt" not in restored.result("pc-000002")
+    assert compare_dataflow_with_reference(plan, report.execution, program).equivalent is True
+
+
+def test_remote_multiply_refuses_a_dispatcher_with_the_wrong_operator_contract() -> None:
+    """A product lane cannot be routed under the ADD semantic contract."""
+    program = assemble("set left 8\nset right 3\nmul product left right\nhalt")
+    plan = MailCPUDataflowCompiler().compile_program(program)
+
+    def wrong_dispatcher(request):
+        return _good_multiply_receipt(request)
+
+    wrong_dispatcher.operator_spec = dataflow_add_operator_spec()
+    with pytest.raises(OperationNativeDataflowError, match="canonical mailcpu.dataflow.multiply_frontier@1"):
+        execute_dataflow_operation_native(
+            plan,
+            operation_dispatchers={"MUL": wrong_dispatcher},
+        )
+
+
 def test_operation_native_executor_batches_frontiers_and_preserves_node_identity() -> None:
     program = _program()
     plan = MailCPUDataflowCompiler().compile_program(program)
@@ -262,6 +433,149 @@ def test_cpu_add_receiver_revalidates_contextual_orbit_receipt_payload() -> None
     }
     with pytest.raises(OperationNativeDataflowError, match="operator effect"):
         make_cpu_dataflow_add_handler()(tampered, None)
+
+
+
+def test_operation_native_compare_frontier_preserves_orbit_provenance_and_commits_operator_receipt() -> None:
+    """Mathematics: route sign(left-right), retain the inverse witness, and reuse the existing DAG frontier contract."""
+    coordinate_input, value_input = _contextual_orbit_inputs()
+    program = assemble(
+        "set threshold 40\n"
+        "compare relation orbit_coordinate threshold\n"
+        "add answer relation orbit_value\n"
+        "halt"
+    )
+    plan = MailCPUDataflowCompiler().compile_program(
+        program,
+        contextual_orbit_inputs={
+            "orbit_coordinate": coordinate_input,
+            "orbit_value": value_input,
+        },
+    )
+    compare_requests = []
+    add_requests = []
+
+    def dispatch_compare(request):
+        compare_requests.append(request)
+        return _good_compare_receipt(request)
+
+    def dispatch_add(request):
+        add_requests.append(request)
+        return _good_receipt(request)
+
+    dispatch_compare.operator_spec = dataflow_compare_operator_spec()
+    dispatch_add.operator_spec = dataflow_add_operator_spec()
+
+    report = execute_dataflow_operation_native(
+        plan,
+        dispatch_add,
+        operation_dispatchers={"COMPARE": dispatch_compare},
+    )
+
+    assert len(compare_requests) == len(add_requests) == 1
+    compare_lane = compare_requests[0].lanes[0]
+    add_lane = add_requests[0].lanes[0]
+    assert compare_lane.left == coordinate_input.value
+    assert [item.digest for item in compare_lane.left_orbit_inputs] == [coordinate_input.digest]
+    assert [item.digest for item in add_lane.right_orbit_inputs] == [value_input.digest]
+    assert report.execution.observation["registers"]["relation"] == -1
+    assert report.execution.observation["registers"]["answer"] == value_input.value - 1
+    assert len(report.frontier_receipts) == 2
+    assert report.frontier_receipts[0].to_dict()["schema"] == "mailcpu.dataflow.compare-frontier-receipt.v1"
+    assert report.frontier_receipts[1].to_dict()["schema"] == "mailcpu.dataflow.add-frontier-receipt.v3"
+    assert DataflowCompareFrontierReceipt.from_dict(
+        report.frontier_receipts[0].to_dict()
+    ).digest == report.frontier_receipts[0].digest
+    assert DataflowAddFrontierReceipt.from_dict(
+        report.frontier_receipts[1].to_dict()
+    ).digest == report.frontier_receipts[1].digest
+
+    restored = NavigableComputationDAG.from_snapshot(report.execution.dag_snapshot)
+    compare_node = restored.result("pc-000001")
+    assert compare_node["operation"] == "COMPARE"
+    assert compare_node["operation_receipt"]["schema"] == "mailcpu.dataflow.compare-frontier-receipt.v1"
+    assert compare_node["operation_receipt_digest"] == report.frontier_receipts[0].digest
+    assert compare_node["frontier_request_digest"] == compare_requests[0].digest
+    assert compare_node["operator_id"] == dataflow_compare_operator_spec().operator_id
+    assert compare_node["operator_version"] == dataflow_compare_operator_spec().version
+    assert compare_node["operator_contract_digest"] == dataflow_compare_operator_spec().digest
+    assert restored.result("pc-000002")["operation_receipt"]["schema"] == "mailcpu.dataflow.add-frontier-receipt.v3"
+    assert compare_dataflow_with_reference(plan, report.execution, program).equivalent is True
+
+
+def test_cpu_and_egpu_compare_handlers_share_the_same_sign_semantics() -> None:
+    """Mathematics: strict ordering outputs {-1,0,1} agree across CPU and the existing bounded SIMT kernel."""
+    from mailcpu import EGPUHost
+
+    payload = {
+        "lanes": [
+            {"node_id": "pc-000001", "left": {"kind": "inline", "value": 1}, "right": {"kind": "inline", "value": 2}},
+            {"node_id": "pc-000002", "left": {"kind": "inline", "value": 5}, "right": {"kind": "inline", "value": 5}},
+            {"node_id": "pc-000003", "left": {"kind": "inline", "value": 9}, "right": {"kind": "inline", "value": 4}},
+        ],
+        "max_steps": 32,
+    }
+    cpu = make_cpu_dataflow_compare_handler()(payload, None)
+    egpu_host = EGPUHost(host_id="egpu.compare")
+    egpu = make_egpu_dataflow_compare_handler(egpu_host)(payload, None)
+
+    assert cpu["values"] == [-1, 0, 1]
+    assert egpu["values"] == cpu["values"]
+    assert cpu["backend_method"] == "cpu.vector.compare"
+    assert egpu["backend_method"] == "egpu.simt.compare"
+    assert len(egpu["backend_receipt_digest"]) == 64
+    assert dataflow_compare_operator_spec().substrates == ("cpu", "gpu")
+
+
+
+
+def test_remote_compare_refuses_a_dispatcher_with_the_wrong_operator_contract() -> None:
+    """Mathematics: a binary result cannot be admitted under another operation's declared semantics."""
+    program = assemble(
+        "set left 8\\n"
+        "set right 3\\n"
+        "compare relation left right\\n"
+        "halt"
+    )
+    plan = MailCPUDataflowCompiler().compile_program(program)
+
+    def wrong_dispatcher(request):
+        return _good_compare_receipt(request)
+
+    wrong_dispatcher.operator_spec = dataflow_add_operator_spec()
+    with pytest.raises(OperationNativeDataflowError, match="canonical mailcpu.dataflow.compare_frontier@1"):
+        execute_dataflow_operation_native(
+            plan,
+            operation_dispatchers={"COMPARE": wrong_dispatcher},
+        )
+
+
+def test_compare_remains_local_when_no_remote_compare_dispatcher_is_supplied() -> None:
+    """Mathematics: adding remote COMPARE is opt-in and does not change the established local execution path."""
+    program = assemble(
+        "set left 9\n"
+        "set right 4\n"
+        "compare relation left right\n"
+        "add answer relation left\n"
+        "halt"
+    )
+    plan = MailCPUDataflowCompiler().compile_program(program)
+    add_requests = []
+
+    def dispatch_add(request):
+        add_requests.append(request)
+        return _good_receipt(request)
+
+    report = execute_dataflow_operation_native(plan, dispatch_add)
+
+    assert len(add_requests) == 1
+    assert add_requests[0].lanes[0].left == 1
+    assert add_requests[0].lanes[0].right == 9
+    assert report.execution.observation["registers"]["relation"] == 1
+    assert report.execution.observation["registers"]["answer"] == 10
+    restored = NavigableComputationDAG.from_snapshot(report.execution.dag_snapshot)
+    assert "operation_receipt" not in restored.result("pc-000002")
+    assert compare_dataflow_with_reference(plan, report.execution, program).equivalent is True
 
 
 def test_operation_native_executor_refuses_wrong_lane_identity_before_frontier_commit() -> None:

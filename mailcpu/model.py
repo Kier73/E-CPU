@@ -8,11 +8,12 @@ from typing import Any, Iterable, Mapping, Sequence
 
 
 class Op(str, Enum):
-    """The nine operations in the native MailCPU instruction set."""
+    """The ten operations in the native MailCPU instruction set."""
 
     SET = "SET"
     COPY = "COPY"
     ADD = "ADD"
+    MUL = "MUL"
     COMPARE = "COMPARE"
     BRANCH = "BRANCH"
     SEND = "SEND"
@@ -110,6 +111,7 @@ OPCODE_ARITY = {
     Op.SET: 2,
     Op.COPY: 2,
     Op.ADD: 3,
+    Op.MUL: 3,
     Op.COMPARE: 3,
     Op.BRANCH: 2,
     Op.SEND: 2,
@@ -149,7 +151,7 @@ def validate_instruction(instruction: Instruction) -> None:
     elif op is Op.COPY:
         _expect_register(args[0], "COPY destination")
         _expect_register(args[1], "COPY source")
-    elif op in (Op.ADD, Op.COMPARE):
+    elif op in (Op.ADD, Op.MUL, Op.COMPARE):
         _expect_register(args[0], f"{op.value} destination")
         _expect_register(args[1], f"{op.value} left operand")
         _expect_register(args[2], f"{op.value} right operand")

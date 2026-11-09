@@ -10,6 +10,7 @@ _EXACT_ARITY_OPERANDS = {
     Op.SET: ("value", "7"),
     Op.COPY: ("target", "value"),
     Op.ADD: ("target", "left", "right"),
+    Op.MUL: ("target", "left", "right"),
     Op.COMPARE: ("target", "left", "right"),
     Op.BRANCH: ("flag", "1"),
     Op.SEND: ("mailbox", "value"),

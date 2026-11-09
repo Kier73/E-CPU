@@ -231,6 +231,11 @@ def apply_instruction(
             args[0], backend.read_register(args[1]) + backend.read_register(args[2])
         )
         return Transition(pc + 1)
+    if op is Op.MUL:
+        backend.write_register(
+            args[0], backend.read_register(args[1]) * backend.read_register(args[2])
+        )
+        return Transition(pc + 1)
     if op is Op.COMPARE:
         backend.write_register(
             args[0], compare_values(backend.read_register(args[1]), backend.read_register(args[2]))
