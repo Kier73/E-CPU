@@ -3007,7 +3007,19 @@ def test_compiled_dataflow_frontiers_execute_on_distinct_fabric_hosts_with_egpu(
             max_hops=2,
             metric_order=METRICS,
         )
-        execution = execute_dataflow_operation_native(plan, dispatcher)
+        try:
+            execution = execute_dataflow_operation_native(plan, dispatcher)
+        except Exception as exc:
+            failures_snapshot = [f"{type(item).__name__}: {item}" for item in failures]
+            server_errors = {
+                peer: server.last_error
+                for peer, holder in (("peer-b", server_b_holder), ("peer-c", server_c_holder))
+                for server in holder.values()
+            }
+            raise AssertionError(
+                f"operation-native forwarding failed: {exc}; "
+                f"peer failures={failures_snapshot!r}; server errors={server_errors!r}"
+            ) from exc
         comparison = compare_dataflow_with_reference(plan, execution.execution, program)
 
         assert comparison.equivalent
