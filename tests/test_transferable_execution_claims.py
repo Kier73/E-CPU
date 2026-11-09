@@ -12,6 +12,7 @@ from mailcpu import (
     RecoveryLineageAuthority,
     RecoveryLineageCoordinator,
     SeedCommitMembership,
+    TransferableExecutionClaim,
     TransferableExecutionClaimError,
     TransferableExecutionClaimStore,
     dataflow_add_operator_spec,
@@ -207,9 +208,30 @@ def test_claim_tampering_and_stale_semantic_identity_are_refused(tmp_path: Path)
     tampered["state_snapshot"]["claims"][0]["assignments"][0]["owner_host_id"] = "attacker-host"
     with pytest.raises(TransferableExecutionClaimError, match="digest|state bytes|bundle"):
         PortableExecutionClaimBundle.from_dict(tampered)
+    tampered_claim = bundle.claim.to_dict()
+    tampered_claim["operator_spec"]["deterministic"] = False
+    with pytest.raises(TransferableExecutionClaimError, match="deterministic pure OperatorSpec"):
+        TransferableExecutionClaim.from_dict(tampered_claim)
+
+    correct_contract = replace(dataflow_add_operator_spec(), description="a different pure ADD implementation contract")
+    with pytest.raises(TransferableExecutionClaimError, match="does not authorize"):
+        bundle.verify_for_target(
+            coordinator,
+            parent_request_digest=PARENT,
+            child_request_digest=CHILD,
+            address_digest=ADDRESS,
+            operator_spec=correct_contract,
+            computational_ground_fingerprint=GROUND,
+            owner_peer_id="peer-b",
+            owner_host_id="logical-cpu-b",
+            implementation_fingerprint=IMPL_B,
+        )
+
+    claim_id = bundle.claim.claim_id
     bundle.state_snapshot["claims"][0]["assignments"][0]["owner_host_id"] = "mutated-after-construction"
     with pytest.raises(TransferableExecutionClaimError, match="changed after construction"):
         bundle.verify_current(coordinator)
+    bundle = store.get(claim_id)
     with pytest.raises(TransferableExecutionClaimError, match="does not authorize"):
         bundle.verify_for_target(
             coordinator,
