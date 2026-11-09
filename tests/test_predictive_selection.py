@@ -620,6 +620,7 @@ def test_predictive_selector_advises_page_access_trace_from_independent_held_out
         state_schema=state_schema,
         template_json=_canonical(template),
         components=(component,),
+        extensions={"experiment": "predictive-page-reuse-v1"},
     )
 
     observed_access_trace = (0, 1, 0, 2, 0, 3, 0, 1, 0, 2, 0, 3)
