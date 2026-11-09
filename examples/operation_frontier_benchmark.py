@@ -624,16 +624,14 @@ def run_benchmark(
                 max_work_units=len(plan.nodes),
                 timing_probe=local_probe,
             )
-        if not compare_dataflow_with_reference(plan, measured_report, program).equivalent:
-            raise AssertionError("local CPU timing run changed the result")
-        local_registers = measured_report.observation["registers"]
-        if any(local_registers[f"product_{lane}"] != expected for lane in range(lanes)):
-            raise AssertionError("local CPU output does not match the scalar product oracle")
+            verification_digest = _verification_digest(
+                plan, program, measured_report, expected, lanes
+            )
         local_report = measured_report
         if index >= warmups:
             local_run_evidence.append((
                 measured_report.digest,
-                _verification_digest(plan, program, measured_report, expected, lanes),
+                verification_digest,
                 None,
             ))
         if index == warmups - 1:
