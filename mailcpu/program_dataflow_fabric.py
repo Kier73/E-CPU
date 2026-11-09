@@ -100,7 +100,7 @@ def _strict_integer(value: Any, label: str) -> int:
 
 @dataclass(frozen=True)
 class DataflowAddLane:
-    """One stable correspondence between a DAG ADD node and two typed operands."""
+    """One stable DAG ADD node with two scalar operands and optional typed orbit provenance."""
 
     node_id: str
     node_digest: str
@@ -368,7 +368,13 @@ def _contextual_orbit_predecessors(
             predecessor = ContextualOrbitDataflowInput.from_dict(raw)
         except (TypeError, ValueError, KeyError) as exc:
             raise OperationNativeDataflowError(f"node {node_id!r} contextual-orbit predecessor failed verification: {exc}") from exc
-        if result.get("predecessor_digest") != predecessor.digest:
+        if (
+            result.get("predecessor_digest") != predecessor.digest
+            or result.get("value") != predecessor.value
+            or result.get("selected_coordinate") != predecessor.selected_coordinate
+            or result.get("selected_value") != predecessor.selected_value
+            or result.get("receipt_digest") != predecessor.receipt.digest
+        ):
             raise OperationNativeDataflowError(f"node {node_id!r} contextual-orbit predecessor result was altered")
         collected[predecessor.digest] = predecessor
     return tuple(collected[key] for key in sorted(collected))
