@@ -196,7 +196,7 @@ def test_old_acknowledged_transport_duplicate_is_acked_without_hypervisor_replay
         ReliableChannel(transport, "replica", "replica", "ops", policy, peer="origin")
     )
     operating_system = HeadlessOS()
-    operating_system.install_source("/bin/child.mca", "HALT\\n")
+    operating_system.install_source("/bin/child.mca", "HALT\n")
     calls = {"count": 0}
 
     def launch_handler() -> int:
@@ -233,7 +233,8 @@ def test_old_acknowledged_transport_duplicate_is_acked_without_hypervisor_replay
         authorize,
         {HypervisorDomain.PROCESS: launch_handler},
     )
-    assert duplicate is None
+    assert duplicate is not None and duplicate.replayed is True
+    assert duplicate.effect == first.effect
     assert calls["count"] == 1
     assert receiver.channel.next_receive_sequence == 2
     assert sender.channel.process_ack() == (1,)
