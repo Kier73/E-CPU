@@ -974,7 +974,9 @@ class VGIPersistentSession:
         )
         if bundle.descriptor.get("descriptor_digest") != self.descriptor.descriptor_digest:
             raise VGISessionError("transfer bundle belongs to another compiled VGI session descriptor")
-        if bundle.descriptor != self.descriptor.to_dict():
+        if _canonical_bytes(bundle.descriptor, "transfer descriptor") != _canonical_bytes(
+            self.descriptor.to_dict(), "local session descriptor"
+        ):
             raise VGISessionError("transfer descriptor differs from the locally admitted VGI session descriptor")
         try:
             checkpoint = ComputationalSessionCheckpoint.from_dict(
