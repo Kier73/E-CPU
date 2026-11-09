@@ -723,18 +723,27 @@ class TransferableExecutionClaimStore:
         self,
         generation: int,
         state_bytes: bytes,
+        state_root_bytes: bytes,
         manifest: RecoveryStateManifest,
     ) -> Path:
-        """Mathematics: Fsync state and manifest bytes before atomically publishing one immutable generation directory."""
+        """Mathematics: Fsync the full owner snapshot, compact state root and manifest before immutable directory publication."""
         target = self._generation_directory(generation)
         expected = {
             "claims.json": state_bytes,
+            "state-root.json": state_root_bytes,
             "manifest.json": _canonical_json(manifest.snapshot()) + b"\n",
         }
         if target.exists():
             try:
-                actual = {name: (target / name).read_bytes() for name in expected}
-            except OSError as exc:
+                actual = {
+                    name: _read_bounded(target / name, maximum, f"existing {name}")
+                    for name, maximum in (
+                        ("claims.json", _MAX_STATE_BYTES),
+                        ("state-root.json", 64 * 1024),
+                        ("manifest.json", 64 * 1024),
+                    )
+                }
+            except (OSError, TransferableExecutionClaimError) as exc:
                 raise TransferableExecutionClaimError("existing claim generation is incomplete") from exc
             if actual != expected:
                 raise TransferableExecutionClaimError(
@@ -753,7 +762,14 @@ class TransferableExecutionClaimStore:
             try:
                 os.rename(staging, target)
             except FileExistsError:
-                actual = {name: (target / name).read_bytes() for name in expected}
+                actual = {
+                    name: _read_bounded(target / name, maximum, f"concurrent {name}")
+                    for name, maximum in (
+                        ("claims.json", _MAX_STATE_BYTES),
+                        ("state-root.json", 64 * 1024),
+                        ("manifest.json", 64 * 1024),
+                    )
+                }
                 if actual != expected:
                     raise TransferableExecutionClaimError(
                         f"claim generation {generation} was concurrently published with different bytes"
@@ -789,7 +805,7 @@ class TransferableExecutionClaimStore:
     def _load_latest_locked(
         self,
     ) -> tuple[int, str, dict[str, Any], dict[str, TransferableExecutionClaim], RecoveryStateManifest | None, RecoveryLineageProof | None]:
-        """Mathematics: Load only the state whose exact manifest is the current durable quorum high-water."""
+        """Mathematics: Verify full owner state against its compact Merkle root and the exact durable quorum high-water."""
         try:
             proof = self.coordinator.latest_proof()
             generation, predecessor = self.coordinator.high_water()
@@ -803,8 +819,10 @@ class TransferableExecutionClaimStore:
         directory = self._generation_directory(generation)
         try:
             state_bytes = _read_bounded(directory / "claims.json", _MAX_STATE_BYTES, "claim state snapshot")
+            root_bytes = _read_bounded(directory / "state-root.json", 64 * 1024, "claim state-root commitment")
             manifest_bytes = _read_bounded(directory / "manifest.json", 64 * 1024, "claim state manifest")
             snapshot = json.loads(state_bytes.decode("utf-8"))
+            raw_root = json.loads(root_bytes.decode("utf-8"))
             raw_manifest = json.loads(manifest_bytes.decode("utf-8"))
             manifest = RecoveryStateManifest.from_snapshot(raw_manifest)
         except (OSError, UnicodeDecodeError, json.JSONDecodeError, RecoveryLineageError) as exc:
@@ -816,20 +834,56 @@ class TransferableExecutionClaimStore:
             or manifest.membership_digest != self.coordinator.membership.digest
             or manifest_bytes != _canonical_json(manifest.snapshot()) + b"\n"
             or state_bytes != _canonical_json(snapshot) + b"\n"
+            or root_bytes != _canonical_json(raw_root) + b"\n"
         ):
-            raise TransferableExecutionClaimError("claim state or manifest does not match the quorum high-water")
+            raise TransferableExecutionClaimError("claim state, root or manifest does not match the quorum high-water")
         try:
-            manifest.verify_payload(state_bytes)
+            state_root = _validate_state_commitment(raw_root, manifest)
+            claims = self._claims_from_snapshot(snapshot)
+            claims_root, _paths = _claim_merkle_paths(claims)
+            if (
+                state_root["claim_count"] != len(claims)
+                or state_root["claims_root"] != claims_root
+            ):
+                raise TransferableExecutionClaimError("full claim snapshot does not reproduce its committed Merkle root")
+            manifest.verify_payload(root_bytes)
             verified = self.coordinator.verify_state(manifest)
         except RecoveryLineageError as exc:
             raise TransferableExecutionClaimError(f"claim generation {generation} failed quorum verification") from exc
         if verified.snapshot() != proof.snapshot():
             raise TransferableExecutionClaimError("claim authority proof changed during state verification")
-        claims = self._claims_from_snapshot(snapshot)
         return generation, manifest.digest, snapshot, claims, manifest, proof
 
+    def _bundle_for_claim(
+        self,
+        claim_id: str,
+        claims: Mapping[str, TransferableExecutionClaim],
+        manifest: RecoveryStateManifest,
+        proof: RecoveryLineageProof,
+    ) -> PortableExecutionClaimBundle:
+        """Mathematics: Project one claim from the full owner state into its compact quorum-bound Merkle inclusion ticket."""
+        claim = claims.get(claim_id)
+        if claim is None:
+            raise TransferableExecutionClaimError("requested claim is absent from the current committed state")
+        root, paths = _claim_merkle_paths(claims)
+        index, inclusion = paths[claim_id]
+        commitment = _state_commitment(
+            manifest.generation,
+            manifest.predecessor_digest,
+            len(claims),
+            root,
+        )
+        return PortableExecutionClaimBundle(
+            claim,
+            manifest,
+            proof,
+            commitment,
+            index,
+            inclusion,
+        )
+
     def _resume_pending_locked(self) -> bool:
-        """Mathematics: Finish the exact persisted next-generation proposal before any different claim transition may consume its slot."""
+        """Mathematics: Finish the exact persisted next-generation proposal after validating its full state against the compact root."""
         generation, predecessor, _snapshot, _claims, _manifest, _proof = self._load_latest_locked()
         next_generation = generation + 1
         target = self._generation_directory(next_generation)
@@ -837,8 +891,10 @@ class TransferableExecutionClaimStore:
             return False
         try:
             state_bytes = _read_bounded(target / "claims.json", _MAX_STATE_BYTES, "pending claim state")
+            root_bytes = _read_bounded(target / "state-root.json", 64 * 1024, "pending claim state root")
             manifest_bytes = _read_bounded(target / "manifest.json", 64 * 1024, "pending claim manifest")
             snapshot = json.loads(state_bytes.decode("utf-8"))
+            raw_root = json.loads(root_bytes.decode("utf-8"))
             manifest = RecoveryStateManifest.from_snapshot(json.loads(manifest_bytes.decode("utf-8")))
         except (OSError, UnicodeDecodeError, json.JSONDecodeError, RecoveryLineageError) as exc:
             raise TransferableExecutionClaimError(
@@ -851,11 +907,16 @@ class TransferableExecutionClaimStore:
             or manifest.capture_cut != _CAPTURE_CUT
             or manifest_bytes != _canonical_json(manifest.snapshot()) + b"\n"
             or state_bytes != _canonical_json(snapshot) + b"\n"
+            or root_bytes != _canonical_json(raw_root) + b"\n"
         ):
             raise TransferableExecutionClaimError("pending claim generation does not extend the exact current quorum state")
         claims = self._claims_from_snapshot(snapshot)
+        state_root = _validate_state_commitment(raw_root, manifest)
+        claims_root, _paths = _claim_merkle_paths(claims)
+        if state_root["claim_count"] != len(claims) or state_root["claims_root"] != claims_root:
+            raise TransferableExecutionClaimError("pending full claim state does not reproduce its committed Merkle root")
         try:
-            manifest.verify_payload(state_bytes)
+            manifest.verify_payload(root_bytes)
             proof = self.coordinator.seal(manifest)
             verified = self.coordinator.verify_state(manifest)
         except RecoveryLineageError as exc:
@@ -878,7 +939,9 @@ class TransferableExecutionClaimStore:
         predecessor_digest: str,
         target_claim_id: str,
     ) -> PortableExecutionClaimBundle:
-        """Mathematics: Publish one full sorted claim state only after its bytes are durable and a strict majority commits its manifest."""
+        """Mathematics: Publish full owner state plus a compact Merkle commitment before strict-majority quorum sealing."""
+        if len(claims) > _MAX_CLAIMS:
+            raise TransferableExecutionClaimError("claim ledger exceeds the finite claim-count bound")
         generation = previous_generation + 1
         snapshot = {
             "schema": _SCHEMA,
@@ -887,6 +950,16 @@ class TransferableExecutionClaimStore:
         state_bytes = _canonical_json(snapshot) + b"\n"
         if len(state_bytes) > _MAX_STATE_BYTES:
             raise TransferableExecutionClaimError("claim ledger state exceeds its finite serialized-byte bound")
+        claims_root, _paths = _claim_merkle_paths(claims)
+        commitment = _state_commitment(
+            generation,
+            predecessor_digest,
+            len(claims),
+            claims_root,
+        )
+        root_bytes = _canonical_json(commitment) + b"\n"
+        if len(root_bytes) > 64 * 1024:
+            raise TransferableExecutionClaimError("claim state-root commitment exceeds its finite byte bound")
         membership = self.coordinator.membership
         manifest = RecoveryStateManifest(
             machine_id=membership.system_id,
@@ -896,10 +969,10 @@ class TransferableExecutionClaimStore:
             membership_digest=membership.digest,
             generation=generation,
             predecessor_digest=predecessor_digest,
-            state_digest=hashlib.sha256(state_bytes).hexdigest(),
+            state_digest=hashlib.sha256(root_bytes).hexdigest(),
             capture_cut=_CAPTURE_CUT,
         )
-        self._persist_generation(generation, state_bytes, manifest)
+        self._persist_generation(generation, state_bytes, root_bytes, manifest)
         try:
             proof = self.coordinator.seal(manifest)
         except RecoveryLineageError as exc:
@@ -914,10 +987,7 @@ class TransferableExecutionClaimStore:
             ) from exc
         if proof.snapshot() != verified.snapshot():
             raise TransferableExecutionClaimError("claim commit proof differs from the live verified proof")
-        claim = claims.get(target_claim_id)
-        if claim is None:
-            raise TransferableExecutionClaimError("published claim transition omitted its target claim")
-        return PortableExecutionClaimBundle(claim, manifest, proof, snapshot)
+        return self._bundle_for_claim(target_claim_id, claims, manifest, proof)
 
     def create(
         self,
@@ -966,7 +1036,7 @@ class TransferableExecutionClaimStore:
                     and existing.current_assignment.owner_host_id == owner_host_id
                     and existing.current_assignment.implementation_fingerprint == implementation_fingerprint
                 ):
-                    return PortableExecutionClaimBundle(existing, _manifest, proof, _snapshot)
+                    return self._bundle_for_claim(existing.claim_id, claims, _manifest, proof)
                 raise TransferableExecutionClaimError("immutable execution claim identity already exists with another assignment or outcome")
             next_generation = generation + 1
             claim = TransferableExecutionClaim(
@@ -992,7 +1062,7 @@ class TransferableExecutionClaimStore:
             claim = claims.get(claim_id)
             if claim is None or manifest is None or proof is None:
                 raise TransferableExecutionClaimError("execution claim does not exist in the quorum ledger")
-            return PortableExecutionClaimBundle(claim, manifest, proof, snapshot)
+            return self._bundle_for_claim(claim_id, claims, manifest, proof)
 
     def reassign(
         self,
@@ -1031,7 +1101,7 @@ class TransferableExecutionClaimStore:
                 target_implementation,
                 failure_evidence_digest,
             ):
-                return PortableExecutionClaimBundle(current, manifest, proof, _snapshot)
+                return self._bundle_for_claim(claim_id, claims, manifest, proof)
             if latest.epoch != expected_epoch:
                 raise TransferableExecutionClaimError("stale assignment epoch cannot reassign the current execution claim")
             if (latest.owner_peer_id, latest.owner_host_id) == (target_peer, target_host):
@@ -1093,7 +1163,7 @@ class TransferableExecutionClaimStore:
                     and (current.result_digest, current.child_receipt_digest)
                     == (result, receipt)
                 ):
-                    return PortableExecutionClaimBundle(current, manifest, proof, snapshot)
+                    return self._bundle_for_claim(claim_id, claims, manifest, proof)
                 raise TransferableExecutionClaimError("execution claim is already completed with another epoch or result")
             if assignment.epoch != expected_epoch:
                 raise TransferableExecutionClaimError("stale assignment epoch cannot complete a rehomed execution claim")
