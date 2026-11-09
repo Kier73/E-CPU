@@ -293,8 +293,24 @@ class CompiledMailCPUDataflow:
         if not isinstance(self.metrics, ProgramDataflowMetrics):
             raise ProgramDataflowError("metrics must be ProgramDataflowMetrics")
         graph = self.graph()
-        if graph.digest != self.dataflow_representation.content_digest:
-            raise ProgramDataflowError("dataflow representation does not identify the compiled graph")
+        target_payload = {
+            "schema": "mailcpu.program-dataflow-graph.v1",
+            "program": self.program_ref.to_dict(),
+            "initial_state": self.initial_state_ref.to_dict(),
+            "computational_ground": self.computational_ground.to_dict(),
+            "context_digest": self.context_digest,
+            "nodes": [node.to_dict() for node in self.nodes],
+            "final_register_sources": [item.to_dict() for item in self.final_register_sources],
+            "frontiers": [list(item) for item in self.frontiers],
+        }
+        if canonical_value_digest(target_payload) != self.dataflow_representation.content_digest:
+            raise ProgramDataflowError("dataflow representation does not identify the compiled atlas")
+        if self.translation.source != self.program_ref or self.translation.target != self.dataflow_representation:
+            raise ProgramDataflowError("translation contract does not bind the exact program and dataflow representations")
+        if self.translation.context_digest != self.context_digest or self.translation.observation != self.observation:
+            raise ProgramDataflowError("translation contract context or observation differs from the compiled plan")
+        if _derive_frontiers(self.nodes) != self.frontiers:
+            raise ProgramDataflowError("declared ready frontiers do not match the dependency graph")
 
     @property
     def initial_values(self) -> dict[str, int]:
