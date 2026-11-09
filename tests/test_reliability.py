@@ -209,6 +209,11 @@ def test_reliable_channel_rejects_changed_payload_under_delivered_sequence_after
     assert snapshot["version"] == 5
     assert snapshot["received_digests"]["1"]
 
+    incomplete = dict(snapshot)
+    incomplete["received_digests"] = {}
+    with pytest.raises(ValueError, match="cover every delivered sequence"):
+        ReliableChannel.from_snapshot(incomplete, transport)
+
     restored = ReliableChannel.from_snapshot(snapshot, transport)
     transport.send(
         "receiver",
