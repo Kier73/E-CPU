@@ -3117,12 +3117,13 @@ def test_compiled_dataflow_frontiers_execute_on_distinct_fabric_hosts_with_egpu(
 
 
 
-def test_contextual_orbit_inverse_navigation_executes_on_receiver_over_multihop_fabric(tmp_path) -> None:
-    """A→B→C routes an inverse query; C reads only the located coordinate after local Hypervisor admission."""
+def test_contextual_orbit_inverse_navigation_composes_into_egpu_dataflow_over_multihop_fabric(tmp_path) -> None:
+    """A→B→C routes inverse navigation and then two dependent typed-predecessor ADD frontiers to E-GPU at C."""
     from mailcpu import (
         ComputationalFabricForwardingClient,
         ComputationalFabricForwardingServer,
         ContextualOrbitDataflowInput,
+        EGPUHost,
         RepresentationRef,
     )
     from mailcpu.program_dataflow import MailCPUDataflowCompiler
@@ -3130,7 +3131,7 @@ def test_contextual_orbit_inverse_navigation_executes_on_receiver_over_multihop_
         ComputationalFabricDataflowAddDispatcher,
         dataflow_add_operator_spec,
         execute_dataflow_operation_native,
-        make_cpu_dataflow_add_handler,
+        make_egpu_dataflow_add_handler,
     )
     from mailcpu.classifier import HypervisorPolicy
     from mailcpu.computational_fabric_forwarding import (
@@ -3272,12 +3273,15 @@ def test_contextual_orbit_inverse_navigation_executes_on_receiver_over_multihop_
     )
     add_operator_spec = dataflow_add_operator_spec()
     add_inputs = []
+    egpu = EGPUHost(host_id="egpu.peer-c")
+    egpu_registry = OperatorRegistry()
 
-    def cpu_add(value, workload):
+    def egpu_add(value, workload):
         add_inputs.append(value)
-        return make_cpu_dataflow_add_handler()(value, workload)
+        return make_egpu_dataflow_add_handler(egpu)(value, workload)
 
-    registry_c.register(add_operator_spec, cpu_add)
+    egpu_registry.register(add_operator_spec, egpu_add)
+    runtime_gpu_c = VirtualLayerRuntime(egpu_registry, "node-c", frozenset({"gpu"}))
     runtime_c = VirtualLayerRuntime(registry_c, "node-c", frozenset({"cpu"}))
     implementation_fingerprint = "d" * 64
     add_implementation_fingerprint = "e" * 64
@@ -3294,8 +3298,8 @@ def test_contextual_orbit_inverse_navigation_executes_on_receiver_over_multihop_
         implementation_fingerprint=implementation_fingerprint,
     )
     add_locus_c = ComputationalHostLocus.from_runtime(
-        host_id="logical-host-c-dataflow-add",
-        runtime=runtime_c,
+        host_id="logical-host-c-egpu-dataflow-add",
+        runtime=runtime_gpu_c,
         authority_pid=peer_c_pid,
         operator_id=add_operator_spec.operator_id,
         version=add_operator_spec.version,
@@ -3483,7 +3487,7 @@ def test_contextual_orbit_inverse_navigation_executes_on_receiver_over_multihop_
         assert dataflow_report.execution.observation["registers"]["answer"] == (target_coordinate * 2) + 5
         assert len(dataflow_report.frontier_receipts) == 2
         assert all(item.peer_path == ("peer-a", "peer-b", "peer-c") for item in dataflow_report.frontier_receipts)
-        assert all(item.host_id == "logical-host-c-dataflow-add" for item in dataflow_report.frontier_receipts)
+        assert all(item.host_id == "logical-host-c-egpu-dataflow-add" for item in dataflow_report.frontier_receipts)
         assert len(add_inputs) == 2
         first_left = add_inputs[0]["lanes"][0]["left"]
         second_left = add_inputs[1]["lanes"][0]["left"]
