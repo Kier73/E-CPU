@@ -1460,7 +1460,7 @@ class HypervisorArbitrationLoop:
         self,
         event: HypervisorArbitrationEvent,
     ) -> HypervisorExecutionResult | None:
-        """Return a committed result for an exact operation identity without ever invoking its handler."""
+        """Mathematics: Return the committed result for exact identity and fingerprint without entering its effect handler."""
         if not isinstance(event, HypervisorArbitrationEvent):
             raise ClassifierError("execution replay requires a HypervisorArbitrationEvent")
         identity = event.identity
