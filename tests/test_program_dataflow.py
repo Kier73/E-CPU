@@ -268,6 +268,7 @@ def test_symbolic_structural_memory_is_compiled_as_a_pinned_initial_operand_with
         structural_memory_refs={"memory_value": reference},
     )
 
+    assert plan.to_dict()["schema"] == "mailcpu.program-dataflow.v2"
     assert plan.structural_memory_refs[0][0] == "memory_value"
     assert plan.structural_memory_refs[0][1].binding == "memory_value"
     assert plan.nodes[1].payload["operands"][0]["kind"] == "structural_memory"
