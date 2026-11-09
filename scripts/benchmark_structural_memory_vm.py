@@ -196,6 +196,41 @@ def _make_case(
             if actual != _page_bytes(page_index, page_size):
                 raise StructuralMemoryBenchmarkError("hot access changed page content")
 
+    # Force one resident->reserved->resident cycle. The structural mode should
+    # reuse its measured host cache, while the materialized control uses local
+    # content backing. Both must return the same page and keep the same owner.
+    cache_probe_before_hits = int(getattr(page_backing, "cached_reuse_count", 0))
+    cache_probe_started = perf_counter_ns()
+    memory.reclaim(count=1, page_numbers=(0,))
+    cache_probe_bytes = memory.read(0, page_size)
+    cache_probe_ns = perf_counter_ns() - cache_probe_started
+    cache_probe_content_valid = cache_probe_bytes == _page_bytes(0, page_size)
+    cache_probe_after_hits = int(getattr(page_backing, "cached_reuse_count", 0))
+    if not cache_probe_content_valid:
+        raise StructuralMemoryBenchmarkError("page cache probe changed the declared bytes")
+    if mode == "structural" and cache_probe_after_hits - cache_probe_before_hits < 2:
+        raise StructuralMemoryBenchmarkError(
+            "structural page reclaim/refault did not reuse the bounded host page cache"
+        )
+    backing_cached_page_count_after_probe = int(
+        getattr(page_backing, "cached_page_count", 0)
+    )
+    backing_cached_page_bytes_after_probe = int(
+        getattr(page_backing, "cached_page_bytes", 0)
+    )
+    backing_cached_receipt_coordinate_count_after_probe = int(
+        getattr(page_backing, "cached_receipt_coordinate_count", 0)
+    )
+    backing_cached_provider_coordinate_count_after_probe = int(
+        getattr(page_backing, "cached_provider_coordinate_count", 0)
+    )
+    backing_cached_regeneration_cost_ns_after_probe = int(
+        getattr(page_backing, "cached_regeneration_cost_ns", 0)
+    )
+    backing_cache_retention_policy = str(
+        getattr(page_backing, "cache_retention_policy", "none")
+    )
+
     snapshot_started = perf_counter_ns()
     snapshot = operating_system.snapshot()
     snapshot_ns = perf_counter_ns() - snapshot_started
@@ -289,6 +324,15 @@ def _make_case(
         "host_backing_cached_page_bytes_after_cold_access": backing_cached_page_bytes,
         "host_backing_cached_receipt_coordinate_count_after_cold_access": backing_cached_receipt_coordinate_count,
         "host_backing_cached_provider_coordinate_count_after_cold_access": backing_cached_provider_coordinate_count,
+        "cache_probe_wall_ns": cache_probe_ns,
+        "cache_probe_page_content_valid": cache_probe_content_valid,
+        "host_backing_cached_page_count_after_probe": backing_cached_page_count_after_probe,
+        "host_backing_cached_page_bytes_after_probe": backing_cached_page_bytes_after_probe,
+        "host_backing_cached_receipt_coordinate_count_after_probe": backing_cached_receipt_coordinate_count_after_probe,
+        "host_backing_cached_provider_coordinate_count_after_probe": backing_cached_provider_coordinate_count_after_probe,
+        "host_backing_cached_reuse_count_after_probe": cache_probe_after_hits,
+        "host_backing_cached_regeneration_cost_ns_after_probe": backing_cached_regeneration_cost_ns_after_probe,
+        "host_backing_cache_retention_policy": backing_cache_retention_policy,
         "cold_page_access_ns": cold_access_ns,
         "cold_page_access_mean_ns": (
             sum(cold_access_ns) // len(cold_access_ns) if cold_access_ns else 0
