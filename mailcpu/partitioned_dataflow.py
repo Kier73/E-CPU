@@ -351,6 +351,7 @@ def _ordered_child_receipts(
     current_partitions: Sequence[BinaryFrontierPartition] | None = None,
 ) -> tuple[BinaryFrontierChildReceipt, ...]:
     """Mathematics: require one receipt per exact semantic child while permitting only claim-proven route epochs."""
+    strict_current_routes = current_partitions is not None
     expected = {item.request.digest: item for item in plan.partitions}
     active = {
         item.request.digest: item
@@ -376,7 +377,7 @@ def _ordered_child_receipts(
             or child.partition.operation != original.operation
         ):
             raise OperationNativeDataflowError("child receipt changed its exact semantic request, address or lane set")
-        if child.partition.to_dict() != current.to_dict():
+        if strict_current_routes and child.partition.to_dict() != current.to_dict():
             raise OperationNativeDataflowError("child receipt route differs from the checkpoint's latest quorum assignment")
         if child.partition.digest != original.digest:
             ticket = child.claim_bundle
