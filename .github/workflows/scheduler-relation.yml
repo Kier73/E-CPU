@@ -15,9 +15,15 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install test dependencies
-        run: python -m pip install -e ".[dev]"
+        run: python -m pip install -e ".[dev,vgi]"
       - name: Run state relation and transit transport tests
         run: python -m pytest -q tests/test_scheduler_relation_unit.py tests/test_scheduler_relation.py tests/test_headless_relation.py tests/test_headless_relation_operations.py tests/test_public_surface.py::test_every_public_callable_carries_a_docstring tests/test_transit_compute.py tests/test_mtls_transport.py
+      - name: Verify federated VGI transfer and acknowledged-request recovery
+        run: >-
+          python -m pytest -q
+          tests/test_computational_fabric.py::test_persistent_vgi_session_transfers_through_fabric_and_replays_once
+          'tests/test_process_crash_boundaries.py::test_requester_and_receiver_processes_recover_at_each_transit_crash_cut[after_request_ack]'
+
       - name: Run repository conformance checks
         run: python scripts/verify_repo.py
       - name: Run invariant registry
