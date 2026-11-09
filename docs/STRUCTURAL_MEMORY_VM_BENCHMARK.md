@@ -77,15 +77,19 @@ The first paired CI run used four virtual pages and touched two pages in each ca
 | Resident guest bytes | 16 KiB | 8 KiB |
 | Reserved pages after cold working-set access | 0 | 2 |
 | Reserved guest bytes | 0 | 8 KiB |
-| Mean cold page access | 5.3 µs | 29.7 ms |
-| Mean hot access | 3.5 µs | 2.7 µs |
+| Mean cold page access | 5.87 µs | 28.94 ms |
+| Mean hot access | 5.11 µs | 3.23 µs |
 | Full checkpoint size | 65,763 B | 86,539 B |
-| Checkpoint restore | 1.03 ms | 47.0 ms |
+| Checkpoint restore | 0.811 ms | 44.81 ms |
 | Durable range-read journal events | 0 | 2 |
 | Per-coordinate receipt IDs committed by the range events | 0 | 8,192 |
+| Host backing page-cache bytes after cold access | 0 | 8 KiB |
+| Provider coordinate/value cache entries after page materialization | 0 | 0 |
 
-The resident-page reduction is 50%, but the untouched pages are not free: the Structural Memory case carries four admitted descriptions/certificates, page references, and range evidence. At this four-page size the complete checkpoint is about 20.8 KiB larger than the materialized case. The optimization's major gain is avoiding the previous 8,192 individual journal/cache entries: before range commitments the same profile produced a 41.3 MB checkpoint and took about 5.03 s to restore. Range commitments reduced those to 86.5 KiB and 0.58 s. A second optimization constructs the deterministic point-receipt IDs without allocating a complete point-receipt object for every byte; it preserves exact ID equivalence, reduces cold page access from 293.9 ms to 29.7 ms, and reduces restore from 581 ms to 47 ms.
+The resident-page reduction is 50%, but the untouched pages are not free: the Structural Memory case carries four admitted descriptions/certificates, page references, and range evidence. At this four-page size the complete checkpoint is about 20.8 KiB larger than the materialized case. The optimization's major gain is avoiding the previous 8,192 individual journal/cache entries: before range commitments the same profile produced a 41.3 MB checkpoint and took about 5.03 s to restore. Range commitments reduced those to 86.5 KiB and 0.58 s. Direct construction of the deterministic point-receipt IDs preserves exact ID equivalence without allocating a full point-receipt object for every byte; in this CI run it measured about 28.94 ms per cold generated page and 44.81 ms for full restore.
 
-Cold generation remains expensive—roughly 29.7 ms per page versus 5.3 µs for an already-materialized page. This profile therefore demonstrates a compact, replay-verifiable representation and an exact 50% guest resident-page reduction, not a general-purpose swap replacement or an overall faster memory tier. A realistic system would need workload-aware choice of materialization versus regeneration, larger amortization windows, and further optimization while retaining the same receipt and hash checks.
+The host-cache reclaim/refault probe adds an ownership distinction. After faulting the two-page working set, the backing retains 8 KiB of immutable page objects and their 8,192 coordinate receipt identities, with no provider coordinate/value cache. During the one-page reclaim probe, the backing still has 8 KiB cached: 4 KiB are the same object as the remaining VM resident blob and 4 KiB are backing-only while the reclaimed page is unmapped. Refault then reattaches the same object, returning the shared resident/cache overlap to 8 KiB. The measured reclaim took about 23.0 µs and the cache-backed refault about 27.1 µs; both avoided a second generator evaluation. The measured regeneration-cost sum for the retained pages was about 57.5 ms, and the two cache probes incremented the observed reuse count twice. These are local wall-clock diagnostics, not guarantees across hosts.
+
+Cold generation remains expensive—roughly 28.94 ms per page versus 5.87 µs for an already-materialized page. This profile therefore demonstrates a compact, replay-verifiable representation, a four-page bounded cost-aware cache, exact immutable-object reuse across reclaim/refault, and a 50% guest resident-page reduction; it does not demonstrate a general-purpose swap replacement or an overall faster memory tier. A realistic system would need workload-aware choice of materialization versus regeneration, larger amortization windows, and further optimization while retaining the same receipt and hash checks.
 
 This is a single-process, single-VM comparison using the admitted integer-orbit family. It is not an operating-system swap benchmark, an RSS reservation measurement, an adversarial multi-tenant isolation proof, or evidence of physical-host VM capacity. Host RSS is not used to derive savings because this paired experiment focuses on exact guest mapping state and the provenance/state cost of reconstructing pages. Larger working-set and fleet-scale tests remain future work.
