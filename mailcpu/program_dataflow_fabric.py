@@ -111,8 +111,8 @@ class DataflowAddLane:
     right_register: str | None = None
     left_reference: VirtualStructuralMemoryRef | None = None
     right_reference: VirtualStructuralMemoryRef | None = None
-    left_orbit_input: ContextualOrbitDataflowInput | None = None
-    right_orbit_input: ContextualOrbitDataflowInput | None = None
+    left_orbit_inputs: tuple[ContextualOrbitDataflowInput, ...] = ()
+    right_orbit_inputs: tuple[ContextualOrbitDataflowInput, ...] = ()
 
     def __post_init__(self) -> None:
         """Mathematics: require each lane side to be exactly one bounded literal value or revision-pinned symbolic memory coordinate."""
@@ -125,18 +125,22 @@ class DataflowAddLane:
             value = getattr(self, side)
             register = getattr(self, f"{side}_register")
             reference = getattr(self, f"{side}_reference")
-            orbit_input = getattr(self, f"{side}_orbit_input")
+            orbit_inputs = tuple(getattr(self, f"{side}_orbit_inputs"))
             if value is not None:
                 _bounded_add_integer(value, f"lane {side} operand")
                 if reference is not None:
                     raise OperationNativeDataflowError(f"lane {side} cannot contain both a value and memory reference")
             elif not isinstance(reference, VirtualStructuralMemoryRef):
                 raise OperationNativeDataflowError(f"lane {side} requires a value or VirtualStructuralMemoryRef")
-            if orbit_input is not None:
-                if not isinstance(orbit_input, ContextualOrbitDataflowInput):
-                    raise OperationNativeDataflowError(f"lane {side} contextual-orbit input must be typed")
-                if reference is not None or value is None or value != orbit_input.value:
-                    raise OperationNativeDataflowError(f"lane {side} contextual-orbit projection differs from its typed predecessor")
+            if orbit_inputs:
+                if reference is not None or value is None:
+                    raise OperationNativeDataflowError(f"lane {side} cannot combine contextual-orbit provenance with unresolved Structural Memory")
+                if any(not isinstance(item, ContextualOrbitDataflowInput) for item in orbit_inputs):
+                    raise OperationNativeDataflowError(f"lane {side} contextual-orbit provenance must contain typed inputs")
+                if orbit_inputs != tuple(sorted(orbit_inputs, key=lambda item: item.digest)):
+                    raise OperationNativeDataflowError(f"lane {side} contextual-orbit provenance must be sorted by digest")
+                if len({item.digest for item in orbit_inputs}) != len(orbit_inputs):
+                    raise OperationNativeDataflowError(f"lane {side} contextual-orbit provenance must be unique")
             if reference is not None:
                 if not isinstance(register, str) or _REGISTER.fullmatch(register) is None:
                     raise OperationNativeDataflowError(f"lane {side} memory operand requires its source register")
@@ -157,8 +161,8 @@ class DataflowAddLane:
             "right_register": self.right_register,
             "left_reference": None if self.left_reference is None else self.left_reference.to_dict(),
             "right_reference": None if self.right_reference is None else self.right_reference.to_dict(),
-            "left_orbit_input": None if self.left_orbit_input is None else self.left_orbit_input.to_dict(),
-            "right_orbit_input": None if self.right_orbit_input is None else self.right_orbit_input.to_dict(),
+            "left_orbit_inputs": [item.to_dict() for item in self.left_orbit_inputs],
+            "right_orbit_inputs": [item.to_dict() for item in self.right_orbit_inputs],
         }
 
 
