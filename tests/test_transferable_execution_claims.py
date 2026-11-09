@@ -89,7 +89,7 @@ def test_quorum_claim_round_trip_and_exact_target_admission(tmp_path: Path) -> N
             parent_request_digest=PARENT,
             child_request_digest=CHILD,
             address_digest=ADDRESS,
-            operator_id="mailcpu.add",
+            operator_id=dataflow_add_operator_spec().operator_id,
             operator_contract_digest=CONTRACT,
             computational_ground_fingerprint=GROUND,
             owner_peer_id="peer-c",
@@ -102,6 +102,17 @@ def test_quorum_claim_round_trip_and_exact_target_admission(tmp_path: Path) -> N
             child_request_digest=CHILD,
             address_digest=ADDRESS,
             operator_spec=replace(dataflow_add_operator_spec(), deterministic=False),
+            computational_ground_fingerprint=GROUND,
+            owner_peer_id="peer-b",
+            owner_host_id="logical-cpu-b",
+            implementation_fingerprint=IMPL_B,
+        )
+    with pytest.raises(TransferableExecutionClaimError, match="only pure replay-safe"):
+        store.create(
+            parent_request_digest=PARENT,
+            child_request_digest=CHILD,
+            address_digest=ADDRESS,
+            operator_spec=dataflow_add_operator_spec(),
             computational_ground_fingerprint=GROUND,
             owner_peer_id="peer-b",
             owner_host_id="logical-cpu-b",
