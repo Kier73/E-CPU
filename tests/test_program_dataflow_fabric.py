@@ -389,10 +389,10 @@ def test_cpu_and_egpu_compare_handlers_share_the_same_sign_semantics() -> None:
 def test_compare_remains_local_when_no_remote_compare_dispatcher_is_supplied() -> None:
     """Mathematics: adding remote COMPARE is opt-in and does not change the established local execution path."""
     program = assemble(
-        "set left 9\\n"
-        "set right 4\\n"
-        "compare relation left right\\n"
-        "add answer relation left\\n"
+        "set left 9\n"
+        "set right 4\n"
+        "compare relation left right\n"
+        "add answer relation left\n"
         "halt"
     )
     plan = MailCPUDataflowCompiler().compile_program(program)
