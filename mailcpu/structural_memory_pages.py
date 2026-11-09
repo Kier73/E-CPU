@@ -273,7 +273,7 @@ class StructuralMemoryPageBacking:
         return digest
 
     def read_receipt(self, digest: str) -> StructuralMemoryFileReadReceipt | None:
-        """Mathematics: project the latest structural read receipt `ρ_h` for page identity `h`, or `⊥` when not read."""
+        """Mathematics: project the receipt retained with cached page identity `h`, or `⊥` when that page is not currently cached."""
         self._validate_digest(digest)
         return self._receipts.get(digest)
 
