@@ -200,20 +200,23 @@ class BinaryFrontierPartition:
         """Mathematics: project the stable sorted original DAG node identities assigned to this child."""
         return tuple(item.node_id for item in self.request.lanes)
 
-    @property
-    def digest(self) -> str:
-        """Mathematics: identify the exact child request and route proposal pair."""
-        return _canonical_digest(self.to_dict())
-
-    def to_dict(self) -> dict[str, Any]:
-        """Mathematics: serialize full child lane/provenance and the complete non-authoritative route witness."""
+    def _payload(self) -> dict[str, Any]:
+        """Mathematics: project the complete child request and route without a self-referential digest field."""
         return {
             "schema": "mailcpu.binary-frontier-partition.v1",
             "operation": self.operation,
             "request": self.request.to_dict(),
             "route_witness": self.route_witness.to_dict(),
-            "digest": self.digest,
         }
+
+    @property
+    def digest(self) -> str:
+        """Mathematics: identify the exact child request and route proposal pair."""
+        return _canonical_digest(self._payload())
+
+    def to_dict(self) -> dict[str, Any]:
+        """Mathematics: serialize full child lane/provenance and the complete non-authoritative route witness."""
+        return {**self._payload(), "digest": self.digest}
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "BinaryFrontierPartition":
