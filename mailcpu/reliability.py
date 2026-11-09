@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 from typing import Any, Callable
 
-from ._codec import decode_canonical_value, encode_canonical_value
+from ._codec import canonical_digest_payload, decode_canonical_value, encode_canonical_value
 from ._codec import message_from_record as _message_from_snapshot
 from .model import Message
 from .transport import Transport
@@ -70,6 +71,7 @@ class ReliableChannel:
         self._next_sequence = 1
         self._pending: dict[int, PendingFrame] = {}
         self._delivered: set[int] = set()
+        self._received_payload_digests: dict[int, str] = {}
         self._next_receive_sequence = 1
         self._tick = 0
         self.failed_sequences: list[int] = []
@@ -120,6 +122,15 @@ class ReliableChannel:
         if peeked is None:
             return None
         sequence, payload = peeked
+        payload_digest = hashlib.sha256(
+            canonical_digest_payload(payload).encode("utf-8")
+        ).hexdigest()
+        if sequence < self._next_receive_sequence:
+            previous_digest = self._received_payload_digests.get(sequence)
+            if previous_digest is not None and previous_digest != payload_digest:
+                raise ReliableChannelError(
+                    "duplicate reliable sequence carries a conflicting payload"
+                )
         message = next(
             (
                 candidate
@@ -149,6 +160,7 @@ class ReliableChannel:
         if sequence != self._next_receive_sequence:
             raise ValueError("reliable receive cursor advanced unexpectedly")
         self._delivered.add(sequence)
+        self._received_payload_digests[sequence] = payload_digest
         self._next_receive_sequence += 1
         return sequence, payload
 
@@ -303,7 +315,7 @@ class ReliableChannel:
         """Mathematics: serialize `(source,destination,peer,channel,W,P,D,r,t,F,next)` with exact pending-frame value identity."""
 
         return {
-            "version": 4,
+            "version": 5,
             "source": self.source,
             "destination": self.destination,
             "channel": self.channel,
@@ -325,6 +337,10 @@ class ReliableChannel:
                 for sequence, pending in sorted(self._pending.items())
             },
             "delivered": sorted(self._delivered),
+            "received_digests": {
+                str(sequence): digest
+                for sequence, digest in sorted(self._received_payload_digests.items())
+            },
             "failed_sequences": list(self.failed_sequences),
         }
 
@@ -333,7 +349,7 @@ class ReliableChannel:
         """Mathematics: reconstruct channel state, restore cursor `r`, reconcile queued `RDATA`, and validate `P,D,F` sequence domains before continuation."""
 
         version = int(payload.get("version", 1))
-        if version not in (1, 2, 3, 4):
+        if version not in (1, 2, 3, 4, 5):
             raise ValueError("unsupported reliable channel snapshot version")
         policy_payload = dict(payload.get("policy", {}))
         channel = cls(
@@ -386,6 +402,20 @@ class ReliableChannel:
         if len(raw_delivered) != len(set(raw_delivered)) or len(raw_failed) != len(set(raw_failed)):
             raise ValueError("reliable delivered and failed sequences must be unique")
         channel._delivered = set(raw_delivered)
+        channel._received_payload_digests = {}
+        raw_received_digests = payload.get("received_digests", {})
+        if not isinstance(raw_received_digests, dict):
+            raise ValueError("reliable received payload digests must be a mapping")
+        for raw_sequence, raw_digest in raw_received_digests.items():
+            sequence = int(raw_sequence)
+            if (
+                sequence not in channel._delivered
+                or type(raw_digest) is not str
+                or len(raw_digest) != 64
+                or any(character not in "0123456789abcdef" for character in raw_digest)
+            ):
+                raise ValueError("reliable received payload digest is invalid or unbound")
+            channel._received_payload_digests[sequence] = raw_digest
         channel.failed_sequences = raw_failed
         if version >= 3:
             channel._next_receive_sequence = int(payload["next_receive_sequence"])
