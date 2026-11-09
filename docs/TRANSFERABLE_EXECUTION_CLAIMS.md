@@ -44,6 +44,8 @@ The portable bundle carries:
 
 A receiving Host verifies the snapshot bytes and the quorum proof, then calls `verify_state` against the live coordinator. A well-formed but older bundle is refused as stale. The proof is not a signature detached from the state: it anchors one exact state manifest, and the bundle includes the state bytes needed to verify that anchor.
 
+The first implementation bounds the ledger to 16,384 claims, 64 assignments per claim and a 16 MiB serialized state snapshot. Each transition writes the full sorted claim set, so transition cost is O(number of retained claims); this is an auditable baseline rather than the final high-volume design. Claim compaction and deterministic sharding by parent/frontier are follow-on optimization tracks and must preserve the same single-winner claim semantics.
+
 The claim store serializes local writers with a cross-process lock. The existing fixed-membership quorum serializes distributed state generations and refuses conflicting values at an occupied generation. If a coordinator fails after writing the next immutable generation or after a minority prepare/commit, `resume_pending()` reloads and validates the exact persisted snapshot/manifest, then retries that same proposal. A different transition at the occupied slot is not silently substituted.
 
 ## Claim lifecycle
