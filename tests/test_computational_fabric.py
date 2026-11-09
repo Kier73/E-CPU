@@ -3125,6 +3125,7 @@ def test_contextual_orbit_inverse_navigation_composes_into_egpu_dataflow_over_mu
         ContextualOrbitDataflowInput,
         EGPUHost,
         RepresentationRef,
+        assemble,
     )
     from mailcpu.program_dataflow import MailCPUDataflowCompiler
     from mailcpu.program_dataflow_fabric import (
