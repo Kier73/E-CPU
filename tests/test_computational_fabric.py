@@ -4036,7 +4036,10 @@ def test_b_64_authenticated_claim_status_refresh_is_scoped_to_the_assigned_peer_
         RecoveryLineageCoordinator,
     )
     from mailcpu.seed_commit_quorum import SeedCommitMembership
-    from mailcpu.transferable_execution_claim import TransferableExecutionClaimStore
+    from mailcpu.transferable_execution_claim import (
+        TransferableExecutionClaimError,
+        TransferableExecutionClaimStore,
+    )
 
     certificates = _make_test_certificates(tmp_path)
     server_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
