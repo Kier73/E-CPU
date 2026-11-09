@@ -667,7 +667,12 @@ def test_claim_bound_frontier_automatically_rehomes_ambiguous_child_with_one_new
     assert len(restored_intent.reassignment_intents) == 1
     restored_confirmed = type(confirmed_checkpoints[0]).from_dict(confirmed_checkpoints[-1].to_dict())
     assert restored_confirmed.reassignments
-    assert restored_confirmed.current_partitions[1].route_witness.target_host.peer_id in {"peer-b", "peer-d", "peer-c"}
+    restored_route = next(
+        item for item in restored_confirmed.current_partitions
+        if item.request.digest == child.partition.request.digest
+    )
+    assert restored_route.digest == child.partition.digest
+    assert restored_route.route_witness.target_host.peer_id == "peer-d"
 
     restored_composite = BinaryFrontierCompositeReceipt.from_dict(composite.to_dict())
     assert restored_composite.digest == composite.digest
