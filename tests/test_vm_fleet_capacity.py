@@ -63,6 +63,8 @@ def test_vm_fleet_rejects_invalid_profiles() -> None:
 
     with pytest.raises(ValueError, match="working_set_pages"):
         benchmark_case(1, working_set_pages=1)
+    with pytest.raises(ValueError, match="at least one VM working set"):
+        benchmark_case(1, working_set_pages=2, max_total_resident_pages=1)
     with pytest.raises(ValueError, match="strictly increasing"):
         build_report(
             (2, 1),
