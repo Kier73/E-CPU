@@ -964,15 +964,30 @@ def dataflow_multiply_operator_spec() -> OperatorSpec:
     )
 
 
-def make_cpu_dataflow_multiply_handler() -> Callable[[Mapping[str, Any], VirtualLayerWorkload], dict[str, Any]]:
+def make_cpu_dataflow_multiply_handler(
+    *,
+    timing_probe: Any | None = None,
+) -> Callable[[Mapping[str, Any], VirtualLayerWorkload], dict[str, Any]]:
     """Mathematics: construct the CPU realization of the common bounded integer-product Ground."""
-    def execute(value: Mapping[str, Any], _workload: VirtualLayerWorkload) -> dict[str, Any]:
+    if timing_probe is not None and not callable(getattr(timing_probe, "measure", None)):
+        raise OperationNativeDataflowError("timing_probe must expose a measure context manager")
+
+    def execute(value: Mapping[str, Any], workload: VirtualLayerWorkload) -> dict[str, Any]:
         """Mathematics: map aligned strict integer pairs through the product law."""
-        left, right, _max_steps = _materialize_frontier_operands(value)
-        outputs = [
-            _bounded_binary_integer(a * b, f"CPU MUL result[{index}]")
-            for index, (a, b) in enumerate(zip(left, right))
-        ]
+        if timing_probe is None:
+            left, right, _max_steps = _materialize_frontier_operands(value)
+            outputs = [
+                _bounded_binary_integer(a * b, f"CPU MUL result[{index}]")
+                for index, (a, b) in enumerate(zip(left, right))
+            ]
+        else:
+            with timing_probe.measure("receiver_provenance_validation", correlation_id=workload.digest):
+                left, right, _max_steps = _materialize_frontier_operands(value)
+            with timing_probe.measure("backend_compute", correlation_id=workload.digest):
+                outputs = [
+                    _bounded_binary_integer(a * b, f"CPU MUL result[{index}]")
+                    for index, (a, b) in enumerate(zip(left, right))
+                ]
         backend = {
             "implementation": "mailcpu.cpu.strict-integer-vector-multiply.v1",
             "values": outputs,
@@ -985,7 +1000,11 @@ def make_cpu_dataflow_multiply_handler() -> Callable[[Mapping[str, Any], Virtual
     return execute
 
 
-def make_egpu_dataflow_multiply_handler(egpu_host: Any) -> Callable[[Mapping[str, Any], VirtualLayerWorkload], dict[str, Any]]:
+def make_egpu_dataflow_multiply_handler(
+    egpu_host: Any,
+    *,
+    timing_probe: Any | None = None,
+) -> Callable[[Mapping[str, Any], VirtualLayerWorkload], dict[str, Any]]:
     """Mathematics: bind the common product Ground to the existing receiver-local E-GPU vector.multiply method."""
     from .egpu import EGPUHost
 
@@ -998,32 +1017,55 @@ def make_egpu_dataflow_multiply_handler(egpu_host: Any) -> Callable[[Mapping[str
         raise OperationNativeDataflowError(
             "E-GPU host does not implement the full shared 64-lane/4096-bit MUL domain"
         )
+    if timing_probe is not None and not callable(getattr(timing_probe, "measure", None)):
+        raise OperationNativeDataflowError("timing_probe must expose a measure context manager")
 
-    def execute(value: Mapping[str, Any], _workload: VirtualLayerWorkload) -> dict[str, Any]:
+    def execute(value: Mapping[str, Any], workload: VirtualLayerWorkload) -> dict[str, Any]:
         """Mathematics: compute lane-wise products through the existing bounded E-GPU SIMT method and verify them."""
-        left, right, max_steps = _materialize_frontier_operands(value)
-        result = egpu_host.execute_authorized_method(
-            "vector.multiply",
-            {
-                "method": "vector.multiply",
-                "left": left,
-                "right": right,
-                "max_steps": max_steps,
-            },
-        )
-        raw_values = result["result"]["outputs"]["result"]
-        if not isinstance(raw_values, list) or len(raw_values) != len(left):
-            raise OperationNativeDataflowError("E-GPU MUL returned a result vector outside the shared lane shape")
-        values = [
-            _bounded_binary_integer(item, f"E-GPU MUL result[{index}]")
-            for index, item in enumerate(raw_values)
-        ]
-        expected = [
-            _bounded_binary_integer(a * b, f"MUL reference result[{index}]")
-            for index, (a, b) in enumerate(zip(left, right))
-        ]
-        if values != expected:
-            raise OperationNativeDataflowError("E-GPU MUL failed its independent scalar reference check")
+        if timing_probe is None:
+            left, right, max_steps = _materialize_frontier_operands(value)
+            result = egpu_host.execute_authorized_method(
+                "vector.multiply",
+                {
+                    "method": "vector.multiply",
+                    "left": left,
+                    "right": right,
+                    "max_steps": max_steps,
+                },
+            )
+        else:
+            with timing_probe.measure("receiver_provenance_validation", correlation_id=workload.digest):
+                left, right, max_steps = _materialize_frontier_operands(value)
+            with timing_probe.measure("backend_compute", correlation_id=workload.digest):
+                result = egpu_host.execute_authorized_method(
+                    "vector.multiply",
+                    {
+                        "method": "vector.multiply",
+                        "left": left,
+                        "right": right,
+                        "max_steps": max_steps,
+                    },
+                )
+        def verify_result() -> list[int]:
+            raw_values = result["result"]["outputs"]["result"]
+            if not isinstance(raw_values, list) or len(raw_values) != len(left):
+                raise OperationNativeDataflowError("E-GPU MUL returned a result vector outside the shared lane shape")
+            values = [
+                _bounded_binary_integer(item, f"E-GPU MUL result[{index}]")
+                for index, item in enumerate(raw_values)
+            ]
+            expected = [
+                _bounded_binary_integer(a * b, f"MUL reference result[{index}]")
+                for index, (a, b) in enumerate(zip(left, right))
+            ]
+            if values != expected:
+                raise OperationNativeDataflowError("E-GPU MUL failed its independent scalar reference check")
+            return values
+        if timing_probe is None:
+            values = verify_result()
+        else:
+            with timing_probe.measure("receiver_backend_verification", correlation_id=workload.digest):
+                values = verify_result()
         return {
             "values": values,
             "backend_method": "egpu.vector.multiply",
