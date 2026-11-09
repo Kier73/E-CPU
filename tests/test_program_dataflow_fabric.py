@@ -57,6 +57,8 @@ def test_operation_native_executor_batches_frontiers_and_preserves_node_identity
     report = execute_dataflow_operation_native(plan, dispatch)
 
     assert len(requests) == 2
+    assert requests[0].to_dict()["schema"] == "mailcpu.dataflow.add-frontier-request.v2"
+    assert report.frontier_receipts[0].to_dict()["schema"] == "mailcpu.dataflow.add-frontier-receipt.v2"
     assert requests[0].frontier_index == 1
     assert tuple(item.node_id for item in requests[0].lanes) == ("pc-000002", "pc-000005")
     assert requests[1].frontier_index == 2
@@ -254,6 +256,8 @@ def test_cpu_and_egpu_share_the_declared_bounded_add_domain() -> None:
         ],
         "max_steps": 16,
     }
+    from mailcpu.program_dataflow_fabric import dataflow_add_operator_spec
+    assert dataflow_add_operator_spec().version == 2
     cpu_result = make_cpu_dataflow_add_handler()(payload, None)
     egpu_result = make_egpu_dataflow_add_handler(EGPUHost(host_id="egpu-domain-test"))(payload, None)
 
