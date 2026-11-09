@@ -50,6 +50,7 @@ A probe belongs to one logical actor/endpoint. Its monotonic reading is scoped b
 | `receiver_witness_revalidation` | Receiver/network | Execution coordinator repeats semantic resolution against the live catalogue and exact route witness |
 | `receiver_host_binding_validation` | Receiver/network | Check the selected local locus/runtime/handler binding against the addressed implementation |
 | `receiver_admission` | Receiver logical host | Virtual Layer workload, Ground, operator contract, input and Hypervisor admission preparation |
+| `receiver_hypervisor_execution` | Receiver logical host | Hypervisor policy arbitration and execution/effect commit after Virtual Layer admission preparation |
 | `receiver_provenance_validation` | Receiver logical host | Rehydrate and validate typed operands, contextual-orbit predecessor evidence, and bounded integer inputs |
 | `backend_compute` | Receiver logical host | CPU product law or E-GPU `vector.multiply` invocation |
 | `receiver_backend_verification` | Receiver logical host | Independent scalar verification of the E-GPU result |
