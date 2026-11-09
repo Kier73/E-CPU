@@ -779,7 +779,7 @@ def test_fabric_resolver_returns_bounded_ranked_placement_candidates_without_cha
         _snapshot("peer-c", hosts=(advertisement_c,)),
     )
     resolver = ComputationalFabricResolver()
-    address = address
+    address = _address()
 
     ranked = resolver.resolve_candidates(
         address,
