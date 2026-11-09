@@ -576,6 +576,7 @@ def test_claim_bound_partition_recovery_completes_all_children_together_after_am
         partition_count=2,
         max_concurrency=2,
         checkpoint_sink=checkpoints.append,
+        max_rehome_rounds=0,
     )
 
     with pytest.raises(PartitionedFrontierIncomplete) as caught:
@@ -608,3 +609,115 @@ def test_claim_bound_partition_recovery_completes_all_children_together_after_am
     )
     assert replayed.digest == composite.digest
     assert store.high_water == committed_high_water
+
+
+def test_claim_bound_frontier_automatically_rehomes_ambiguous_child_with_one_new_epoch(tmp_path) -> None:
+    """Mathematics: a pure child with a lost response is recomputed on a distinct Host and only the quorum-current epoch completes."""
+    request = _request()
+    store = _claim_store(tmp_path)
+    base = _FakeAuthenticatedBinaryDispatcher(
+        ambiguous_node="pc-000003",
+        execution_claim_store=store,
+    )
+    checkpoints = []
+    dispatcher = PartitionedComputationalFabricDataflowBinaryDispatcher(
+        base,
+        partition_count=2,
+        max_concurrency=2,
+        checkpoint_sink=checkpoints.append,
+        max_rehome_rounds=1,
+    )
+
+    composite = dispatcher.dispatch(request)
+
+    assert isinstance(composite, BinaryFrontierCompositeReceipt)
+    assert len(composite.children) == 2
+    rehomed = [
+        child for child in composite.children
+        if len(child.claim_bundle.claim.assignments) == 2
+    ]
+    assert len(rehomed) == 1
+    child = rehomed[0]
+    history = child.claim_bundle.claim.assignments
+    assert (history[0].owner_peer_id, history[0].owner_host_id) != (
+        history[1].owner_peer_id, history[1].owner_host_id
+    )
+    assert history[1].owner_peer_id == "peer-d"
+    assert history[1].epoch == 2
+    assert history[1].failure_evidence_digest is not None
+    assert child.partition.route_witness.target_host.peer_id == "peer-d"
+    assert child.receipt.peer_id == "peer-d"
+    assert child.receipt.execution_claim["assignment_epoch"] == 2
+    assert child.completion_bundle.claim.current_assignment.epoch == 2
+    assert child.completion_bundle.claim.status.value == "completed"
+    assert child.completion_bundle.claim.child_receipt_digest == child.receipt.digest
+
+    # The old Host may have completed the pure operation before its response
+    # was lost. That physical computation is visible, but its epoch was not
+    # selected as the semantic result accepted by the parent frontier.
+    effects = sorted(base.semantic_effects.values())
+    assert effects == [1, 2]
+    assert len({item.completion_bundle.manifest.digest for item in composite.children}) == 1
+    assert store.high_water[0] == 3  # assignment batch, one rehome batch, one completion batch
+
+    intent_checkpoints = [item for item in checkpoints if item.reassignment_intents]
+    confirmed_checkpoints = [item for item in checkpoints if item.reassignments]
+    assert intent_checkpoints and confirmed_checkpoints
+    restored_intent = type(intent_checkpoints[0]).from_dict(intent_checkpoints[0].to_dict())
+    assert len(restored_intent.reassignment_intents) == 1
+    restored_confirmed = type(confirmed_checkpoints[0]).from_dict(confirmed_checkpoints[-1].to_dict())
+    assert restored_confirmed.reassignments
+    assert restored_confirmed.current_partitions[1].route_witness.target_host.peer_id in {"peer-b", "peer-d", "peer-c"}
+
+    restored_composite = BinaryFrontierCompositeReceipt.from_dict(composite.to_dict())
+    assert restored_composite.digest == composite.digest
+
+
+def test_claim_bound_frontier_resumes_quorum_committed_rehome_from_persisted_intent(tmp_path) -> None:
+    """Mathematics: a crash after quorum reassignment but before confirmed checkpoint publication replays the exact intent idempotently."""
+    request = _request()
+    store = _claim_store(tmp_path)
+    base = _FakeAuthenticatedBinaryDispatcher(
+        ambiguous_node="pc-000003",
+        execution_claim_store=store,
+    )
+    persisted = []
+    fail_confirmed_once = {"value": True}
+
+    def checkpoint_sink(checkpoint):
+        persisted.append(checkpoint)
+        if checkpoint.reassignments and not checkpoint.reassignment_intents and fail_confirmed_once["value"]:
+            fail_confirmed_once["value"] = False
+            raise RuntimeError("simulated process cut after quorum assignment commit")
+
+    dispatcher = PartitionedComputationalFabricDataflowBinaryDispatcher(
+        base,
+        partition_count=2,
+        max_concurrency=2,
+        checkpoint_sink=checkpoint_sink,
+        max_rehome_rounds=1,
+    )
+    with pytest.raises(PartitionedFrontierIncomplete) as caught:
+        dispatcher.dispatch(request)
+
+    saved_intent = next(item for item in reversed(persisted) if item.reassignment_intents)
+    committed = store.high_water
+    assert saved_intent.reassignment_intents
+    assert committed[0] == 2  # create_many + reassign_many; completion has not run
+
+    resumed_dispatcher = PartitionedComputationalFabricDataflowBinaryDispatcher(
+        base,
+        partition_count=2,
+        max_concurrency=2,
+        checkpoint_sink=persisted.append,
+        max_rehome_rounds=0,
+    )
+    composite = resumed_dispatcher.dispatch(
+        request,
+        checkpoint=type(saved_intent).from_dict(saved_intent.to_dict()),
+    )
+    assert len(composite.children) == 2
+    assert store.high_water[0] == 3
+    assert len({child.completion_bundle.manifest.digest for child in composite.children}) == 1
+    rehomed = [child for child in composite.children if len(child.claim_bundle.claim.assignments) == 2]
+    assert len(rehomed) == 1 and rehomed[0].receipt.peer_id == "peer-d"
