@@ -2865,6 +2865,7 @@ def test_compiled_dataflow_frontiers_execute_on_distinct_fabric_hosts_with_egpu(
         operator_id=operator_spec.operator_id,
         computational_ground_fingerprints=(GROUND_FP,),
         supports_ground_program_compilation=True,
+        version=operator_spec.version,
         costs=_host_costs(2, energy=8, bytes_=64),
         implementation_fingerprint=cpu_implementation,
     )
@@ -2875,6 +2876,7 @@ def test_compiled_dataflow_frontiers_execute_on_distinct_fabric_hosts_with_egpu(
         operator_id=operator_spec.operator_id,
         computational_ground_fingerprints=(GROUND_FP,),
         supports_ground_program_compilation=True,
+        version=operator_spec.version,
         costs=_host_costs(3, energy=7, bytes_=64),
         implementation_fingerprint=egpu_implementation,
         supports_structural_memory=True,
