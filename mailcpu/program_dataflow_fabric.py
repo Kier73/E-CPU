@@ -85,6 +85,7 @@ class DataflowAddLane:
         _strict_integer(self.right, "lane right operand")
 
     def to_dict(self) -> dict[str, Any]:
+        """Mathematics: serialize the exact typed operation identity and its bound fields."""
         return {
             "node_id": self.node_id,
             "node_digest": self.node_digest,
@@ -119,14 +120,17 @@ class DataflowAddFrontierRequest:
 
     @property
     def digest(self) -> str:
+        """Mathematics: identify the canonical ordered frontier request or remote result."""
         return canonical_value_digest(self.to_dict())
 
     @property
     def left_values(self) -> tuple[int, ...]:
+        """Mathematics: project the aligned left-operand vector in canonical lane order."""
         return tuple(item.left for item in self.lanes)
 
     @property
     def right_values(self) -> tuple[int, ...]:
+        """Mathematics: project the aligned right-operand vector in canonical lane order."""
         return tuple(item.right for item in self.lanes)
 
     def to_dict(self) -> dict[str, Any]:
@@ -225,6 +229,7 @@ class OperationNativeDataflowReport:
         object.__setattr__(self, "frontier_receipts", receipts)
 
     def _payload(self) -> dict[str, Any]:
+        """Mathematics: project the report fields that participate in its content digest."""
         return {
             "schema": "mailcpu.operation-native-dataflow-execution.v1",
             "execution": self.execution.to_dict(),
@@ -233,6 +238,7 @@ class OperationNativeDataflowReport:
 
     @property
     def digest(self) -> str:
+        """Mathematics: bind the local execution and all route-bound remote frontier receipts."""
         return canonical_value_digest(self._payload())
 
     def to_dict(self) -> dict[str, Any]:
@@ -240,7 +246,7 @@ class OperationNativeDataflowReport:
 
 
 def _operand_value(graph: NavigableComputationDAG, operand: Mapping[str, Any], node_id: str) -> int:
-    """Resolve one compiler-emitted operand without weakening its source identity."""
+    """Mathematics: resolve a compiler-emitted literal, initial value, or committed predecessor."""
     kind = operand.get("kind")
     if kind in {"literal", "initial"}:
         value = operand.get("value")
@@ -261,7 +267,7 @@ def execute_dataflow_operation_native(
     *,
     max_work_units: int | None = None,
 ) -> OperationNativeDataflowReport:
-    """Evaluate a DAG while dispatching each ready ADD frontier as one semantic operation.
+    """Mathematics: evaluate a DAG while dispatching each ready ADD frontier as one semantic operation.
 
     SET, COPY, COMPARE, and HALT are evaluated locally in this first profile.
     ADD nodes in the same frontier are packed into ordered lanes. The returned
@@ -421,7 +427,7 @@ def execute_dataflow_operation_native(
 
 
 def dataflow_add_operator_spec() -> OperatorSpec:
-    """The semantic contract shared by CPU and E-GPU realizations of a dataflow ADD batch."""
+    """Mathematics: define one strict integer vector-add contract for CPU and E-GPU realizations."""
     return OperatorSpec(
         operator_id="mailcpu.dataflow.add_frontier",
         version=1,
@@ -440,8 +446,9 @@ def dataflow_add_operator_spec() -> OperatorSpec:
 
 
 def make_cpu_dataflow_add_handler() -> Callable[[Mapping[str, Any], VirtualLayerWorkload], dict[str, Any]]:
-    """Build a simple CPU realization of the common vector-add Ground."""
+    """Mathematics: construct the CPU realization of the common vector-add Ground."""
     def execute(value: Mapping[str, Any], _workload: VirtualLayerWorkload) -> dict[str, Any]:
+        """Mathematics: map aligned strict integer pairs through the local CPU addition law."""
         if not isinstance(value, Mapping) or set(value) != {"left", "right", "max_steps"}:
             raise OperationNativeDataflowError("CPU ADD operator input fields are invalid")
         left, right = value["left"], value["right"]
@@ -468,13 +475,14 @@ def make_cpu_dataflow_add_handler() -> Callable[[Mapping[str, Any], VirtualLayer
 
 
 def make_egpu_dataflow_add_handler(egpu_host: Any) -> Callable[[Mapping[str, Any], VirtualLayerWorkload], dict[str, Any]]:
-    """Bind the common vector-add Ground to one trusted local EGPUHost instance."""
+    """Mathematics: bind the common vector-add Ground to one trusted local EGPUHost instance."""
     from .egpu import EGPUHost
 
     if not isinstance(egpu_host, EGPUHost):
         raise OperationNativeDataflowError("E-GPU ADD handler requires an EGPUHost instance")
 
     def execute(value: Mapping[str, Any], _workload: VirtualLayerWorkload) -> dict[str, Any]:
+        """Mathematics: realize the ordered vector-add observation through the local E-GPU method graph."""
         if not isinstance(value, Mapping) or set(value) != {"left", "right", "max_steps"}:
             raise OperationNativeDataflowError("E-GPU ADD operator input fields are invalid")
         result = egpu_host.execute_authorized_method(
