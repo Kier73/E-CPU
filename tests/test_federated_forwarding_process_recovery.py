@@ -1787,10 +1787,8 @@ def test_terminal_peer_c_hard_process_kill_recovers_while_relay_b_survives(
         assert restored_ready["peer"] == "peer-c"
         assert restored_ready["pid"] != terminal_initial.pid
 
-        rebound = _rebind_live_relay(int(relay_ready["control_port"]))
-        assert rebound["ok"] is True, rebound
-        assert rebound["pid"] == relay.pid
-        assert rebound["peer_id"] == "peer-c"
+        # Relay B must detect the failed stream and reconnect C itself; the
+        # operation and reliable request/result ledgers stay in the live server.
 
         # Receive the original result before issuing fresh work. This may
         # complete before or after the C restart for publication/ACK cuts.
@@ -1838,6 +1836,7 @@ def test_terminal_peer_c_hard_process_kill_recovers_while_relay_b_survives(
         assert b_state["response_pending"] == []
         assert b_state["downstream_request_pending"] == []
         assert b_state["downstream_response_seen"] == 2
+        assert b_state["downstream_reconnect_count"] >= 1
         assert b_state["journal_valid"] is True
 
         assert c_state["stage"] == "restored_complete"
