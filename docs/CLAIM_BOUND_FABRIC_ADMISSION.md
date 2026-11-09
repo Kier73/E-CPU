@@ -87,5 +87,6 @@ The work tracks share one `TransferableExecutionClaimStore` and the existing fix
 - B-61: Child tickets are batched before dispatch, forwarded through envelope v2, validated by the terminal Host and rechecked by the origin after response.
 - B-62: One parent frontier's child claims complete in one all-or-none quorum generation; the composite preserves assignment and completion proofs.
 - B-63: Failed pure children may be rehomed only after route re-resolution and a pre-persisted intent; all changed epochs commit in one quorum generation, pending sibling tickets refresh under the new root, and checkpoint replay preserves the exact semantic child and original DAG commit boundary.
+- B-64: Execution Hosts refresh expired tickets only through direct mutual TLS; the owner scopes each response to the still-assigned peer/Host, and the receiver verifies the refreshed ticket against its own quorum coordinator without following reassignment.
 
 See [INVARIANTS.md](INVARIANTS.md) for the executable registry.
