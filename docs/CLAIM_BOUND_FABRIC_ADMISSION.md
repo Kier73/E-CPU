@@ -66,9 +66,9 @@ Automatic reassignment and route re-resolution are intentionally not included in
 |---|---|---|
 | A — Claim authority | Stable semantic identity, quorum Merkle root, assignment epochs, batch create/refresh/complete | Implemented |
 | B — Fabric admission | Envelope v2, terminal live check, origin freshness, typed child attestation | Implemented in this increment |
-| C — Rehome orchestration | Classify incomplete/ambiguous children, reassign only incomplete claims, resolve a new Host and retry | Next |
+| C — Rehome orchestration | Classify bounded path-loss failures, batch-reassign incomplete claims, resolve distinct Hosts, checkpoint intents and retry | Implemented for pure binary frontiers |
 | D — Process recovery | Rebind live distributed claim authorities on each Host and reconcile the claim root with forwarding checkpoint restore | Partial; coordinator is caller-rebound |
-| E — Adversarial verification | Concurrent rehome/completion races, quorum loss, root rollback, stale receipt, route drift and interruption at each completion cut | Expand with C/D |
+| E — Adversarial verification | Concurrent rehome/completion races, quorum loss, root rollback, stale receipt, route drift and interruption at each completion cut | Continue expanding |
 
 The work tracks share one `TransferableExecutionClaimStore` and the existing fixed-membership quorum. They must not add independent result-acceptance authorities.
 
@@ -78,5 +78,6 @@ The work tracks share one `TransferableExecutionClaimStore` and the existing fix
 - B-60: Assignment epochs fence old result acceptance; completion is terminal and requires the current peer, Host and implementation.
 - B-61: Child tickets are batched before dispatch, forwarded through envelope v2, validated by the terminal Host and rechecked by the origin after response.
 - B-62: One parent frontier's child claims complete in one all-or-none quorum generation; the composite preserves assignment and completion proofs.
+- B-63: Failed pure children may be rehomed only after route re-resolution and a pre-persisted intent; all changed epochs commit in one quorum generation, pending sibling tickets refresh under the new root, and checkpoint replay preserves the exact semantic child and original DAG commit boundary.
 
 See [INVARIANTS.md](INVARIANTS.md) for the executable registry.
