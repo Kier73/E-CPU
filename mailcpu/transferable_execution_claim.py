@@ -440,6 +440,8 @@ def _verify_claim_merkle_path(
     if type(claim_index) is not int or not 0 <= claim_index < claim_count:
         raise TransferableExecutionClaimError("claim inclusion index is outside its state count")
     _digest(expected_root, "claim Merkle root")
+    if len(steps) > 14:
+        raise TransferableExecutionClaimError("claim inclusion path exceeds the maximum finite tree depth")
     if any(not isinstance(item, ExecutionClaimMerkleStep) for item in steps):
         raise TransferableExecutionClaimError("claim inclusion path must contain typed Merkle steps")
     current = _claim_leaf_digest(claim)
@@ -596,6 +598,7 @@ class PortableExecutionClaimBundle:
                 "claim", "manifest", "proof", "state_commitment"
             ))
             or not isinstance(payload.get("merkle_proof"), list)
+            or len(payload.get("merkle_proof", [])) > 14
         ):
             raise TransferableExecutionClaimError("portable execution claim ticket fields or schema are invalid")
         projection = {key: payload[key] for key in (
