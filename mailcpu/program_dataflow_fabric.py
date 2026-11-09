@@ -1290,6 +1290,7 @@ class ComputationalFabricDataflowBinaryDispatcher:
         max_hops: int = 8,
         metric_order: Sequence[RouteMetricKey],
         max_steps: int = 64,
+        timing_probe: Any | None = None,
     ) -> None:
         from .computational_fabric import ComputationalFabricDirectory
 
@@ -1332,6 +1333,8 @@ class ComputationalFabricDataflowBinaryDispatcher:
             raise OperationNativeDataflowError("max_hops must be a positive strict integer")
         if type(max_steps) is not int or not 1 <= max_steps <= 10_000:
             raise OperationNativeDataflowError("max_steps is outside the bounded E-GPU method range")
+        if timing_probe is not None and not callable(getattr(timing_probe, "measure", None)):
+            raise OperationNativeDataflowError("timing_probe must expose a measure context manager")
         metrics = tuple(metric_order)
         if not metrics or any(not isinstance(item, RouteMetricKey) for item in metrics):
             raise OperationNativeDataflowError("metric_order must contain RouteMetricKey values")
@@ -1351,6 +1354,7 @@ class ComputationalFabricDataflowBinaryDispatcher:
         self.max_hops = max_hops
         self.metric_order = metrics
         self.max_steps = max_steps
+        self.timing_probe = timing_probe
 
     def __call__(self, request: DataflowAddFrontierRequest | DataflowCompareFrontierRequest | DataflowMultiplyFrontierRequest) -> DataflowAddFrontierReceipt | DataflowCompareFrontierReceipt | DataflowMultiplyFrontierReceipt:
         from .computational_fabric import ComputationalFabricStatus
@@ -1430,12 +1434,21 @@ class ComputationalFabricDataflowBinaryDispatcher:
             program_fingerprint=None,
             metric_order=self.metric_order,
         )
-        planned = ComputationalFabricResolver().resolve(
-            address,
-            self.directory,
-            origin_peer_id=self.origin_peer_id,
-            max_hops=self.max_hops,
-        )
+        if self.timing_probe is None:
+            planned = ComputationalFabricResolver().resolve(
+                address,
+                self.directory,
+                origin_peer_id=self.origin_peer_id,
+                max_hops=self.max_hops,
+            )
+        else:
+            with self.timing_probe.measure("fabric_route_resolution", correlation_id=request.digest):
+                planned = ComputationalFabricResolver().resolve(
+                    address,
+                    self.directory,
+                    origin_peer_id=self.origin_peer_id,
+                    max_hops=self.max_hops,
+                )
         if planned.status is not ComputationalFabricStatus.FOUND or planned.witness is None:
             details = "; ".join(item.detail for item in planned.blockers[:4])
             raise OperationNativeDataflowError(
@@ -1457,7 +1470,11 @@ class ComputationalFabricDataflowBinaryDispatcher:
             origin_channel=self.origin_channel,
             origin_sequence=self.first_sequence + request.frontier_index,
         )
-        hop_receipt = client.forward(envelope, self.directory)
+        if self.timing_probe is None:
+            hop_receipt = client.forward(envelope, self.directory)
+        else:
+            with self.timing_probe.measure("origin_round_trip", correlation_id=request.digest):
+                hop_receipt = client.forward(envelope, self.directory)
         if not isinstance(hop_receipt, ComputationalFabricHopReceipt) or not hop_receipt.succeeded:
             raise OperationNativeDataflowError("fabric forwarding did not commit a successful terminal execution")
         if hop_receipt.operation_digest != envelope.operation_digest:
