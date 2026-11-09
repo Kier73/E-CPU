@@ -9,7 +9,7 @@ read receipt and a symbolic Virtual Ground projection.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import re
 import threading
 from typing import Any, Mapping, Sequence
@@ -47,9 +47,9 @@ from .virtual_layer import (
 
 CONTEXTUAL_ORBIT_LOCATE_VALUE_OPERATOR_ID = "mailcpu.contextual_orbit.locate_value"
 CONTEXTUAL_ORBIT_LOCATE_VALUE_OPERATOR_VERSION = 1
-_CONTEXTUAL_ORBIT_OPERATION_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\\Z")
-_SHA256 = re.compile(r"[0-9a-f]{64}\\Z")
-_PEER_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\\Z")
+_CONTEXTUAL_ORBIT_OPERATION_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
+_SHA256 = re.compile(r"[0-9a-f]{64}\Z")
+_PEER_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
 
 
 class ContextualOrbitFabricError(ValueError):
@@ -285,15 +285,7 @@ def _validate_navigation_result(
     projection = result.navigation.projection
     coordinate = result.orbit_coordinate
     expected_read_ref = address.structural_memory
-    located_reference = expected_read_ref.__class__(
-        binding=expected_read_ref.binding,
-        memory_id=expected_read_ref.memory_id,
-        revision=expected_read_ref.revision,
-        context=expected_read_ref.context,
-        coordinate=coordinate,
-        spec_digest=expected_read_ref.spec_digest,
-        certificate_digest=expected_read_ref.certificate_digest,
-    )
+    located_reference = replace(expected_read_ref, coordinate=coordinate)
     located_address = ContextualOrbitAddress(
         system_identity=address.system_identity,
         base_ground=address.base_ground,
