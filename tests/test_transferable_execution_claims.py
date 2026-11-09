@@ -79,7 +79,11 @@ def test_quorum_claim_round_trip_and_exact_target_admission(tmp_path: Path) -> N
         owner_host_id="logical-cpu-b",
         implementation_fingerprint=IMPL_B,
     )
-    restored = PortableExecutionClaimBundle.from_dict(bundle.to_dict())
+    wire_bundle = bundle.to_dict()
+    assert "state_snapshot" not in wire_bundle
+    assert "state_commitment" in wire_bundle and "merkle_proof" in wire_bundle
+    assert len(__import__("json").dumps(wire_bundle, sort_keys=True)) < 16_384
+    restored = PortableExecutionClaimBundle.from_dict(wire_bundle)
     restored.verify_current(coordinator)
     assert restored.digest == bundle.digest
     assert store.get(bundle.claim.claim_id).digest == bundle.digest
@@ -205,8 +209,8 @@ def test_claim_tampering_and_stale_semantic_identity_are_refused(tmp_path: Path)
     store, coordinator = _store(tmp_path)
     bundle = _create(store)
     tampered = bundle.to_dict()
-    tampered["state_snapshot"]["claims"][0]["assignments"][0]["owner_host_id"] = "attacker-host"
-    with pytest.raises(TransferableExecutionClaimError, match="digest|state bytes|bundle"):
+    tampered["claim"]["assignments"][0]["owner_host_id"] = "attacker-host"
+    with pytest.raises(TransferableExecutionClaimError, match="digest|claim|bundle"):
         PortableExecutionClaimBundle.from_dict(tampered)
     tampered_claim = bundle.claim.to_dict()
     tampered_claim["operator_spec"]["deterministic"] = False
@@ -228,8 +232,8 @@ def test_claim_tampering_and_stale_semantic_identity_are_refused(tmp_path: Path)
         )
 
     claim_id = bundle.claim.claim_id
-    bundle.state_snapshot["claims"][0]["assignments"][0]["owner_host_id"] = "mutated-after-construction"
-    with pytest.raises(TransferableExecutionClaimError, match="changed after construction"):
+    bundle.state_commitment["claims_root"] = H("mutated-after-construction")
+    with pytest.raises(TransferableExecutionClaimError, match="state-root bytes"):
         bundle.verify_current(coordinator)
     bundle = store.get(claim_id)
     with pytest.raises(TransferableExecutionClaimError, match="does not authorize"):
