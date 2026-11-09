@@ -200,18 +200,37 @@ def _make_case(
     # reuse its measured host cache, while the materialized control uses local
     # content backing. Both must return the same page and keep the same owner.
     cache_probe_before_hits = int(getattr(page_backing, "cached_reuse_count", 0))
-    cache_probe_started = perf_counter_ns()
+    reclaim_started = perf_counter_ns()
     memory.reclaim(count=1, page_numbers=(0,))
+    cache_probe_reclaim_ns = perf_counter_ns() - reclaim_started
+    resident_cache_overlap_after_reclaim = int(
+        getattr(page_backing, "shared_resident_cache_bytes", lambda _blobs: 0)(
+            memory._blobs
+        )
+    )
+    cached_page_bytes_after_reclaim = int(
+        getattr(page_backing, "cached_page_bytes", 0)
+    )
+    backing_only_retained_bytes_after_reclaim = (
+        cached_page_bytes_after_reclaim - resident_cache_overlap_after_reclaim
+    )
+    refault_started = perf_counter_ns()
     cache_probe_bytes = memory.read(0, page_size)
-    cache_probe_ns = perf_counter_ns() - cache_probe_started
+    cache_probe_refault_ns = perf_counter_ns() - refault_started
+    cache_probe_ns = cache_probe_reclaim_ns + cache_probe_refault_ns
     cache_probe_content_valid = cache_probe_bytes == _page_bytes(0, page_size)
     cache_probe_after_hits = int(getattr(page_backing, "cached_reuse_count", 0))
     cache_probe_hit_delta = cache_probe_after_hits - cache_probe_before_hits
+    resident_cache_overlap_after_refault = int(
+        getattr(page_backing, "shared_resident_cache_bytes", lambda _blobs: 0)(
+            memory._blobs
+        )
+    )
     if not cache_probe_content_valid:
         raise StructuralMemoryBenchmarkError("page cache probe changed the declared bytes")
-    if mode == "structural" and cache_probe_after_hits - cache_probe_before_hits < 2:
+    if mode == "structural" and cache_probe_hit_delta != 2:
         raise StructuralMemoryBenchmarkError(
-            "structural page reclaim/refault did not reuse the bounded host page cache"
+            "structural page reclaim/refault did not reuse the bounded host page cache twice"
         )
     backing_cached_page_count_after_probe = int(
         getattr(page_backing, "cached_page_count", 0)
@@ -326,7 +345,13 @@ def _make_case(
         "host_backing_cached_receipt_coordinate_count_after_cold_access": backing_cached_receipt_coordinate_count,
         "host_backing_cached_provider_coordinate_count_after_cold_access": backing_cached_provider_coordinate_count,
         "cache_probe_wall_ns": cache_probe_ns,
+        "cache_probe_reclaim_wall_ns": cache_probe_reclaim_ns,
+        "cache_probe_refault_wall_ns": cache_probe_refault_ns,
         "cache_probe_page_content_valid": cache_probe_content_valid,
+        "host_backing_cached_page_bytes_after_reclaim": cached_page_bytes_after_reclaim,
+        "host_backing_shared_resident_cache_bytes_after_reclaim": resident_cache_overlap_after_reclaim,
+        "host_backing_only_retained_page_bytes_after_reclaim": backing_only_retained_bytes_after_reclaim,
+        "host_backing_shared_resident_cache_bytes_after_refault": resident_cache_overlap_after_refault,
         "host_backing_cached_page_count_after_probe": backing_cached_page_count_after_probe,
         "host_backing_cached_page_bytes_after_probe": backing_cached_page_bytes_after_probe,
         "host_backing_cached_receipt_coordinate_count_after_probe": backing_cached_receipt_coordinate_count_after_probe,
