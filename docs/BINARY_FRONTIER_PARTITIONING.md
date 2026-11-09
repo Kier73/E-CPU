@@ -24,7 +24,7 @@ The partition plan applies to one homogeneous operation family within a DAG fron
 
 ## Route-bound partition
 
-BinaryFrontierPartition binds one exact typed child request to one complete ComputationalFabricRouteWitness.
+BinaryFrontierPartition binds one exact typed child request, its full typed ComputationalAddress, and one complete ComputationalFabricRouteWitness. It verifies that the route witness address digest equals the address digest; the address intention contains the exact child request digest, plan/context/frontier identities and full lane descriptions; the address input contains exactly the child inline/contextual-orbit/symbolic-memory operands; the operator reference is the exact operation contract; and the proposed target node is in the address's eligible-node set.
 
 The route target must advertise the exact canonical ADD@3, COMPARE@1 or MUL@1 operator contract, a pinned implementation fingerprint and support for the partition plan's Computational Ground. The route must be remote. The witness retains its full peer path, link identities, authenticated endpoint identities, target-host advertisement and additive resource/cost decomposition.
 
@@ -45,7 +45,7 @@ The plan's canonical digest commits all child request contents and complete rout
 
 A partition plan is a deterministic proposal, not execution authority. The route witness is non-authoritative discovery evidence. It does not reserve capacity, bind a receiver to an old catalogue revision, grant capability, or replace receiver-side route resolution. Each eventual child dispatch must be sent through the existing authenticated per-hop forwarding path; the terminal peer must freshly resolve the child workload, revalidate the selected implementation and perform local Virtual Layer / Hypervisor admission.
 
-The route witness for a child must be obtained from the exact ComputationalAddress built from that child request, not copied from a route query for the unsplit parent request. The address digest is request-specific. A route proposal from the parent workload cannot be relabeled as a child route.
+The route witness for a child must be obtained from the exact ComputationalAddress built from that child request, not copied from a route query for the unsplit parent request. The address digest is request-specific. A route proposal from the parent workload cannot be relabeled as a child route. The partition serializer retains that full address, so recovery repeats the address/request/route linkage checks instead of trusting adjacent digests or an operator-supplied label.
 
 Once child dispatch is implemented, the coordinator should collect one typed child receipt per partition, verify exact child request digests, node-ID coverage, host/implementation/path identities, Structural Memory receipts and independent scalar results, then construct a parent frontier receipt. The parent receipt must preserve the child receipts rather than inventing a single host identity.
 
