@@ -369,6 +369,8 @@ class PartitionedComputationalFabricDataflowBinaryDispatcher:
         *,
         max_concurrency: int = 4,
         checkpoint_sink: Callable[[BinaryFrontierExecutionCheckpoint], None] | None = None,
+        partition_count: int = 2,
+        partition_groups_by_frontier: Mapping[int, Sequence[Sequence[str]]] | Callable[[Any], Sequence[Sequence[str]]] | None = None,
     ) -> None:
         if (
             not callable(dispatcher)
@@ -382,11 +384,40 @@ class PartitionedComputationalFabricDataflowBinaryDispatcher:
             raise OperationNativeDataflowError(f"max_concurrency must be in the range 1..{_MAX_PARTITIONS}")
         if checkpoint_sink is not None and not callable(checkpoint_sink):
             raise OperationNativeDataflowError("checkpoint_sink must be callable")
+        if type(partition_count) is not int or not 2 <= partition_count <= _MAX_PARTITIONS:
+            raise OperationNativeDataflowError(f"partition_count must be in the range 2..{_MAX_PARTITIONS}")
+        if partition_groups_by_frontier is not None and not (
+            callable(partition_groups_by_frontier) or isinstance(partition_groups_by_frontier, Mapping)
+        ):
+            raise OperationNativeDataflowError("partition_groups_by_frontier must be a mapping or callable")
         self.dispatcher = dispatcher
         self.operator_spec = dispatcher.operator_spec
         self.operation = dispatcher.operation
         self.max_concurrency = max_concurrency
         self.checkpoint_sink = checkpoint_sink
+        self.partition_count = partition_count
+        self.partition_groups_by_frontier = partition_groups_by_frontier
+
+    def _groups_for_request(self, request: Any) -> tuple[tuple[str, ...], ...] | None:
+        configured = self.partition_groups_by_frontier
+        if callable(configured):
+            selected = configured(request)
+            return tuple(tuple(group) for group in selected)
+        if isinstance(configured, Mapping):
+            selected = configured.get(request.frontier_index)
+            return None if selected is None else tuple(tuple(group) for group in selected)
+        lane_ids = tuple(lane.node_id for lane in request.lanes)
+        count = min(self.partition_count, len(lane_ids))
+        if count < 2:
+            return None
+        groups: list[tuple[str, ...]] = []
+        offset = 0
+        quotient, remainder = divmod(len(lane_ids), count)
+        for index in range(count):
+            width = quotient + (1 if index < remainder else 0)
+            groups.append(lane_ids[offset:offset + width])
+            offset += width
+        return tuple(groups)
 
     def _new_plan(
         self,
@@ -464,7 +495,7 @@ class PartitionedComputationalFabricDataflowBinaryDispatcher:
                 )
 
         partitions = tuple(sorted(
-            selected[index] for index in range(len(child_requests)),
+            (selected[index] for index in range(len(child_requests))),
             key=lambda item: (
                 item.node_ids[0],
                 item.route_witness.target_host.peer_id,
@@ -500,7 +531,9 @@ class PartitionedComputationalFabricDataflowBinaryDispatcher:
 
         if checkpoint is None:
             if partition_groups is None:
-                raise OperationNativeDataflowError("initial partitioned execution requires explicit partition_groups")
+                partition_groups = self._groups_for_request(request)
+            if partition_groups is None:
+                raise OperationNativeDataflowError("partitioned execution requires at least two lanes and a valid child grouping")
             plan = self._new_plan(request, partition_groups)
             state = BinaryFrontierExecutionCheckpoint(request, plan, ())
         else:
@@ -603,7 +636,10 @@ class PartitionedComputationalFabricDataflowBinaryDispatcher:
     def __call__(
         self,
         request: DataflowAddFrontierRequest | DataflowCompareFrontierRequest | DataflowMultiplyFrontierRequest,
-    ) -> BinaryFrontierCompositeReceipt:
-        raise OperationNativeDataflowError(
-            "partitioned dispatcher requires explicit partition_groups; call dispatch(request, partition_groups)"
-        )
+    ) -> BinaryFrontierCompositeReceipt | DataflowAddFrontierReceipt | DataflowCompareFrontierReceipt | DataflowMultiplyFrontierReceipt:
+        _operation_for_request(request)
+        if len(request.lanes) < 2:
+            # A one-lane frontier has no partitioning opportunity; retain the
+            # established single-host dispatch and typed receipt contract.
+            return self.dispatcher(request)
+        return self.dispatch(request, self._groups_for_request(request))
