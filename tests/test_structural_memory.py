@@ -86,7 +86,7 @@ def test_range_value_receipt_ids_match_existing_point_read_receipt_identity() ->
     proposal = registry.propose(
         "range-receipt-identity",
         law,
-        {coordinate: (coordinate * 3) % 97 for coordinate in range(8)},
+        {coordinate: coordinate for coordinate in range(8)},
         domain="integer-orbit",
         context={"source": "range-equivalence"},
     )
