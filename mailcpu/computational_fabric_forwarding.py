@@ -1393,6 +1393,28 @@ class ComputationalFabricForwardingServer:
         with self._transition_lock:
             yield
 
+    def rebind_transport(self, transport: SocketTransport) -> SocketTransport:
+        """Mathematics: preserve both reliable ledgers while replacing only the authenticated adjacent stream S, with bindings (local,previous) unchanged."""
+        if not isinstance(transport, SocketTransport):
+            raise ComputationalFabricForwardingError("server transport rebind requires a SocketTransport")
+        snapshots = _active_snapshot_map(self.directory)
+        _authenticated_neighbor(
+            self.directory,
+            snapshots,
+            transport,
+            self.local_peer_id,
+            self.previous_peer_id,
+        )
+        with self._transition_lock:
+            if transport is self.transport:
+                return transport
+            previous_transport = self.transport
+            self.transport = transport
+            self.inbound.channel.transport = transport
+            self.outbound.channel.transport = transport
+            previous_transport.close()
+            return transport
+
     def rebind_next_hop_transport(
         self,
         peer_id: str,
