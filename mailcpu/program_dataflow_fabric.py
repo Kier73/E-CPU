@@ -904,6 +904,7 @@ def _execute_dataflow_operation_native_impl(
                 resolved_initial_registers[source_register] = memory_receipt.value
 
             def verify_lane(lane: DataflowBinaryLane) -> None:
+                """Mathematics: evaluate the exact lane operation after resolving only its pinned receiver-side operands."""
                 # The independent scalar oracle consumes receiver-resolved values
                 # only after checking their exact pinned memory identities.
                 left_value = lane.left
@@ -1103,6 +1104,7 @@ def make_egpu_dataflow_multiply_handler(
                     },
                 )
         def verify_result() -> list[int]:
+            """Mathematics: compare every E-GPU output lane with an independent bounded integer multiplication oracle."""
             raw_values = result["result"]["outputs"]["result"]
             if not isinstance(raw_values, list) or len(raw_values) != len(left):
                 raise OperationNativeDataflowError("E-GPU MUL returned a result vector outside the shared lane shape")
