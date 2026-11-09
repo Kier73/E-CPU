@@ -1364,6 +1364,8 @@ def test_federated_workload_forwards_over_two_authenticated_hops_and_replays_onc
     """Mathematics: Exercise A→B→C over mutual TLS with local hop admission, terminal re-resolution, and semantic replay."""
 
     from mailcpu.classifier import HypervisorPolicy
+    from mailcpu.law_certifier import Law
+    from mailcpu.virtual_layer import VirtualStructuralMemoryRef
     from mailcpu.computational_fabric_forwarding import (
         ComputationalFabricForwardingClient,
         ComputationalFabricForwardingEnvelope,
@@ -2772,10 +2774,35 @@ def test_compiled_dataflow_frontiers_execute_on_distinct_fabric_hosts_with_egpu(
         SystemSeed.from_system(seed_source),
     )
     peer_b_os = HeadlessOS()
-    peer_c_os = HeadlessOS()
+    peer_c_os = HeadlessOS(
+        structural_memory_admission_policy=lambda proposal: proposal.spec.domain == "integer-orbit"
+    )
     assert peer_b_os.seed_admission.admit(seed_envelope).accepted
     assert peer_c_os.seed_admission.admit(seed_envelope).accepted
     system_ground = VirtualGroundRef.from_envelope(seed_envelope)
+
+    memory_law = Law(
+        family="int",
+        params={"x0": 5, "step": 3, "mod": 97},
+        order=1,
+        verdict="GROUND",
+    )
+    memory_proposal = peer_c_os.structural_memory.propose(
+        "operation-native-memory-orbit",
+        memory_law,
+        {0: 5, 1: 8, 2: 11, 3: 14},
+        domain="integer-orbit",
+        context={"tenant": "operation-native", "partition": 2},
+    )
+    memory_version = peer_c_os.structural_memory.admit(
+        memory_proposal.proposal_id,
+        expected_revision=0,
+    )
+    memory_reference = VirtualStructuralMemoryRef.from_version(
+        "memory_value",
+        memory_version,
+        4,
+    )
 
     allow_policy = HypervisorPolicy(
         review_confidence=0.0,
@@ -2800,6 +2827,7 @@ def test_compiled_dataflow_frontiers_execute_on_distinct_fabric_hosts_with_egpu(
         capabilities=(
             Capability(COMPUTATIONAL_FABRIC_EXECUTE_RESOURCE, frozenset({"execute"})),
             Capability("/virtual-layer/operators", frozenset({"compute"})),
+            Capability("/structural-memory/read", frozenset({"read"})),
         ),
         parent_pid=peer_c_os.environment.init_pid,
     )
@@ -2847,6 +2875,7 @@ def test_compiled_dataflow_frontiers_execute_on_distinct_fabric_hosts_with_egpu(
         supports_ground_program_compilation=True,
         costs=_host_costs(3, energy=7, bytes_=64),
         implementation_fingerprint=egpu_implementation,
+        supports_structural_memory=True,
     )
     cpu_catalogue = ComputationalHostCatalogue((cpu_locus,))
     egpu_catalogue = ComputationalHostCatalogue((egpu_locus,))
@@ -2975,18 +3004,20 @@ def test_compiled_dataflow_frontiers_execute_on_distinct_fabric_hosts_with_egpu(
             "set a 3\n"
             "set b 5\n"
             "add x a b\n"
-            "set c 7\n"
             "set d 11\n"
-            "add y c d\n"
+            "add y memory_value d\n"
             "add z x y\n"
             "halt"
         )
-        plan = MailCPUDataflowCompiler().compile_program(program)
+        plan = MailCPUDataflowCompiler().compile_program(
+            program,
+            structural_memory_refs={"memory_value": memory_reference},
+        )
         assert plan.frontiers == (
-            ("pc-000000", "pc-000001", "pc-000003", "pc-000004"),
-            ("pc-000002", "pc-000005"),
+            ("pc-000000", "pc-000001", "pc-000003"),
+            ("pc-000002", "pc-000004"),
+            ("pc-000005",),
             ("pc-000006",),
-            ("pc-000007",),
         )
 
         dispatcher = ComputationalFabricDataflowAddDispatcher(
@@ -3027,12 +3058,13 @@ def test_compiled_dataflow_frontiers_execute_on_distinct_fabric_hosts_with_egpu(
         assert execution.execution.observation["registers"] == {
             "a": 3,
             "b": 5,
-            "c": 7,
             "d": 11,
+            "memory_value": 17,
             "x": 8,
-            "y": 18,
-            "z": 26,
+            "y": 28,
+            "z": 36,
         }
+        assert execution.execution.resolved_initial_registers == (("memory_value", 17),)
         assert len(execution.frontier_receipts) == 2
         egpu_receipt, cpu_receipt = execution.frontier_receipts
         assert egpu_receipt.peer_id == "peer-c"
@@ -3045,6 +3077,25 @@ def test_compiled_dataflow_frontiers_execute_on_distinct_fabric_hosts_with_egpu(
         assert cpu_receipt.implementation_fingerprint == cpu_implementation
         assert operator_spec.digest == cpu_locus.operator_spec.digest == egpu_locus.operator_spec.digest
         assert len(cpu_calls) == 1 and len(egpu_calls) == 1
+        assert len(egpu_receipt.structural_memory_receipts) == 1
+        memory_binding, memory_receipt = egpu_receipt.structural_memory_receipts[0]
+        assert memory_binding == "pc-000004.left"
+        assert memory_receipt.memory_id == memory_version.spec.memory_id
+        assert memory_receipt.revision == memory_version.spec.revision
+        assert memory_receipt.coordinate == 4
+        assert memory_receipt.spec_digest == memory_version.spec.digest
+        assert memory_receipt.certificate_digest == memory_version.certificate.digest
+        receiver_reads = [
+            item for item in peer_c_os.environment.kernel.journal.records()
+            if item.kind == "structural_memory.read_revision"
+        ]
+        relay_reads = [
+            item for item in peer_b_os.environment.kernel.journal.records()
+            if item.kind == "structural_memory.read_revision"
+        ]
+        assert len(receiver_reads) == 1
+        assert not relay_reads
+        assert peer_b_os.structural_memory.active_version("operation-native-memory-orbit") is None
         assert not failures, failures
     finally:
         stop_b.set()
