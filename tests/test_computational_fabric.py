@@ -3457,6 +3457,7 @@ def test_contextual_orbit_inverse_navigation_composes_into_egpu_dataflow_over_mu
         dataflow_program = assemble(
             "set five 5\n"
             "add partial located_coordinate five\n"
+            "add answer partial located_coordinate\n"
             "halt"
         )
         plan = MailCPUDataflowCompiler().compile_program(
