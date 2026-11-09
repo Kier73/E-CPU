@@ -91,3 +91,7 @@ The profile API is intentionally below policy. A future placement planner can:
 6. let the existing receiver re-resolve the live route and independently admit the workload.
 
 The next stage can extend this profile from one whole-frontier placement to partition-level profiles. That will allow the multi-host scheduler to estimate the cost of assigning bounded DAG partitions to different hosts without treating one benchmark as a universal throughput estimate.
+
+## Invariant
+
+B-53 in [INVARIANTS.md](INVARIANTS.md) registers the profile identity, receipt-binding, evidence-floor and advisory-authority requirements.
