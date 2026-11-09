@@ -850,11 +850,27 @@ class ComputationalFabricDataflowAddDispatcher:
         if not eligible_nodes or any(not isinstance(item, str) or not item for item in eligible_nodes):
             raise OperationNativeDataflowError("frontier has no declared eligible execution node")
 
-        input_value = {
-            "left": list(request.left_values),
-            "right": list(request.right_values),
-            "max_steps": self.max_steps,
-        }
+        structural_references: dict[str, VirtualStructuralMemoryRef] = {}
+        wire_lanes: list[dict[str, Any]] = []
+        for lane in request.lanes:
+            wire_lane: dict[str, Any] = {"node_id": lane.node_id}
+            for side in ("left", "right"):
+                reference = getattr(lane, f"{side}_reference")
+                operand_value = getattr(lane, side)
+                if reference is not None:
+                    if reference.binding in structural_references:
+                        raise OperationNativeDataflowError("frontier Structural Memory binding identities must be unique")
+                    structural_references[reference.binding] = reference
+                    wire_lane[side] = {"kind": "structural_memory", "binding": reference.binding}
+                else:
+                    wire_lane[side] = {"kind": "inline", "value": _bounded_add_integer(operand_value, f"{lane.node_id} {side} operand")}
+            wire_lanes.append(wire_lane)
+        input_value = {"lanes": wire_lanes, "max_steps": self.max_steps}
+        operator_reference = VirtualOperatorRef(
+            self.operator_spec.operator_id,
+            self.operator_spec.version,
+            structural_memory=tuple(structural_references[key] for key in sorted(structural_references)),
+        )
         workload_id = f"dataflow-add-{request.plan_digest[:12]}-{request.frontier_index:04d}"
         workload = VirtualLayerWorkload(
             workload_id=workload_id,
@@ -870,12 +886,13 @@ class ComputationalFabricDataflowAddDispatcher:
                     "lanes": [item.to_dict() for item in request.lanes],
                 }
             },
-            operators=(VirtualOperatorRef(self.operator_spec.operator_id, self.operator_spec.version),),
+            operators=(operator_reference,),
             input_value=input_value,
             budget=self.budget,
             logical_time=self.logical_time + request.frontier_index,
             eligible_nodes=eligible_nodes,
             max_hops=self.max_hops,
+            schema_version=2 if structural_references else 1,
         )
         address = ComputationalAddress.from_workload(
             workload,
@@ -960,6 +977,20 @@ class ComputationalFabricDataflowAddDispatcher:
         )
         backend_receipt = operator_result.get("backend_receipt_digest")
         _digest(backend_receipt, "backend_receipt_digest")
+        raw_memory_receipts = effect.get("structural_memory_receipts", {})
+        if not isinstance(raw_memory_receipts, Mapping):
+            raise OperationNativeDataflowError("terminal Structural Memory receipts must be an object")
+        expected_bindings = set(structural_references)
+        if set(raw_memory_receipts) != expected_bindings:
+            raise OperationNativeDataflowError("terminal Structural Memory receipt bindings differ from requested references")
+        memory_receipts: list[tuple[str, StructuralMemoryReadReceipt]] = []
+        for binding in sorted(expected_bindings):
+            payload = raw_memory_receipts[binding]
+            if not isinstance(payload, Mapping):
+                raise OperationNativeDataflowError(f"terminal Structural Memory receipt {binding!r} is malformed")
+            memory_receipt = StructuralMemoryReadReceipt.from_dict(payload)
+            _validate_memory_receipt_for_reference(structural_references[binding], memory_receipt)
+            memory_receipts.append((binding, memory_receipt))
 
         return DataflowAddFrontierReceipt(
             request_digest=request.digest,
@@ -972,6 +1003,7 @@ class ComputationalFabricDataflowAddDispatcher:
             operator_effect_digest=effect["result_digest"],
             implementation_fingerprint=route.target_host.implementation_fingerprint,
             backend_receipt_digest=backend_receipt,
+            structural_memory_receipts=tuple(memory_receipts),
         )
 
 
