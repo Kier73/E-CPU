@@ -125,6 +125,10 @@ def benchmark_case(
     _strict_int(working_set_pages, "working_set_pages", 2)
     if max_total_resident_pages is not None:
         _strict_int(max_total_resident_pages, "max_total_resident_pages", 1)
+        if max_total_resident_pages < working_set_pages:
+            raise ValueError(
+                "max_total_resident_pages must admit at least one VM working set"
+            )
 
     page_budget_capacity = (
         None
