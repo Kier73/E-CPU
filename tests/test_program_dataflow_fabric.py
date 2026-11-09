@@ -297,9 +297,9 @@ def test_operation_native_compare_frontier_preserves_orbit_provenance_and_commit
     """Mathematics: route sign(left-right), retain the inverse witness, and reuse the existing DAG frontier contract."""
     coordinate_input, value_input = _contextual_orbit_inputs()
     program = assemble(
-        "set threshold 40\\n"
-        "compare relation orbit_coordinate threshold\\n"
-        "add answer relation orbit_value\\n"
+        "set threshold 40\n"
+        "compare relation orbit_coordinate threshold\n"
+        "add answer relation orbit_value\n"
         "halt"
     )
     plan = MailCPUDataflowCompiler().compile_program(
