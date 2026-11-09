@@ -209,7 +209,7 @@ class ContextualOrbitLocateValueReceipt:
 
 
 def contextual_orbit_locate_value_operator_spec() -> OperatorSpec:
-    """Declare the deterministic, pure operation contract for receiver-side inverse navigation."""
+    """Mathematics: declare the deterministic, pure contract for receiver-side inverse navigation."""
     return OperatorSpec(
         operator_id=CONTEXTUAL_ORBIT_LOCATE_VALUE_OPERATOR_ID,
         version=CONTEXTUAL_ORBIT_LOCATE_VALUE_OPERATOR_VERSION,
@@ -237,7 +237,7 @@ def make_contextual_orbit_locate_value_handler(
     max_recurrence_order: int = 256,
     max_fgraph_entries: int = 65_536,
 ):
-    """Bind the trusted operator to one receiver-local registry and reusable, explicitly bounded navigator."""
+    """Mathematics: bind the trusted operator to one receiver-local registry and bounded reusable navigator."""
     if not isinstance(registry, StructuralMemoryRegistry):
         raise ContextualOrbitFabricError("navigation handler requires a receiver-local StructuralMemoryRegistry")
     for value, label in (
@@ -250,7 +250,7 @@ def make_contextual_orbit_locate_value_handler(
     navigator = ContextualOrbitNavigator(registry)
 
     def execute(value: Mapping[str, Any], workload: VirtualLayerWorkload) -> dict[str, Any]:
-        """Invert on the receiver and return the exact forward-verified projection/read receipt."""
+        """Mathematics: invert on the receiver and return the exact forward-verified projection and read receipt."""
         if not isinstance(value, Mapping) or not isinstance(workload, VirtualLayerWorkload):
             raise ContextualOrbitFabricError("navigation handler requires an object input and typed workload")
         request = ContextualOrbitLocateValueRequest.from_dict(value)
@@ -307,7 +307,7 @@ def _validate_navigation_result(
     request: ContextualOrbitLocateValueRequest,
     result: OrbitValueResult,
 ) -> None:
-    """Verify the result is exactly the requested contextual projection and its receiver read evidence."""
+    """Mathematics: verify the requested contextual projection and exact receiver read evidence."""
     if result.target_value != request.target_value:
         raise ContextualOrbitFabricError("receiver located a value other than the requested target")
     address = request.address
