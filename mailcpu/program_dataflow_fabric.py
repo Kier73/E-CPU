@@ -327,8 +327,12 @@ class OperationNativeDataflowReport:
         return {**self._payload(), "digest": self.digest}
 
 
-def _operand_value(graph: NavigableComputationDAG, operand: Mapping[str, Any], node_id: str) -> int:
-    """Mathematics: resolve a compiler-emitted literal, initial value, or committed predecessor."""
+def _operand_value(
+    graph: NavigableComputationDAG,
+    operand: Mapping[str, Any],
+    node_id: str,
+) -> int | VirtualStructuralMemoryRef:
+    """Mathematics: resolve a literal/value/predecessor or preserve a pinned symbolic memory address without reading it."""
     kind = operand.get("kind")
     if kind in {"literal", "initial"}:
         value = operand.get("value")
@@ -338,9 +342,107 @@ def _operand_value(graph: NavigableComputationDAG, operand: Mapping[str, Any], n
             raise OperationNativeDataflowError(f"node {node_id!r} has a malformed dependency operand")
         dependency = graph.result(dependency_id)
         value = dependency.get("value")
+    elif kind == "structural_memory":
+        raw_reference = operand.get("reference")
+        if not isinstance(raw_reference, Mapping):
+            raise OperationNativeDataflowError(f"node {node_id!r} has a malformed symbolic Structural Memory operand")
+        reference = VirtualStructuralMemoryRef.from_dict(raw_reference)
+        if reference.binding != operand.get("register"):
+            raise OperationNativeDataflowError(f"node {node_id!r} Structural Memory binding differs from its source register")
+        return reference
     else:
         raise OperationNativeDataflowError(f"node {node_id!r} has an unsupported operand source")
-    return _strict_integer(value, f"operand for node {node_id}")
+    return _bounded_add_integer(value, f"operand for node {node_id}")
+
+
+def _lane_operand(
+    value: int | VirtualStructuralMemoryRef,
+    *,
+    node_id: str,
+    side: str,
+    source_register: Any,
+) -> tuple[int | None, str | None, VirtualStructuralMemoryRef | None]:
+    """Mathematics: map one compiled register operand into a stable inline or lane-bound symbolic reference."""
+    if isinstance(value, VirtualStructuralMemoryRef):
+        if not isinstance(source_register, str) or _REGISTER.fullmatch(source_register) is None:
+            raise OperationNativeDataflowError("symbolic ADD operand is missing its source register")
+        return None, source_register, _memory_reference_with_binding(value, f"{node_id}.{side}")
+    return _bounded_add_integer(value, f"{side} ADD operand"), (
+        source_register if isinstance(source_register, str) else None
+    ), None
+
+
+def _validate_memory_receipt_for_reference(
+    reference: VirtualStructuralMemoryRef,
+    receipt: StructuralMemoryReadReceipt,
+) -> None:
+    """Mathematics: require a receiver read receipt to match every pinned memory coordinate and evidence identity."""
+    if (
+        receipt.memory_id != reference.memory_id
+        or receipt.revision != reference.revision
+        or receipt.coordinate != reference.coordinate
+        or receipt.spec_digest != reference.spec_digest
+        or receipt.certificate_digest != reference.certificate_digest
+        or receipt.context_digest != canonical_value_digest(dict(reference.context))
+        or receipt.value_digest != canonical_value_digest({"type": "integer", "value": receipt.value})
+    ):
+        raise OperationNativeDataflowError("receiver Structural Memory receipt differs from the exact pinned reference")
+
+
+def _materialize_frontier_operands(
+    value: Mapping[str, Any],
+) -> tuple[list[int], list[int], int]:
+    """Mathematics: realize aligned lane operands from inline literals or receiver-authorized Structural Memory bindings."""
+    if not isinstance(value, Mapping):
+        raise OperationNativeDataflowError("ADD frontier input must be an object")
+    if set(value) == {"input", "structural_memory"}:
+        raw = value["input"]
+        memory = value["structural_memory"]
+    else:
+        raw = value
+        memory = {}
+    if not isinstance(raw, Mapping) or set(raw) != {"lanes", "max_steps"}:
+        raise OperationNativeDataflowError("ADD frontier input fields are invalid")
+    if not isinstance(memory, Mapping):
+        raise OperationNativeDataflowError("resolved Structural Memory input must be an object")
+    lanes = raw["lanes"]
+    if not isinstance(lanes, (list, tuple)) or not 1 <= len(lanes) <= _MAX_ADD_LANES:
+        raise OperationNativeDataflowError(f"ADD frontier must contain 1..{_MAX_ADD_LANES} lanes")
+    max_steps = raw["max_steps"]
+    if type(max_steps) is not int or not 1 <= max_steps <= 10_000:
+        raise OperationNativeDataflowError("ADD frontier max_steps is outside its bounded profile")
+
+    left_values: list[int] = []
+    right_values: list[int] = []
+    for index, lane in enumerate(lanes):
+        if not isinstance(lane, Mapping) or set(lane) != {"node_id", "left", "right"}:
+            raise OperationNativeDataflowError(f"ADD frontier lane {index} has invalid fields")
+        if not isinstance(lane["node_id"], str) or _NODE_ID.fullmatch(lane["node_id"]) is None:
+            raise OperationNativeDataflowError(f"ADD frontier lane {index} has an invalid node identity")
+        for side in ("left", "right"):
+            operand = lane[side]
+            if not isinstance(operand, Mapping):
+                raise OperationNativeDataflowError(f"ADD frontier lane {index} {side} operand must be typed")
+            if set(operand) == {"kind", "value"} and operand["kind"] == "inline":
+                resolved = _bounded_add_integer(operand["value"], f"lane {index} {side} value")
+            elif set(operand) == {"kind", "binding"} and operand["kind"] == "structural_memory":
+                binding = operand["binding"]
+                if not isinstance(binding, str) or not binding:
+                    raise OperationNativeDataflowError(f"ADD frontier lane {index} {side} memory binding is invalid")
+                entry = memory.get(binding)
+                if not isinstance(entry, Mapping) or set(entry) != {"value", "receipt"}:
+                    raise OperationNativeDataflowError(f"receiver did not resolve Structural Memory binding {binding!r}")
+                receipt_payload = entry["receipt"]
+                if not isinstance(receipt_payload, Mapping):
+                    raise OperationNativeDataflowError(f"Structural Memory binding {binding!r} has no typed receipt")
+                receipt = StructuralMemoryReadReceipt.from_dict(receipt_payload)
+                resolved = _bounded_add_integer(entry["value"], f"Structural Memory value {binding}")
+                if receipt.value != resolved:
+                    raise OperationNativeDataflowError(f"Structural Memory binding {binding!r} value differs from its receipt")
+            else:
+                raise OperationNativeDataflowError(f"ADD frontier lane {index} {side} operand descriptor is unsupported")
+            (left_values if side == "left" else right_values).append(resolved)
+    return left_values, right_values, max_steps
 
 
 def execute_dataflow_operation_native(
