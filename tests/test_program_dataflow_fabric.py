@@ -180,8 +180,8 @@ def test_operation_native_add_carries_orbit_receipts_through_multiple_dag_genera
     """Mathematics: later fabric operations can recover exact orbit evidence from a value's DAG ancestry."""
     coordinate_input, value_input = _contextual_orbit_inputs()
     program = assemble(
-        "add partial orbit_coordinate orbit_value\\n"
-        "add answer partial orbit_value\\n"
+        "add partial orbit_coordinate orbit_value\n"
+        "add answer partial orbit_value\n"
         "halt"
     )
     plan = MailCPUDataflowCompiler().compile_program(
