@@ -39,7 +39,7 @@ From the repository root:
 
 ~~~bash
 python scripts/benchmark_vm_fleet.py \
-  --vm-counts 1,2,4,8,16 \
+  --vm-counts 1,2,4,8,16,32 \
   --work-units 256 \
   --working-set-pages 2 \
   --max-total-resident-pages 64 \
