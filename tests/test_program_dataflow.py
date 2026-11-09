@@ -267,7 +267,7 @@ def test_contextual_orbit_receipts_compile_as_typed_predecessor_nodes_without_tr
     """Mathematics: selected coordinate/value become DAG sources while the intervening orbit is never serialized."""
     coordinate_input = _contextual_orbit_dataflow_input(field="coordinate")
     value_input = _contextual_orbit_dataflow_input(field="value")
-    program = assemble("add answer orbit_coordinate orbit_value\\nhalt")
+    program = assemble("add answer orbit_coordinate orbit_value\nhalt")
     compiler = MailCPUDataflowCompiler()
     plan = compiler.compile_program(
         program,
