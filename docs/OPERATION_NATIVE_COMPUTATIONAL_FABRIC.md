@@ -125,7 +125,7 @@ A ContextualOrbitDataflowInput binds one origin-verified routed inverse result t
 
 The compiler's v3 dataflow plan creates one orbit-input source node per supplied register and adds ordinary dependency edges from consuming instructions. The source node commits the selected integer together with the typed input and receipt identities. For an operation-native descendant, the executor follows the DAG ancestry and includes the relevant typed inputs alongside the current scalar operand. This also works after intermediate DAG operations: the value may have been transformed, while the compact predecessor evidence remains traceable through its dependency lineage.
 
-The operation-native ADD request/receipt schemas and the shared CPU/E-GPU operator contract are v3. The receiving handler rehydrates and validates each contextual-orbit input before executing the strict integer operation; the requester still verifies the returned scalar result independently before commit. Only coordinate/value projections are accepted in this slice, the compiled profile remains bounded, and evidence digests are integrity/provenance bindings rather than signatures or hardware attestation.
+The operation-native ADD request/receipt schemas and shared CPU/E-GPU ADD operator contract are v3; COMPARE has its own v1 request/receipt and operator contract. The receiving handler rehydrates and validates each contextual-orbit input before executing the selected binary operation; the requester still verifies the returned scalar result independently before commit. Only coordinate/value projections are accepted in this slice, the compiled profile remains bounded, and evidence digests are integrity/provenance bindings rather than signatures or hardware attestation.
 
 This profile dispatches at most one homogeneous binary-operator batch per ready frontier for each configured operation family. A frontier is not yet split across several hosts, and the RPCs are sequential. The local DAG coordinator retains the result mapping and sends the next dependent frontier only after its predecessor frontier has committed.
 
@@ -148,16 +148,18 @@ The first stage traverses B as a forwarding relay and terminates at C. In the se
 
 This experiment demonstrates operation-level placement across different hosts and two different local implementations under one operator contract. It does not migrate a VM or distribute one full machine image.
 
-## Shared arithmetic domain
+## Shared binary operand domain
 
-The CPU and E-GPU implementations of `mailcpu.dataflow.add_frontier@3` implement one explicit shared domain:
+The CPU and E-GPU implementations of the binary operation contracts use one explicit shared operand domain:
 
 - 1 to 64 aligned lanes per operation;
 - strict integers (booleans are not integers in this contract);
 - each input and result has at most 4096 bits;
-- deterministic, pure, ordered vector-add output.
+- deterministic, pure, ordered output lanes;
+- ADD returns the exact integer sum and retains the 4096-bit result bound;
+- COMPARE returns exactly one of -1, 0 or 1 under the sign(left-right) observation.
 
-The CPU handler enforces those bounds even though Python integers are unbounded. The E-GPU handler is admitted for this contract only when its configured SIMT lane and integer bounds can realize the whole declared domain. A smaller E-GPU profile must not advertise this operator contract as fully compatible. The two implementations retain distinct implementation fingerprints even though their semantic operator contract is identical.
+The CPU handler enforces the operand and ADD result bounds even though Python integers are unbounded. The E-GPU handler is admitted for these contracts only when its configured SIMT lane and integer bounds can realize the whole declared operand domain. A smaller E-GPU profile must not advertise a compatible operator contract. CPU and E-GPU implementations retain distinct implementation fingerprints even when they share one semantic operator contract.
 
 ## COMPARE as the second binary operation family
 
@@ -227,14 +229,14 @@ This integration does not claim that E-CPU is faster than a physical CPU or GPU.
 
 ## Boundaries and next work
 
-This first implementation does not:
+This bounded binary-operation profile does not yet:
 
 - compile arbitrary opaque bytes or programs outside the pure straight-line MailCPU subset;
 - distribute branches, loops, side effects, syscalls or stateful sessions as independent operation requests;
 - split one frontier across multiple target hosts;
 - pipeline intermediate results directly from one terminal host to the next without returning through the origin coordinator;
 - execute concurrently merely because the DAG contains independent nodes;
-- resolve symbolic Structural Memory for operations outside the supported ADD and COMPARE binary frontier families;
+- resolve symbolic Structural Memory for operation families outside the supported ADD and COMPARE binary frontiers;
 - choose a host by an empirically trained adaptive cost model; target eligibility is declared by the caller in the current experiment;
 - perform computation inside passive network links; or
 - demonstrate physical GPU acceleration or lower end-to-end latency.
