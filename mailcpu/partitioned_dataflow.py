@@ -638,6 +638,71 @@ class PartitionedComputationalFabricDataflowBinaryDispatcher:
             partitions=partitions,
         )
 
+    def _complete_claimed_children(
+        self,
+        request: DataflowAddFrontierRequest | DataflowCompareFrontierRequest | DataflowMultiplyFrontierRequest,
+        children: Sequence[BinaryFrontierChildReceipt],
+    ) -> tuple[BinaryFrontierChildReceipt, ...]:
+        """Mathematics: Atomically record one parent frontier's validated child results under one quorum completion generation."""
+        store = getattr(self.dispatcher, "execution_claim_store", None)
+        selected = tuple(children)
+        if store is None:
+            if any(item.claim_bundle is not None or item.completion_bundle is not None for item in selected):
+                raise OperationNativeDataflowError(
+                    "claim-bound frontier checkpoint cannot be accepted without the origin execution-claim store"
+                )
+            return selected
+        if any(item.claim_bundle is None for item in selected):
+            raise OperationNativeDataflowError(
+                "claim-bound parent frontier cannot mix child receipts without assignment tickets"
+            )
+        completions = []
+        for child in selected:
+            claim = child.claim_bundle.claim
+            assignment = claim.current_assignment
+            if (
+                claim.parent_request_digest != request.digest
+                or claim.child_request_digest != child.partition.request.digest
+                or claim.address_digest != child.partition.address.digest
+                or claim.status is not ExecutionClaimStatus.ASSIGNED
+            ):
+                raise OperationNativeDataflowError(
+                    "child assignment ticket does not bind the exact still-assigned parent frontier child"
+                )
+            result_digest = canonical_value_digest({
+                "schema": "mailcpu.binary-frontier-child-result.v1",
+                "request_digest": child.partition.request.digest,
+                "results": [[node_id, value] for node_id, value in child.receipt.results],
+                "operator_effect_digest": child.receipt.operator_effect_digest,
+            })
+            completions.append({
+                "claim_id": claim.claim_id,
+                "expected_epoch": assignment.epoch,
+                "owner_peer_id": assignment.owner_peer_id,
+                "owner_host_id": assignment.owner_host_id,
+                "implementation_fingerprint": assignment.implementation_fingerprint,
+                "result_digest": result_digest,
+                "child_receipt_digest": child.receipt.digest,
+            })
+        try:
+            completed_bundles = store.complete_many(tuple(completions))
+        except TransferableExecutionClaimError as exc:
+            raise OperationNativeDataflowError(
+                f"parent frontier could not atomically commit its current child assignment results: {exc}"
+            ) from exc
+        if len(completed_bundles) != len(selected):
+            raise OperationNativeDataflowError("claim authority returned the wrong number of completion tickets")
+        by_claim_id = {bundle.claim.claim_id: bundle for bundle in completed_bundles}
+        return tuple(
+            BinaryFrontierChildReceipt(
+                child.partition,
+                child.receipt,
+                child.claim_bundle,
+                by_claim_id[child.claim_bundle.claim.claim_id],
+            )
+            for child in selected
+        )
+
     def dispatch(
         self,
         request: DataflowAddFrontierRequest | DataflowCompareFrontierRequest | DataflowMultiplyFrontierRequest,
@@ -673,10 +738,34 @@ class PartitionedComputationalFabricDataflowBinaryDispatcher:
                     raise OperationNativeDataflowError("recovery partition_groups differ from the saved exact partition plan")
 
         if state.complete:
-            return BinaryFrontierCompositeReceipt(request, state.plan, state.successful_children)
+            try:
+                finalized_children = self._complete_claimed_children(request, state.successful_children)
+                finalized_state = BinaryFrontierExecutionCheckpoint(request, state.plan, finalized_children)
+                if self.checkpoint_sink is not None:
+                    self.checkpoint_sink(finalized_state)
+            except Exception as exc:
+                raise PartitionedFrontierIncomplete(
+                    f"could not finalize the complete frontier's quorum-bound child results: {exc}",
+                    state,
+                    (f"claim_completion: {type(exc).__name__}: {str(exc)[:512]}",),
+                ) from exc
+            return BinaryFrontierCompositeReceipt(request, state.plan, finalized_state.successful_children)
 
         claim_tickets: dict[str, PortableExecutionClaimBundle] = {}
-        if getattr(self.dispatcher, "execution_claim_store", None) is not None:
+        claim_store = getattr(self.dispatcher, "execution_claim_store", None)
+        if claim_store is not None and any(item.claim_bundle is None for item in state.successful_children):
+            raise PartitionedFrontierIncomplete(
+                "recovered child receipts do not carry assignment tickets for the configured claim authority",
+                state,
+                ("execution_claim: checkpoint predates or omitted claim-bound dispatch",),
+            )
+        if claim_store is None and any(item.claim_bundle is not None for item in state.successful_children):
+            raise PartitionedFrontierIncomplete(
+                "claim-bound child checkpoint requires the original origin claim authority",
+                state,
+                ("execution_claim: claim authority is not configured",),
+            )
+        if claim_store is not None:
             try:
                 claim_tickets = self.dispatcher.prepare_execution_claims(request, state.plan.partitions)
             except Exception as exc:
@@ -808,6 +897,17 @@ class PartitionedComputationalFabricDataflowBinaryDispatcher:
                 final_state,
                 failures,
             )
+        try:
+            finalized_children = self._complete_claimed_children(request, final_state.successful_children)
+            final_state = BinaryFrontierExecutionCheckpoint(request, final_state.plan, finalized_children)
+            if self.checkpoint_sink is not None:
+                self.checkpoint_sink(final_state)
+        except Exception as exc:
+            raise PartitionedFrontierIncomplete(
+                f"could not commit and checkpoint the complete parent frontier result set: {exc}",
+                final_state,
+                (f"claim_completion: {type(exc).__name__}: {str(exc)[:512]}",),
+            ) from exc
         return BinaryFrontierCompositeReceipt(request, final_state.plan, final_state.successful_children)
 
     def __call__(
