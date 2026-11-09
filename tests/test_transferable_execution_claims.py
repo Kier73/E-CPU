@@ -389,3 +389,20 @@ def test_compact_merkle_claim_ticket_proves_membership_in_three_claim_state(tmp_
     ).encode("utf-8")).hexdigest()
     with pytest.raises(TransferableExecutionClaimError, match="inclusion path"):
         PortableExecutionClaimBundle.from_dict(tampered)
+
+
+def test_claim_state_root_tampering_breaks_the_quorum_manifest_binding(tmp_path: Path) -> None:
+    """Mathematics: changing the committed Merkle root while keeping the old RecoveryStateManifest cannot create a valid claim ticket."""
+    store, _coordinator_instance = _store(tmp_path)
+    bundle = _create(store)
+    root_path = (
+        tmp_path / "claims" / f"generation-{bundle.manifest.generation:020d}" / "state-root.json"
+    )
+    root = json.loads(root_path.read_text(encoding="utf-8"))
+    root["claims_root"] = H("forged-root")
+    root_path.write_text(
+        json.dumps(root, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False) + "\\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(TransferableExecutionClaimError, match="state-root bytes|quorum high-water"):
+        store.get(bundle.claim.claim_id)
