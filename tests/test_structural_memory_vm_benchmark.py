@@ -36,7 +36,12 @@ def test_structural_memory_vm_pair_holds_virtual_geometry_and_working_set_consta
     assert materialized["post_restore_fault_resident_delta"] == 0
     assert structural["post_restore_fault_resident_delta"] == 1
     assert structural["post_restore_fault_receipt_verified"] is True
-    assert structural["structural_read_receipt_count"] >= 2 * 256
+    assert structural["structural_range_read_event_count"] == 2
+    assert structural["structural_coordinate_commitment_count"] == 2 * 256
+    assert structural["provider_coordinate_receipt_count"] == 2 * 256
+    assert structural["structural_registry_point_cache_entry_count"] == 0
+    assert structural["structural_registry_bytes"] > materialized["structural_registry_bytes"]
+    assert structural["checkpoint_bytes"] < materialized["checkpoint_bytes"]
     assert structural["page_backing_descriptor_bytes"] > materialized["page_backing_descriptor_bytes"]
 
 
