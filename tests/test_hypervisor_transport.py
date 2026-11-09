@@ -183,6 +183,63 @@ def test_operation_event_round_trips_over_real_tcp_and_receiver_rebuilds_authori
                 transport.close()
 
 
+def test_old_acknowledged_transport_duplicate_is_acked_without_hypervisor_replay() -> None:
+    """An old frame whose ACK was lost must not re-enter semantic execution after receiver restore."""
+    from mailcpu.transport import InMemoryTransport
+
+    transport = InMemoryTransport()
+    policy = ReliabilityPolicy(lease_ticks=1, max_attempts=3, window_size=4)
+    sender = HypervisorOperationChannel(
+        ReliableChannel(transport, "origin", "replica", "ops", policy)
+    )
+    receiver = HypervisorOperationChannel(
+        ReliableChannel(transport, "replica", "replica", "ops", policy, peer="origin")
+    )
+    operating_system = HeadlessOS()
+    operating_system.install_source("/bin/child.mca", "HALT\\n")
+    calls = {"count": 0}
+
+    def launch_handler() -> int:
+        calls["count"] += 1
+        return operating_system.launch_file(
+            "/bin/child.mca",
+            parent_pid=operating_system.environment.init_pid,
+            loader_pid=operating_system.environment.init_pid,
+        )
+
+    def authorize(event: HypervisorArbitrationEvent) -> HypervisorArbitrationEvent:
+        return operating_system.hypervisor_authorize_event(
+            operating_system.environment.init_pid,
+            event,
+        )
+
+    event = _event(1)
+    assert sender.send(event) == 1
+    first = receiver.receive_and_execute(
+        operating_system.hypervisor_arbitration,
+        authorize,
+        {HypervisorDomain.PROCESS: launch_handler},
+    )
+    assert first is not None and first.executed is True
+    assert calls["count"] == 1
+    assert receiver.channel.next_receive_sequence == 2
+
+    # Simulate losing the ACK at the sender. Retransmit the exact old
+    # transport sequence after the receiver has already committed it.
+    assert sender.channel.pending_sequences() == (1,)
+    assert sender.channel.retransmit(1) is True
+    duplicate = receiver.receive_and_execute(
+        operating_system.hypervisor_arbitration,
+        authorize,
+        {HypervisorDomain.PROCESS: launch_handler},
+    )
+    assert duplicate is None
+    assert calls["count"] == 1
+    assert receiver.channel.next_receive_sequence == 2
+    assert sender.channel.process_ack() == (1,)
+    assert sender.channel.pending_sequences() == ()
+
+
 def test_send_or_retransmit_reuses_pending_sequence_and_refuses_identity_conflict() -> None:
     """A reconnecting sender reuses the exact pending event frame and refuses a changed payload under its identity."""
     origin_transport, replica_transport = _tcp_pair()
