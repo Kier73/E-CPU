@@ -198,6 +198,9 @@ def test_claim_tampering_and_stale_semantic_identity_are_refused(tmp_path: Path)
     tampered["state_snapshot"]["claims"][0]["assignments"][0]["owner_host_id"] = "attacker-host"
     with pytest.raises(TransferableExecutionClaimError, match="digest|state bytes|bundle"):
         PortableExecutionClaimBundle.from_dict(tampered)
+    bundle.state_snapshot["claims"][0]["assignments"][0]["owner_host_id"] = "mutated-after-construction"
+    with pytest.raises(TransferableExecutionClaimError, match="changed after construction"):
+        bundle.verify_current(coordinator)
     with pytest.raises(TransferableExecutionClaimError, match="does not authorize"):
         bundle.verify_for_target(
             coordinator,
