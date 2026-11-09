@@ -25,6 +25,12 @@ F(C)=\{v\in V\setminus\operatorname{dom}(C):
 
 Only nodes in \(F(C)\) may be committed. The commit contains the exact node digest and the digest of its canonical JSON result. A repeated commit with the same node and result digests is an idempotent replay. A changed result under the same node identity is a conflict.
 
+## Frontier transaction boundary
+
+`commit_frontier()` extends the node-level commit rule to one complete readiness frontier. It accepts a node-to-result mapping and optionally the compiler's expected stable node-ID tuple. Before publishing anything, it validates the exact current ready set, every node identity, every dependency, and the canonical JSON encoding/digest of every result. Only after the entire batch passes does it update the committed-result map once. It returns `False` for a new frontier commit and `True` for an exact whole-frontier replay. A changed result, a partial replay, a stale frontier, or one malformed result refuses without publishing any new member of the batch.
+
+Both the local dataflow evaluator and the operation-native fabric executor use this boundary. The operation-native executor prepares all local and remote nodes in the frontier, verifies every remote lane and receipt, then crosses one commit barrier. A remote host failure or oracle mismatch therefore cannot leave an earlier sibling lane from that same frontier committed. The transaction is scoped to one DAG frontier; effects already committed by a receiver remain governed by the separate receiver execution ledger and recovery protocol.
+
 The graph is bounded at 256 nodes and 1,024 dependency edges. Node payloads and results use a closed JSON value algebra, with string object keys and finite numbers. The graph snapshot includes its node definitions and commits in deterministic topological order, bound by a SHA-256 digest.
 
 A pending operation may be revised by increasing its revision number. A committed operation cannot be revised. This is used when a join node begins as a declaration of its dependencies and is later materialized into an exact CPU request after every branch result exists.
@@ -87,4 +93,4 @@ The demonstrated workload is one modular Structural Memory input, three determin
 
 The experiment does not establish distributed DAG consensus, arbitrary side-effect transactions, GPU execution, automatic path-cost calibration, or universal program translation. Each branch is an independently committed Transit operation. The join does not retroactively make all branches one atomic transaction. A failed branch can be retried without repeating already committed siblings, subject to the receiver's semantic execution ledger and checkpoint policy.
 
-The graph digest detects accidental or uncoordinated modification. It is not a signature, MAC, authenticated provenance claim, or anti-rollback mechanism.
+The graph digest detects accidental or uncoordinated modification. It is not a signature, MAC, authenticated provenance claim, or anti-rollback mechanism. See `INVARIANTS.md` B-55 for the executable frontier-commit contract.
