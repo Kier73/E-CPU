@@ -798,6 +798,7 @@ from .computational_fabric import (
     ComputationalFabricError,
     ComputationalFabricPeerClient,
     ComputationalFabricPeerServer,
+    ComputationalFabricPlacementSet,
     ComputationalFabricResolutionResult,
     ComputationalFabricResolver,
     ComputationalFabricRouteWitness,
