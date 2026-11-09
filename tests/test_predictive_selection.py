@@ -10,7 +10,9 @@ from mailcpu import (
     ObserverContract,
     ObserverReceipt,
     PredictiveCandidatePoolBuilder,
+    RepresentationRef,
     StructuralMemoryRegistry,
+    VirtualGroundRef,
     VirtualStructuralMemoryRef,
     canonical_value_digest,
     composed_component_context,
@@ -33,6 +35,7 @@ from mailcpu.predictive_selection import (
     predictive_experiment_digest,
 )
 from mailcpu.semantic_translation import ObservationContract
+from mailcpu.seed import SystemIdentity
 from mailcpu.temporal import SchedulerReading, TemporalFrame
 from mailcpu.virtual_layer import OperatorSpec
 
@@ -528,6 +531,192 @@ def test_candidate_pool_builder_emits_only_bounded_one_factor_admitted_variants(
     assert pool_record["discovered_candidate_count"] == 4
     assert pool_record["included_candidate_count"] == 2
     assert pool_record["omitted_candidate_count"] == 2
+    assert report.to_dict()["report_digest"] == report.digest
+
+
+def test_predictive_selector_advises_page_access_trace_from_independent_held_out_ticks():
+    """Use admitted page-access descriptions to forecast an independently observed cache workload."""
+    registry = StructuralMemoryRegistry(admission_policy=lambda proposal: True)
+    system = SystemIdentity("predictive-page-cache", 1)
+    base_ground = VirtualGroundRef("a" * 64, "b" * 64, 1000, "c" * 64)
+    computational_ground = RepresentationRef.from_payload(
+        "mailcpu.computational-ground",
+        1,
+        {"meaning": "page-cache-access-trace", "domain": "integer page identifiers"},
+    )
+    state_schema = RepresentationRef.from_payload(
+        "mailcpu.page-cache-access-schema",
+        1,
+        {"cache.requested_page": "bounded integer page identifier"},
+    )
+    template = {
+        "cache": {"requested_page": 0},
+        "scheduler": {"tick": 0},
+    }
+    representation = RepresentationRef.from_payload(
+        "mailcpu.cache.page-index",
+        1,
+        {"kind": "integer", "meaning": "requested backing page index"},
+    )
+    component_context = composed_component_context(
+        system,
+        base_ground,
+        computational_ground,
+        state_schema,
+        template,
+        scheduler_id="cache-scheduler",
+        component_id="requested-page",
+        field_path=("cache", "requested_page"),
+        representation=representation,
+        value_kind="integer",
+        extensions={"experiment": "predictive-page-reuse-v1"},
+    )
+
+    # Baseline is a simple round-robin page sweep. Revision 2 describes the
+    # cache workload observed by the independent scheduler/observer.
+    baseline_law = Law(
+        "fgraph",
+        {"orbit": [0, 1, 2, 3], "mu": 0, "lam": 4},
+        1,
+        "GROUND",
+    )
+    memory_id = "page-access-description"
+    baseline_proposal = registry.propose(
+        memory_id,
+        baseline_law,
+        {coordinate: baseline_law.navigate(coordinate) for coordinate in range(8)},
+        domain="page-access-trace",
+        context=component_context,
+    )
+    baseline_version = registry.admit(
+        baseline_proposal.proposal_id,
+        expected_revision=0,
+    )
+    baseline_reference = VirtualStructuralMemoryRef.from_version(
+        "requested-page-binding",
+        baseline_version,
+        0,
+    )
+    baseline_orbit = ContextualOrbitAddress(
+        system_identity=system,
+        base_ground=base_ground,
+        computational_ground=computational_ground,
+        coordinate=SchedulerReading("cache-scheduler", base_ground.coordinate),
+        structural_memory=baseline_reference,
+        context_extensions=component_context["extensions"],
+    )
+    component = ComposedComponentAddress(
+        component_id="requested-page",
+        field_path=("cache", "requested_page"),
+        representation=representation,
+        value_kind="integer",
+        orbit_address=baseline_orbit,
+    )
+    address = ComposedVirtualGroundAddress(
+        system_identity=system,
+        base_ground=base_ground,
+        computational_ground=computational_ground,
+        coordinate=SchedulerReading("cache-scheduler", base_ground.coordinate),
+        state_schema=state_schema,
+        template_json=_canonical(template),
+        components=(component,),
+    )
+
+    observed_access_trace = (0, 1, 0, 2, 0, 3, 0, 1, 0, 2, 0, 3)
+    observed_law = Law(
+        "fgraph",
+        {
+            "orbit": list(observed_access_trace),
+            "mu": 0,
+            "lam": len(observed_access_trace),
+        },
+        1,
+        "GROUND",
+    )
+    observed_proposal = registry.propose(
+        memory_id,
+        observed_law,
+        {coordinate: observed_law.navigate(coordinate) for coordinate in range(8)},
+        domain="page-access-trace",
+        context=component_context,
+    )
+    registry.admit(observed_proposal.proposal_id, expected_revision=1)
+
+    pool = PredictiveCandidatePoolBuilder(registry).build_one_factor(
+        address,
+        max_candidates=4,
+    )
+    assert len(pool.candidates) == 2
+    assert pool.discovered_candidate_count == 2
+    assert pool.candidates[0].candidate_id == "baseline"
+
+    experiment = predictive_experiment_digest(address)
+    observer_contract = ObserverContract(
+        observer_id="independent-page-access-observer",
+        revision=1,
+        subject=state_schema,
+        interpretation=computational_ground,
+        observation=ObservationContract.from_definition(
+            "mailcpu.page-cache-access-observation",
+            1,
+            {"meaning": "observed requested page index at scheduler tick"},
+        ),
+        context_digest=experiment,
+    )
+    observations = []
+    for offset, requested_page in enumerate(observed_access_trace):
+        tick = base_ground.coordinate + offset
+        observed_state = {
+            "cache": {"requested_page": requested_page},
+            "scheduler": {"tick": 0},
+        }
+        receipt = ObserverReceipt.issue(
+            observer_contract,
+            operation_id=f"page-access-{offset}",
+            input_digest=canonical_value_digest({"scheduler_tick": tick}),
+            projection_value=observed_state,
+            time_frame=TemporalFrame(
+                actor_id=observer_contract.observer_id,
+                scheduler=SchedulerReading("cache-scheduler", tick),
+            ),
+            subject_state_before_digest=canonical_value_digest(template),
+            subject_state_after_digest=canonical_value_digest(observed_state),
+        )
+        observations.append(
+            PredictiveGroundObservation.capture(
+                address,
+                observed_state,
+                observer_contract,
+                receipt,
+            )
+        )
+
+    report = PredictiveDescriptionSelector(registry).evaluate_pool(
+        pool,
+        tuple(observations),
+        development_through_tick=base_ground.coordinate + 3,
+        validation_through_tick=base_ground.coordinate + 7,
+    )
+    selected = next(
+        candidate for candidate in pool.candidates
+        if candidate.candidate_id == report.selected_candidate_id
+    )
+    selected_evaluation = next(
+        item for item in report.evaluations
+        if item.candidate_id == selected.candidate_id
+    )
+    baseline_evaluation = next(
+        item for item in report.evaluations
+        if item.candidate_id == "baseline"
+    )
+
+    assert selected.candidate_id != "baseline"
+    assert selected_evaluation.partition("validation").predictive_yield == 1.0
+    assert selected_evaluation.partition("test").predictive_yield == 1.0
+    assert baseline_evaluation.partition("validation").predictive_yield < 1.0
+    assert baseline_evaluation.partition("test").predictive_yield < 1.0
+    assert report.recommendation_authoritative is False
+    assert report.identity_payload()["candidate_pool"]["pool_digest"] == pool.digest
     assert report.to_dict()["report_digest"] == report.digest
 
 
