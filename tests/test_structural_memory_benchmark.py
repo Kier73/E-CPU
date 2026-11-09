@@ -13,13 +13,15 @@ def test_benchmark_compares_equal_bytes_and_exposes_cold_journal_costs():
     assert report["materialized"]["logical_bytes"] == 256
 
     direct = report["direct_file_provider"]
-    assert direct["cold_range_journal"]["events"] == 256
+    assert direct["cold_range_journal"]["events"] == 1
+    assert direct["cold_coordinate_commitment_count"] == 256
     assert direct["hot_range_journal"]["events"] == 0
     assert direct["cold_receipt_coordinates"] == 256
     assert direct["hot_receipt_cache_hits"] == 256
 
     demand = report["vm_demand_page"]
-    assert demand["cold_fault_journal"]["events"] == 256
+    assert demand["cold_fault_journal"]["events"] == 1
+    assert demand["cold_coordinate_commitment_count"] == 256
     assert demand["hot_read_journal"]["events"] == 0
     assert demand["page_backing_descriptor_bytes"] > 0
     assert demand["generator_spec_certificate_reference_bytes"] > 0
