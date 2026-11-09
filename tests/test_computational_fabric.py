@@ -2729,6 +2729,7 @@ def test_compiled_dataflow_frontiers_execute_on_distinct_fabric_hosts_with_egpu(
     """One compiled algorithm sends an independent ADD frontier to E-GPU at C, then a dependent ADD to CPU at B."""
     import hashlib
     from mailcpu.law_certifier import Law
+    from mailcpu.virtual_layer import VirtualStructuralMemoryRef
 
     from mailcpu import (
         ComputationalFabricForwardingClient,
