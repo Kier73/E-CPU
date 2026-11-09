@@ -1586,7 +1586,7 @@ class StructuralMemoryRegistry:
         values: Sequence[int],
         value_receipt_ids: Sequence[str],
     ) -> StructuralMemoryRangeReadReceipt:
-        """Commit an ordered value interval and its per-coordinate receipt identities without persisting one journal record per value."""
+        """Mathematics: commit ordered values and per-coordinate receipt identities as one range digest without one journal record per value."""
         value_range_digest = _digest({
             "type": "integer-range",
             "coordinate_start": coordinate_start,
