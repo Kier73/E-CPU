@@ -3455,8 +3455,8 @@ def test_contextual_orbit_inverse_navigation_composes_into_egpu_dataflow_over_mu
         # Compose the actual A→B→C inverse receipt into two dependent remote ADD frontiers.
         predecessor = ContextualOrbitDataflowInput(request, receipt, field="coordinate")
         dataflow_program = assemble(
-            "add partial located_coordinate 5\n"
-            "add answer partial located_coordinate\n"
+            "set five 5\n"
+            "add partial located_coordinate five\n"
             "halt"
         )
         plan = MailCPUDataflowCompiler().compile_program(
