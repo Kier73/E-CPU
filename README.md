@@ -317,3 +317,18 @@ requires explicit compatibility approval for a changed execution backend
 or VGI implementation. The current transfer format embeds bounded state
 bytes in base64 JSON rather than streaming them. See
 [VGI_PERSISTENT_SESSIONS_AND_TRANSIT.md](docs/VGI_PERSISTENT_SESSIONS_AND_TRANSIT.md).
+
+
+## Operation-native computation and timing
+
+E-CPU can compile the bounded straight-line MailCPU subset into register-definition DAGs and dispatch ready ADD, COMPARE, and MUL frontiers through the existing Virtual Layer and authenticated computational fabric. The portable operation contract is separate from its receiver-local CPU or E-GPU realization; typed receipts and predecessor lineage remain attached to the DAG.
+
+Start with [PROGRAM_DATAFLOW_COMPILATION.md](docs/PROGRAM_DATAFLOW_COMPILATION.md) for the assembly-to-DAG contract, [OPERATION_NATIVE_COMPUTATIONAL_FABRIC.md](docs/OPERATION_NATIVE_COMPUTATIONAL_FABRIC.md) for routing and receiver execution, and [CONTEXTUAL_ORBIT_FABRIC.md](docs/CONTEXTUAL_ORBIT_FABRIC.md) for state-space inverse navigation and typed predecessor evidence.
+
+To compare local CPU, remote CPU and remote E-GPU placement with separate measurements for transport, receiver admission, provenance validation, backend execution, origin verification and total completion, run:
+
+```sh
+python examples/operation_frontier_benchmark.py --warmups 1 --iterations 5 --lanes 64 --multiplier-bits 2048 --output operation-frontier-timing.json
+```
+
+The benchmark uses a one-hop mutual-TLS loopback route and requires OpenSSL to create ephemeral test certificates. It checks each placement against the MailCPU reference interpreter. Its timings are endpoint-local observations, not a WAN latency or physical GPU speedup claim. [OPERATION_FRONTIER_TIMING.md](docs/OPERATION_FRONTIER_TIMING.md) explains the measurement phases, nested intervals, clock-domain rules and interpretation boundaries.
