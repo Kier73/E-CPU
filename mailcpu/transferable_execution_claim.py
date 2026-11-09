@@ -323,13 +323,16 @@ class TransferableExecutionClaim:
         ):
             raise TransferableExecutionClaimError("transferable execution claim fields or schema are invalid")
         try:
+            operator_spec = OperatorSpec.from_dict(payload["operator_spec"])
+            if operator_spec.to_dict() != dict(payload["operator_spec"]):
+                raise TransferableExecutionClaimError("claim OperatorSpec is not in its exact canonical field form")
             claim = cls(
                 parent_request_digest=payload["parent_request_digest"],
                 child_request_digest=payload["child_request_digest"],
                 address_digest=payload["address_digest"],
                 operator_id=payload["operator_id"],
                 operator_contract_digest=payload["operator_contract_digest"],
-                operator_spec=OperatorSpec.from_dict(payload["operator_spec"]),
+                operator_spec=operator_spec,
                 computational_ground_fingerprint=payload["computational_ground_fingerprint"],
                 replay_policy=payload["replay_policy"],
                 assignments=tuple(ExecutionClaimAssignment.from_dict(item) for item in payload["assignments"]),
@@ -450,7 +453,7 @@ class PortableExecutionClaimBundle:
         state_claims = payload["state_snapshot"].get("claims")
         if not isinstance(state_claims, list) or len(state_claims) > _MAX_CLAIMS:
             raise TransferableExecutionClaimError("portable claim bundle exceeds the finite claim-count bound")
-        state_bytes = _canonical_json(payload["state_snapshot"]) + b"\\n"
+        state_bytes = _canonical_json(payload["state_snapshot"]) + b"\n"
         if len(state_bytes) > _MAX_STATE_BYTES:
             raise TransferableExecutionClaimError("portable claim bundle exceeds the finite state-byte bound")
         projection = {key: payload[key] for key in (
@@ -489,23 +492,23 @@ class PortableExecutionClaimBundle:
         parent_request_digest: str,
         child_request_digest: str,
         address_digest: str,
-        operator_id: str,
-        operator_contract_digest: str,
+        operator_spec: OperatorSpec,
         computational_ground_fingerprint: str,
         owner_peer_id: str,
         owner_host_id: str,
         implementation_fingerprint: str,
     ) -> None:
-        """Mathematics: Verify current quorum ownership and exact semantic/address/implementation target binding."""
+        """Mathematics: Verify current quorum ownership and the exact typed semantic/address/implementation target binding."""
         self.verify_current(coordinator)
+        if not isinstance(operator_spec, OperatorSpec) or not operator_spec.replay_safe:
+            raise TransferableExecutionClaimError("target must provide a typed deterministic pure OperatorSpec")
         claim = self.claim
         assignment = claim.current_assignment
         expected = (
             (claim.parent_request_digest, _digest(parent_request_digest, "parent request digest")),
             (claim.child_request_digest, _digest(child_request_digest, "child request digest")),
             (claim.address_digest, _digest(address_digest, "ComputationalAddress digest")),
-            (claim.operator_id, _label(operator_id, "operator id", 256)),
-            (claim.operator_contract_digest, _digest(operator_contract_digest, "operator contract digest")),
+            (claim.operator_spec.to_dict(), operator_spec.to_dict()),
             (claim.computational_ground_fingerprint, _digest(computational_ground_fingerprint, "Computational Ground fingerprint")),
             (assignment.owner_peer_id, _label(owner_peer_id, "target peer id", 128)),
             (assignment.owner_host_id, _label(owner_host_id, "target host id", 128)),
