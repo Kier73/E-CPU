@@ -1,7 +1,7 @@
 """Operation-native execution of compiled MailCPU dataflow frontiers over the E-CPU fabric.
 
 The compiler's dependency DAG remains independent of the communication topology.
-This module binds one ready ADD frontier to one semantic vector-add request,
+This module binds one ready binary frontier to one semantic vector-add request,
 dispatches that request through the existing Computational Fabric, and maps
 its typed result lanes back to the original DAG node identities.
 """
@@ -189,11 +189,11 @@ class DataflowAddFrontierRequest:
             raise OperationNativeDataflowError("frontier_index must be a non-negative strict integer")
         lanes = tuple(self.lanes)
         if not lanes or len(lanes) > _MAX_BINARY_LANES or any(not isinstance(item, DataflowAddLane) for item in lanes):
-            raise OperationNativeDataflowError(f"ADD frontier request requires 1..{_MAX_BINARY_LANES} typed lanes")
+            raise OperationNativeDataflowError(f"binary frontier request requires 1..{_MAX_BINARY_LANES} typed lanes")
         if lanes != tuple(sorted(lanes, key=lambda item: item.node_id)):
-            raise OperationNativeDataflowError("ADD frontier lanes must be sorted by stable node identity")
+            raise OperationNativeDataflowError("binary frontier lanes must be sorted by stable node identity")
         if len({item.node_id for item in lanes}) != len(lanes):
-            raise OperationNativeDataflowError("ADD frontier node identities must be unique")
+            raise OperationNativeDataflowError("binary frontier node identities must be unique")
         object.__setattr__(self, "lanes", lanes)
 
     @property
@@ -426,7 +426,7 @@ class OperationNativeDataflowReport:
         if any(not isinstance(item, DataflowAddFrontierReceipt) for item in receipts):
             raise OperationNativeDataflowError("frontier_receipts must contain typed receipts")
         if len({item.request_digest for item in receipts}) != len(receipts):
-            raise OperationNativeDataflowError("one execution cannot repeat an ADD frontier request identity")
+            raise OperationNativeDataflowError("one execution cannot repeat an binary frontier request identity")
         object.__setattr__(self, "frontier_receipts", receipts)
 
     def _payload(self) -> dict[str, Any]:
@@ -550,7 +550,7 @@ def _materialize_frontier_operands(
 ) -> tuple[list[int], list[int], int]:
     """Mathematics: realize aligned lane operands from inline literals or receiver-authorized Structural Memory bindings."""
     if not isinstance(value, Mapping):
-        raise OperationNativeDataflowError("ADD frontier input must be an object")
+        raise OperationNativeDataflowError("binary frontier input must be an object")
     if set(value) == {"input", "structural_memory"}:
         raw = value["input"]
         memory = value["structural_memory"]
@@ -558,34 +558,34 @@ def _materialize_frontier_operands(
         raw = value
         memory = {}
     if not isinstance(raw, Mapping) or set(raw) != {"lanes", "max_steps"}:
-        raise OperationNativeDataflowError("ADD frontier input fields are invalid")
+        raise OperationNativeDataflowError("binary frontier input fields are invalid")
     if not isinstance(memory, Mapping):
         raise OperationNativeDataflowError("resolved Structural Memory input must be an object")
     lanes = raw["lanes"]
     if not isinstance(lanes, (list, tuple)) or not 1 <= len(lanes) <= _MAX_BINARY_LANES:
-        raise OperationNativeDataflowError(f"ADD frontier must contain 1..{_MAX_BINARY_LANES} lanes")
+        raise OperationNativeDataflowError(f"binary frontier must contain 1..{_MAX_BINARY_LANES} lanes")
     max_steps = raw["max_steps"]
     if type(max_steps) is not int or not 1 <= max_steps <= 10_000:
-        raise OperationNativeDataflowError("ADD frontier max_steps is outside its bounded profile")
+        raise OperationNativeDataflowError("binary frontier max_steps is outside its bounded profile")
 
     left_values: list[int] = []
     right_values: list[int] = []
     used_memory_bindings: set[str] = set()
     for index, lane in enumerate(lanes):
         if not isinstance(lane, Mapping) or set(lane) != {"node_id", "left", "right"}:
-            raise OperationNativeDataflowError(f"ADD frontier lane {index} has invalid fields")
+            raise OperationNativeDataflowError(f"binary frontier lane {index} has invalid fields")
         if not isinstance(lane["node_id"], str) or _NODE_ID.fullmatch(lane["node_id"]) is None:
-            raise OperationNativeDataflowError(f"ADD frontier lane {index} has an invalid node identity")
+            raise OperationNativeDataflowError(f"binary frontier lane {index} has an invalid node identity")
         for side in ("left", "right"):
             operand = lane[side]
             if not isinstance(operand, Mapping):
-                raise OperationNativeDataflowError(f"ADD frontier lane {index} {side} operand must be typed")
+                raise OperationNativeDataflowError(f"binary frontier lane {index} {side} operand must be typed")
             if set(operand) == {"kind", "value"} and operand["kind"] == "inline":
                 resolved = _bounded_binary_integer(operand["value"], f"lane {index} {side} value")
             elif set(operand) == {"kind", "binding"} and operand["kind"] == "structural_memory":
                 binding = operand["binding"]
                 if not isinstance(binding, str) or not binding:
-                    raise OperationNativeDataflowError(f"ADD frontier lane {index} {side} memory binding is invalid")
+                    raise OperationNativeDataflowError(f"binary frontier lane {index} {side} memory binding is invalid")
                 used_memory_bindings.add(binding)
                 entry = memory.get(binding)
                 if not isinstance(entry, Mapping) or set(entry) != {"value", "receipt"}:
@@ -605,7 +605,7 @@ def _materialize_frontier_operands(
                     or len(raw_inputs) > _MAX_CONTEXTUAL_ORBIT_INPUTS
                 ):
                     raise OperationNativeDataflowError(
-                        f"ADD frontier lane {index} {side} contextual-orbit provenance is empty, malformed, or exceeds {_MAX_CONTEXTUAL_ORBIT_INPUTS} inputs"
+                        f"binary frontier lane {index} {side} contextual-orbit provenance is empty, malformed, or exceeds {_MAX_CONTEXTUAL_ORBIT_INPUTS} inputs"
                     )
                 try:
                     predecessors = tuple(
@@ -614,14 +614,14 @@ def _materialize_frontier_operands(
                         if isinstance(item, Mapping)
                     )
                 except (TypeError, ValueError, KeyError) as exc:
-                    raise OperationNativeDataflowError(f"ADD frontier lane {index} {side} contextual-orbit evidence failed verification: {exc}") from exc
+                    raise OperationNativeDataflowError(f"binary frontier lane {index} {side} contextual-orbit evidence failed verification: {exc}") from exc
                 if len(predecessors) != len(raw_inputs) or predecessors != tuple(sorted(predecessors, key=lambda item: item.digest)):
-                    raise OperationNativeDataflowError(f"ADD frontier lane {index} {side} contextual-orbit provenance ordering or shape is invalid")
+                    raise OperationNativeDataflowError(f"binary frontier lane {index} {side} contextual-orbit provenance ordering or shape is invalid")
                 if len({item.digest for item in predecessors}) != len(predecessors):
-                    raise OperationNativeDataflowError(f"ADD frontier lane {index} {side} contextual-orbit provenance is duplicated")
+                    raise OperationNativeDataflowError(f"binary frontier lane {index} {side} contextual-orbit provenance is duplicated")
                 resolved = _bounded_binary_integer(operand["value"], f"contextual-orbit-derived value lane {index} {side}")
             else:
-                raise OperationNativeDataflowError(f"ADD frontier lane {index} {side} operand descriptor is unsupported")
+                raise OperationNativeDataflowError(f"binary frontier lane {index} {side} operand descriptor is unsupported")
             (left_values if side == "left" else right_values).append(resolved)
     if used_memory_bindings != set(memory):
         raise OperationNativeDataflowError("resolved Structural Memory bindings differ from the lane operand descriptors")
@@ -1499,7 +1499,7 @@ class ComputationalFabricDataflowBinaryDispatcher:
 
 
 class ComputationalFabricDataflowAddDispatcher(ComputationalFabricDataflowBinaryDispatcher):
-    """Dispatch strict integer ADD frontiers through the shared binary-operation fabric adapter."""
+    """Dispatch strict integer binary frontiers through the shared binary-operation fabric adapter."""
 
     def __init__(self, **kwargs: Any) -> None:
         """Mathematics: bind the existing ADD@3 contract to the shared binary dispatcher."""
