@@ -423,8 +423,13 @@ class OperationNativeDataflowReport:
         if not isinstance(self.execution, DataflowExecutionReport):
             raise OperationNativeDataflowError("execution must be a DataflowExecutionReport")
         receipts = tuple(self.frontier_receipts)
-        if any(not isinstance(item, DataflowAddFrontierReceipt) for item in receipts):
-            raise OperationNativeDataflowError("frontier_receipts must contain typed receipts")
+        from .partitioned_dataflow import BinaryFrontierCompositeReceipt
+        if any(
+            not isinstance(item, DataflowAddFrontierReceipt)
+            and not isinstance(item, BinaryFrontierCompositeReceipt)
+            for item in receipts
+        ):
+            raise OperationNativeDataflowError("frontier_receipts must contain typed single-host or composite receipts")
         if len({item.request_digest for item in receipts}) != len(receipts):
             raise OperationNativeDataflowError("one execution cannot repeat an binary frontier request identity")
         object.__setattr__(self, "frontier_receipts", receipts)
@@ -850,8 +855,15 @@ def _execute_dataflow_operation_native_impl(
                 lanes=tuple(sorted(lanes, key=lambda item: item.node_id)),
             )
             receipt = operation_dispatcher(request)
-            if type(receipt) is not receipt_type:
-                raise OperationNativeDataflowError(f"dispatcher did not return the exact typed {operation} frontier receipt")
+            from .partitioned_dataflow import BinaryFrontierCompositeReceipt
+            is_composite = (
+                isinstance(receipt, BinaryFrontierCompositeReceipt)
+                and receipt.operation == operation
+            )
+            if type(receipt) is not receipt_type and not is_composite:
+                raise OperationNativeDataflowError(
+                    f"dispatcher did not return the exact typed {operation} frontier receipt or its verified composite parent receipt"
+                )
             if receipt.request_digest != request.digest:
                 raise OperationNativeDataflowError("remote receipt belongs to a different frontier request")
             expected_ids = tuple(item.node_id for item in request.lanes)
@@ -892,6 +904,7 @@ def _execute_dataflow_operation_native_impl(
                 resolved_initial_registers[source_register] = memory_receipt.value
 
             def verify_lane(lane: DataflowBinaryLane) -> None:
+                """Mathematics: evaluate the exact lane operation after resolving only its pinned receiver-side operands."""
                 # The independent scalar oracle consumes receiver-resolved values
                 # only after checking their exact pinned memory identities.
                 left_value = lane.left
@@ -1091,6 +1104,7 @@ def make_egpu_dataflow_multiply_handler(
                     },
                 )
         def verify_result() -> list[int]:
+            """Mathematics: compare every E-GPU output lane with an independent bounded integer multiplication oracle."""
             raw_values = result["result"]["outputs"]["result"]
             if not isinstance(raw_values, list) or len(raw_values) != len(left):
                 raise OperationNativeDataflowError("E-GPU MUL returned a result vector outside the shared lane shape")
@@ -1394,14 +1408,18 @@ class ComputationalFabricDataflowBinaryDispatcher:
         self.eligible_nodes_by_frontier = eligible_nodes_by_frontier
         self.origin_channel = origin_channel
         self.first_sequence = first_sequence
+        self.frontier_sequence_stride = 1
         self.logical_time = logical_time
         self.max_hops = max_hops
         self.metric_order = metrics
         self.max_steps = max_steps
         self.timing_probe = timing_probe
 
-    def __call__(self, request: DataflowAddFrontierRequest | DataflowCompareFrontierRequest | DataflowMultiplyFrontierRequest) -> DataflowAddFrontierReceipt | DataflowCompareFrontierReceipt | DataflowMultiplyFrontierReceipt:
-        from .computational_fabric import ComputationalFabricStatus
+    def address_for(
+        self,
+        request: DataflowAddFrontierRequest | DataflowCompareFrontierRequest | DataflowMultiplyFrontierRequest,
+    ) -> ComputationalAddress:
+        """Build the exact child ComputationalAddress without dispatching or admitting work."""
         from .virtual_layer import VirtualOperatorRef
 
         expected_request_type = {
@@ -1439,7 +1457,10 @@ class ComputationalFabricDataflowBinaryDispatcher:
                             "inputs": [item.to_dict() for item in orbit_inputs],
                         }
                     else:
-                        wire_lane[side] = {"kind": "inline", "value": _bounded_binary_integer(operand_value, f"{lane.node_id} {side} operand")}
+                        wire_lane[side] = {
+                            "kind": "inline",
+                            "value": _bounded_binary_integer(operand_value, f"{lane.node_id} {side} operand"),
+                        }
             wire_lanes.append(wire_lane)
         input_value = {"lanes": wire_lanes, "max_steps": self.max_steps}
         operator_reference = VirtualOperatorRef(
@@ -1470,7 +1491,7 @@ class ComputationalFabricDataflowBinaryDispatcher:
             max_hops=self.max_hops,
             schema_version=2 if structural_references else 1,
         )
-        address = ComputationalAddress.from_workload(
+        return ComputationalAddress.from_workload(
             workload,
             self.operator_spec.operator_id,
             self.operator_spec,
@@ -1478,27 +1499,90 @@ class ComputationalFabricDataflowBinaryDispatcher:
             program_fingerprint=None,
             metric_order=self.metric_order,
         )
+
+    def prepare_routes(
+        self,
+        request: DataflowAddFrontierRequest | DataflowCompareFrontierRequest | DataflowMultiplyFrontierRequest,
+        *,
+        max_candidates: int = 128,
+    ) -> tuple[ComputationalAddress, Any]:
+        """Return one exact child address and a bounded, non-authoritative set of feasible remote routes."""
+        from .computational_fabric import ComputationalFabricResolver
+
+        if type(max_candidates) is not int or not 1 <= max_candidates <= 128:
+            raise OperationNativeDataflowError("max_candidates must be in the range 1..128")
+        address = self.address_for(request)
+        resolver = ComputationalFabricResolver()
         if self.timing_probe is None:
-            planned = ComputationalFabricResolver().resolve(
+            placements = resolver.resolve_candidates(
                 address,
                 self.directory,
                 origin_peer_id=self.origin_peer_id,
                 max_hops=self.max_hops,
+                max_candidates=max_candidates,
             )
         else:
             with self.timing_probe.measure("fabric_route_resolution", correlation_id=request.digest):
+                placements = resolver.resolve_candidates(
+                    address,
+                    self.directory,
+                    origin_peer_id=self.origin_peer_id,
+                    max_hops=self.max_hops,
+                    max_candidates=max_candidates,
+                )
+        return address, placements
+
+    def __call__(
+        self,
+        request: DataflowAddFrontierRequest | DataflowCompareFrontierRequest | DataflowMultiplyFrontierRequest,
+        *,
+        route_witness: Any | None = None,
+        origin_sequence: int | None = None,
+    ) -> DataflowAddFrontierReceipt | DataflowCompareFrontierReceipt | DataflowMultiplyFrontierReceipt:
+        from .computational_fabric import ComputationalFabricStatus
+        from .virtual_layer import VirtualOperatorRef
+
+        address = self.address_for(request)
+        if route_witness is None:
+            if self.timing_probe is None:
                 planned = ComputationalFabricResolver().resolve(
                     address,
                     self.directory,
                     origin_peer_id=self.origin_peer_id,
                     max_hops=self.max_hops,
                 )
-        if planned.status is not ComputationalFabricStatus.FOUND or planned.witness is None:
-            details = "; ".join(item.detail for item in planned.blockers[:4])
-            raise OperationNativeDataflowError(
-                f"fabric could not resolve {self.operation} frontier to an eligible host: {planned.status.value}: {details}"
-            )
-        route = planned.witness
+            else:
+                with self.timing_probe.measure("fabric_route_resolution", correlation_id=request.digest):
+                    planned = ComputationalFabricResolver().resolve(
+                        address,
+                        self.directory,
+                        origin_peer_id=self.origin_peer_id,
+                        max_hops=self.max_hops,
+                    )
+            if planned.status is not ComputationalFabricStatus.FOUND or planned.witness is None:
+                details = "; ".join(item.detail for item in planned.blockers[:4])
+                raise OperationNativeDataflowError(
+                    f"fabric could not resolve {self.operation} frontier to an eligible host: {planned.status.value}: {details}"
+                )
+            route = planned.witness
+        else:
+            from .computational_fabric import ComputationalFabricRouteWitness
+
+            if not isinstance(route_witness, ComputationalFabricRouteWitness):
+                raise OperationNativeDataflowError("preplanned route must be a typed ComputationalFabricRouteWitness")
+            _selected_address, placements = self.prepare_routes(request, max_candidates=128)
+            matching = tuple(item for item in placements.candidates if item.digest == route_witness.digest)
+            if not matching or route_witness.address_digest != address.digest:
+                raise OperationNativeDataflowError(
+                    "preplanned child route is no longer an exact candidate for the current authenticated directory/topology view"
+                )
+            route = matching[0]
+        if origin_sequence is None:
+            selected_origin_sequence = self.first_sequence + request.frontier_index * self.frontier_sequence_stride
+        else:
+            if type(origin_sequence) is not int or origin_sequence < 1:
+                raise OperationNativeDataflowError("origin_sequence override must be a positive strict integer")
+            selected_origin_sequence = origin_sequence
         if len(route.peer_path) < 2:
             raise OperationNativeDataflowError("operation-native dispatcher expected a remote host, not local execution")
         if route.target_host.implementation_fingerprint is None:
@@ -1512,7 +1596,7 @@ class ComputationalFabricDataflowBinaryDispatcher:
             address,
             route,
             origin_channel=self.origin_channel,
-            origin_sequence=self.first_sequence + request.frontier_index,
+            origin_sequence=selected_origin_sequence,
         )
         if self.timing_probe is None:
             hop_receipt = client.forward(envelope, self.directory)

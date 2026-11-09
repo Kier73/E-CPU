@@ -258,12 +258,13 @@ This bounded binary-operation profile does not yet:
 
 - compile arbitrary opaque bytes or programs outside the pure straight-line MailCPU subset;
 - distribute branches, loops, side effects, syscalls or stateful sessions as independent operation requests;
-- split one frontier across multiple target hosts;
+- split arbitrary effects, stateful sessions or non-binary operation families across target hosts;
 - pipeline intermediate results directly from one terminal host to the next without returning through the origin coordinator;
-- execute concurrently merely because the DAG contains independent nodes;
 - resolve symbolic Structural Memory for operation families outside the supported ADD, COMPARE and MUL binary frontiers;
 - choose a host by an empirically trained adaptive cost model; target eligibility is declared by the caller in the current experiment;
 - perform computation inside passive network links; or
 - demonstrate physical GPU acceleration or lower end-to-end latency.
 
-The next research step is to benchmark this same operation graph under local, remote CPU, remote E-GPU, and fused/partitioned placements. Then extend the same typed binary-operation contract to additional pure operation families, partition wide frontiers across multiple hosts, and support content-addressed result movement without weakening exact revision and certificate binding.
+Homogeneous ADD, COMPARE and MUL frontiers can now be partitioned into independently addressed child requests and dispatched to distinct authenticated hosts through the existing forwarding path. Each child is re-resolved before dispatch and admitted locally by the receiving Hypervisor / Virtual Layer. The origin collects typed child receipts into a composite parent receipt, independently verifies every original lane, and commits the original DAG frontier atomically. Bounded concurrency is applied across independent authenticated first-hop streams; a single reliable stream remains serialized. Recovery preserves verified child receipts and replays only missing children to their same route/sequence. It deliberately refuses alternate-host reassignment after an ambiguous outcome because receiver-local deduplication cannot prove that another host will not repeat an already-completed semantic effect.
+
+See [BINARY_FRONTIER_PARTITIONING.md](BINARY_FRONTIER_PARTITIONING.md) for the stable split, and [PARTITIONED_BINARY_FRONTIER_EXECUTION.md](PARTITIONED_BINARY_FRONTIER_EXECUTION.md) for child dispatch, receipt composition, checkpoints, sequence discipline and current recovery limits. The next research step is transferable idempotency/effect claims for safe child rehoming after host loss, followed by broader heterogeneous resource providers and correctness-checked local/remote/fused placement benchmarks.
