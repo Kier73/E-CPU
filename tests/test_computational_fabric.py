@@ -3124,6 +3124,7 @@ def test_contextual_orbit_inverse_navigation_composes_compare_and_add_over_multi
         ComputationalFabricForwardingServer,
         ContextualOrbitDataflowInput,
         EGPUHost,
+        OperationTimingProbe,
         RepresentationRef,
         assemble,
     )
@@ -3286,6 +3287,10 @@ def test_contextual_orbit_inverse_navigation_composes_compare_and_add_over_multi
     multiply_inputs = []
     egpu = EGPUHost(host_id="egpu.peer-c")
     egpu_registry = OperatorRegistry()
+    origin_timing = OperationTimingProbe("peer-a/origin")
+    relay_timing = OperationTimingProbe("peer-b/relay")
+    receiver_network_timing = OperationTimingProbe("peer-c/network")
+    receiver_runtime_timing = OperationTimingProbe("peer-c/egpu")
 
     def egpu_add(value, workload):
         add_inputs.append(value)
@@ -3297,12 +3302,17 @@ def test_contextual_orbit_inverse_navigation_composes_compare_and_add_over_multi
 
     def egpu_multiply(value, workload):
         multiply_inputs.append(value)
-        return make_egpu_dataflow_multiply_handler(egpu)(value, workload)
+        return make_egpu_dataflow_multiply_handler(egpu, timing_probe=receiver_runtime_timing)(value, workload)
 
     egpu_registry.register(add_operator_spec, egpu_add)
     egpu_registry.register(compare_operator_spec, egpu_compare)
     egpu_registry.register(multiply_operator_spec, egpu_multiply)
-    runtime_gpu_c = VirtualLayerRuntime(egpu_registry, "node-c", frozenset({"gpu"}))
+    runtime_gpu_c = VirtualLayerRuntime(
+        egpu_registry,
+        "node-c",
+        frozenset({"gpu"}),
+        timing_probe=receiver_runtime_timing,
+    )
     runtime_c = VirtualLayerRuntime(registry_c, "node-c", frozenset({"cpu"}))
     implementation_fingerprint = "d" * 64
     add_implementation_fingerprint = "e" * 64
@@ -3401,6 +3411,7 @@ def test_contextual_orbit_inverse_navigation_composes_compare_and_add_over_multi
                 origin_channel=origin_channel,
                 catalogue=catalogue_c,
                 timeout=5.0,
+                timing_probe=receiver_network_timing,
             )
         except BaseException as exc:
             failures.append(exc)
@@ -3419,6 +3430,7 @@ def test_contextual_orbit_inverse_navigation_composes_compare_and_add_over_multi
                 origin_channel=origin_channel,
                 next_hop_clients={"peer-c": client_bc},
                 timeout=5.0,
+                timing_probe=relay_timing,
             )
         except BaseException as exc:
             failures.append(exc)
@@ -3448,6 +3460,7 @@ def test_contextual_orbit_inverse_navigation_composes_compare_and_add_over_multi
             origin_peer_id="peer-a",
             origin_channel=origin_channel,
             timeout=5.0,
+            timing_probe=relay_timing,
         )
         thread_c_accept.join(timeout=5.0)
         assert not thread_c_accept.is_alive()
@@ -3463,6 +3476,7 @@ def test_contextual_orbit_inverse_navigation_composes_compare_and_add_over_multi
             origin_peer_id="peer-a",
             origin_channel=origin_channel,
             timeout=5.0,
+            timing_probe=origin_timing,
         )
         thread_b_accept.join(timeout=5.0)
         assert not thread_b_accept.is_alive()
@@ -3526,6 +3540,7 @@ def test_contextual_orbit_inverse_navigation_composes_compare_and_add_over_multi
             logical_time=50,
             max_hops=2,
             metric_order=METRICS,
+            timing_probe=origin_timing,
         )
         compare_dispatcher = ComputationalFabricDataflowCompareDispatcher(
             origin_peer_id="peer-a",
@@ -3542,6 +3557,7 @@ def test_contextual_orbit_inverse_navigation_composes_compare_and_add_over_multi
             logical_time=51,
             max_hops=2,
             metric_order=METRICS,
+            timing_probe=origin_timing,
         )
         multiply_dispatcher = ComputationalFabricDataflowMultiplyDispatcher(
             origin_peer_id="peer-a",
@@ -3558,6 +3574,7 @@ def test_contextual_orbit_inverse_navigation_composes_compare_and_add_over_multi
             logical_time=52,
             max_hops=2,
             metric_order=METRICS,
+            timing_probe=origin_timing,
         )
         dataflow_report = execute_dataflow_operation_native(
             plan,
@@ -3566,7 +3583,46 @@ def test_contextual_orbit_inverse_navigation_composes_compare_and_add_over_multi
                 "COMPARE": compare_dispatcher,
                 "MUL": multiply_dispatcher,
             },
+            timing_probe=origin_timing,
         )
+
+        origin_phases = set(origin_timing.summary())
+        assert {
+            "total_completion",
+            "fabric_route_resolution",
+            "origin_round_trip",
+            "transport_request_send",
+            "transport_response_wait",
+            "transport_request_ack_wait",
+            "origin_verification",
+        } <= origin_phases
+        assert origin_timing.summary()["total_completion"]["count"] == 1
+        assert origin_timing.summary()["origin_round_trip"]["count"] == 3
+        assert origin_timing.summary()["origin_verification"]["count"] == 3
+
+        relay_phases = set(relay_timing.summary())
+        assert {
+            "receiver_peer_admission",
+            "receiver_route_dispatch",
+            "transport_request_send",
+            "transport_response_wait",
+            "transport_request_ack_wait",
+        } <= relay_phases
+        receiver_network_phases = set(receiver_network_timing.summary())
+        assert {
+            "receiver_peer_admission",
+            "receiver_route_dispatch",
+            "receiver_semantic_resolution",
+            "receiver_witness_revalidation",
+            "receiver_host_binding_validation",
+        } <= receiver_network_phases
+        receiver_runtime_phases = set(receiver_runtime_timing.summary())
+        assert {
+            "receiver_admission",
+            "receiver_provenance_validation",
+            "backend_compute",
+            "receiver_backend_verification",
+        } <= receiver_runtime_phases
 
         assert dataflow_report.execution.observation["registers"]["relation"] == 1
         assert dataflow_report.execution.observation["registers"]["product"] == target_coordinate
