@@ -44,7 +44,7 @@ The portable bundle carries:
 
 A receiving Host verifies the snapshot bytes and the quorum proof, then calls `verify_state` against the live coordinator. A well-formed but older bundle is refused as stale. The proof is not a signature detached from the state: it anchors one exact state manifest, and the bundle includes the state bytes needed to verify that anchor.
 
-The claim store serializes local writers with a cross-process lock. The existing fixed-membership quorum serializes distributed state generations and refuses conflicting values at an occupied generation. If a coordinator fails after a minority prepare/commit, retry must preserve the exact same generation payload; a different transition at that occupied slot is not silently substituted.
+The claim store serializes local writers with a cross-process lock. The existing fixed-membership quorum serializes distributed state generations and refuses conflicting values at an occupied generation. If a coordinator fails after writing the next immutable generation or after a minority prepare/commit, `resume_pending()` reloads and validates the exact persisted snapshot/manifest, then retries that same proposal. A different transition at the occupied slot is not silently substituted.
 
 ## Claim lifecycle
 
