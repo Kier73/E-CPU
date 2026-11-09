@@ -305,6 +305,15 @@ class StructuralMemoryFileProvider:
         if registry is not None:
             self.bind_registry(registry)
 
+    @property
+    def cached_coordinate_count(self) -> int:
+        """Mathematics: expose |dom(V_cache)|, the number of already-verified coordinates retained by this provider."""
+        return len(self._value_cache)
+
+    def _discard_value_cache(self) -> None:
+        """Mathematics: set V_cache:=∅ without changing the pinned reference, registry, or any returned receipt."""
+        self._value_cache.clear()
+
     def bind_registry(self, registry: Any) -> None:
         """Mathematics: attach a trusted local registry without changing the serialized reference."""
         if not callable(getattr(registry, "read_revision", None)):
