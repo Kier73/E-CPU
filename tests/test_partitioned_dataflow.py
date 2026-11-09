@@ -42,6 +42,7 @@ TOPOLOGY = "e" * 64
 _IMPLEMENTATIONS = {
     "peer-b": hashlib.sha256(b"partition-peer-b").hexdigest(),
     "peer-c": hashlib.sha256(b"partition-peer-c").hexdigest(),
+    "peer-d": hashlib.sha256(b"partition-peer-d").hexdigest(),
 }
 _METRICS = (
     RouteMetricKey("latency", "ticks"),
@@ -97,7 +98,7 @@ def _address(request: DataflowAddFrontierRequest) -> ComputationalAddress:
         },
         budget=VirtualBudget(100_000, 1_000_000, 100_000),
         logical_time=request.frontier_index,
-        eligible_nodes=("node-peer-b", "node-peer-c"),
+        eligible_nodes=("node-peer-b", "node-peer-c", "node-peer-d"),
         max_hops=8,
     )
     return ComputationalAddress.from_workload(
@@ -138,17 +139,35 @@ def _route(peer_id: str, address: ComputationalAddress) -> ComputationalFabricRo
         max_bytes=1_000_000,
         max_virtual_ticks=100_000,
     )
+    if peer_id == "peer-d":
+        # Route the alternate Host through the same first hop used by the
+        # failed peer-c assignment. Rehome must therefore allocate a fresh
+        # transport sequence for the new claim epoch.
+        peer_path = ("peer-a", "peer-c", "peer-d")
+        endpoints = (
+            ComputationalPeerEndpoint("peer-a", "peer-a.fabric.test", "127.0.0.1", 44001),
+            ComputationalPeerEndpoint("peer-c", "peer-c.fabric.test", "127.0.0.1", 44002),
+            ComputationalPeerEndpoint("peer-d", "peer-d.fabric.test", "127.0.0.1", 44003),
+        )
+        link_ids = (
+            hashlib.sha256(b"link-peer-c-relay").hexdigest(),
+            hashlib.sha256(b"link-peer-d-terminal").hexdigest(),
+        )
+    else:
+        peer_path = ("peer-a", peer_id)
+        endpoints = (
+            ComputationalPeerEndpoint("peer-a", "peer-a.fabric.test", "127.0.0.1", 44001),
+            ComputationalPeerEndpoint(peer_id, f"{peer_id}.fabric.test", "127.0.0.1", 44002),
+        )
+        link_ids = (hashlib.sha256(f"link-{peer_id}".encode()).hexdigest(),)
     return ComputationalFabricRouteWitness(
         address_digest=address.digest,
         directory_digest=DIRECTORY,
         topology_digest=TOPOLOGY,
         origin_peer_id="peer-a",
-        peer_path=("peer-a", peer_id),
-        link_ids=(hashlib.sha256(f"link-{peer_id}".encode()).hexdigest(),),
-        peer_endpoints=(
-            ComputationalPeerEndpoint("peer-a", "peer-a.fabric.test", "127.0.0.1", 44001),
-            ComputationalPeerEndpoint(peer_id, f"{peer_id}.fabric.test", "127.0.0.1", 44002),
-        ),
+        peer_path=peer_path,
+        link_ids=link_ids,
+        peer_endpoints=endpoints,
         target_host=advertisement,
         network_costs=network,
         host_costs=host,
@@ -165,7 +184,7 @@ class _FakeAuthenticatedBinaryDispatcher:
     origin_peer_id = "peer-a"
     first_sequence = 100
     frontier_sequence_stride = 1
-    forwarding_clients = {"peer-b": object(), "peer-c": object()}
+    forwarding_clients = {"peer-b": object(), "peer-c": object(), "peer-d": object()}
 
     def __init__(
         self,
@@ -177,7 +196,7 @@ class _FakeAuthenticatedBinaryDispatcher:
         self.execution_claim_store = execution_claim_store
         self.calls: dict[str, int] = {}
         self.semantic_effects: dict[str, int] = {}
-        self.completed: dict[str, DataflowAddFrontierReceipt] = {}
+        self.completed: dict[tuple[str, str, int], DataflowAddFrontierReceipt] = {}
         self._lock = threading.Lock()
         self.active = 0
         self.max_active = 0
@@ -186,7 +205,7 @@ class _FakeAuthenticatedBinaryDispatcher:
     def prepare_routes(self, request: DataflowAddFrontierRequest, *, max_candidates: int = 128):
         address = _address(request)
         routes = tuple(sorted(
-            (_route("peer-b", address), _route("peer-c", address)),
+            (_route("peer-b", address), _route("peer-c", address), _route("peer-d", address)),
             key=lambda item: (
                 tuple(metric.amount for metric in item.total_costs),
                 len(item.link_ids),
@@ -201,8 +220,8 @@ class _FakeAuthenticatedBinaryDispatcher:
             address_digest=address.digest,
             directory_digest=DIRECTORY,
             topology_digest=TOPOLOGY,
-            advertised_host_count=2,
-            eligible_host_count=2,
+            advertised_host_count=3,
+            eligible_host_count=3,
             expanded_states=1,
             candidates=routes[:max_candidates],
             truncated=False,
@@ -251,7 +270,9 @@ class _FakeAuthenticatedBinaryDispatcher:
             self.max_active = max(self.max_active, self.active)
         try:
             time.sleep(0.02)
-            receipt = self.completed.get(key)
+            claim_epoch = 0 if claim_bundle is None else claim_bundle.claim.current_assignment.epoch
+            receipt_key = (key, route_witness.target_host.peer_id, claim_epoch)
+            receipt = self.completed.get(receipt_key)
             if receipt is None:
                 results = tuple(
                     (lane.node_id, lane.left + lane.right)
@@ -277,7 +298,7 @@ class _FakeAuthenticatedBinaryDispatcher:
                         "state_manifest_digest": claim_bundle.manifest.digest,
                     },
                 )
-                self.completed[key] = receipt
+                self.completed[receipt_key] = receipt
                 self.semantic_effects[key] = self.semantic_effects.get(key, 0) + 1
                 if self.ambiguous_node in {lane.node_id for lane in request.lanes}:
                     self.ambiguous_node = None
@@ -309,7 +330,7 @@ def test_partitioned_dispatch_builds_composite_receipt_and_executes_independent_
     assert {child.receipt.peer_id for child in composite.children} == {"peer-b", "peer-c"}
     assert len({child.partition.address.digest for child in composite.children}) == 2
     assert base.max_active == 2
-    assert base.frontier_sequence_stride == 64
+    assert base.frontier_sequence_stride == 256
     assert checkpoints and checkpoints[0].successful_children == ()
     assert checkpoints[-1].complete
 
@@ -573,6 +594,7 @@ def test_claim_bound_partition_recovery_completes_all_children_together_after_am
         partition_count=2,
         max_concurrency=2,
         checkpoint_sink=checkpoints.append,
+        max_rehome_rounds=0,
     )
 
     with pytest.raises(PartitionedFrontierIncomplete) as caught:
@@ -605,3 +627,133 @@ def test_claim_bound_partition_recovery_completes_all_children_together_after_am
     )
     assert replayed.digest == composite.digest
     assert store.high_water == committed_high_water
+
+
+def test_claim_bound_frontier_automatically_rehomes_ambiguous_child_with_one_new_epoch(tmp_path) -> None:
+    """Mathematics: a pure child with a lost response is recomputed on a distinct Host and only the quorum-current epoch completes."""
+    request = _request()
+    store = _claim_store(tmp_path)
+    base = _FakeAuthenticatedBinaryDispatcher(
+        ambiguous_node="pc-000001",
+        execution_claim_store=store,
+    )
+    checkpoints = []
+    dispatcher = PartitionedComputationalFabricDataflowBinaryDispatcher(
+        base,
+        partition_count=2,
+        max_concurrency=2,
+        checkpoint_sink=checkpoints.append,
+        max_rehome_rounds=1,
+    )
+
+    composite = dispatcher.dispatch(request)
+
+    assert isinstance(composite, BinaryFrontierCompositeReceipt)
+    assert len(composite.children) == 2
+    rehomed = [
+        child for child in composite.children
+        if len(child.claim_bundle.claim.assignments) == 2
+    ]
+    assert len(rehomed) == 1
+    child = rehomed[0]
+    history = child.claim_bundle.claim.assignments
+    assert (history[0].owner_peer_id, history[0].owner_host_id) != (
+        history[1].owner_peer_id, history[1].owner_host_id
+    )
+    assert history[1].owner_peer_id == "peer-d"
+    assert history[1].epoch == 2
+    assert history[1].failure_evidence_digest is not None
+    assert child.partition.route_witness.target_host.peer_id == "peer-d"
+    assert child.receipt.peer_id == "peer-d"
+    assert child.receipt.execution_claim["assignment_epoch"] == 2
+    assert child.completion_bundle.claim.current_assignment.epoch == 2
+    attempt_sequences = {
+        sequence
+        for request_digest, _peer_id, sequence in base.sequences
+        if request_digest == child.partition.request.digest
+    }
+    assert len(attempt_sequences) == 2
+    assert max(attempt_sequences) - min(attempt_sequences) == 64
+    assert child.completion_bundle.claim.status.value == "completed"
+    assert child.completion_bundle.claim.child_receipt_digest == child.receipt.digest
+
+    # The old Host may have completed the pure operation before its response
+    # was lost. That physical computation is visible, but its epoch was not
+    # selected as the semantic result accepted by the parent frontier.
+    effects = sorted(base.semantic_effects.values())
+    assert effects == [1, 2]
+    assert len({item.completion_bundle.manifest.digest for item in composite.children}) == 1
+    assert store.high_water[0] == 3  # assignment batch, one rehome batch, one completion batch
+
+    intent_checkpoints = [item for item in checkpoints if item.reassignment_intents]
+    confirmed_checkpoints = [item for item in checkpoints if item.reassignments]
+    assert intent_checkpoints and confirmed_checkpoints
+    restored_intent = type(intent_checkpoints[0]).from_dict(intent_checkpoints[0].to_dict())
+    assert len(restored_intent.reassignment_intents) == 1
+    restored_confirmed = type(confirmed_checkpoints[0]).from_dict(confirmed_checkpoints[-1].to_dict())
+    assert restored_confirmed.reassignments
+    restored_route = next(
+        item for item in restored_confirmed.current_partitions
+        if item.request.digest == child.partition.request.digest
+    )
+    assert restored_route.digest == child.partition.digest
+    assert restored_route.route_witness.target_host.peer_id == "peer-d"
+
+    restored_composite = BinaryFrontierCompositeReceipt.from_dict(composite.to_dict())
+    assert restored_composite.digest == composite.digest
+
+
+def test_claim_bound_frontier_resumes_quorum_committed_rehome_from_persisted_intent(tmp_path) -> None:
+    """Mathematics: a crash after quorum reassignment but before confirmed checkpoint publication replays the exact intent idempotently."""
+    request = _request()
+    store = _claim_store(tmp_path)
+    base = _FakeAuthenticatedBinaryDispatcher(
+        ambiguous_node="pc-000003",
+        execution_claim_store=store,
+    )
+    persisted = []
+    fail_confirmed_once = {"value": True}
+
+    def checkpoint_sink(checkpoint):
+        persisted.append(checkpoint)
+        if checkpoint.reassignments and not checkpoint.reassignment_intents and fail_confirmed_once["value"]:
+            fail_confirmed_once["value"] = False
+            raise RuntimeError("simulated process cut after quorum assignment commit")
+
+    dispatcher = PartitionedComputationalFabricDataflowBinaryDispatcher(
+        base,
+        partition_count=2,
+        max_concurrency=2,
+        checkpoint_sink=checkpoint_sink,
+        max_rehome_rounds=1,
+    )
+    with pytest.raises(PartitionedFrontierIncomplete) as caught:
+        dispatcher.dispatch(request)
+
+    saved_intent = next(item for item in reversed(persisted) if item.reassignment_intents)
+    committed = store.high_water
+    assert saved_intent.reassignment_intents
+    assert committed[0] == 2  # create_many + reassign_many; completion has not run
+
+    resumed_dispatcher = PartitionedComputationalFabricDataflowBinaryDispatcher(
+        base,
+        partition_count=2,
+        max_concurrency=2,
+        checkpoint_sink=persisted.append,
+        max_rehome_rounds=0,
+    )
+    composite = resumed_dispatcher.dispatch(
+        request,
+        checkpoint=type(saved_intent).from_dict(saved_intent.to_dict()),
+    )
+    assert len(composite.children) == 2
+    assert store.high_water[0] == 3
+    assert len({child.completion_bundle.manifest.digest for child in composite.children}) == 1
+    rehomed = [child for child in composite.children if len(child.claim_bundle.claim.assignments) == 2]
+    assert len(rehomed) == 1 and rehomed[0].receipt.peer_id == "peer-d"
+    attempts = {
+        sequence
+        for request_digest, _peer_id, sequence in base.sequences
+        if request_digest == rehomed[0].partition.request.digest
+    }
+    assert len(attempts) == 2 and max(attempts) - min(attempts) == 64

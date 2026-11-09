@@ -51,21 +51,23 @@ The children do not commit DAG nodes independently. A failed or invalid child th
 
 `BinaryFrontierExecutionCheckpoint` binds the exact parent request, exact partition plan and the typed child receipts already validated. The optional checkpoint sink receives the initial plan before any child is sent, then receives updated progress after child groups complete. The checkpoint can be serialized, restored and passed to `dispatch(request, checkpoint=...)`. The checkpoint is a portable orchestration record, not a replacement for the existing fabric recovery bundle: process-crash recovery requires the caller to persist it and restore the corresponding authenticated forwarding-client and receiver execution-ledger state through the existing E-CPU recovery mechanisms. Without a sink, the checkpoint is returned in memory on an incomplete dispatch and can be supplied directly for an in-process resume.
 
-Resume has three rules:
+Resume retains the original semantic child identity, ComputationalAddress and stable origin sequence. When no claim store is configured, it preserves the original same-route replay behavior. When the origin has a TransferableExecutionClaimStore, the dispatcher may also rehome eligible failed children with max_rehome_rounds (default 1, finite range 0..3):
 
-1. A successful child with a retained verified receipt is not dispatched again.
-2. An incomplete child is retried with the same child request, route witness and origin sequence.
-3. The retry is accepted only if the existing live resolver still recognizes that exact route as a candidate.
+1. Only a bounded transport/path-loss failure is eligible. Hypervisor or Virtual Layer semantic refusal, invalid result evidence, a failed scalar oracle, stale claim proof and arbitrary handler errors are not treated as permission to move work.
+2. The origin re-resolves the exact child address against one coherent live directory/topology view. It considers only authenticated remote candidates with pinned implementations, excludes every previously failed Host and all Hosts currently assigned to non-failed siblings, and solves a distinct-host assignment for the entire rehome batch.
+3. A typed reassignment intent is persisted before reassign_many() advances the affected claim epochs. The batch transition commits every new owner in one quorum generation; partial or stale epoch batches are refused. Afterward the origin refreshes all pending child tickets from the new shared root.
+4. The child is retried under its new claim epoch and route, retaining the original semantic request. Each assignment epoch receives a distinct stable origin-sequence slot; replay within the same epoch uses the same slot. Already-verified sibling receipts remain in the checkpoint and are not dispatched again.
+5. Only after every child receipt is validated does the parent call complete_many() once and then publish the original DAG frontier with one atomic commit_frontier().
 
-This reuses the existing forwarding server and receiver execution ledger. If the receiver completed the pure operation but its response was lost, an exact replay can recover the existing semantic effect/receipt rather than enter the backend again. A changed request, changed route, stale topology or invalid checkpoint is refused.
+BinaryFrontierExecutionCheckpoint v2 records confirmed route replacements. Checkpoint v3 also records pending reassignment intents. If the process stops after the intent is durable but before quorum reassignment, after quorum reassignment but before the confirmed route checkpoint, or after completion but before the composite is returned, resume replays the same idempotent transition against the same claim ID/epoch/evidence digest. Route history must continue the exact previous route and adjacent assignment epochs; a changed parent, child, address, Ground, operator or route assignment is refused.
 
-**Ambiguous outcomes are not reassigned to a different host in this increment.** If a receiver may have executed but its response was lost, sending the same semantic child to another host could repeat an effect because the current deduplication authority is receiver-local. This implementation fails closed and retries the original route/sequence; it does not pretend that independent host ledgers already provide a federated exactly-once guarantee. Safe cross-host reassignment requires a shared/transferable effect-claim protocol or a stronger origin-issued idempotency authority and remains future work.
+This is single-winner semantic result acceptance, not exactly-once physical computation. An isolated old Host may finish deterministic pure work after its route is lost; its old epoch cannot complete the claim after quorum reassignment. A replacement Host may therefore recompute the same pure child. Rehome is not available for external side effects or stateful sessions. A content digest is not a signature or hardware attestation.
 
 ## Bounded concurrency and reliable stream ordering
 
-The wrapper has a configurable `max_concurrency` bounded to 1..64. It groups child work by the first authenticated next-hop peer. Children using the same next-hop client are dispatched serially in stable plan order because the existing reliable client owns a stateful request/result stream and serializes its own transitions. Independent first-hop clients run in a bounded thread pool.
+The wrapper has a configurable `max_concurrency` bounded to 1..64 and, when claims are configured, a separate bounded `max_rehome_rounds` (0..3). It groups child work by the first authenticated next-hop peer. Children using the same next-hop client are dispatched serially in stable plan order because the existing reliable client owns a stateful request/result stream and serializes its own transitions. Independent first-hop clients run in a bounded thread pool.
 
-Each partitioned frontier reserves one 64-sequence origin window. Child sequence numbers are stable by partition-plan ordinal; the normal one-child fallback uses the beginning of the same frontier window. If one child in a next-hop group has an ambiguous failure, later children on that stream are not advanced past it. Recovery retries the blocked child first, then continues in order.
+Each partitioned frontier reserves a 256-sequence origin window: 64 child-ordinal slots for each of four possible assignment epochs (initial plus up to three rehomes). The initial request uses the first sub-window; a quorum-reassigned child uses the sub-window for its new assignment epoch. Exact retries in one epoch reuse the same sequence, while a new epoch has a distinct transport identity even if it shares a relay with the prior route. If one child in a next-hop group has an ambiguous failure, later children on that stream are not advanced past it. Recovery retries the blocked child first, then continues in order.
 
 Concurrency is therefore bounded by independent authenticated streams, not by creating concurrent writes through one reliable channel. The current default grouping is deterministic and balanced across up to two partitions; callers may supply per-frontier partition groups and tune the partition count/concurrency.
 
@@ -77,15 +79,16 @@ This is the useful direction for heterogeneous resource access: the same operati
 
 ## Limits and next work
 
-This increment implements dispatch, typed child receipts, composite receipts, resumable checkpoints, atomic parent commit integration and bounded concurrency for homogeneous binary frontiers. It still does not:
+This implementation supports dispatch, typed child receipts, composite receipts, resumable checkpoints, quorum-fenced rehome of failed deterministic-pure children, atomic parent commit integration and bounded concurrency for homogeneous binary frontiers. It still does not:
 
 - distribute branches, loops, effects, syscalls or stateful sessions as independent child operations;
 - move intermediate results directly between child hosts without returning through the origin;
-- guarantee safe alternate-host reassignment after an ambiguous completed-but-unacknowledged operation;
+- guarantee exactly-once physical computation after a host/network partition; a prior Host may finish pure work, although it cannot publish the stale result;
+- automatically rehome after arbitrary semantic or policy refusal, or execute stateful/effectful operations under transferable claims;
 - make a content digest equivalent to a signature or hardware attestation; or
 - prove physical accelerator speedup or end-to-end WAN performance.
 
-The next meaningful frontier is to design transferable idempotency/effect claims so an incomplete child can be safely rehomed after host loss, then generalize the resource advertisement and admission model beyond the currently supported binary CPU/E-GPU operator family.
+The next meaningful frontier is authenticated claim-status access on each execution Host and deeper adversarial verification of concurrent rehome/completion races, quorum loss and receiver restart. Generalizing resource advertisements beyond the supported binary CPU/E-GPU operator family follows once those recovery cuts are exercised.
 
 ## Invariants
 

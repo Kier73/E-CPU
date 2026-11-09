@@ -53,9 +53,26 @@ The claim store serializes local writers with a cross-process lock. The existing
 
 `ASSIGNED` claims can be completed by their current assignment or reassigned to a different logical Host. `COMPLETED` claims are terminal.
 
-A first assignment has epoch 1. Reassignment requires the expected current epoch, a distinct logical `(peer_id, host_id)`, a pinned implementation fingerprint and a failure-evidence digest. The evidence digest commits the caller's recovery observation; it is **not** an independent proof that the prior host is physically down. The quorum commit is the authority that revokes the prior epoch's result-acceptance permission.
+A first assignment has epoch 1. `reassign()` is the one-claim compatibility API; `reassign_many()` advances a bounded set of current claims in one quorum generation. Every item requires its expected current epoch, a distinct logical `(peer_id, host_id)`, a pinned implementation fingerprint and a failure-evidence digest. The batch refuses duplicate claim IDs, duplicate target Hosts, stale epochs, completed claims and a retry that mixes already-reassigned claims with still-assigned siblings. An exact full-batch retry returns the same generation without another transition.
+
+The evidence digest commits the caller's recovery observation; it is **not** an independent proof that the prior Host is physically down. The quorum commit is the authority that revokes the prior epoch's result-acceptance permission. A quorum reassignment fences semantic result acceptance; it does not forcibly stop a processor or roll back work already performed.
 
 Completion requires the exact current peer, Host, implementation and epoch, and binds a result digest with a child receipt digest. The store provides `complete_many()` so the entire parent frontier's child outcomes can be committed in one quorum generation. The operation-native partition dispatcher uses that batch after all child receipts have passed provenance checks. A stale child assignment aborts the whole batch; no sibling claim is completed independently.
+
+For recovery, child reassignments are also batched. If several children fail in the same bounded recovery round, they are assigned to distinct replacement Hosts in one `reassign_many()` generation. Because any claim-state transition expires every portable ticket, the origin refreshes the pending child tickets together after the batch; it does not reuse one sibling's stale ticket.
+
+
+## Automatic pure-child rehome
+
+The partitioned binary dispatcher can opt into bounded automatic rehome by using a claim store and setting `max_rehome_rounds` (default 1, bounded 0..3). Only recognized forwarding transport/path-loss outcomes are eligible. Semantic refusals, invalid receipts, operator-contract mismatches and oracle failures do not authorize reassignment.
+
+The origin keeps the parent plan immutable. It re-resolves each failed child's exact address through the current fabric directory, excludes the previous Host and all Hosts already occupied by unaffected siblings, and finds a distinct-host matching for all children being rehomed in the same recovery round. The replacement must still advertise the exact operator contract, Computational Ground and pinned implementation through a current authenticated route candidate.
+
+The checkpoint records a typed rehome intent before the quorum state changes. The intent binds the exact parent/child, unchanged address and previous/replacement route identities, expected assignment epoch and deterministic failure-evidence digest. After `reassign_many()` commits, a confirmed route-history record carries the portable assignment ticket. Checkpoint schema v2 contains confirmed route replacements; schema v3 additionally contains pending intents. If restart occurs between the quorum commit and confirmed checkpoint publication, the origin replays the same intent idempotently and reconstructs the committed route transition.
+
+A replacement execution is a new physical attempt under a new assignment epoch, not a continuation of the old Host's processor state. The original child request, address, plan/context and DAG node identities remain unchanged. A new assignment epoch uses its own bounded origin-sequence sub-window (64 ordinal slots per epoch inside a 256-sequence frontier window); retries within that epoch retain the same sequence. Existing verified sibling receipts remain in the checkpoint. The parent still completes every claim in one `complete_many()` operation and publishes the original DAG frontier in one atomic commit.
+
+This preserves the guarantee boundary: a prior isolated Host may still finish pure work, but only the current quorum epoch can complete the semantic claim. No arbitrary external side effects, payments, device operations or stateful sessions are eligible for this replay/rehome protocol.
 
 ## Fabric integration
 
@@ -77,23 +94,23 @@ Claim-bound child receipts preserve the original assignment ticket and terminal 
 
 ### Remaining recovery boundary
 
-This increment does not yet automatically rehome a failed child to another host. It refuses stale or conflicting child completion and preserves incomplete progress, but a later orchestration layer must use the existing `reassign()` transition, re-resolve a compatible route and retry the same semantic child under the new epoch. The failure-evidence digest is an observation commitment, not proof that an isolated prior Host has stopped.
+Automatic pure-child rehome is implemented in the partitioned dispatcher. The remaining distributed boundary is authenticated claim-status access on each execution Host and adversarial testing of concurrent rehome/completion, authority quorum loss, and receiver/relay restart during each persisted checkpoint cut. The existing `DistributedRecoveryLineageCoordinator` and mutual-TLS authority service provide the underlying quorum path; each Host must still be provisioned with the same live fixed-membership coordinator. A portable ticket or local cache alone is never current authority.
 
 The `DistributedRecoveryLineageCoordinator` and existing mutual-TLS authority service provide the multi-process authority path. Each participating Host must bind its own live coordinator to the same configured fixed membership; no local cache or caller-supplied ticket substitutes for current quorum status.
 
 ## Parallel work orders
 
-These tracks can proceed independently once the claim schema remains stable:
+The tracks now converge on one claim authority:
 
-| Track | Work | Dependency |
+| Track | Work | Current boundary |
 |---|---|---|
-| A — Claim authority | Portable claim schema, immutable generation store, Merkle ticket, batch assignment/completion and quorum fencing | Merged claim authority |
-| B — Fabric admission | Envelope v2, terminal verification, typed child receipt attestation, origin freshness check and parent batch completion | This increment |
-| C — Rehome orchestration | Detect incomplete children, acquire a new epoch, resolve a compatible Host, retry and preserve the composite parent receipt | A + B |
-| D — Recovery persistence | Restore forwarding servers with live claim authorities and reconcile assignment/completion tickets across process restarts | A + B + existing forwarding recovery |
-| E — Adversarial proof | Race old/new completion, quorum loss, stale proof, changed workload, route drift and interrupted quorum transitions | A–D |
+| A — Claim authority | Portable claim schema, immutable generation store, Merkle ticket, batch assignment/reassignment/completion and quorum fencing | Implemented |
+| B — Fabric admission | Envelope v2, terminal verification, typed child receipt attestation, origin freshness check and parent batch completion | Implemented |
+| C — Rehome orchestration | Detect bounded path-loss failures, persist intent, batch-advance epochs, choose distinct Hosts, retry and preserve the parent receipt | Implemented for pure binary frontiers |
+| D — Recovery persistence | Restore forwarding servers with live claim authorities and reconcile assignment/completion tickets across process restarts | Coordinator is rebound by the caller; authenticated claim-status endpoint remains follow-on |
+| E — Adversarial proof | Race old/new completion, quorum loss, stale proof, changed workload, route drift and interrupted transitions | Continue with current implementation |
 
-Track B can develop the transport/admission adapter while Track D defines the checkpoint composition. Track E can build model-level failure tests before Track C enables automatic reassignment. These are parallel implementations around one claim authority; they must not create independent result-winner ledgers.
+The tracks still share one TransferableExecutionClaimStore and the existing fixed-membership quorum. They must not create independent result-winner ledgers.
 
 ## Invariants
 
