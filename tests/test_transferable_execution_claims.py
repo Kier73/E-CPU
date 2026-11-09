@@ -254,3 +254,33 @@ def test_claim_store_refuses_mutated_persisted_generation(tmp_path: Path) -> Non
     state_path.write_bytes(state_path.read_bytes() + b" ")
     with pytest.raises(TransferableExecutionClaimError, match="high-water|quorum|canonical"):
         store.get(bundle.claim.claim_id)
+
+
+def test_durable_unquorummed_claim_generation_resumes_exact_same_proposal(tmp_path: Path) -> None:
+    """Mathematics: after an incomplete prepare majority, recovery seals the exact fsynced proposal rather than substituting a new value."""
+    store, coordinator = _store(tmp_path)
+    authority_b = coordinator.authorities["B"]
+    authority_c = coordinator.authorities["C"]
+    original_b = authority_b.prepare
+    original_c = authority_c.prepare
+
+    def unavailable(_proposal):
+        """Mathematics: model one authority outage before its durable prepare vote."""
+        from mailcpu import RecoveryLineageError
+
+        raise RecoveryLineageError("simulated authority unavailable")
+
+    authority_b.prepare = unavailable
+    authority_c.prepare = unavailable
+    with pytest.raises(TransferableExecutionClaimError, match="lacks a quorum"):
+        _create(store)
+
+    # Generation bytes and A's exact prepare vote survive. Restoring the
+    # participants lets the store complete that same proposal at the same slot.
+    authority_b.prepare = original_b
+    authority_c.prepare = original_c
+    assert store.resume_pending() is True
+    recovered = _create(store)
+    assert recovered.manifest.generation == 1
+    assert recovered.claim.current_assignment.epoch == 1
+    assert store.resume_pending() is False
