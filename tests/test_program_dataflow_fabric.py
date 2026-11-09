@@ -386,6 +386,28 @@ def test_cpu_and_egpu_compare_handlers_share_the_same_sign_semantics() -> None:
 
 
 
+
+def test_remote_compare_refuses_a_dispatcher_with_the_wrong_operator_contract() -> None:
+    """Mathematics: a binary result cannot be admitted under another operation's declared semantics."""
+    program = assemble(
+        "set left 8\\n"
+        "set right 3\\n"
+        "compare relation left right\\n"
+        "halt"
+    )
+    plan = MailCPUDataflowCompiler().compile_program(program)
+
+    def wrong_dispatcher(request):
+        return _good_compare_receipt(request)
+
+    wrong_dispatcher.operator_spec = dataflow_add_operator_spec()
+    with pytest.raises(OperationNativeDataflowError, match="canonical mailcpu.dataflow.compare_frontier@1"):
+        execute_dataflow_operation_native(
+            plan,
+            operation_dispatchers={"COMPARE": wrong_dispatcher},
+        )
+
+
 def test_compare_remains_local_when_no_remote_compare_dispatcher_is_supplied() -> None:
     """Mathematics: adding remote COMPARE is opt-in and does not change the established local execution path."""
     program = assemble(
