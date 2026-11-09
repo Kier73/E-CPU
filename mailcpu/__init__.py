@@ -706,6 +706,14 @@ from .frontier_partition import (
     split_binary_frontier_request,
 )
 
+from .partitioned_dataflow import (
+    BinaryFrontierChildReceipt,
+    BinaryFrontierCompositeReceipt,
+    BinaryFrontierExecutionCheckpoint,
+    PartitionedComputationalFabricDataflowBinaryDispatcher,
+    PartitionedFrontierIncomplete,
+)
+
 from .evidence_path_resolver import (
     EvidencePathBlocker,
     EvidencePathBlockerCode,
@@ -969,6 +977,11 @@ __all__ = [
     "BinaryFrontierPartitionPlan",
     "FrontierPartitionError",
     "split_binary_frontier_request",
+    "BinaryFrontierChildReceipt",
+    "BinaryFrontierCompositeReceipt",
+    "BinaryFrontierExecutionCheckpoint",
+    "PartitionedComputationalFabricDataflowBinaryDispatcher",
+    "PartitionedFrontierIncomplete",
     "dataflow_add_operator_spec",
     "dataflow_compare_operator_spec",
     "execute_dataflow_operation_native",
