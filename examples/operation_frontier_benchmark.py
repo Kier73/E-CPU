@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 from pathlib import Path
 import platform
 import subprocess
@@ -33,7 +32,6 @@ from mailcpu import (
     ComputationalPeerSnapshot,
     EGPUHost,
     HeadlessOS,
-    HypervisorPolicy,
     OperationTimingProbe,
     OperatorRegistry,
     RouteMetric,
@@ -53,6 +51,7 @@ from mailcpu import (
     make_egpu_dataflow_multiply_handler,
 )
 from mailcpu.computational_fabric import ComputationalFabricDirectory
+from mailcpu.classifier import HypervisorPolicy
 from mailcpu.computational_fabric_forwarding import COMPUTATIONAL_FABRIC_EXECUTE_RESOURCE
 from mailcpu.law_certifier import Law
 from mailcpu.observer_orbit import (
@@ -70,7 +69,6 @@ from mailcpu.program_dataflow import MailCPUDataflowCompiler
 from mailcpu.program_dataflow_fabric import (
     ComputationalFabricDataflowMultiplyDispatcher,
 )
-from mailcpu.seed import SystemIdentity as _SystemIdentity
 from mailcpu.semantic_translation import (
     ObservationContract,
     RepresentationRef,
