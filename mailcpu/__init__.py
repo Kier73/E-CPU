@@ -634,6 +634,18 @@ from .computation_dag import (
     CommittedComputationResult,
     NavigableComputationDAG,
 )
+from .program_dataflow import (
+    CompiledMailCPUDataflow,
+    DataflowExecutionReport,
+    MailCPUDataflowCompiler,
+    ProgramDataflowError,
+    ProgramDataflowMetrics,
+    RegisterSource,
+    compare_dataflow_with_reference,
+    evaluate_dataflow,
+    verify_dataflow_compilation,
+)
+
 from .evidence_path_resolver import (
     EvidencePathBlocker,
     EvidencePathBlockerCode,
@@ -869,6 +881,15 @@ from .predictive_selection import (
 )
 
 __all__ = [
+    "CompiledMailCPUDataflow",
+    "DataflowExecutionReport",
+    "MailCPUDataflowCompiler",
+    "ProgramDataflowError",
+    "ProgramDataflowMetrics",
+    "RegisterSource",
+    "compare_dataflow_with_reference",
+    "evaluate_dataflow",
+    "verify_dataflow_compilation",
     "CoordinationDisposition",
     "ExecutionAdmissionRequest",
     "NavigationCoordinationError",
