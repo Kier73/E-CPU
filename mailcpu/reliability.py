@@ -71,7 +71,7 @@ class ReliableChannel:
         self._next_sequence = 1
         self._pending: dict[int, PendingFrame] = {}
         self._delivered: set[int] = set()
-        self._received_payload_digests: dict[int, str] = {}
+        self._received_payload_digests: dict[int, str | None] = {}
         self._next_receive_sequence = 1
         self._tick = 0
         self.failed_sequences: list[int] = []
@@ -412,12 +412,24 @@ class ReliableChannel:
             sequence = int(raw_sequence)
             if (
                 sequence not in channel._delivered
-                or type(raw_digest) is not str
-                or len(raw_digest) != 64
-                or any(character not in "0123456789abcdef" for character in raw_digest)
+                or (
+                    raw_digest is not None
+                    and (
+                        type(raw_digest) is not str
+                        or len(raw_digest) != 64
+                        or any(character not in "0123456789abcdef" for character in raw_digest)
+                    )
+                )
             ):
                 raise ValueError("reliable received payload digest is invalid or unbound")
             channel._received_payload_digests[sequence] = raw_digest
+        if version < 5:
+            # Older snapshots kept only the receive cursor and delivered set.
+            # Preserve their known delivery identities with an explicit
+            # unknown-digest marker instead of inventing payload evidence.
+            channel._received_payload_digests = {
+                sequence: None for sequence in channel._delivered
+            }
         if version >= 5 and set(channel._received_payload_digests) != channel._delivered:
             raise ValueError(
                 "reliable received payload digests must cover every delivered sequence"
