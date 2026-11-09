@@ -132,12 +132,15 @@ def test_structural_memory_page_backing_bounds_host_cache_and_reuses_verified_ra
     assert old_receipt is not None
 
     # Re-faulting whichever candidate lost the retention competition
-    # regenerates identical bytes and the same immutable receipt identity.
+    # regenerates identical bytes. Read its new provider receipt directly:
+    # the weighted policy may immediately evict the page again, in which case
+    # the backing correctly drops the attached full receipt object as well.
     assert backing.get_page(evicted_digest) == evicted_expected
-    regenerated = backing.read_receipt(evicted_digest)
-    assert regenerated is not None
+    regenerated_bytes, regenerated = backing._providers[evicted_digest].read_with_receipt(0, 8)
+    assert regenerated_bytes == evicted_expected
     assert regenerated.receipt_id == old_receipt.receipt_id
-    assert len(regenerated.value_receipt_ids) == 8
+    assert regenerated.value_receipt_ids == old_receipt.value_receipt_ids
+    backing._providers[evicted_digest]._discard_value_cache()
     assert backing.cached_page_count == 4
     assert backing.cached_provider_coordinate_count == 0
     assert operating_system.environment.kernel.journal.verify()
