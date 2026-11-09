@@ -171,6 +171,19 @@ def _make_case(
     resident_after_cold = operating_system.vm.resident_pages()
     reserved_after_cold = len(memory.reserved_pages())
     mapped_after_cold = len(memory.mapped_pages())
+    page_backing = operating_system.vm.page_backing
+    backing_cached_page_count = int(
+        getattr(page_backing, "cached_page_count", 0)
+    )
+    backing_cached_page_bytes = int(
+        getattr(page_backing, "cached_page_bytes", 0)
+    )
+    backing_cached_receipt_coordinate_count = int(
+        getattr(page_backing, "cached_receipt_coordinate_count", 0)
+    )
+    backing_cached_provider_coordinate_count = int(
+        getattr(page_backing, "cached_provider_coordinate_count", 0)
+    )
     if mapped_after_cold + reserved_after_cold != virtual_pages:
         raise StructuralMemoryBenchmarkError("cold accesses changed the virtual page count")
 
@@ -272,6 +285,10 @@ def _make_case(
         "resident_bytes_after_cold_access": resident_after_cold * page_size,
         "reserved_pages_after_cold_access": reserved_after_cold,
         "reserved_bytes_after_cold_access": reserved_after_cold * page_size,
+        "host_backing_cached_page_count_after_cold_access": backing_cached_page_count,
+        "host_backing_cached_page_bytes_after_cold_access": backing_cached_page_bytes,
+        "host_backing_cached_receipt_coordinate_count_after_cold_access": backing_cached_receipt_coordinate_count,
+        "host_backing_cached_provider_coordinate_count_after_cold_access": backing_cached_provider_coordinate_count,
         "cold_page_access_ns": cold_access_ns,
         "cold_page_access_mean_ns": (
             sum(cold_access_ns) // len(cold_access_ns) if cold_access_ns else 0
