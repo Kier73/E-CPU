@@ -3791,3 +3791,173 @@ def test_contextual_orbit_inverse_navigation_composes_compare_and_add_over_multi
         listener_c.close()
         for thread in threads:
             thread.join(timeout=5.0)
+
+
+def test_terminal_host_checks_live_claim_before_hypervisor_and_refuses_stale_ticket(tmp_path: Path) -> None:
+    """Mathematics: the terminal receiver admits only a current quorum claim and refuses a ticket expired by a concurrent ledger transition before invoking the operator."""
+    from mailcpu.classifier import HypervisorPolicy
+    from mailcpu.computational_fabric_forwarding import (
+        ComputationalFabricForwardingEnvelope,
+        ComputationalFabricForwardingServer,
+        ComputationalFabricForwardingError,
+    )
+    from mailcpu.recovery_lineage import (
+        RecoveryLineageAuthority,
+        RecoveryLineageCoordinator,
+        SeedCommitMembership,
+    )
+    from mailcpu.transferable_execution_claim import (
+        TransferableExecutionClaimError,
+        TransferableExecutionClaimStore,
+    )
+
+    destination_os = HeadlessOS()
+    identity = SystemIdentity("terminal-claim-admission", 1)
+    seed = SystemSeed.from_system(destination_os)
+    seed_envelope = SystemSeedEnvelope(identity, "terminal-claim", "terminal-claim", seed)
+    assert destination_os.seed_admission.admit(seed_envelope).accepted
+    system_ground = VirtualGroundRef.from_envelope(seed_envelope)
+
+    calls: list[str] = []
+    registry = OperatorRegistry()
+    spec = _spec()
+
+    def execute(value, workload):
+        """Mathematics: count only executions that pass the receiver's local Hypervisor admission path."""
+        calls.append(workload.workload_id)
+        return value["left"] + value["right"]
+
+    registry.register(spec, execute)
+    runtime = VirtualLayerRuntime(registry, "node-b", frozenset({"cpu"}))
+    compute_pid = destination_os.environment.kernel.spawn(
+        "terminal-claim-compute",
+        capabilities=(Capability("/virtual-layer/operators", frozenset({"compute"})),),
+        parent_pid=destination_os.environment.init_pid,
+    )
+    locus = ComputationalHostLocus.from_runtime(
+        host_id="logical-host-b",
+        runtime=runtime,
+        authority_pid=compute_pid,
+        operator_id=spec.operator_id,
+        computational_ground_fingerprints=(GROUND_FP,),
+        program_fingerprints=(PROGRAM_FP,),
+        costs=_host_costs(3),
+        implementation_fingerprint=IMPLEMENTATION_FP,
+    )
+    catalogue = ComputationalHostCatalogue((locus,))
+    advertisement = ComputationalHostAdvertisement.from_locus(locus, "peer-b")
+
+    parent_digest = __import__("hashlib").sha256(b"terminal-parent").hexdigest()
+    child_digest = __import__("hashlib").sha256(b"terminal-child").hexdigest()
+    address_workload = VirtualLayerWorkload(
+        workload_id="terminal-claim-sum",
+        system=identity,
+        ground=system_ground,
+        intention={"goal": {
+            "kind": spec.operator_id,
+            "request_digest": child_digest,
+            "plan_digest": __import__("hashlib").sha256(b"terminal-plan").hexdigest(),
+            "context_digest": __import__("hashlib").sha256(b"terminal-context").hexdigest(),
+            "frontier_index": 1,
+        }},
+        operators=(VirtualOperatorRef(spec.operator_id, spec.version, "cpu"),),
+        input_value={"left": 4, "right": 5},
+        budget=VirtualBudget(10_000, 10_000, 10_000),
+        logical_time=23,
+        eligible_nodes=(locus.node_id,),
+        max_hops=2,
+    )
+    address = ComputationalAddress.from_workload(
+        address_workload,
+        spec.operator_id,
+        spec,
+        GROUND_FP,
+        program_fingerprint=PROGRAM_FP,
+        metric_order=METRICS,
+    )
+
+    endpoint_a = _endpoint("peer-a", port=44001)
+    endpoint_b = _endpoint("peer-b", port=44002)
+    snapshot_a = ComputationalPeerSnapshot(
+        endpoint_a, 1, 60, (), (_link("peer-a", "peer-b", 2),)
+    )
+    snapshot_b = ComputationalPeerSnapshot(endpoint_b, 1, 60, (advertisement,), ())
+    directory_a = _directory(snapshot_a, snapshot_b, local_peer_id="peer-a")
+    planned = ComputationalFabricResolver().resolve(address, directory_a, origin_peer_id="peer-a")
+    assert planned.status is ComputationalFabricStatus.FOUND
+    assert planned.witness is not None
+
+    membership = SeedCommitMembership(
+        "terminal-claim-authority",
+        1,
+        ("peer-a", "peer-b", "peer-c"),
+        "peer-a",
+        1,
+        "0" * 64,
+    )
+    authorities = {
+        member: RecoveryLineageAuthority(
+            membership,
+            member,
+            tmp_path / f"{member}.terminal-claim-journal.jsonl",
+        )
+        for member in membership.member_ids
+    }
+    coordinator = RecoveryLineageCoordinator(membership, authorities)
+    store = TransferableExecutionClaimStore(tmp_path / "terminal-claims", coordinator)
+    ticket = store.create(
+        parent_request_digest=parent_digest,
+        child_request_digest=child_digest,
+        address_digest=address.digest,
+        operator_spec=spec,
+        computational_ground_fingerprint=GROUND_FP,
+        owner_peer_id="peer-b",
+        owner_host_id=locus.host_id,
+        implementation_fingerprint=IMPLEMENTATION_FP,
+    )
+    envelope = ComputationalFabricForwardingEnvelope.begin(
+        address,
+        planned.witness,
+        origin_channel="terminal-claim-test",
+        origin_sequence=7,
+        parent_request_digest=parent_digest,
+        claim_bundle=ticket,
+    )
+
+    # Exercise the real terminal method with receiver-local state. The route
+    # and authority stream are verified by the production test setup elsewhere;
+    # this focused test begins at the terminal admission boundary itself.
+    server = object.__new__(ComputationalFabricForwardingServer)
+    server.catalogue = catalogue
+    server.local_peer_id = "peer-b"
+    server.claim_coordinator = coordinator
+    server.operating_system = destination_os
+    server.timing_probe = None
+    destination_os.hypervisor.policy = HypervisorPolicy(
+        review_confidence=0.0,
+        automatic_confidence=0.0,
+        destructive_confidence=0.0,
+        danger_review_probability=1.0,
+    )
+
+    accepted = server._execute_terminal(envelope)
+    assert accepted["kind"] == "terminal"
+    assert accepted["terminal_execution"]["execution"]["action"] == "allow"
+    assert accepted["terminal_execution"]["execution"]["effect"]["result"] == 9
+    assert accepted["execution_claim"]["claim_id"] == ticket.claim.claim_id
+    assert calls == ["terminal-claim-sum"]
+
+    # An unrelated claim-state transition advances the shared quorum root.
+    store.create(
+        parent_request_digest=__import__("hashlib").sha256(b"unrelated-parent").hexdigest(),
+        child_request_digest=__import__("hashlib").sha256(b"unrelated-child").hexdigest(),
+        address_digest=__import__("hashlib").sha256(b"unrelated-address").hexdigest(),
+        operator_spec=spec,
+        computational_ground_fingerprint=GROUND_FP,
+        owner_peer_id="peer-c",
+        owner_host_id="logical-host-c",
+        implementation_fingerprint=__import__("hashlib").sha256(b"other-host").hexdigest(),
+    )
+    with pytest.raises(ComputationalFabricForwardingError, match="claim was not admitted"):
+        server._execute_terminal(envelope)
+    assert calls == ["terminal-claim-sum"]
