@@ -28,6 +28,8 @@ from .virtual_layer import VirtualStructuralMemoryRef
 
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _MAX_PARTITIONS = 64
+_MAX_FRONTIER_NODES = 256
+_PEER_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\\Z")
 _REQUEST_TYPES = {
     "mailcpu.dataflow.add-frontier-request.v3": (DataflowAddFrontierRequest, "ADD"),
     "mailcpu.dataflow.compare-frontier-request.v1": (DataflowCompareFrontierRequest, "COMPARE"),
@@ -128,6 +130,8 @@ def _request_from_dict(payload: Mapping[str, Any]) -> DataflowAddFrontierRequest
     expected = {"schema", "plan_digest", "context_digest", "frontier_index", "lanes"}
     if not isinstance(payload, Mapping) or set(payload) != expected:
         raise FrontierPartitionError("partition child request fields are malformed")
+    if not isinstance(payload["schema"], str):
+        raise FrontierPartitionError("partition child request schema must be text")
     entry = _REQUEST_TYPES.get(payload["schema"])
     if entry is None:
         raise FrontierPartitionError("partition child request schema is unsupported")
@@ -263,11 +267,14 @@ class BinaryFrontierPartitionPlan:
             raise FrontierPartitionError("frontier_index must be a non-negative strict integer")
         if self.operation not in _OPERATOR_SPECS:
             raise FrontierPartitionError("partition plan operation must be ADD, COMPARE, or MUL")
-        if not isinstance(self.origin_peer_id, str) or not self.origin_peer_id:
-            raise FrontierPartitionError("origin_peer_id must be non-empty")
+        if not isinstance(self.origin_peer_id, str) or _PEER_ID.fullmatch(self.origin_peer_id) is None:
+            raise FrontierPartitionError("origin_peer_id is not a valid peer identity")
+        if not isinstance(self.frontier_node_ids, (tuple, list)):
+            raise FrontierPartitionError("frontier_node_ids must be a tuple or list")
         node_ids = tuple(self.frontier_node_ids)
         if (
             not node_ids
+            or len(node_ids) > _MAX_FRONTIER_NODES
             or any(not isinstance(item, str) or not item for item in node_ids)
             or len(node_ids) != len(set(node_ids))
             or node_ids != tuple(sorted(node_ids))
@@ -286,6 +293,7 @@ class BinaryFrontierPartitionPlan:
             raise FrontierPartitionError("child partitions are not in canonical node/host/request order")
         assigned: list[str] = []
         hosts: set[tuple[str, str]] = set()
+        address_digests: set[str] = set()
         for partition in partitions:
             request = partition.request
             route = partition.route_witness
@@ -304,6 +312,9 @@ class BinaryFrontierPartitionPlan:
                 raise FrontierPartitionError("partition route differs from the plan's origin/directory/topology view")
             if self.computational_ground_fingerprint not in route.target_host.computational_ground_fingerprints:
                 raise FrontierPartitionError("partition host does not advertise the plan's Computational Ground")
+            if route.address_digest in address_digests:
+                raise FrontierPartitionError("each child partition requires its own exact computational-address digest")
+            address_digests.add(route.address_digest)
             assigned.extend(partition.node_ids)
             hosts.add((route.target_host.peer_id, route.target_host.host_id))
         if len(assigned) != len(set(assigned)) or tuple(sorted(assigned)) != node_ids:
