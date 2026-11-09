@@ -764,8 +764,8 @@ def execute_dataflow_operation_native(
                 lanes=tuple(sorted(lanes, key=lambda item: item.node_id)),
             )
             receipt = operation_dispatcher(request)
-            if not isinstance(receipt, receipt_type):
-                raise OperationNativeDataflowError(f"dispatcher did not return a typed {operation} frontier receipt")
+            if type(receipt) is not receipt_type:
+                raise OperationNativeDataflowError(f"dispatcher did not return the exact typed {operation} frontier receipt")
             if receipt.request_digest != request.digest:
                 raise OperationNativeDataflowError("remote receipt belongs to a different frontier request")
             expected_ids = tuple(item.node_id for item in request.lanes)
@@ -985,9 +985,15 @@ def make_egpu_dataflow_compare_handler(egpu_host: Any) -> Callable[[Mapping[str,
                 "max_steps": 32,
             },
         )
-        values = result["result"]["outputs"]["result"]
+        raw_values = result["result"]["outputs"]["result"]
+        if not isinstance(raw_values, list) or len(raw_values) != len(left):
+            raise OperationNativeDataflowError("E-GPU COMPARE kernel returned a result vector outside the declared lane shape")
+        values = [
+            _bounded_add_integer(item, f"E-GPU COMPARE result[{index}]")
+            for index, item in enumerate(raw_values)
+        ]
         expected = [compare_values(a, b) for a, b in zip(left, right)]
-        if not isinstance(values, list) or values != expected:
+        if values != expected:
             raise OperationNativeDataflowError("E-GPU COMPARE kernel failed its independent scalar reference check")
         backend = {
             "values": values,
