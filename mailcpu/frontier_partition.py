@@ -29,7 +29,7 @@ from .virtual_layer import VirtualStructuralMemoryRef
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _MAX_PARTITIONS = 64
 _MAX_FRONTIER_NODES = 256
-_PEER_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\\Z")
+_PEER_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
 _REQUEST_TYPES = {
     "mailcpu.dataflow.add-frontier-request.v3": (DataflowAddFrontierRequest, "ADD"),
     "mailcpu.dataflow.compare-frontier-request.v1": (DataflowCompareFrontierRequest, "COMPARE"),
