@@ -54,16 +54,16 @@ _HOST_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
 _PEER_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
 _REGISTER = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}\Z")
 _LANE_MEMORY_BINDING = re.compile(r"pc-[0-9]{6}\.(?:left|right)\Z")
-_MAX_ADD_LANES = 64
+_MAX_BINARY_LANES = 64
 _MAX_CONTEXTUAL_ORBIT_INPUTS = 64
-_MAX_ADD_INTEGER_BITS = 4096
+_MAX_BINARY_INTEGER_BITS = 4096
 
 
-def _bounded_add_integer(value: Any, label: str) -> int:
+def _bounded_binary_integer(value: Any, label: str) -> int:
     """Mathematics: enforce the shared CPU/E-GPU binary integer domain of strict integers with at most 4096 bits."""
     result = _strict_integer(value, label)
-    if result.bit_length() > _MAX_ADD_INTEGER_BITS:
-        raise OperationNativeDataflowError(f"{label} exceeds the common {_MAX_ADD_INTEGER_BITS}-bit ADD domain")
+    if result.bit_length() > _MAX_BINARY_INTEGER_BITS:
+        raise OperationNativeDataflowError(f"{label} exceeds the common {_MAX_BINARY_INTEGER_BITS}-bit ADD domain")
     return result
 
 
@@ -128,7 +128,7 @@ class DataflowBinaryLane:
             reference = getattr(self, f"{side}_reference")
             orbit_inputs = tuple(getattr(self, f"{side}_orbit_inputs"))
             if value is not None:
-                _bounded_add_integer(value, f"lane {side} operand")
+                _bounded_binary_integer(value, f"lane {side} operand")
                 if reference is not None:
                     raise OperationNativeDataflowError(f"lane {side} cannot contain both a value and memory reference")
             elif not isinstance(reference, VirtualStructuralMemoryRef):
@@ -188,8 +188,8 @@ class DataflowAddFrontierRequest:
         if type(self.frontier_index) is not int or self.frontier_index < 0:
             raise OperationNativeDataflowError("frontier_index must be a non-negative strict integer")
         lanes = tuple(self.lanes)
-        if not lanes or len(lanes) > _MAX_ADD_LANES or any(not isinstance(item, DataflowAddLane) for item in lanes):
-            raise OperationNativeDataflowError(f"ADD frontier request requires 1..{_MAX_ADD_LANES} typed lanes")
+        if not lanes or len(lanes) > _MAX_BINARY_LANES or any(not isinstance(item, DataflowAddLane) for item in lanes):
+            raise OperationNativeDataflowError(f"ADD frontier request requires 1..{_MAX_BINARY_LANES} typed lanes")
         if lanes != tuple(sorted(lanes, key=lambda item: item.node_id)):
             raise OperationNativeDataflowError("ADD frontier lanes must be sorted by stable node identity")
         if len({item.node_id for item in lanes}) != len(lanes):
@@ -278,7 +278,7 @@ class DataflowAddFrontierReceipt:
         for node_id, value in results:
             if not isinstance(node_id, str) or _NODE_ID.fullmatch(node_id) is None:
                 raise OperationNativeDataflowError("frontier result node identity is invalid")
-            _bounded_add_integer(value, "frontier result value")
+            _bounded_binary_integer(value, "frontier result value")
         if results != tuple(sorted(results, key=lambda item: item[0])):
             raise OperationNativeDataflowError("frontier result lanes must be sorted by node identity")
         if len({item[0] for item in results}) != len(results):
@@ -508,7 +508,7 @@ def _operand_value(
         return reference
     else:
         raise OperationNativeDataflowError(f"node {node_id!r} has an unsupported operand source")
-    return _bounded_add_integer(value, f"operand for node {node_id}")
+    return _bounded_binary_integer(value, f"operand for node {node_id}")
 
 
 def _lane_operand(
@@ -523,7 +523,7 @@ def _lane_operand(
         if not isinstance(source_register, str) or _REGISTER.fullmatch(source_register) is None:
             raise OperationNativeDataflowError("symbolic ADD operand is missing its source register")
         return None, source_register, _memory_reference_with_binding(value, f"{node_id}.{side}")
-    return _bounded_add_integer(value, f"{side} ADD operand"), (
+    return _bounded_binary_integer(value, f"{side} ADD operand"), (
         source_register if isinstance(source_register, str) else None
     ), None
 
@@ -562,8 +562,8 @@ def _materialize_frontier_operands(
     if not isinstance(memory, Mapping):
         raise OperationNativeDataflowError("resolved Structural Memory input must be an object")
     lanes = raw["lanes"]
-    if not isinstance(lanes, (list, tuple)) or not 1 <= len(lanes) <= _MAX_ADD_LANES:
-        raise OperationNativeDataflowError(f"ADD frontier must contain 1..{_MAX_ADD_LANES} lanes")
+    if not isinstance(lanes, (list, tuple)) or not 1 <= len(lanes) <= _MAX_BINARY_LANES:
+        raise OperationNativeDataflowError(f"ADD frontier must contain 1..{_MAX_BINARY_LANES} lanes")
     max_steps = raw["max_steps"]
     if type(max_steps) is not int or not 1 <= max_steps <= 10_000:
         raise OperationNativeDataflowError("ADD frontier max_steps is outside its bounded profile")
@@ -581,7 +581,7 @@ def _materialize_frontier_operands(
             if not isinstance(operand, Mapping):
                 raise OperationNativeDataflowError(f"ADD frontier lane {index} {side} operand must be typed")
             if set(operand) == {"kind", "value"} and operand["kind"] == "inline":
-                resolved = _bounded_add_integer(operand["value"], f"lane {index} {side} value")
+                resolved = _bounded_binary_integer(operand["value"], f"lane {index} {side} value")
             elif set(operand) == {"kind", "binding"} and operand["kind"] == "structural_memory":
                 binding = operand["binding"]
                 if not isinstance(binding, str) or not binding:
@@ -594,7 +594,7 @@ def _materialize_frontier_operands(
                 if not isinstance(receipt_payload, Mapping):
                     raise OperationNativeDataflowError(f"Structural Memory binding {binding!r} has no typed receipt")
                 receipt = StructuralMemoryReadReceipt.from_dict(receipt_payload)
-                resolved = _bounded_add_integer(entry["value"], f"Structural Memory value {binding}")
+                resolved = _bounded_binary_integer(entry["value"], f"Structural Memory value {binding}")
                 if receipt.value != resolved:
                     raise OperationNativeDataflowError(f"Structural Memory binding {binding!r} value differs from its receipt")
             elif set(operand) == {"kind", "value", "inputs"} and operand["kind"] == "contextual_orbit":
@@ -619,7 +619,7 @@ def _materialize_frontier_operands(
                     raise OperationNativeDataflowError(f"ADD frontier lane {index} {side} contextual-orbit provenance ordering or shape is invalid")
                 if len({item.digest for item in predecessors}) != len(predecessors):
                     raise OperationNativeDataflowError(f"ADD frontier lane {index} {side} contextual-orbit provenance is duplicated")
-                resolved = _bounded_add_integer(operand["value"], f"contextual-orbit-derived value lane {index} {side}")
+                resolved = _bounded_binary_integer(operand["value"], f"contextual-orbit-derived value lane {index} {side}")
             else:
                 raise OperationNativeDataflowError(f"ADD frontier lane {index} {side} operand descriptor is unsupported")
             (left_values if side == "left" else right_values).append(resolved)
@@ -675,7 +675,7 @@ def execute_dataflow_operation_native(
             raise OperationNativeDataflowError("live DAG readiness differs from the compiled frontier")
 
         pending: dict[str, dict[str, Any]] = {}
-        operation_lanes: dict[str, list[DataflowAddLane]] = {"ADD": [], "COMPARE": [], "MUL": []}
+        operation_lanes: dict[str, list[DataflowBinaryLane]] = {"ADD": [], "COMPARE": [], "MUL": []}
         for node_id in expected_frontier:
             node = node_by_id[node_id]
             payload = node.payload
@@ -737,7 +737,7 @@ def execute_dataflow_operation_native(
                     side="right",
                     source_register=operands[1].get("register"),
                 )
-                operation_lanes[operation].append(DataflowAddLane(
+                operation_lanes[operation].append(DataflowBinaryLane(
                     node_id=node_id,
                     node_digest=node.digest,
                     destination=destination,
@@ -863,14 +863,14 @@ def execute_dataflow_operation_native(
                 right_value = lane.right
                 if lane.right_reference is not None:
                     right_value = received_memory_receipts[lane.right_reference.binding].value
-                left_integer = _bounded_add_integer(left_value, f"left operand for {lane.node_id}")
-                right_integer = _bounded_add_integer(right_value, f"right operand for {lane.node_id}")
+                left_integer = _bounded_binary_integer(left_value, f"left operand for {lane.node_id}")
+                right_integer = _bounded_binary_integer(right_value, f"right operand for {lane.node_id}")
                 if operation == "ADD":
-                    expected_value = _bounded_add_integer(
+                    expected_value = _bounded_binary_integer(
                         left_integer + right_integer, f"ADD result for {lane.node_id}"
                     )
                 elif operation == "MUL":
-                    expected_value = _bounded_add_integer(
+                    expected_value = _bounded_binary_integer(
                         left_integer * right_integer, f"MUL result for {lane.node_id}"
                     )
                 else:
@@ -970,7 +970,7 @@ def make_cpu_dataflow_multiply_handler() -> Callable[[Mapping[str, Any], Virtual
         """Mathematics: map aligned strict integer pairs through the product law."""
         left, right, _max_steps = _materialize_frontier_operands(value)
         outputs = [
-            _bounded_add_integer(a * b, f"CPU MUL result[{index}]")
+            _bounded_binary_integer(a * b, f"CPU MUL result[{index}]")
             for index, (a, b) in enumerate(zip(left, right))
         ]
         backend = {
@@ -992,8 +992,8 @@ def make_egpu_dataflow_multiply_handler(egpu_host: Any) -> Callable[[Mapping[str
     if not isinstance(egpu_host, EGPUHost):
         raise OperationNativeDataflowError("E-GPU MUL handler requires an EGPUHost instance")
     if (
-        egpu_host.simt_host.max_lanes < _MAX_ADD_LANES
-        or egpu_host.simt_host.max_integer_bits < _MAX_ADD_INTEGER_BITS
+        egpu_host.simt_host.max_lanes < _MAX_BINARY_LANES
+        or egpu_host.simt_host.max_integer_bits < _MAX_BINARY_INTEGER_BITS
     ):
         raise OperationNativeDataflowError(
             "E-GPU host does not implement the full shared 64-lane/4096-bit MUL domain"
@@ -1015,11 +1015,11 @@ def make_egpu_dataflow_multiply_handler(egpu_host: Any) -> Callable[[Mapping[str
         if not isinstance(raw_values, list) or len(raw_values) != len(left):
             raise OperationNativeDataflowError("E-GPU MUL returned a result vector outside the shared lane shape")
         values = [
-            _bounded_add_integer(item, f"E-GPU MUL result[{index}]")
+            _bounded_binary_integer(item, f"E-GPU MUL result[{index}]")
             for index, item in enumerate(raw_values)
         ]
         expected = [
-            _bounded_add_integer(a * b, f"MUL reference result[{index}]")
+            _bounded_binary_integer(a * b, f"MUL reference result[{index}]")
             for index, (a, b) in enumerate(zip(left, right))
         ]
         if values != expected:
@@ -1077,8 +1077,8 @@ def make_egpu_dataflow_compare_handler(egpu_host: Any) -> Callable[[Mapping[str,
     if not isinstance(egpu_host, EGPUHost):
         raise OperationNativeDataflowError("E-GPU COMPARE handler requires an EGPUHost instance")
     if (
-        egpu_host.simt_host.max_lanes < _MAX_ADD_LANES
-        or egpu_host.simt_host.max_integer_bits < _MAX_ADD_INTEGER_BITS
+        egpu_host.simt_host.max_lanes < _MAX_BINARY_LANES
+        or egpu_host.simt_host.max_integer_bits < _MAX_BINARY_INTEGER_BITS
     ):
         raise OperationNativeDataflowError(
             "E-GPU host does not implement the full shared 64-lane/4096-bit COMPARE domain"
@@ -1120,7 +1120,7 @@ def make_egpu_dataflow_compare_handler(egpu_host: Any) -> Callable[[Mapping[str,
         if not isinstance(raw_values, list) or len(raw_values) != len(left):
             raise OperationNativeDataflowError("E-GPU COMPARE kernel returned a result vector outside the declared lane shape")
         values = [
-            _bounded_add_integer(item, f"E-GPU COMPARE result[{index}]")
+            _bounded_binary_integer(item, f"E-GPU COMPARE result[{index}]")
             for index, item in enumerate(raw_values)
         ]
         expected = [compare_values(a, b) for a, b in zip(left, right)]
@@ -1166,7 +1166,7 @@ def make_cpu_dataflow_add_handler() -> Callable[[Mapping[str, Any], VirtualLayer
         left, right, _max_steps = _materialize_frontier_operands(value)
         outputs = []
         for index, (a, b) in enumerate(zip(left, right)):
-            outputs.append(_bounded_add_integer(a + b, f"CPU ADD result[{index}]"))
+            outputs.append(_bounded_binary_integer(a + b, f"CPU ADD result[{index}]"))
         backend = {
             "implementation": "mailcpu.cpu.strict-integer-vector-add.v1",
             "values": outputs,
@@ -1186,8 +1186,8 @@ def make_egpu_dataflow_add_handler(egpu_host: Any) -> Callable[[Mapping[str, Any
     if not isinstance(egpu_host, EGPUHost):
         raise OperationNativeDataflowError("E-GPU ADD handler requires an EGPUHost instance")
     if (
-        egpu_host.simt_host.max_lanes < _MAX_ADD_LANES
-        or egpu_host.simt_host.max_integer_bits < _MAX_ADD_INTEGER_BITS
+        egpu_host.simt_host.max_lanes < _MAX_BINARY_LANES
+        or egpu_host.simt_host.max_integer_bits < _MAX_BINARY_INTEGER_BITS
     ):
         raise OperationNativeDataflowError(
             "E-GPU host does not implement the full shared 64-lane/4096-bit ADD domain"
@@ -1209,7 +1209,7 @@ def make_egpu_dataflow_add_handler(egpu_host: Any) -> Callable[[Mapping[str, Any
         if not isinstance(values, list) or len(values) != len(left):
             raise OperationNativeDataflowError("E-GPU returned a result vector outside the shared ADD shape")
         values = [
-            _bounded_add_integer(item, f"E-GPU ADD result[{index}]")
+            _bounded_binary_integer(item, f"E-GPU ADD result[{index}]")
             for index, item in enumerate(values)
         ]
         backend = {
@@ -1310,7 +1310,7 @@ class ComputationalFabricDataflowBinaryDispatcher:
         self.metric_order = metrics
         self.max_steps = max_steps
 
-    def __call__(self, request: DataflowAddFrontierRequest | DataflowCompareFrontierRequest | DataflowMultiplyFrontierRequest) -> DataflowAddFrontierReceipt:
+    def __call__(self, request: DataflowAddFrontierRequest | DataflowCompareFrontierRequest | DataflowMultiplyFrontierRequest) -> DataflowAddFrontierReceipt | DataflowCompareFrontierReceipt | DataflowMultiplyFrontierReceipt:
         from .computational_fabric import ComputationalFabricStatus
         from .virtual_layer import VirtualOperatorRef
 
@@ -1345,11 +1345,11 @@ class ComputationalFabricDataflowBinaryDispatcher:
                     if orbit_inputs:
                         wire_lane[side] = {
                             "kind": "contextual_orbit",
-                            "value": _bounded_add_integer(operand_value, f"{lane.node_id} {side} operand"),
+                            "value": _bounded_binary_integer(operand_value, f"{lane.node_id} {side} operand"),
                             "inputs": [item.to_dict() for item in orbit_inputs],
                         }
                     else:
-                        wire_lane[side] = {"kind": "inline", "value": _bounded_add_integer(operand_value, f"{lane.node_id} {side} operand")}
+                        wire_lane[side] = {"kind": "inline", "value": _bounded_binary_integer(operand_value, f"{lane.node_id} {side} operand")}
             wire_lanes.append(wire_lane)
         input_value = {"lanes": wire_lanes, "max_steps": self.max_steps}
         operator_reference = VirtualOperatorRef(
