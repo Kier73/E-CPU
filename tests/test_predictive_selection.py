@@ -39,7 +39,7 @@ from mailcpu.seed import SystemIdentity
 from mailcpu.temporal import SchedulerReading, TemporalFrame
 from mailcpu.virtual_layer import OperatorSpec
 
-from test_composed_ground import _fixture
+from test_composed_ground import _canonical, _fixture
 
 
 def _laws_map(laws):
