@@ -157,6 +157,7 @@ class BinaryFrontierPartition:
     """One homogeneous child request paired with one exact non-authoritative fabric route proposal."""
 
     request: DataflowAddFrontierRequest
+    address: ComputationalAddress
     route_witness: ComputationalFabricRouteWitness
 
     def __post_init__(self) -> None:
@@ -171,6 +172,7 @@ class BinaryFrontierPartition:
         )
         if operation is None:
             raise FrontierPartitionError("partition request must be an exact typed ADD, COMPARE, or MUL request")
+        expected_spec = _OPERATOR_SPECS[operation]()
         if not isinstance(self.address, ComputationalAddress):
             raise FrontierPartitionError("partition requires the exact typed child ComputationalAddress")
         if not isinstance(self.route_witness, ComputationalFabricRouteWitness):
@@ -179,8 +181,6 @@ class BinaryFrontierPartition:
             raise FrontierPartitionError("partition route witness does not bind the exact child ComputationalAddress")
         if self.address.operator_id != self.request_operator_id(operation):
             raise FrontierPartitionError("child ComputationalAddress names a different operation")
-        if self.address.computational_ground_fingerprint not in self.address.workload.ground_fingerprints if hasattr(self.address.workload, "ground_fingerprints") else False:
-            raise FrontierPartitionError("child ComputationalAddress has inconsistent Ground identity")
         goal = self.address.workload.to_dict()["intention"].get("goal")
         expected_goal = {
             "kind": self.address.operator_id,
@@ -214,12 +214,12 @@ class BinaryFrontierPartition:
                         wire_lane[side] = {"kind": "inline", "value": value}
             expected_wire_lanes.append(wire_lane)
         workload = self.address.workload.to_dict()
-        if workload.get("input_value") != {"lanes": expected_wire_lanes, "max_steps": workload.get("input_value", {}).get("max_steps") if isinstance(workload.get("input_value"), Mapping) else None}:
+        input_value = workload.get("input_value")
+        if not isinstance(input_value, Mapping) or set(input_value) != {"lanes", "max_steps"}:
+            raise FrontierPartitionError("child ComputationalAddress input envelope is malformed")
+        if input_value.get("lanes") != expected_wire_lanes:
             raise FrontierPartitionError("child ComputationalAddress input does not preserve the exact child lane operands")
-        if not isinstance(workload.get("input_value"), Mapping) or (
-            type(workload["input_value"].get("max_steps")) is not int
-            or not 1 <= workload["input_value"]["max_steps"] <= 10_000
-        ):
+        if type(input_value.get("max_steps")) is not int or not 1 <= input_value["max_steps"] <= 10_000:
             raise FrontierPartitionError("child ComputationalAddress max_steps is malformed")
         operator_refs = workload.get("operators")
         if not isinstance(operator_refs, list) or len(operator_refs) != 1 or not isinstance(operator_refs[0], Mapping):
@@ -236,7 +236,6 @@ class BinaryFrontierPartition:
             raise FrontierPartitionError("child ComputationalAddress Structural Memory bindings differ from its exact lanes")
         if len(self.route_witness.peer_path) < 2:
             raise FrontierPartitionError("partition route must identify a remote execution path")
-        expected_spec = _OPERATOR_SPECS[operation]()
         if self.address.operator_contract_digest != expected_spec.digest:
             raise FrontierPartitionError("child ComputationalAddress does not bind the exact operator contract")
         host = self.route_witness.target_host
