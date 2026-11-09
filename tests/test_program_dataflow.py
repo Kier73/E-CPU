@@ -16,6 +16,7 @@ from mailcpu import (
     ContextualOrbitLocateValueRequest,
     ContextualOrbitNavigator,
     ObserverContract,
+    OperationTimingProbe,
     RepresentationRef,
     SchedulerReading,
     StructuralMemoryRegistry,
@@ -395,6 +396,32 @@ def test_compilation_verification_binds_initial_state_and_source_bytes() -> None
     assert changed_initial.digest != plan.digest
     with pytest.raises(ProgramDataflowError, match="max_work_units"):
         evaluate_dataflow(plan, max_work_units=1)
+
+
+def test_local_dataflow_records_multiply_compute_phase_with_endpoint_timing_probe() -> None:
+    """Mathematics: one profiled MUL node emits exactly one actor-local compute interval correlated to its compiled plan."""
+    program = assemble("set left 6\\nset right 7\\nmul answer left right\\nhalt")
+    plan = MailCPUDataflowCompiler().compile_program(program)
+    readings = iter((100, 125))
+    probe = OperationTimingProbe("local/dataflow", monotonic_ns=lambda: next(readings))
+
+    report = evaluate_dataflow(plan, timing_probe=probe)
+
+    assert report.observation["registers"]["answer"] == 42
+    samples = probe.samples
+    assert len(samples) == 1
+    assert samples[0].phase == "local_compute"
+    assert samples[0].correlation_id == plan.digest
+    assert samples[0].elapsed_ns == 25
+
+
+def test_local_dataflow_rejects_a_malformed_timing_probe() -> None:
+    """Mathematics: a non-null timing observer must expose a callable measure context manager before DAG execution."""
+    program = assemble("set left 6\\nset right 7\\nmul answer left right\\nhalt")
+    plan = MailCPUDataflowCompiler().compile_program(program)
+
+    with pytest.raises(ProgramDataflowError, match="measure context manager"):
+        evaluate_dataflow(plan, timing_probe=object())
 
 
 def test_symbolic_structural_memory_is_compiled_as_a_pinned_initial_operand_without_a_read() -> None:
