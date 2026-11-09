@@ -38,6 +38,7 @@ _CAPTURE_CUT = "transferable-execution-claims"
 _MAX_CLAIMS = 16_384
 _MAX_ASSIGNMENTS_PER_CLAIM = 64
 _MAX_STATE_BYTES = 16 * 1024 * 1024
+_MAX_TICKET_BYTES = 128 * 1024
 _SCHEMA = "mailcpu.transferable-execution-claim-ledger.v1"
 _HEX = frozenset("0123456789abcdef")
 
@@ -78,6 +79,15 @@ def _label(value: Any, name: str, maximum: int = 256) -> str:
     ):
         raise TransferableExecutionClaimError(f"{name} must be bounded non-empty trimmed text")
     return value
+
+
+def _fabric_id(value: Any, name: str) -> str:
+    """Mathematics: Match the fabric's ASCII peer/logical-host identifier alphabet and 128-character bound."""
+    selected = _label(value, name, 128)
+    allowed = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.:"
+    if not selected[0].isalnum() or not selected.isascii() or any(character not in allowed for character in selected):
+        raise TransferableExecutionClaimError(f"{name} is not a valid computational-fabric identity")
+    return selected
 
 
 def _positive(value: Any, name: str) -> int:
@@ -130,8 +140,8 @@ class ExecutionClaimAssignment:
 
     def __post_init__(self) -> None:
         _positive(self.epoch, "assignment epoch")
-        _label(self.owner_peer_id, "assignment peer id", 128)
-        _label(self.owner_host_id, "assignment host id", 128)
+        _fabric_id(self.owner_peer_id, "assignment peer id")
+        _fabric_id(self.owner_host_id, "assignment host id")
         _digest(self.implementation_fingerprint, "assignment implementation fingerprint")
         _positive(self.state_generation, "assignment state generation")
         if self.epoch == 1 and self.failure_evidence_digest is not None:
@@ -579,8 +589,11 @@ class PortableExecutionClaimBundle:
             "claim_index": self.claim_index,
             "merkle_proof": [item.to_dict() for item in self.merkle_proof],
         }
+        encoded = _canonical_json(payload)
+        if len(encoded) > _MAX_TICKET_BYTES:
+            raise TransferableExecutionClaimError("portable claim ticket exceeds its finite byte bound")
         if include_digest:
-            payload["digest"] = hashlib.sha256(_canonical_json(payload)).hexdigest()
+            payload["digest"] = hashlib.sha256(encoded).hexdigest()
         return payload
 
     @classmethod
@@ -601,6 +614,9 @@ class PortableExecutionClaimBundle:
             or len(payload.get("merkle_proof", [])) > 14
         ):
             raise TransferableExecutionClaimError("portable execution claim ticket fields or schema are invalid")
+        encoded_ticket = _canonical_json(payload)
+        if len(encoded_ticket) > _MAX_TICKET_BYTES:
+            raise TransferableExecutionClaimError("portable claim ticket exceeds its finite byte bound")
         projection = {key: payload[key] for key in (
             "schema", "claim", "manifest", "proof", "state_commitment",
             "claim_index", "merkle_proof",
@@ -658,8 +674,8 @@ class PortableExecutionClaimBundle:
             (claim.address_digest, _digest(address_digest, "ComputationalAddress digest")),
             (claim.operator_spec.to_dict(), operator_spec.to_dict()),
             (claim.computational_ground_fingerprint, _digest(computational_ground_fingerprint, "Computational Ground fingerprint")),
-            (assignment.owner_peer_id, _label(owner_peer_id, "target peer id", 128)),
-            (assignment.owner_host_id, _label(owner_host_id, "target host id", 128)),
+            (assignment.owner_peer_id, _fabric_id(owner_peer_id, "target peer id")),
+            (assignment.owner_host_id, _fabric_id(owner_host_id, "target host id")),
             (assignment.implementation_fingerprint, _digest(implementation_fingerprint, "target implementation fingerprint")),
         )
         if any(actual != supplied for actual, supplied in expected):
@@ -1081,8 +1097,8 @@ class TransferableExecutionClaimStore:
         _digest(claim_id, "claim id")
         _positive(expected_epoch, "expected assignment epoch")
         _digest(failure_evidence_digest, "reassignment evidence digest")
-        target_peer = _label(owner_peer_id, "new assignment peer id", 128)
-        target_host = _label(owner_host_id, "new assignment host id", 128)
+        target_peer = _fabric_id(owner_peer_id, "new assignment peer id")
+        target_host = _fabric_id(owner_host_id, "new assignment host id")
         target_implementation = _digest(implementation_fingerprint, "new implementation fingerprint")
         with self._locked():
             self._resume_pending_locked()
@@ -1146,8 +1162,8 @@ class TransferableExecutionClaimStore:
         """Mathematics: Commit one result only when the expected assignment epoch still owns the claim at quorum high-water."""
         _digest(claim_id, "claim id")
         _positive(expected_epoch, "expected assignment epoch")
-        actor_peer = _label(owner_peer_id, "completion peer id", 128)
-        actor_host = _label(owner_host_id, "completion host id", 128)
+        actor_peer = _fabric_id(owner_peer_id, "completion peer id")
+        actor_host = _fabric_id(owner_host_id, "completion host id")
         actor_implementation = _digest(implementation_fingerprint, "completion implementation fingerprint")
         result = _digest(result_digest, "result digest")
         receipt = _digest(child_receipt_digest, "child receipt digest")
