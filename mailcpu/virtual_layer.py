@@ -319,7 +319,10 @@ class VirtualOperatorRef:
             raise VirtualLayerError("structural_memory must contain typed VirtualStructuralMemoryRef values")
         if len({item.binding for item in references}) != len(references):
             raise VirtualLayerError("structural-memory binding names must be unique per operator")
-        if self.structural_memory_access not in {"read", "navigate"}:
+        if (
+            not isinstance(self.structural_memory_access, str)
+            or self.structural_memory_access not in {"read", "navigate"}
+        ):
             raise VirtualLayerError("structural_memory_access must be read or navigate")
         if self.structural_memory_access == "navigate" and not references:
             raise VirtualLayerError("navigation access requires at least one pinned Structural Memory reference")
