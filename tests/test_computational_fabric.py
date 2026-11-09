@@ -3475,12 +3475,12 @@ def test_contextual_orbit_inverse_navigation_composes_compare_and_add_over_multi
         )
         receipt = dispatcher(request)
 
-        # Compose the actual A→B→C inverse receipt into two dependent remote ADD frontiers.
+        # Compose the actual A→B→C inverse receipt into a remote COMPARE and a dependent ADD.
         predecessor = ContextualOrbitDataflowInput(request, receipt, field="coordinate")
         dataflow_program = assemble(
             "set five 5\n"
-            "add partial located_coordinate five\n"
-            "add answer partial located_coordinate\n"
+            "compare relation located_coordinate five\n"
+            "add answer relation located_coordinate\n"
             "halt"
         )
         plan = MailCPUDataflowCompiler().compile_program(
@@ -3496,30 +3496,54 @@ def test_contextual_orbit_inverse_navigation_composes_compare_and_add_over_multi
             operator_spec=add_operator_spec,
             computational_ground_fingerprint=GROUND_FP,
             budget=VirtualBudget(100_000, 262_144, 10_000),
-            eligible_nodes_by_frontier={
-                1: ("node-c",),
-                2: ("node-c",),
-            },
+            eligible_nodes_by_frontier={2: ("node-c",)},
             origin_channel=origin_channel,
             first_sequence=10,
             logical_time=50,
             max_hops=2,
             metric_order=METRICS,
         )
-        dataflow_report = execute_dataflow_operation_native(plan, add_dispatcher)
+        compare_dispatcher = ComputationalFabricDataflowCompareDispatcher(
+            origin_peer_id="peer-a",
+            directory=directory_a,
+            forwarding_clients={"peer-b": client_ab},
+            system=system_identity,
+            ground=system_ground,
+            operator_spec=compare_operator_spec,
+            computational_ground_fingerprint=GROUND_FP,
+            budget=VirtualBudget(100_000, 262_144, 10_000),
+            eligible_nodes_by_frontier={1: ("node-c",)},
+            origin_channel=origin_channel,
+            first_sequence=20,
+            logical_time=51,
+            max_hops=2,
+            metric_order=METRICS,
+        )
+        dataflow_report = execute_dataflow_operation_native(
+            plan,
+            add_dispatcher,
+            operation_dispatchers={"COMPARE": compare_dispatcher},
+        )
 
-        assert dataflow_report.execution.observation["registers"]["partial"] == target_coordinate + 5
-        assert dataflow_report.execution.observation["registers"]["answer"] == (target_coordinate * 2) + 5
+        assert dataflow_report.execution.observation["registers"]["relation"] == 1
+        assert dataflow_report.execution.observation["registers"]["answer"] == target_coordinate + 1
         assert len(dataflow_report.frontier_receipts) == 2
-        assert all(item.peer_path == ("peer-a", "peer-b", "peer-c") for item in dataflow_report.frontier_receipts)
-        assert all(item.host_id == "logical-host-c-egpu-dataflow-add" for item in dataflow_report.frontier_receipts)
-        assert len(add_inputs) == 2
-        first_left = add_inputs[0]["lanes"][0]["left"]
-        second_left = add_inputs[1]["lanes"][0]["left"]
-        assert first_left["kind"] == "contextual_orbit"
-        assert first_left["inputs"][0]["receipt"]["request_digest"] == request.digest
-        assert second_left["kind"] == "contextual_orbit"
-        assert second_left["inputs"][0]["receipt"]["operator_effect_digest"] == receipt.operator_effect_digest
+        assert dataflow_report.frontier_receipts[0].to_dict()["schema"] == "mailcpu.dataflow.compare-frontier-receipt.v1"
+        assert dataflow_report.frontier_receipts[1].to_dict()["schema"] == "mailcpu.dataflow.add-frontier-receipt.v3"
+        assert dataflow_report.frontier_receipts[0].peer_path == ("peer-a", "peer-b", "peer-c")
+        assert dataflow_report.frontier_receipts[1].peer_path == ("peer-a", "peer-b", "peer-c")
+        assert dataflow_report.frontier_receipts[0].host_id == "logical-host-c-egpu-dataflow-compare"
+        assert dataflow_report.frontier_receipts[1].host_id == "logical-host-c-egpu-dataflow-add"
+        assert len(compare_inputs) == len(add_inputs) == 1
+        compare_left = compare_inputs[0]["lanes"][0]["left"]
+        downstream_left = add_inputs[0]["lanes"][0]["left"]
+        downstream_right = add_inputs[0]["lanes"][0]["right"]
+        assert compare_left["kind"] == "contextual_orbit"
+        assert compare_left["inputs"][0]["receipt"]["request_digest"] == request.digest
+        assert downstream_left["kind"] == "contextual_orbit"
+        assert downstream_left["inputs"][0]["receipt"]["operator_effect_digest"] == receipt.operator_effect_digest
+        assert downstream_right["kind"] == "contextual_orbit"
+        assert downstream_right["inputs"][0]["receipt"]["request_digest"] == request.digest
         assert dataflow_report.frontier_receipts[0].request_digest != dataflow_report.frontier_receipts[1].request_digest
 
         assert receipt.peer_path == ("peer-a", "peer-b", "peer-c")
