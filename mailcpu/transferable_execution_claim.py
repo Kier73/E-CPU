@@ -329,6 +329,7 @@ class TransferableExecutionClaim:
             or set(payload) != expected
             or payload.get("schema") != "mailcpu.transferable-execution-claim.v1"
             or not isinstance(payload.get("assignments"), list)
+            or len(payload.get("assignments", [])) > _MAX_ASSIGNMENTS_PER_CLAIM
             or not isinstance(payload.get("operator_spec"), Mapping)
         ):
             raise TransferableExecutionClaimError("transferable execution claim fields or schema are invalid")
@@ -369,7 +370,7 @@ class ExecutionClaimMerkleStep:
 
     def __post_init__(self) -> None:
         """Mathematics: Restrict a Merkle path step to its exact left/right position and one SHA-256 sibling."""
-        if self.side not in {"left", "right"}:
+        if not isinstance(self.side, str) or self.side not in {"left", "right"}:
             raise TransferableExecutionClaimError("claim Merkle step side must be left or right")
         _digest(self.sibling_digest, "claim Merkle sibling digest")
 
@@ -539,6 +540,8 @@ class PortableExecutionClaimBundle:
             raise TransferableExecutionClaimError("claim bundle requires a typed recovery lineage proof")
         if not isinstance(self.state_commitment, Mapping):
             raise TransferableExecutionClaimError("claim bundle state commitment must be a mapping")
+        if len(self.merkle_proof) > 14:
+            raise TransferableExecutionClaimError("claim inclusion path exceeds the maximum finite tree depth")
         commitment = _validate_state_commitment(deepcopy(dict(self.state_commitment)), self.manifest)
         steps = tuple(self.merkle_proof)
         _verify_claim_merkle_path(
