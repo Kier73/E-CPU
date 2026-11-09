@@ -73,20 +73,48 @@ Different realizations may share one semantic operator contract. The CPU impleme
 
 The first implementation uses strict integer addition and returns the ordered values vector. This contract is deliberately narrow and does not imply that arbitrary CPU, GPU, signal or programmable-network implementations are interchangeable.
 
+## Operation context and state-space navigation
+
+The portable object is the semantic operation contract; its meaning is instantiated by a particular Ground, input and observation context. A simple ADD law can be written independently of any one machine:
+
+[
+o(a,b)=a+b
+]
+
+But an execution is not identified by that law alone. It also requires the concrete operand sources, the Ground that defines their interpretation, the state/Virtual Ground coordinate, any pinned Structural Memory references, resource limits, and the terminal observation expected by the caller.
+
+This matches the state-space view. For a Ground (G), let (Omega_G) be the state-space admitted by that Ground and let (T_G) be its transition relation. A trajectory is:
+
+[
+	au_G(s_0)=(s_0,T_G(s_0),T_G^2(s_0),ldots)
+]
+
+A desired output can be expressed as an observation predicate (P). A navigation problem is to find a coordinate or representation (q) such that:
+
+[
+P(operatorname{Obs}_G(S_G(q),x))=mathrm{true}
+]
+
+where (S_G(q)) is the state represented at coordinate (q) and (x) is the input. Structural Memory can support direct coordinate resolution when an admitted generator and certificate define that mapping. If the Ground only provides transitions, finding the first matching point may still require bounded iteration, indexing, or a separately justified navigation algorithm.
+
+E-CPU's current integration accepts a supplied, revision-pinned coordinate and asks a host capable of resolving it to instantiate the operation. It does **not** yet infer an arbitrary coordinate, search every possible state-space, or jump to an unknown desired output. The “speed of interpretation” hypothesis is that a suitable certified description and local representation can avoid reconstructing an entire state trajectory when only one state or projection is needed. It is not a claim that physical execution or communication latency disappears.
+
+A state-space coordinate is logical time/state position, not wall-clock time. The same operation can be realized by different physical hosts at different placements while preserving one semantic contract and observation.
+
 ## Frontier dispatch and commit
 
 The compiled MailCPU plan supplies immutable ComputationNode identities and deterministic ready frontiers F_0,...,F_k. For a frontier F_i, every node is ready only after its dependencies have committed.
 
 The operation-native executor:
 
-1. Reads the exact operands from immutable initial values or already committed predecessor results.
+1. Reads the exact operands from immutable initial values or already committed predecessor results. A symbolic Structural Memory operand remains an address at this point; it is not eagerly read by the compiler or coordinator.
 2. Selects the ADD nodes in the ready frontier and orders them by stable node_id.
 3. Constructs one DataflowAddFrontierRequest binding the plan digest, context digest, frontier index, node digests, destination registers and ordered operand pairs.
-4. Builds one pure VirtualLayerWorkload for the vector-add contract. Only the operator inputs and the exact frontier description are sent; the full VM image, complete MailCPU program and unrelated register state are not shipped.
+4. Builds one pure VirtualLayerWorkload for the vector-add contract. Inline values travel as values; symbolic references travel as schema-v2 Virtual Layer addresses containing the memory identity, exact revision, context, coordinate, specification digest and certificate digest. Only the operation inputs and frontier description are sent; the full VM image, complete MailCPU program and unrelated register state are not shipped.
 5. Uses ComputationalFabricResolver to select an advertised host and directed peer route.
 6. Sends the operation through the existing authenticated per-hop forwarding protocol. Relay peers apply their local forwarding policy; the terminal peer re-resolves the workload and executes its local operator.
-7. Verifies that the typed terminal effect binds the workload, Ground, operator contract, input and implementation route.
-8. Independently recomputes every returned lane with the scalar integer law z_i=a_i+b_i. It checks lane cardinality and the exact ordered node-ID map.
+7. Verifies that the typed terminal effect binds the workload, Ground, operator contract, input and implementation route. When symbolic memory is present, it also requires the exact receiver-generated read receipts for every requested binding.
+8. Independently recomputes every returned lane with the scalar integer law z_i=a_i+b_i, using the value from a receipt only after checking its pinned memory identity. It checks lane cardinality and the exact ordered node-ID map.
 9. Only after all lanes pass does it commit the results to their original ComputationNode IDs.
 
 The route receipt and scalar oracle establish different properties. The receipt provides path and receiver-local admission provenance; the scalar oracle checks operation meaning. Neither is substituted for the other. A failed identity or value check prevents the affected frontier from being committed.
@@ -111,6 +139,25 @@ Its two ADD frontiers are placed on different logical hosts:
 The first stage traverses B as a forwarding relay and terminates at C. In the second stage, B itself is the terminal execution host. Each result lane is mapped back to its original DAG node. The final register observation is then compared with ReferenceInterpreter for the same validated MailCPU Program.
 
 This experiment demonstrates operation-level placement across different hosts and two different local implementations under one operator contract. It does not migrate a VM or distribute one full machine image.
+
+## Shared arithmetic domain
+
+The CPU and E-GPU implementations of `mailcpu.dataflow.add_frontier@1` implement one explicit shared domain:
+
+- 1 to 64 aligned lanes per operation;
+- strict integers (booleans are not integers in this contract);
+- each input and result has at most 4096 bits;
+- deterministic, pure, ordered vector-add output.
+
+The CPU handler enforces those bounds even though Python integers are unbounded. The E-GPU handler is admitted for this contract only when its configured SIMT lane and integer bounds can realize the whole declared domain. A smaller E-GPU profile must not advertise this operator contract as fully compatible. The two implementations retain distinct implementation fingerprints even though their semantic operator contract is identical.
+
+## Receiver-resolved Structural Memory
+
+The receiver-side read is a part of operation realization, not compilation. The receiving Virtual Layer first validates the workload and its route-bound operator context, obtains local Hypervisor admission, and then resolves each `VirtualStructuralMemoryRef` using the receiver's own Structural Memory registry. The executing process must hold the explicit `/structural-memory/read` capability.
+
+The returned `StructuralMemoryReadReceipt` identifies the exact memory, revision, coordinate, context, specification and certificate. The receiver's operator handler receives the resolved values and receipt envelope; the effect returns the receipts with the operator result. The origin compares each receipt to the reference that was actually sent and independently recomputes the operation before publishing DAG commits.
+
+A relay does not need the memory, nor does it read memory merely because the workload contains a reference. The memory-owning host can be selected as the terminal execution host; a later dependent operation may be sent to another host using only the compact predecessor result. The memory value itself need not be sent as an input to that subsequent operation.
 
 ## Both execution granularities remain available
 
@@ -167,8 +214,9 @@ This first implementation does not:
 - split one frontier across multiple target hosts;
 - pipeline intermediate results directly from one terminal host to the next without returning through the origin coordinator;
 - execute concurrently merely because the DAG contains independent nodes;
+- resolve symbolic Structural Memory for operations other than ADD in this first integration profile;
 - choose a host by an empirically trained adaptive cost model; target eligibility is declared by the caller in the current experiment;
 - perform computation inside passive network links; or
 - demonstrate physical GPU acceleration or lower end-to-end latency.
 
-The next research step is to benchmark this same operation graph under local, remote CPU, remote E-GPU, and fused/partitioned placements. Then add multi-host partitioning of one wide frontier, content-addressed result movement, and receiver-side lazy Structural Memory references without weakening exact revision and certificate binding.
+The next research step is to benchmark this same operation graph under local, remote CPU, remote E-GPU, and fused/partitioned placements. Then extend symbolic memory operands beyond ADD, partition wide frontiers across multiple hosts, and support content-addressed result movement without weakening exact revision and certificate binding.
