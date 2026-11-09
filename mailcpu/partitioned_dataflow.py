@@ -391,6 +391,12 @@ class PartitionedComputationalFabricDataflowBinaryDispatcher:
         ):
             raise OperationNativeDataflowError("partition_groups_by_frontier must be a mapping or callable")
         self.dispatcher = dispatcher
+        # Reserve one 64-sequence window per DAG frontier. The wrapped
+        # single-child fallback uses the window base, while partition children
+        # use stable ordinal offsets inside the same window.
+        current_stride = getattr(dispatcher, "frontier_sequence_stride", 1)
+        if type(current_stride) is not int or current_stride < _MAX_PARTITIONS:
+            dispatcher.frontier_sequence_stride = _MAX_PARTITIONS
         self.operator_spec = dispatcher.operator_spec
         self.operation = dispatcher.operation
         self.max_concurrency = max_concurrency
@@ -586,36 +592,69 @@ class PartitionedComputationalFabricDataflowBinaryDispatcher:
             )
             return BinaryFrontierChildReceipt(partition, receipt)
 
-        with ThreadPoolExecutor(
-            max_workers=min(self.max_concurrency, len(pending)),
-            thread_name_prefix="ecpu-frontier",
-        ) as executor:
-            futures = {executor.submit(dispatch_one, partition): partition for partition in pending}
-            for future in as_completed(futures):
-                partition = futures[future]
+        by_first_hop: dict[str, list[BinaryFrontierPartition]] = {}
+        for partition in pending:
+            first_hop = partition.route_witness.peer_path[1]
+            by_first_hop.setdefault(first_hop, []).append(partition)
+        for group in by_first_hop.values():
+            group.sort(key=lambda item: index_by_digest[item.digest])
+
+        def dispatch_group(
+            group: Sequence[BinaryFrontierPartition],
+        ) -> tuple[tuple[BinaryFrontierChildReceipt, ...], tuple[str, ...]]:
+            group_successes: list[BinaryFrontierChildReceipt] = []
+            group_failures: list[str] = []
+            # One authenticated next-hop client is one serialized channel.
+            # Keep its sequence order intact; independent next-hop channels
+            # execute concurrently in the bounded worker pool.
+            for partition in group:
                 try:
-                    child_receipt = future.result()
+                    group_successes.append(dispatch_one(partition))
                 except Exception as exc:
-                    failures.append(
+                    group_failures.append(
                         f"{partition.request.digest}: {type(exc).__name__}: {str(exc)[:512]}"
                     )
+                    # Do not send a later sequence on this channel while an
+                    # earlier child has an ambiguous outcome. Resume replays
+                    # this exact assignment first, then advances the stream.
+                    break
+            return tuple(group_successes), tuple(group_failures)
+
+        with ThreadPoolExecutor(
+            max_workers=min(self.max_concurrency, len(by_first_hop)),
+            thread_name_prefix="ecpu-frontier",
+        ) as executor:
+            futures = {
+                executor.submit(dispatch_group, tuple(group)): first_hop
+                for first_hop, group in by_first_hop.items()
+            }
+            for future in as_completed(futures):
+                first_hop = futures[future]
+                try:
+                    group_successes, group_failures = future.result()
+                except Exception as exc:
+                    failures.append(
+                        f"first-hop {first_hop}: {type(exc).__name__}: {str(exc)[:512]}"
+                    )
                     continue
-                completed[partition.digest] = child_receipt
-                state = BinaryFrontierExecutionCheckpoint(
-                    request,
-                    state.plan,
-                    tuple(
-                        completed[item.digest]
-                        for item in state.plan.partitions
-                        if item.digest in completed
-                    ),
-                )
-                if self.checkpoint_sink is not None:
-                    try:
-                        self.checkpoint_sink(state)
-                    except Exception as exc:
-                        failures.append(f"checkpoint_sink: {type(exc).__name__}: {str(exc)[:512]}")
-        
+                failures.extend(group_failures)
+                for child_receipt in group_successes:
+                    completed[child_receipt.partition.digest] = child_receipt
+                    state = BinaryFrontierExecutionCheckpoint(
+                        request,
+                        state.plan,
+                        tuple(
+                            completed[item.digest]
+                            for item in state.plan.partitions
+                            if item.digest in completed
+                        ),
+                    )
+                    if self.checkpoint_sink is not None:
+                        try:
+                            self.checkpoint_sink(state)
+                        except Exception as exc:
+                            failures.append(f"checkpoint_sink: {type(exc).__name__}: {str(exc)[:512]}")
+
         final_state = BinaryFrontierExecutionCheckpoint(
             request,
             state.plan,
