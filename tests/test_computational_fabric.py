@@ -26,6 +26,7 @@ from mailcpu import (
     ComputationalFabricPeerListener,
     ComputationalFabricPeerClient,
     ComputationalFabricPeerServer,
+    ComputationalFabricPlacementSet,
     ComputationalFabricResolver,
     ComputationalFabricStatus,
     ComputationalHostAdvertisement,
@@ -756,6 +757,87 @@ def test_fabric_resolver_selects_lowest_cost_multi_hop_peer_path() -> None:
     assert restored_witness == result.witness
     assert restored_witness.digest == result.witness.digest
     assert restored_result.digest == result.digest
+
+
+def test_fabric_resolver_returns_bounded_ranked_placement_candidates_without_changing_legacy_winner() -> None:
+    advertisement_b = ComputationalHostAdvertisement.from_locus(_locus(), "peer-b")
+    advertisement_c = replace(
+        advertisement_b,
+        host_id="logical-host-c",
+        peer_id="peer-c",
+        costs=_host_costs(12),
+    )
+    directory = _directory(
+        _snapshot(
+            "peer-a",
+            links=(
+                _link("peer-a", "peer-b", 1),
+                _link("peer-a", "peer-c", 1),
+            ),
+        ),
+        _snapshot("peer-b", hosts=(advertisement_b,)),
+        _snapshot("peer-c", hosts=(advertisement_c,)),
+    )
+    resolver = ComputationalFabricResolver()
+    address = _address()
+
+    ranked = resolver.resolve_candidates(
+        address,
+        directory,
+        origin_peer_id="peer-a",
+        max_candidates=8,
+    )
+    assert isinstance(ranked, ComputationalFabricPlacementSet)
+    assert ranked.status is ComputationalFabricStatus.FOUND
+    assert ranked.authoritative is False
+    assert ranked.advertised_host_count == 2
+    assert ranked.eligible_host_count == 2
+    assert ranked.truncated is False
+    assert tuple(item.target_host.host_id for item in ranked.candidates) == (
+        "logical-host-b",
+        "logical-host-c",
+    )
+    assert all(item.authoritative is False for item in ranked.candidates)
+
+    restored = ComputationalFabricPlacementSet.from_dict(ranked.to_dict())
+    assert restored == ranked
+    assert restored.digest == ranked.digest
+    assert restored.to_dict()["authoritative"] is False
+
+    bounded = resolver.resolve_candidates(
+        address,
+        directory,
+        origin_peer_id="peer-a",
+        max_candidates=1,
+    )
+    assert bounded.candidates == ranked.candidates[:1]
+    assert bounded.eligible_host_count == 2
+    assert bounded.truncated is True
+
+    exhausted = resolver.resolve_candidates(
+        address,
+        directory,
+        origin_peer_id="peer-a",
+        max_expansions=1,
+    )
+    assert exhausted.status is ComputationalFabricStatus.BUDGET_EXHAUSTED
+    assert exhausted.candidates == ()
+    assert exhausted.eligible_host_count == 0
+    assert exhausted.expanded_states == 1
+    assert ComputationalFabricPlacementSet.from_dict(exhausted.to_dict()) == exhausted
+
+    legacy = resolver.resolve(
+        address,
+        directory,
+        origin_peer_id="peer-a",
+    )
+    assert legacy.witness == ranked.candidates[0]
+    assert legacy.candidate_count == ranked.advertised_host_count
+
+    tampered = ranked.to_dict()
+    tampered["candidates"].reverse()
+    with pytest.raises(ComputationalFabricError, match="deterministic objective order"):
+        ComputationalFabricPlacementSet.from_dict(tampered)
 
 
 def test_fabric_route_uses_stable_path_tie_break_and_never_invents_reverse_edges() -> None:

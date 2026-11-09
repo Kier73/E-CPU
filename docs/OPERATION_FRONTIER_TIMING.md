@@ -99,6 +99,8 @@ The origin's `total_completion` median is the main placement-level comparison. B
 
 For placement research, repeat the benchmark across representative lane counts, operand sizes, route lengths, peer loads and Structural Memory access patterns. Keep the semantic operation and correctness oracle fixed. Later selection models can use observed phase vectors, resource costs and route evidence as features; they should not optimize a single aggregate latency while ignoring the cost of interpretation or the authority boundary.
 
+The fabric now also exposes a bounded ranked candidate view through `ComputationalFabricResolver.resolve_candidates()`. Its current score is the address's declared additive route/host metric vector, not a direct conversion of phase samples. This is the safe seam for future calibration: measured receiver-local phase profiles can be associated with pinned implementation identities and workload classes, while route witnesses and receiver authority remain independently revalidated. The API does not yet learn from samples or change placement automatically.
+
 ## Boundaries
 
 This first harness measures a one-hop, loopback mutual-TLS route and the bounded Python E-GPU/SIMT realization. It does not establish:

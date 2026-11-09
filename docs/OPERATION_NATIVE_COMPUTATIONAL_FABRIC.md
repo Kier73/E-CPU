@@ -50,6 +50,20 @@ The combined execution description is therefore not one flattened graph. It is a
 
 The dependency graph says what must happen before what. The communication topology says where information can travel. The host's internal topology says how a selected implementation realizes its local operation.
 
+## Ranked placement alternatives
+
+The fabric resolver exposes both the original single-winner query and a bounded ranked view:
+
+- `ComputationalFabricResolver.resolve(...)` retains its compatibility contract and returns the least-cost feasible witness.
+- `ComputationalFabricResolver.resolve_candidates(..., max_candidates=16)` returns a `ComputationalFabricPlacementSet` containing up to 16 feasible host/route alternatives by default. The bound may be set from 1 through 128.
+- The set records the number of operator-version advertisements considered, the number that passed all semantic, Ground, implementation, authority-independent capability, route, and resource filters, the bounded search expansion count, and deterministic blockers.
+- Candidate order follows the address's declared lexicographic metric basis, then hop count, peer path, link identity, and stable host identity. Truncation is explicit; callers can distinguish “one eligible host” from “more eligible hosts than returned”.
+- Each candidate retains its own directory/topology-bound route witness and additive network/host cost vectors. The set is content-addressed and round-trippable.
+
+This API exposes alternatives for later placement planning, comparison and bounded multi-host scheduling. It does not dispatch to several hosts, split a frontier, reserve capacity, or make an advertised cost a measured duration. All candidates are non-authoritative proposals. The selected receiver must continue to re-resolve the exact host/runtime binding, revalidate provenance and execute under its local Virtual Layer and Hypervisor.
+
+The current ranking is deterministic and declarative. The phase timing probe is observational data, not yet an online feedback loop; no automatic learning or adaptive placement claim is made.
+
 ## Semantic operation contract
 
 An operation is addressed by its declared Virtual Layer contract, not by sending executable handler code:

@@ -1698,6 +1698,161 @@ class ComputationalFabricResolutionResult:
 
 
 @dataclass(frozen=True)
+class ComputationalFabricPlacementSet:
+    """Bounded ranked alternatives for one non-authoritative computational placement query."""
+
+    status: ComputationalFabricStatus
+    address_digest: str
+    directory_digest: str
+    topology_digest: str
+    advertised_host_count: int
+    eligible_host_count: int
+    expanded_states: int
+    candidates: tuple[ComputationalFabricRouteWitness, ...] = ()
+    blockers: tuple[ComputationalFabricBlocker, ...] = ()
+    truncated: bool = False
+
+    def __post_init__(self) -> None:
+        """Mathematics: validate a bounded, ranked, directory-consistent set without granting execution authority."""
+        if not isinstance(self.status, ComputationalFabricStatus):
+            object.__setattr__(self, "status", ComputationalFabricStatus(self.status))
+        for name in ("address_digest", "directory_digest", "topology_digest"):
+            _digest(getattr(self, name), name)
+        _positive(self.advertised_host_count, "advertised_host_count", minimum=0, maximum=65_536)
+        _positive(self.eligible_host_count, "eligible_host_count", minimum=0, maximum=65_536)
+        _positive(self.expanded_states, "expanded_states", minimum=0, maximum=100_000)
+        candidates = tuple(self.candidates)
+        if len(candidates) > 128 or any(
+            not isinstance(item, ComputationalFabricRouteWitness) for item in candidates
+        ):
+            raise ComputationalFabricError("placement candidates must contain at most 128 typed route witnesses")
+        if len(candidates) > self.eligible_host_count:
+            raise ComputationalFabricError("returned placement candidates exceed the eligible host count")
+        if self.eligible_host_count > self.advertised_host_count:
+            raise ComputationalFabricError("eligible host count exceeds the advertised host count")
+        identities = set()
+        metric_basis = None
+        for item in candidates:
+            if (
+                item.address_digest != self.address_digest
+                or item.directory_digest != self.directory_digest
+                or item.topology_digest != self.topology_digest
+            ):
+                raise ComputationalFabricError("placement candidate belongs to a different address or directory view")
+            identity = (item.target_host.peer_id, item.target_host.host_id)
+            if identity in identities:
+                raise ComputationalFabricError("placement candidates contain a duplicate logical host")
+            identities.add(identity)
+            basis = tuple((metric.name, metric.unit) for metric in item.total_costs)
+            if metric_basis is None:
+                metric_basis = basis
+            elif basis != metric_basis:
+                raise ComputationalFabricError("placement candidates use different ordered metric bases")
+
+        def rank_key(item: ComputationalFabricRouteWitness) -> tuple[Any, ...]:
+            return (
+                tuple(metric.amount for metric in item.total_costs),
+                len(item.link_ids),
+                item.peer_path,
+                item.link_ids,
+                item.target_host.host_id,
+                item.target_host.node_id,
+            )
+
+        if candidates != tuple(sorted(candidates, key=rank_key)):
+            raise ComputationalFabricError("placement candidates are not in deterministic objective order")
+        blockers = tuple(self.blockers)
+        if any(not isinstance(item, ComputationalFabricBlocker) for item in blockers):
+            raise ComputationalFabricError("placement blockers must contain ComputationalFabricBlocker values")
+        object.__setattr__(
+            self,
+            "blockers",
+            tuple(sorted(set(blockers), key=lambda item: (item.subject_id, item.code.value, item.detail))),
+        )
+        if type(self.truncated) is not bool:
+            raise ComputationalFabricError("placement truncated marker must be Boolean")
+        if self.truncated != (self.eligible_host_count > len(candidates)):
+            raise ComputationalFabricError("placement truncated marker does not match the returned candidate count")
+        if (self.status is ComputationalFabricStatus.FOUND) != bool(candidates):
+            raise ComputationalFabricError("FOUND placement set must carry at least one candidate")
+        if self.status is ComputationalFabricStatus.FOUND:
+            if self.eligible_host_count < 1 or self.expanded_states < 1:
+                raise ComputationalFabricError("FOUND placement set requires eligible hosts and expanded search states")
+        elif self.eligible_host_count != 0 or self.truncated:
+            raise ComputationalFabricError("non-FOUND placement set cannot claim eligible or truncated candidates")
+        object.__setattr__(self, "candidates", candidates)
+
+    @property
+    def authoritative(self) -> bool:
+        """Mathematics: ranked discovery alternatives are proposals, never receiver execution authority."""
+        return False
+
+    @property
+    def digest(self) -> str:
+        """Mathematics: identify the exact ordered placement alternatives and exclusions."""
+        return _canonical_digest(self.to_dict())
+
+    def to_dict(self) -> dict[str, Any]:
+        """Mathematics: serialize the query view, ranked route witnesses, blockers and bounded truncation state."""
+        return {
+            "schema": "mailcpu.computational-fabric-placement-set.v1",
+            "authoritative": False,
+            "status": self.status.value,
+            "address_digest": self.address_digest,
+            "directory_digest": self.directory_digest,
+            "topology_digest": self.topology_digest,
+            "advertised_host_count": self.advertised_host_count,
+            "eligible_host_count": self.eligible_host_count,
+            "expanded_states": self.expanded_states,
+            "candidates": [item.to_dict() for item in self.candidates],
+            "blockers": [item.to_dict() for item in self.blockers],
+            "truncated": self.truncated,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "ComputationalFabricPlacementSet":
+        """Mathematics: restore a ranked placement set while preserving its non-authoritative status."""
+        expected = {
+            "schema", "authoritative", "status", "address_digest",
+            "directory_digest", "topology_digest", "advertised_host_count",
+            "eligible_host_count", "expanded_states", "candidates", "blockers",
+            "truncated",
+        }
+        if not isinstance(payload, Mapping) or set(payload) != expected:
+            raise ComputationalFabricError("fabric placement-set fields are malformed")
+        if (
+            payload["schema"] != "mailcpu.computational-fabric-placement-set.v1"
+            or payload["authoritative"] is not False
+            or not isinstance(payload["candidates"], list)
+            or not isinstance(payload["blockers"], list)
+        ):
+            raise ComputationalFabricError("fabric placement-set schema, authority marker, or nested collections are invalid")
+        try:
+            return cls(
+                status=ComputationalFabricStatus(payload["status"]),
+                address_digest=payload["address_digest"],
+                directory_digest=payload["directory_digest"],
+                topology_digest=payload["topology_digest"],
+                advertised_host_count=payload["advertised_host_count"],
+                eligible_host_count=payload["eligible_host_count"],
+                expanded_states=payload["expanded_states"],
+                candidates=tuple(
+                    ComputationalFabricRouteWitness.from_dict(item)
+                    for item in payload["candidates"]
+                ),
+                blockers=tuple(
+                    ComputationalFabricBlocker.from_dict(item)
+                    for item in payload["blockers"]
+                ),
+                truncated=payload["truncated"],
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            if isinstance(exc, ComputationalFabricError):
+                raise
+            raise ComputationalFabricError("fabric placement set contains invalid nested values") from exc
+
+
+@dataclass(frozen=True)
 class _PeerPathLabel:
     """One best deterministic path label for a peer at an exact hop count."""
 
@@ -1707,7 +1862,7 @@ class _PeerPathLabel:
 
 
 class ComputationalFabricResolver:
-    """Federate remote host advertisements and select the least-cost bounded peer path."""
+    """Federate host advertisements and expose deterministic ranked placement alternatives."""
 
     def resolve(
         self,
@@ -1718,7 +1873,37 @@ class ComputationalFabricResolver:
         max_hops: int = 8,
         max_expansions: int = 4096,
     ) -> ComputationalFabricResolutionResult:
-        """Mathematics: Apply semantic host filters, bounded lexicographic Dijkstra over authenticated directed peers, then add endpoint host cost."""
+        """Return the existing single-winner view, preserving the original resolver contract."""
+        placements = self.resolve_candidates(
+            address,
+            directory,
+            origin_peer_id=origin_peer_id,
+            max_hops=max_hops,
+            max_expansions=max_expansions,
+            max_candidates=1,
+        )
+        return ComputationalFabricResolutionResult(
+            status=placements.status,
+            address_digest=placements.address_digest,
+            directory_digest=placements.directory_digest,
+            topology_digest=placements.topology_digest,
+            candidate_count=placements.advertised_host_count,
+            expanded_states=placements.expanded_states,
+            witness=placements.candidates[0] if placements.candidates else None,
+            blockers=placements.blockers,
+        )
+
+    def resolve_candidates(
+        self,
+        address: ComputationalAddress,
+        directory: ComputationalFabricDirectory,
+        *,
+        origin_peer_id: str,
+        max_hops: int = 8,
+        max_expansions: int = 4096,
+        max_candidates: int = 16,
+    ) -> ComputationalFabricPlacementSet:
+        """Mathematics: apply the existing semantic/resource filters and rank a bounded set of feasible routes."""
         if not isinstance(address, ComputationalAddress):
             raise ComputationalFabricError("resolve requires a ComputationalAddress")
         if not isinstance(directory, ComputationalFabricDirectory):
@@ -1731,6 +1916,7 @@ class ComputationalFabricResolver:
             address.workload.max_hops,
         )
         max_expansions = _positive(max_expansions, "max_expansions", maximum=100_000)
+        max_candidates = _positive(max_candidates, "max_candidates", maximum=128)
         address_digest = address.digest
         # Capture one lease-filtered view and derive both identities from that
         # same snapshot set; lease expiry between property reads must not
@@ -1750,13 +1936,14 @@ class ComputationalFabricResolver:
         })
         peers = {snapshot.peer_id: snapshot for snapshot in active}
         if origin not in peers:
-            return ComputationalFabricResolutionResult(
-                ComputationalFabricStatus.BLOCKED,
-                address_digest,
-                directory_digest,
-                topology_digest,
-                0,
-                0,
+            return ComputationalFabricPlacementSet(
+                status=ComputationalFabricStatus.BLOCKED,
+                address_digest=address_digest,
+                directory_digest=directory_digest,
+                topology_digest=topology_digest,
+                advertised_host_count=0,
+                eligible_host_count=0,
+                expanded_states=0,
                 blockers=(ComputationalFabricBlocker(
                     origin,
                     ComputationalFabricBlockerCode.PEER_UNAVAILABLE,
@@ -1836,13 +2023,14 @@ class ComputationalFabricResolver:
             ):
                 continue
             if expanded >= max_expansions:
-                return ComputationalFabricResolutionResult(
-                    ComputationalFabricStatus.BUDGET_EXHAUSTED,
-                    address_digest,
-                    directory_digest,
-                    topology_digest,
-                    0,
-                    expanded,
+                return ComputationalFabricPlacementSet(
+                    status=ComputationalFabricStatus.BUDGET_EXHAUSTED,
+                    address_digest=address_digest,
+                    directory_digest=directory_digest,
+                    topology_digest=topology_digest,
+                    advertised_host_count=0,
+                    eligible_host_count=0,
+                    expanded_states=expanded,
                     blockers=tuple(blockers),
                 )
             expanded += 1
@@ -2073,15 +2261,20 @@ class ComputationalFabricResolver:
 
         if selected:
             selected.sort(key=lambda item: item[0])
-            return ComputationalFabricResolutionResult(
-                ComputationalFabricStatus.FOUND,
-                address_digest,
-                directory_digest,
-                topology_digest,
-                len(hosts),
-                expanded,
-                selected[0][1],
-                tuple(blockers),
+            eligible_host_count = len(selected)
+            return ComputationalFabricPlacementSet(
+                status=ComputationalFabricStatus.FOUND,
+                address_digest=address_digest,
+                directory_digest=directory_digest,
+                topology_digest=topology_digest,
+                advertised_host_count=len(hosts),
+                eligible_host_count=eligible_host_count,
+                expanded_states=expanded,
+                candidates=tuple(
+                    witness for _objective, witness in selected[:max_candidates]
+                ),
+                blockers=tuple(blockers),
+                truncated=eligible_host_count > max_candidates,
             )
         if not hosts:
             status = ComputationalFabricStatus.UNREACHABLE
@@ -2096,12 +2289,13 @@ class ComputationalFabricResolver:
             status = ComputationalFabricStatus.UNREACHABLE
         else:
             status = ComputationalFabricStatus.BLOCKED
-        return ComputationalFabricResolutionResult(
-            status,
-            address_digest,
-            directory_digest,
-            topology_digest,
-            len(hosts),
-            expanded,
+        return ComputationalFabricPlacementSet(
+            status=status,
+            address_digest=address_digest,
+            directory_digest=directory_digest,
+            topology_digest=topology_digest,
+            advertised_host_count=len(hosts),
+            eligible_host_count=0,
+            expanded_states=expanded,
             blockers=tuple(blockers),
         )
