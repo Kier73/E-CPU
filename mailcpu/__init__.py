@@ -178,6 +178,7 @@ from .recovery_lineage_transport import (
 from .recovery_lineage_service import RecoveryLineageAuthorityService
 from .transferable_execution_claim import (
     ExecutionClaimAssignment,
+    ExecutionClaimMerkleStep,
     ExecutionClaimStatus,
     PortableExecutionClaimBundle,
     TransferableExecutionClaim,
@@ -1201,6 +1202,7 @@ __all__ = [
     "RecoveryLineageTransportError",
     "RecoveryLineageAuthorityService",
     "ExecutionClaimAssignment",
+    "ExecutionClaimMerkleStep",
     "ExecutionClaimStatus",
     "PortableExecutionClaimBundle",
     "TransferableExecutionClaim",
