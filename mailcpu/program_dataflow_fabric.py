@@ -937,16 +937,16 @@ def _execute_dataflow_operation_native_impl(
             receipts.append(receipt)
 
         # The frontier is published only after every remote lane has passed
-        # identity, cardinality, type and independent semantic checks.
-        for node_id in expected_frontier:
-            result = pending.get(node_id)
-            if result is None:
-                raise OperationNativeDataflowError(f"frontier node {node_id!r} has no prepared result")
-            try:
-                graph.commit(node_id, result)
-            except ComputationDAGError as exc:
-                raise OperationNativeDataflowError(f"could not commit verified node {node_id!r}: {exc}") from exc
-            committed.append(node_id)
+        # identity, cardinality, type and independent semantic checks. The
+        # complete local/remote result map crosses one atomic DAG boundary.
+        try:
+            graph.commit_frontier(
+                pending,
+                expected_node_ids=expected_frontier,
+            )
+        except ComputationDAGError as exc:
+            raise OperationNativeDataflowError(f"could not atomically commit verified frontier: {exc}") from exc
+        committed.extend(expected_frontier)
         executed_frontiers.append(expected_frontier)
 
     halt_nodes = [item for item in plan.nodes if item.payload.get("opcode") == Op.HALT.value]
