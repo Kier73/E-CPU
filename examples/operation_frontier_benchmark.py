@@ -445,8 +445,8 @@ class _RemoteFabric:
                     origin_channel=self.origin_channel,
                     catalogue=self.catalogue,
                     timeout=10.0,
+                    timing_probe=receiver_probes["network"],
                 )
-                self.server.timing_probe = receiver_probes["network"]
             except BaseException as exc:
                 self.failures.append(exc)
 
@@ -461,8 +461,8 @@ class _RemoteFabric:
                 origin_peer_id="peer-a",
                 origin_channel=self.origin_channel,
                 timeout=10.0,
+                timing_probe=receiver_probes["origin"],
             )
-            self.client.timing_probe = receiver_probes["origin"]
             accept_thread.join(timeout=10.0)
             if accept_thread.is_alive() or self.server is None:
                 raise RuntimeError(f"mutual-TLS receiver startup failed: {self.failures!r}")
