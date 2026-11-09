@@ -2830,6 +2830,7 @@ def test_compiled_dataflow_frontiers_execute_on_distinct_fabric_hosts_with_egpu(
         COMPUTATIONAL_FABRIC_EXECUTE_RESOURCE,
         COMPUTATIONAL_FABRIC_FORWARD_RESOURCE,
     )
+    from mailcpu import BinaryFrontierCompositeReceipt, PartitionedComputationalFabricDataflowBinaryDispatcher
     from mailcpu.program_dataflow_fabric import (
         ComputationalFabricDataflowAddDispatcher,
         dataflow_add_operator_spec,
@@ -3106,7 +3107,7 @@ def test_compiled_dataflow_frontiers_execute_on_distinct_fabric_hosts_with_egpu(
             ("pc-000006",),
         )
 
-        dispatcher = ComputationalFabricDataflowAddDispatcher(
+        base_dispatcher = ComputationalFabricDataflowAddDispatcher(
             origin_peer_id="peer-a",
             directory=directory_a,
             forwarding_clients={"peer-b": client_ab},
@@ -3116,7 +3117,7 @@ def test_compiled_dataflow_frontiers_execute_on_distinct_fabric_hosts_with_egpu(
             computational_ground_fingerprint=GROUND_FP,
             budget=VirtualBudget(100_000, 100_000, 100_000),
             eligible_nodes_by_frontier={
-                1: ("node-c",),
+                1: ("node-b", "node-c"),
                 2: ("node-b",),
             },
             origin_channel=origin_channel,
@@ -3124,6 +3125,11 @@ def test_compiled_dataflow_frontiers_execute_on_distinct_fabric_hosts_with_egpu(
             logical_time=400,
             max_hops=2,
             metric_order=METRICS,
+        )
+        dispatcher = PartitionedComputationalFabricDataflowBinaryDispatcher(
+            base_dispatcher,
+            partition_count=2,
+            max_concurrency=2,
         )
         try:
             execution = execute_dataflow_operation_native(plan, dispatcher)
@@ -3152,19 +3158,31 @@ def test_compiled_dataflow_frontiers_execute_on_distinct_fabric_hosts_with_egpu(
         }
         assert execution.execution.resolved_initial_registers == (("memory_value", 17),)
         assert len(execution.frontier_receipts) == 2
-        egpu_receipt, cpu_receipt = execution.frontier_receipts
+        composite_receipt, cpu_receipt = execution.frontier_receipts
+        assert isinstance(composite_receipt, BinaryFrontierCompositeReceipt)
+        assert composite_receipt.operation == "ADD"
+        assert len(composite_receipt.children) == 2
+        child_receipts = {item.receipt.peer_id: item.receipt for item in composite_receipt.children}
+        egpu_receipt = child_receipts["peer-c"]
+        partitioned_cpu_receipt = child_receipts["peer-b"]
         assert egpu_receipt.peer_id == "peer-c"
         assert egpu_receipt.host_id == "logical-host-c-egpu"
         assert egpu_receipt.peer_path == ("peer-a", "peer-b", "peer-c")
+        assert partitioned_cpu_receipt.peer_id == "peer-b"
+        assert partitioned_cpu_receipt.host_id == "logical-host-b-cpu"
+        assert partitioned_cpu_receipt.peer_path == ("peer-a", "peer-b")
+        assert composite_receipt.results == (("pc-000002", 8), ("pc-000004", 28))
         assert cpu_receipt.peer_id == "peer-b"
         assert cpu_receipt.host_id == "logical-host-b-cpu"
         assert cpu_receipt.peer_path == ("peer-a", "peer-b")
         assert egpu_receipt.implementation_fingerprint == egpu_implementation
+        assert partitioned_cpu_receipt.implementation_fingerprint == cpu_implementation
         assert cpu_receipt.implementation_fingerprint == cpu_implementation
         assert operator_spec.digest == cpu_locus.operator_spec.digest == egpu_locus.operator_spec.digest
         assert len(cpu_calls) == 1 and len(egpu_calls) == 1
         assert len(egpu_receipt.structural_memory_receipts) == 1
-        memory_binding, memory_receipt = egpu_receipt.structural_memory_receipts[0]
+        assert len(composite_receipt.structural_memory_receipts) == 1
+        memory_binding, memory_receipt = composite_receipt.structural_memory_receipts[0]
         assert memory_binding == "pc-000004.left"
         assert memory_receipt.memory_id == memory_version.spec.memory_id
         assert memory_receipt.revision == memory_version.spec.revision
