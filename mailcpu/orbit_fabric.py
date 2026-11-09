@@ -152,8 +152,7 @@ class ContextualOrbitLocateValueReceipt:
         _digest(self.request_digest, "request_digest")
         if not isinstance(self.result, OrbitValueResult):
             raise ContextualOrbitFabricError("receipt result must be an OrbitValueResult")
-        if not isinstance(self.host_id, str) or not self.host_id:
-            raise ContextualOrbitFabricError("host_id must be non-empty")
+        _peer(self.host_id, "host_id")
         peer_id = _peer(self.peer_id, "peer_id")
         path = tuple(self.peer_path)
         if len(path) < 2 or any(not isinstance(item, str) for item in path):
@@ -165,6 +164,11 @@ class ContextualOrbitLocateValueReceipt:
         object.__setattr__(self, "peer_path", path)
         for name in ("route_witness_digest", "forwarding_receipt_digest", "operator_effect_digest", "implementation_fingerprint"):
             _digest(getattr(self, name), name)
+
+    @property
+    def digest(self) -> str:
+        """Mathematics: content-address the complete routed inverse-navigation result and provenance."""
+        return canonical_value_digest(self.to_dict())
 
     def to_dict(self) -> dict[str, Any]:
         """Mathematics: serialize the routed result and its path/effect commitments."""
@@ -560,6 +564,9 @@ class ContextualOrbitLocateValueDispatcher:
             or effect.get("operator_version") != self.operator_spec.version
             or effect.get("operator_contract_digest") != self.operator_spec.digest
             or effect.get("input_digest") != address.input_digest
+            or effect.get("node_id") != route.target_host.node_id
+            or effect.get("ground") != workload.ground.to_dict()
+            or effect.get("substrate") not in route.target_host.substrates
             or not isinstance(effect.get("result"), Mapping)
         ):
             raise ContextualOrbitFabricError("terminal effect does not bind the addressed inverse-navigation workload")
