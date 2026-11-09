@@ -100,17 +100,17 @@ The `DistributedRecoveryLineageCoordinator` and existing mutual-TLS authority se
 
 ## Parallel work orders
 
-These tracks can proceed independently once the claim schema remains stable:
+The tracks now converge on one claim authority:
 
-| Track | Work | Dependency |
+| Track | Work | Current boundary |
 |---|---|---|
-| A — Claim authority | Portable claim schema, immutable generation store, Merkle ticket, batch assignment/completion and quorum fencing | Merged claim authority |
-| B — Fabric admission | Envelope v2, terminal verification, typed child receipt attestation, origin freshness check and parent batch completion | This increment |
-| C — Rehome orchestration | Detect incomplete children, acquire a new epoch, resolve a compatible Host, retry and preserve the composite parent receipt | A + B |
-| D — Recovery persistence | Restore forwarding servers with live claim authorities and reconcile assignment/completion tickets across process restarts | A + B + existing forwarding recovery |
-| E — Adversarial proof | Race old/new completion, quorum loss, stale proof, changed workload, route drift and interrupted quorum transitions | A–D |
+| A — Claim authority | Portable claim schema, immutable generation store, Merkle ticket, batch assignment/reassignment/completion and quorum fencing | Implemented |
+| B — Fabric admission | Envelope v2, terminal verification, typed child receipt attestation, origin freshness check and parent batch completion | Implemented |
+| C — Rehome orchestration | Detect bounded path-loss failures, persist intent, batch-advance epochs, choose distinct Hosts, retry and preserve the parent receipt | Implemented for pure binary frontiers |
+| D — Recovery persistence | Restore forwarding servers with live claim authorities and reconcile assignment/completion tickets across process restarts | Coordinator is rebound by the caller; authenticated claim-status endpoint remains follow-on |
+| E — Adversarial proof | Race old/new completion, quorum loss, stale proof, changed workload, route drift and interrupted transitions | Continue with current implementation |
 
-Track B can develop the transport/admission adapter while Track D defines the checkpoint composition. Track E can build model-level failure tests before Track C enables automatic reassignment. These are parallel implementations around one claim authority; they must not create independent result-winner ledgers.
+The tracks still share one TransferableExecutionClaimStore and the existing fixed-membership quorum. They must not create independent result-winner ledgers.
 
 ## Invariants
 
