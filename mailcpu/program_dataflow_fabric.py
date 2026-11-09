@@ -1400,8 +1400,11 @@ class ComputationalFabricDataflowBinaryDispatcher:
         self.max_steps = max_steps
         self.timing_probe = timing_probe
 
-    def __call__(self, request: DataflowAddFrontierRequest | DataflowCompareFrontierRequest | DataflowMultiplyFrontierRequest) -> DataflowAddFrontierReceipt | DataflowCompareFrontierReceipt | DataflowMultiplyFrontierReceipt:
-        from .computational_fabric import ComputationalFabricStatus
+    def address_for(
+        self,
+        request: DataflowAddFrontierRequest | DataflowCompareFrontierRequest | DataflowMultiplyFrontierRequest,
+    ) -> ComputationalAddress:
+        """Build the exact child ComputationalAddress without dispatching or admitting work."""
         from .virtual_layer import VirtualOperatorRef
 
         expected_request_type = {
@@ -1439,7 +1442,10 @@ class ComputationalFabricDataflowBinaryDispatcher:
                             "inputs": [item.to_dict() for item in orbit_inputs],
                         }
                     else:
-                        wire_lane[side] = {"kind": "inline", "value": _bounded_binary_integer(operand_value, f"{lane.node_id} {side} operand")}
+                        wire_lane[side] = {
+                            "kind": "inline",
+                            "value": _bounded_binary_integer(operand_value, f"{lane.node_id} {side} operand"),
+                        }
             wire_lanes.append(wire_lane)
         input_value = {"lanes": wire_lanes, "max_steps": self.max_steps}
         operator_reference = VirtualOperatorRef(
@@ -1470,7 +1476,7 @@ class ComputationalFabricDataflowBinaryDispatcher:
             max_hops=self.max_hops,
             schema_version=2 if structural_references else 1,
         )
-        address = ComputationalAddress.from_workload(
+        return ComputationalAddress.from_workload(
             workload,
             self.operator_spec.operator_id,
             self.operator_spec,
@@ -1478,27 +1484,90 @@ class ComputationalFabricDataflowBinaryDispatcher:
             program_fingerprint=None,
             metric_order=self.metric_order,
         )
+
+    def prepare_routes(
+        self,
+        request: DataflowAddFrontierRequest | DataflowCompareFrontierRequest | DataflowMultiplyFrontierRequest,
+        *,
+        max_candidates: int = 128,
+    ) -> tuple[ComputationalAddress, Any]:
+        """Return one exact child address and a bounded, non-authoritative set of feasible remote routes."""
+        from .computational_fabric import ComputationalFabricResolver
+
+        if type(max_candidates) is not int or not 1 <= max_candidates <= 128:
+            raise OperationNativeDataflowError("max_candidates must be in the range 1..128")
+        address = self.address_for(request)
+        resolver = ComputationalFabricResolver()
         if self.timing_probe is None:
-            planned = ComputationalFabricResolver().resolve(
+            placements = resolver.resolve_candidates(
                 address,
                 self.directory,
                 origin_peer_id=self.origin_peer_id,
                 max_hops=self.max_hops,
+                max_candidates=max_candidates,
             )
         else:
             with self.timing_probe.measure("fabric_route_resolution", correlation_id=request.digest):
+                placements = resolver.resolve_candidates(
+                    address,
+                    self.directory,
+                    origin_peer_id=self.origin_peer_id,
+                    max_hops=self.max_hops,
+                    max_candidates=max_candidates,
+                )
+        return address, placements
+
+    def __call__(
+        self,
+        request: DataflowAddFrontierRequest | DataflowCompareFrontierRequest | DataflowMultiplyFrontierRequest,
+        *,
+        route_witness: Any | None = None,
+        origin_sequence: int | None = None,
+    ) -> DataflowAddFrontierReceipt | DataflowCompareFrontierReceipt | DataflowMultiplyFrontierReceipt:
+        from .computational_fabric import ComputationalFabricStatus
+        from .virtual_layer import VirtualOperatorRef
+
+        address = self.address_for(request)
+        if route_witness is None:
+            if self.timing_probe is None:
                 planned = ComputationalFabricResolver().resolve(
                     address,
                     self.directory,
                     origin_peer_id=self.origin_peer_id,
                     max_hops=self.max_hops,
                 )
-        if planned.status is not ComputationalFabricStatus.FOUND or planned.witness is None:
-            details = "; ".join(item.detail for item in planned.blockers[:4])
-            raise OperationNativeDataflowError(
-                f"fabric could not resolve {self.operation} frontier to an eligible host: {planned.status.value}: {details}"
-            )
-        route = planned.witness
+            else:
+                with self.timing_probe.measure("fabric_route_resolution", correlation_id=request.digest):
+                    planned = ComputationalFabricResolver().resolve(
+                        address,
+                        self.directory,
+                        origin_peer_id=self.origin_peer_id,
+                        max_hops=self.max_hops,
+                    )
+            if planned.status is not ComputationalFabricStatus.FOUND or planned.witness is None:
+                details = "; ".join(item.detail for item in planned.blockers[:4])
+                raise OperationNativeDataflowError(
+                    f"fabric could not resolve {self.operation} frontier to an eligible host: {planned.status.value}: {details}"
+                )
+            route = planned.witness
+        else:
+            from .computational_fabric import ComputationalFabricRouteWitness
+
+            if not isinstance(route_witness, ComputationalFabricRouteWitness):
+                raise OperationNativeDataflowError("preplanned route must be a typed ComputationalFabricRouteWitness")
+            _selected_address, placements = self.prepare_routes(request, max_candidates=128)
+            matching = tuple(item for item in placements.candidates if item.digest == route_witness.digest)
+            if not matching or route_witness.address_digest != address.digest:
+                raise OperationNativeDataflowError(
+                    "preplanned child route is no longer an exact candidate for the current authenticated directory/topology view"
+                )
+            route = matching[0]
+        if origin_sequence is None:
+            selected_origin_sequence = self.first_sequence + request.frontier_index
+        else:
+            if type(origin_sequence) is not int or origin_sequence < 1:
+                raise OperationNativeDataflowError("origin_sequence override must be a positive strict integer")
+            selected_origin_sequence = origin_sequence
         if len(route.peer_path) < 2:
             raise OperationNativeDataflowError("operation-native dispatcher expected a remote host, not local execution")
         if route.target_host.implementation_fingerprint is None:
@@ -1512,7 +1581,7 @@ class ComputationalFabricDataflowBinaryDispatcher:
             address,
             route,
             origin_channel=self.origin_channel,
-            origin_sequence=self.first_sequence + request.frontier_index,
+            origin_sequence=selected_origin_sequence,
         )
         if self.timing_probe is None:
             hop_receipt = client.forward(envelope, self.directory)
