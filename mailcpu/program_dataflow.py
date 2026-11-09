@@ -569,8 +569,9 @@ class MailCPUDataflowCompiler:
         *,
         initial_registers: Mapping[str, int] | None = None,
         structural_memory_reads: Mapping[str, StructuralMemoryReadReceipt] | None = None,
+        structural_memory_refs: Mapping[str, VirtualStructuralMemoryRef] | None = None,
     ) -> CompiledMailCPUDataflow:
-        """Mathematics: compile exact UTF-8 assembly bytes and retain their independent byte identity."""
+        """Mathematics: compile exact UTF-8 bytes with materialized receipts or symbolic receiver-resolved memory inputs."""
         if not isinstance(source, bytes):
             raise ProgramDataflowError("source must be bytes")
         if len(source) > self.max_source_bytes:
@@ -589,6 +590,7 @@ class MailCPUDataflowCompiler:
             program,
             initial_registers=initial_registers,
             structural_memory_reads=structural_memory_reads,
+            structural_memory_refs=structural_memory_refs,
             source_bytes_ref=source_ref,
             source_size_bytes=len(source),
         )
@@ -599,14 +601,16 @@ class MailCPUDataflowCompiler:
         *,
         initial_registers: Mapping[str, int] | None = None,
         structural_memory_reads: Mapping[str, StructuralMemoryReadReceipt] | None = None,
+        structural_memory_refs: Mapping[str, VirtualStructuralMemoryRef] | None = None,
     ) -> CompiledMailCPUDataflow:
-        """Mathematics: compile a validated Program without claiming an original source-byte identity."""
+        """Mathematics: compile a validated Program with inline, receipt-backed, or symbolic initial register state."""
         if not isinstance(program, Program):
             raise ProgramDataflowError("compile_program requires a validated Program")
         return self._compile(
             program,
             initial_registers=initial_registers,
             structural_memory_reads=structural_memory_reads,
+            structural_memory_refs=structural_memory_refs,
             source_bytes_ref=None,
             source_size_bytes=None,
         )
@@ -617,6 +621,7 @@ class MailCPUDataflowCompiler:
         *,
         initial_registers: Mapping[str, int] | None,
         structural_memory_reads: Mapping[str, StructuralMemoryReadReceipt] | None,
+        structural_memory_refs: Mapping[str, VirtualStructuralMemoryRef] | None,
         source_bytes_ref: RepresentationRef | None,
         source_size_bytes: int | None,
     ) -> CompiledMailCPUDataflow:
@@ -664,10 +669,29 @@ class MailCPUDataflowCompiler:
                         f"Structural Memory receipt for {register!r} has an inconsistent value digest"
                     )
                 receipts[register] = receipt
-        overlap = set(supplied) & set(receipts)
+        references: dict[str, VirtualStructuralMemoryRef] = {}
+        if structural_memory_refs is not None:
+            if not isinstance(structural_memory_refs, Mapping):
+                raise ProgramDataflowError("structural_memory_refs must be a mapping")
+            for name, reference in structural_memory_refs.items():
+                register = _register(name, "symbolic Structural Memory register")
+                if not isinstance(reference, VirtualStructuralMemoryRef):
+                    raise ProgramDataflowError(f"symbolic Structural Memory input {register!r} must be a VirtualStructuralMemoryRef")
+                # The program register is the canonical binding at compile time.
+                references[register] = VirtualStructuralMemoryRef(
+                    binding=register,
+                    memory_id=reference.memory_id,
+                    revision=reference.revision,
+                    context=reference.context,
+                    coordinate=reference.coordinate,
+                    spec_digest=reference.spec_digest,
+                    certificate_digest=reference.certificate_digest,
+                )
+        supplied_sets = [set(supplied), set(receipts), set(references)]
+        overlap = supplied_sets[0] & supplied_sets[1] | supplied_sets[0] & supplied_sets[2] | supplied_sets[1] & supplied_sets[2]
         if overlap:
             raise ProgramDataflowError(
-                "registers cannot be supplied by both inline state and Structural Memory: "
+                "registers cannot be supplied by more than one of inline state, Structural Memory receipts, or symbolic references: "
                 + ", ".join(sorted(overlap))
             )
 
@@ -677,9 +701,14 @@ class MailCPUDataflowCompiler:
             name: receipt.to_dict()
             for name, receipt in sorted(receipts.items())
         }
+        initial_reference_dicts = {
+            name: reference.to_dict()
+            for name, reference in sorted(references.items())
+        }
         initial_state_payload = {
             "registers": dict(sorted(initial_values.items())),
             "structural_memory_receipts": initial_receipt_dicts,
+            "structural_memory_refs": initial_reference_dicts,
         }
         program_ref = program_representation_ref(program)
         initial_state_ref = RepresentationRef.from_payload(
@@ -718,13 +747,25 @@ class MailCPUDataflowCompiler:
             name: receipt.value_digest
             for name, receipt in receipts.items()
         }
+        reference_digests = {
+            name: canonical_value_digest(reference.to_dict())
+            for name, reference in references.items()
+        }
         definitions: dict[str, str] = {}
-        touched: set[str] = set(initial_values)
+        touched: set[str] = set(initial_values) | set(references)
         nodes: list[ComputationNode] = []
         instruction_nodes: list[str] = []
 
         def initial_operand(register: str) -> dict[str, Any]:
-            """Mathematics: bind one read to its exact initial integer and optional Structural Memory receipt."""
+            """Mathematics: bind one read to an exact inline value, materialized receipt, or symbolic receiver-local memory address."""
+            reference = references.get(register)
+            if reference is not None:
+                return {
+                    "kind": "structural_memory",
+                    "register": register,
+                    "reference": reference.to_dict(),
+                    "source_digest": reference_digests[register],
+                }
             value = initial_values.get(register, 0)
             source_digest = receipt_digests.get(
                 register,
@@ -821,6 +862,13 @@ class MailCPUDataflowCompiler:
                     producer_node.digest,
                     node_id=producer,
                 ))
+            elif register in references:
+                final_sources.append(RegisterSource(
+                    register,
+                    "structural_memory",
+                    reference_digests[register],
+                    memory_reference=references[register],
+                ))
             else:
                 value = initial_values.get(register, 0)
                 final_sources.append(RegisterSource(
@@ -847,6 +895,7 @@ class MailCPUDataflowCompiler:
             "initial_state": initial_state_ref.to_dict(),
             "computational_ground": ground_ref.to_dict(),
             "context_digest": context_digest,
+            "structural_memory_refs": [[name, reference.to_dict()] for name, reference in sorted(references.items())],
             "nodes": [node.to_dict() for node in nodes],
             "final_register_sources": [item.to_dict() for item in final_sources],
             "frontiers": [list(item) for item in frontiers],
@@ -911,6 +960,7 @@ class MailCPUDataflowCompiler:
             context_digest=context_digest,
             initial_registers=tuple(sorted(supplied.items())),
             structural_memory_reads=tuple(sorted(receipts.items())),
+            structural_memory_refs=tuple(sorted(references.items())),
             nodes=tuple(nodes),
             final_register_sources=tuple(final_sources),
             frontiers=frontiers,
@@ -926,6 +976,8 @@ def evaluate_dataflow(
     """Mathematics: evaluate independent ready-frontier nodes and commit exact results to the DAG."""
     if not isinstance(plan, CompiledMailCPUDataflow):
         raise ProgramDataflowError("evaluate_dataflow requires a CompiledMailCPUDataflow")
+    if plan.structural_memory_refs:
+        raise ProgramDataflowError("local dataflow evaluation cannot resolve symbolic Structural Memory; use receiver-authorized operation-native execution")
     limit = len(plan.nodes) if max_work_units is None else _strict_int(
         max_work_units, "max_work_units", minimum=1
     )
@@ -993,6 +1045,8 @@ def evaluate_dataflow(
     for source in plan.final_register_sources:
         if source.kind == "initial":
             value = source.value
+        elif source.kind == "structural_memory":
+            raise ProgramDataflowError("local dataflow evaluation cannot materialize a symbolic Structural Memory final register")
         else:
             value = graph.result(source.node_id or "").get("value")
         result_registers[source.register] = _strict_int(
@@ -1032,8 +1086,15 @@ def compare_dataflow_with_reference(
     if restored.digest != expected_graph.digest or not restored.is_complete:
         raise ProgramDataflowError("execution DAG snapshot is incomplete or belongs to another plan")
 
+    if plan.structural_memory_refs:
+        resolved = dict(report.resolved_initial_registers)
+        initial_values = plan.resolved_initial_values(resolved)
+    else:
+        if report.resolved_initial_registers:
+            raise ProgramDataflowError("execution report contains unexpected receiver-resolved initial registers")
+        initial_values = plan.initial_values
     reference = ReferenceInterpreter(program).run(
-        initial_registers=plan.initial_values,
+        initial_registers=initial_values,
         max_steps=len(plan.nodes),
     )
     if reference.status is not RunStatus.HALTED:
@@ -1079,6 +1140,7 @@ def verify_dataflow_compilation(
             program,
             initial_registers=dict(plan.initial_registers),
             structural_memory_reads=dict(plan.structural_memory_reads),
+            structural_memory_refs=dict(plan.structural_memory_refs),
         )
     else:
         if not isinstance(source_bytes, bytes):
@@ -1087,6 +1149,7 @@ def verify_dataflow_compilation(
             source_bytes,
             initial_registers=dict(plan.initial_registers),
             structural_memory_reads=dict(plan.structural_memory_reads),
+            structural_memory_refs=dict(plan.structural_memory_refs),
         )
     return candidate.digest == plan.digest
 
