@@ -401,7 +401,7 @@ def test_claim_state_root_tampering_breaks_the_quorum_manifest_binding(tmp_path:
     root = json.loads(root_path.read_text(encoding="utf-8"))
     root["claims_root"] = H("forged-root")
     root_path.write_text(
-        json.dumps(root, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False) + "\\n",
+        json.dumps(root, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False) + "\n",
         encoding="utf-8",
     )
     with pytest.raises(TransferableExecutionClaimError, match="state-root bytes|quorum high-water"):
