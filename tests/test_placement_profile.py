@@ -209,6 +209,12 @@ def test_placement_ranking_uses_repeated_measurements_and_remains_advisory() -> 
     with pytest.raises(PlacementProfileError, match="authority"):
         type(ranking).from_dict(tampered)
 
+    tampered = ranking.to_dict()
+    tampered["ordered_profile_digests"].reverse()
+    tampered["best_profile_digest"] = tampered["ordered_profile_digests"][0]
+    with pytest.raises(PlacementProfileError, match="completeness or selected profile|digest"):
+        type(ranking).from_dict(tampered)
+
 
 def test_placement_ranking_refuses_to_rank_until_all_candidates_meet_sample_floor() -> None:
     faster_key = _key("local-cpu", IMPLEMENTATION_A)
