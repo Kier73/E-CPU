@@ -252,38 +252,53 @@ class NavigableComputationDAG:
     def digest(self) -> str:
         """Mathematics: identify graph structure by H(sorted({v.to_dict():v∈V}),max_nodes), excluding mutable commits."""
 
-        return _digest({
-            "max_nodes": self.max_nodes,
-            "nodes": [self._nodes[node_id].to_dict() for node_id in sorted(self._nodes)],
-        })
+        with self._lock:
+            return _digest({
+                "max_nodes": self.max_nodes,
+                "nodes": [self._nodes[node_id].to_dict() for node_id in sorted(self._nodes)],
+            })
+
+
 
     @property
     def nodes(self) -> tuple[ComputationNode, ...]:
         """Mathematics: expose immutable node sequence sorted by stable identity id."""
 
-        return tuple(self._nodes[node_id] for node_id in sorted(self._nodes))
+        with self._lock:
+            return tuple(self._nodes[node_id] for node_id in sorted(self._nodes))
+
+
 
     @property
     def committed_nodes(self) -> tuple[str, ...]:
         """Mathematics: expose sorted set dom(C) of nodes with a validated result commit."""
 
-        return tuple(sorted(self._committed))
+        with self._lock:
+            return tuple(sorted(self._committed))
+
+
 
     @property
     def is_complete(self) -> bool:
         """Mathematics: report true exactly when dom(C)=V."""
 
-        return len(self._committed) == len(self._nodes)
+        with self._lock:
+            return len(self._committed) == len(self._nodes)
+
+
 
     def ready_nodes(self) -> tuple[ComputationNode, ...]:
         """Mathematics: return frontier F={v∈V\dom(C): pred(v)⊆dom(C)} in stable node-id order."""
 
-        return tuple(
-            self._nodes[node_id]
-            for node_id in sorted(self._nodes)
-            if node_id not in self._committed
-            and all(dep in self._committed for dep in self._nodes[node_id].dependencies)
-        )
+        with self._lock:
+            return tuple(
+                self._nodes[node_id]
+                for node_id in sorted(self._nodes)
+                if node_id not in self._committed
+                and all(dep in self._committed for dep in self._nodes[node_id].dependencies)
+            )
+
+
 
     def revise_node(self, node: ComputationNode) -> str:
         """Mathematics: replace uncommitted v by revision v' iff id(v')=id(v), rev(v')>rev(v), and G remains acyclic."""
@@ -432,25 +447,31 @@ class NavigableComputationDAG:
     def result(self, node_id: str) -> dict[str, Any]:
         """Mathematics: retrieve R_v only for v∈dom(C), returning a detached JSON projection."""
 
-        commit = self._committed.get(node_id)
-        if commit is None:
-            raise ComputationDAGError("computation node has no committed result")
-        return commit.result
+        with self._lock:
+            commit = self._committed.get(node_id)
+            if commit is None:
+                raise ComputationDAGError("computation node has no committed result")
+            return commit.result
+
+
 
     def lineage(self, node_id: str) -> tuple[str, ...]:
         """Mathematics: return transitive ancestor closure pred*(v) in topological order, excluding v."""
 
-        if node_id not in self._nodes:
-            raise ComputationDAGError("unknown computation node")
-        ancestors: set[str] = set()
-        pending = list(self._nodes[node_id].dependencies)
-        while pending:
-            current = pending.pop()
-            if current in ancestors:
-                continue
-            ancestors.add(current)
-            pending.extend(self._nodes[current].dependencies)
-        return tuple(item for item in self._topological if item in ancestors)
+        with self._lock:
+            if node_id not in self._nodes:
+                raise ComputationDAGError("unknown computation node")
+            ancestors: set[str] = set()
+            pending = list(self._nodes[node_id].dependencies)
+            while pending:
+                current = pending.pop()
+                if current in ancestors:
+                    continue
+                ancestors.add(current)
+                pending.extend(self._nodes[current].dependencies)
+            return tuple(item for item in self._topological if item in ancestors)
+
+
 
     def snapshot(self) -> dict[str, Any]:
         """Mathematics: serialize graph G and committed prefix C in deterministic topological order under digest H(state)."""
