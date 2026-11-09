@@ -43,7 +43,7 @@ The portable bundle carries only:
 - the typed `RecoveryStateManifest`; and
 - the `RecoveryLineageProof` containing the matching proposal, fixed-membership prepare certificate and durable commit decisions.
 
-A receiving Host first verifies the Merkle inclusion path against the root envelope, then calls `verify_state` against the live coordinator to require that root manifest to remain the current quorum high-water. The ticket schema contains no full registry snapshot; for a maximum of 16,384 claims, an inclusion path has at most 14 sibling hashes. Target admission also requires the receiving Host's actual registered typed `OperatorSpec`, and compares the complete canonical operator contract—not just a caller-provided ID/digest—to the claim. A well-formed but older bundle is refused as stale. The proof is not a signature detached from the state: the quorum commits to the root envelope, and the Merkle path proves that the exact typed claim is a member of the committed set. The portable ticket is O(log n) in claim count; the full set remains local to the owner store.
+A receiving Host first verifies the Merkle inclusion path against the root envelope, then calls `verify_state` against the live coordinator to require that root manifest to remain the current quorum high-water. Because this is one shared claim-set root, **any claim-state transition expires all previously issued tickets**, even when a particular claim's assignment did not change. A receiver must therefore obtain a fresh ticket by claim ID from the authenticated claim-status service immediately before admission; it must not treat a cached ticket as a long-lived lease. The ticket schema contains no full registry snapshot; for a maximum of 16,384 claims, an inclusion path has at most 14 sibling hashes. Target admission also requires the receiving Host's actual registered typed `OperatorSpec`, and compares the complete canonical operator contract—not just a caller-provided ID/digest—to the claim. A well-formed but older bundle is refused as stale. The proof is not a signature detached from the state: the quorum commits to the root envelope, and the Merkle path proves that the exact typed claim is a member of the committed set. The portable ticket is O(log n) in claim count; the full set remains local to the owner store.
 
 The first implementation bounds the ledger to 16,384 claims, 64 assignments per claim and a 16 MiB serialized owner-side state snapshot. Each transition writes the full sorted claim set and rebuilds the Merkle tree, so owner-side transition cost remains O(number of retained claims); the portable ticket itself contains only one claim and O(log n) sibling hashes. It is therefore bounded for transport independently of the retained registry size. Claim compaction and deterministic sharding by parent/frontier are follow-on optimization tracks and must preserve the same single-winner claim semantics.
 
@@ -62,6 +62,8 @@ Completion requires the exact current peer, Host, implementation and epoch, and 
 This increment provides the portable claim data model, durable state store, quorum anchoring, current-owner verification, reassignment fencing, completion and restart recovery tests. It does not yet transport claim bundles inside the computational forwarding envelope or invoke claim verification from the terminal Hypervisor admission path.
 
 The claim is therefore tied to the same declarative operator contract the receiving Virtual Layer uses; a different host implementation may be selected only when it advertises this exact contract and its own pinned implementation fingerprint.
+
+The next fabric integration therefore needs an authenticated, bounded `get_current_claim(claim_id)` adapter (and ideally a batch-read form) backed by the configured distributed RecoveryLineage authority. It must return the latest claim ticket and refuse when quorum high-water cannot be established. The receiver should refresh by ID before execution, then verify the exact target contract. The adapter must not accept caller-supplied cached tickets as proof of freshness.
 
 The next integration increment should:
 
@@ -89,7 +91,7 @@ Track B can develop the transport/admission adapter while Track D defines the ch
 
 ## Invariants
 
-- B-59 binds each portable claim to its exact semantic child identity, typed deterministic-pure operator contract, full assignment history, quorum-anchored state-root envelope and Merkle membership proof. The owner-side snapshot is recomputed against the root at restore; the portable ticket is compact and carries no registry snapshot.
+- B-59 binds each portable claim to its exact semantic child identity, typed deterministic-pure operator contract, full assignment history, quorum-anchored state-root envelope and Merkle membership proof. The owner-side snapshot is recomputed against the root at restore; the portable ticket is compact and carries no registry snapshot. A ticket is valid only at its exact shared-ledger high-water; any later claim-state transition requires a fresh ticket.
 - B-60 fences old assignment epochs at the live quorum high-water and admits completion only from the current assigned Host/implementation, with one terminal result/receipt commitment.
 
 See [INVARIANTS.md](INVARIANTS.md) for the executable registry.
