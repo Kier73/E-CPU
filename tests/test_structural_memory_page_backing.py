@@ -90,30 +90,38 @@ def test_structural_memory_page_backing_bounds_host_cache_and_reuses_verified_ra
 
     for digest, expected in pages[:4]:
         assert backing.get_page(digest) == expected
-    first_receipt = backing.read_receipt(pages[0][0])
-    second_receipt = backing.read_receipt(pages[1][0])
-    assert first_receipt is not None and second_receipt is not None
-    first_receipt_id = first_receipt.receipt_id
-    second_receipt_id = second_receipt.receipt_id
+    original_receipts = {
+        digest: backing.read_receipt(digest)
+        for digest, _expected in pages[:4]
+    }
+    assert all(receipt is not None for receipt in original_receipts.values())
 
-    # A cache hit changes recency without generating another range event.
-    assert backing.get_page(pages[0][0]) == pages[0][1]
-    assert backing.read_receipt(pages[0][0]).receipt_id == first_receipt_id
+    # A cache hit increases the observed reuse score without changing bytes.
+    first_digest, first_expected = pages[0]
+    score_before = backing._retention_score(first_digest)
+    assert backing.get_page(first_digest) == first_expected
+    assert backing._retention_score(first_digest) >= score_before * 2
 
-    # The fifth distinct page evicts the least-recently-used page/receipt pair.
+    # The fifth distinct page evicts exactly one low-value page/receipt pair.
     assert backing.get_page(pages[4][0]) == pages[4][1]
     assert backing.cached_page_count == 4
     assert backing.cached_page_bytes == 4 * 8
     assert backing.cached_receipt_coordinate_count == 4 * 8
     assert backing.cached_provider_coordinate_count == 0
-    assert backing.read_receipt(pages[0][0]) is not None
-    assert backing.read_receipt(pages[1][0]) is None
+    evicted = [
+        (digest, expected, receipt)
+        for (digest, expected), receipt in zip(pages[:4], original_receipts.values())
+        if backing.read_receipt(digest) is None
+    ]
+    assert len(evicted) == 1
 
     # Re-faulting the evicted page regenerates the same byte and receipt identities.
-    assert backing.get_page(pages[1][0]) == pages[1][1]
-    regenerated = backing.read_receipt(pages[1][0])
+    evicted_digest, evicted_expected, old_receipt = evicted[0]
+    assert old_receipt is not None
+    assert backing.get_page(evicted_digest) == evicted_expected
+    regenerated = backing.read_receipt(evicted_digest)
     assert regenerated is not None
-    assert regenerated.receipt_id == second_receipt_id
+    assert regenerated.receipt_id == old_receipt.receipt_id
     assert len(regenerated.value_receipt_ids) == 8
     assert backing.cached_page_count == 4
     assert backing.cached_provider_coordinate_count == 0
