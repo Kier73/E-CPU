@@ -418,6 +418,10 @@ class ReliableChannel:
             ):
                 raise ValueError("reliable received payload digest is invalid or unbound")
             channel._received_payload_digests[sequence] = raw_digest
+        if version >= 5 and set(channel._received_payload_digests) != channel._delivered:
+            raise ValueError(
+                "reliable received payload digests must cover every delivered sequence"
+            )
         channel.failed_sequences = raw_failed
         if version >= 3:
             channel._next_receive_sequence = int(payload["next_receive_sequence"])
