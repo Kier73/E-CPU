@@ -246,8 +246,10 @@ class BinaryFrontierReassignmentIntent:
             ch not in "0123456789abcdef" for ch in self.claim_id
         ):
             raise OperationNativeDataflowError("reassignment intent claim id must be lowercase SHA-256 hex")
-        if type(self.expected_epoch) is not int or self.expected_epoch < 1:
-            raise OperationNativeDataflowError("reassignment intent epoch must be a positive strict integer")
+        if type(self.expected_epoch) is not int or not 1 <= self.expected_epoch < _ASSIGNMENT_EPOCH_SLOTS:
+            raise OperationNativeDataflowError(
+                f"reassignment intent epoch must be in the range 1..{_ASSIGNMENT_EPOCH_SLOTS - 1}"
+            )
         if not isinstance(self.failure_evidence_digest, str) or len(self.failure_evidence_digest) != 64 or any(
             ch not in "0123456789abcdef" for ch in self.failure_evidence_digest
         ):
@@ -355,6 +357,7 @@ class BinaryFrontierPartitionReassignment:
             or current.implementation_fingerprint != new_route.target_host.implementation_fingerprint
             or current.failure_evidence_digest != self.failure_evidence_digest
             or current.epoch != prior.epoch + 1
+            or current.epoch > _ASSIGNMENT_EPOCH_SLOTS
         ):
             raise OperationNativeDataflowError("reassignment route does not match the quorum-committed adjacent assignment epochs")
 
@@ -1239,6 +1242,10 @@ class PartitionedComputationalFabricDataflowBinaryDispatcher:
             if not isinstance(ticket, PortableExecutionClaimBundle):
                 raise OperationNativeDataflowError("failed child has no current assignment ticket for quorum reassignment")
             assignment = ticket.claim.current_assignment
+            if assignment.epoch >= _ASSIGNMENT_EPOCH_SLOTS:
+                raise OperationNativeDataflowError(
+                    "child assignment exhausted its reserved origin-sequence rehome epochs"
+                )
             if (
                 ticket.claim.status is not ExecutionClaimStatus.ASSIGNED
                 or assignment.owner_peer_id != previous_partition.route_witness.target_host.peer_id
