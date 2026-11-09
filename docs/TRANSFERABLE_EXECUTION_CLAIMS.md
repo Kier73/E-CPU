@@ -18,7 +18,7 @@ A coordinator cannot prove that an isolated host has stopped computing merely be
 
 The implemented guarantee is narrower and useful:
 
-1. Each claim is restricted to the declared `pure-replay-safe/v1` policy.
+1. Each claim embeds the complete typed `OperatorSpec` and is restricted to `pure-replay-safe/v1`. The claim constructor verifies that the spec's operator ID and digest match the claim and that E-CPU's existing `OperatorSpec.replay_safe` predicate holds (`deterministic=True` and `effect_mode="pure"`). A caller-supplied label or detached digest alone cannot make an effectful operator transferable.
 2. The current assignment is recorded in a full state snapshot and committed through the existing fixed-membership `RecoveryLineageCoordinator`.
 3. A receiver or result coordinator must verify that the bundle's manifest is still the live quorum high-water and that its own peer, logical Host, implementation and workload identities match the current assignment.
 4. Reassignment increments the assignment epoch and commits the new owner through the same quorum state chain.
@@ -59,6 +59,8 @@ Completion requires the exact current peer, Host, implementation and epoch, and 
 ## Fabric integration boundary
 
 This increment provides the portable claim data model, durable state store, quorum anchoring, current-owner verification, reassignment fencing, completion and restart recovery tests. It does not yet transport claim bundles inside the computational forwarding envelope or invoke claim verification from the terminal Hypervisor admission path.
+
+The claim is therefore tied to the same declarative operator contract the receiving Virtual Layer uses; a different host implementation may be selected only when it advertises this exact contract and its own pinned implementation fingerprint.
 
 The next integration increment should:
 
