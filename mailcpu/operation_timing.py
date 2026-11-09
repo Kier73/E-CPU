@@ -22,8 +22,8 @@ from .temporal import (
     TemporalProfile,
 )
 
-_PHASE = re.compile(r"[a-z][a-z0-9_.-]{0,63}\\Z")
-_CORRELATION = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,511}\\Z")
+_PHASE = re.compile(r"[a-z][a-z0-9_.-]{0,63}\Z")
+_CORRELATION = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,511}\Z")
 
 
 class OperationTimingError(ValueError):
