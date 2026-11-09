@@ -153,6 +153,7 @@ class HypervisorOperationChannel:
         response: "HypervisorOperationResultChannel",
         effect_encoder: Callable[[Any], Any] | None = None,
         fault_hook: Callable[[str], None] | None = None,
+        defer_stale_duplicate_until_response_ack: bool = False,
     ) -> HypervisorExecutionResult | None:
         """Mathematics: order authorize(e)→commit(E[e])→publish(R[e])→ACK(q), exposing hooks at each recovery cut."""
 
@@ -160,6 +161,10 @@ class HypervisorOperationChannel:
             raise HypervisorOperationTransportError("operation reply requires a HypervisorOperationResultChannel")
         if not isinstance(handlers, Mapping) or any(not callable(handler) for handler in handlers.values()):
             raise HypervisorOperationTransportError("event handlers must be a mapping of callables")
+        if not isinstance(defer_stale_duplicate_until_response_ack, bool):
+            raise HypervisorOperationTransportError(
+                "defer_stale_duplicate_until_response_ack must be boolean"
+            )
         prepared = self._prepare_execution(arbitration, authorize)
         if prepared is None:
             return None
@@ -170,6 +175,12 @@ class HypervisorOperationChannel:
             # ACK processing from the caller that owns that channel.
             response.channel.process_ack()
             if response.has_pending_result((replay.source, replay.channel, replay.sequence)):
+                if defer_stale_duplicate_until_response_ack:
+                    # A Transit receiver may keep this duplicate at the head
+                    # until the original response is acknowledged, then
+                    # publish the cached semantic result under a fresh frame.
+                    # The handler remains bypassed throughout.
+                    return None
                 self._consume_after_execution(transport_sequence)
                 return None
             response.send(replay)
