@@ -342,6 +342,81 @@ class NavigableComputationDAG:
         )
         return False
 
+    def commit_frontier(
+        self,
+        results: Mapping[str, Mapping[str, Any]],
+        *,
+        expected_node_ids: Iterable[str] | None = None,
+    ) -> bool:
+        """Mathematics: atomically publish every result in one exact ready frontier; exact whole-frontier replay is idempotent."""
+        if not isinstance(results, Mapping) or not results:
+            raise ComputationDAGError("frontier results must be a non-empty node-to-result mapping")
+        entries = tuple(results.items())
+        node_ids = tuple(sorted(key for key, _ in entries if isinstance(key, str)))
+        if len(node_ids) != len(entries) or len(set(node_ids)) != len(node_ids):
+            raise ComputationDAGError("frontier result keys must be unique string node identifiers")
+        unknown = set(node_ids) - set(self._nodes)
+        if unknown:
+            raise ComputationDAGError(
+                f"frontier results name unknown nodes: {', '.join(sorted(unknown))}"
+            )
+
+        if expected_node_ids is not None:
+            if isinstance(expected_node_ids, (str, bytes)):
+                raise ComputationDAGError("expected_node_ids must be an iterable of node identifiers")
+            try:
+                expected = tuple(expected_node_ids)
+            except TypeError as exc:
+                raise ComputationDAGError("expected_node_ids must be iterable") from exc
+            if (
+                any(not isinstance(item, str) or item not in self._nodes for item in expected)
+                or len(expected) != len(set(expected))
+                or expected != tuple(sorted(expected))
+            ):
+                raise ComputationDAGError("expected frontier node identities must be unique known IDs in stable order")
+            if expected != node_ids:
+                raise ComputationDAGError("frontier results do not match the exact expected node identities")
+
+        prepared: dict[str, CommittedComputationResult] = {}
+        for node_id, result in entries:
+            if not isinstance(result, Mapping):
+                raise ComputationDAGError(f"frontier result for {node_id!r} must be a JSON object")
+            result_json = _canonical(dict(result)).decode("utf-8")
+            result_digest = hashlib.sha256(result_json.encode("utf-8")).hexdigest()
+            prepared[node_id] = CommittedComputationResult(
+                node_id=node_id,
+                node_digest=self._nodes[node_id].digest,
+                result_digest=result_digest,
+                _result_json=result_json,
+            )
+
+        committed = set(node_ids) & set(self._committed)
+        if committed:
+            if committed != set(node_ids):
+                raise ComputationDAGError("frontier retry conflicts with a partially committed frontier")
+            for node_id, candidate in prepared.items():
+                previous = self._committed[node_id]
+                if (
+                    previous.node_digest != candidate.node_digest
+                    or previous.result_digest != candidate.result_digest
+                ):
+                    raise ComputationDAGError("conflicting result commit for an existing frontier identity")
+            return True
+
+        ready = tuple(node.node_id for node in self.ready_nodes())
+        if node_ids != ready:
+            raise ComputationDAGError("frontier results do not cover the exact current ready frontier")
+        if any(
+            not all(dependency in self._committed for dependency in self._nodes[node_id].dependencies)
+            for node_id in node_ids
+        ):
+            raise ComputationDAGError("frontier contains a node whose dependencies remain uncommitted")
+
+        # All canonical JSON, node identities, dependency checks, and retry
+        # checks have succeeded. Publish the complete commit map in one update.
+        self._committed.update(prepared)
+        return False
+
     def result(self, node_id: str) -> dict[str, Any]:
         """Mathematics: retrieve R_v only for v∈dom(C), returning a detached JSON projection."""
 
