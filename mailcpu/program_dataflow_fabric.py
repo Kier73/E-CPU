@@ -343,30 +343,34 @@ class OperationNativeDataflowReport:
         return {**self._payload(), "digest": self.digest}
 
 
-def _contextual_orbit_predecessor(
+def _contextual_orbit_predecessors(
     graph: NavigableComputationDAG,
     operand: Mapping[str, Any],
     node_id: str,
-) -> ContextualOrbitDataflowInput | None:
-    """Mathematics: recover full typed orbit provenance from its committed DAG predecessor without flattening it."""
+) -> tuple[ContextualOrbitDataflowInput, ...]:
+    """Mathematics: collect compact, verified orbit provenance from the dependency's DAG ancestry."""
     if operand.get("kind") != "dependency":
-        return None
+        return ()
     dependency_id = operand.get("node_id")
     if not isinstance(dependency_id, str):
         raise OperationNativeDataflowError(f"node {node_id!r} has a malformed dependency operand")
-    result = graph.result(dependency_id)
-    raw = result.get("contextual_orbit_input")
-    if raw is None:
-        return None
-    if not isinstance(raw, Mapping):
-        raise OperationNativeDataflowError(f"node {node_id!r} has malformed contextual-orbit predecessor evidence")
-    try:
-        predecessor = ContextualOrbitDataflowInput.from_dict(raw)
-    except (TypeError, ValueError, KeyError) as exc:
-        raise OperationNativeDataflowError(f"node {node_id!r} contextual-orbit predecessor failed verification: {exc}") from exc
-    if result.get("predecessor_digest") != predecessor.digest or result.get("value") != predecessor.value:
-        raise OperationNativeDataflowError(f"node {node_id!r} contextual-orbit predecessor result was altered")
-    return predecessor
+    ancestor_ids = set(graph.lineage(dependency_id)) | {dependency_id}
+    collected: dict[str, ContextualOrbitDataflowInput] = {}
+    for ancestor_id in sorted(ancestor_ids):
+        result = graph.result(ancestor_id)
+        raw = result.get("contextual_orbit_input")
+        if raw is None:
+            continue
+        if not isinstance(raw, Mapping):
+            raise OperationNativeDataflowError(f"node {node_id!r} has malformed contextual-orbit predecessor evidence")
+        try:
+            predecessor = ContextualOrbitDataflowInput.from_dict(raw)
+        except (TypeError, ValueError, KeyError) as exc:
+            raise OperationNativeDataflowError(f"node {node_id!r} contextual-orbit predecessor failed verification: {exc}") from exc
+        if result.get("predecessor_digest") != predecessor.digest:
+            raise OperationNativeDataflowError(f"node {node_id!r} contextual-orbit predecessor result was altered")
+        collected[predecessor.digest] = predecessor
+    return tuple(collected[key] for key in sorted(collected))
 
 
 def _operand_value(
@@ -581,8 +585,8 @@ def execute_dataflow_operation_native(
                     raise OperationNativeDataflowError(f"ADD node {node_id!r} must have two operands")
                 left_value = _operand_value(graph, operands[0], node_id)
                 right_value = _operand_value(graph, operands[1], node_id)
-                left_orbit_input = _contextual_orbit_predecessor(graph, operands[0], node_id)
-                right_orbit_input = _contextual_orbit_predecessor(graph, operands[1], node_id)
+                left_orbit_inputs = _contextual_orbit_predecessors(graph, operands[0], node_id)
+                right_orbit_inputs = _contextual_orbit_predecessors(graph, operands[1], node_id)
                 left, left_register, left_reference = _lane_operand(
                     left_value,
                     node_id=node_id,
@@ -605,8 +609,8 @@ def execute_dataflow_operation_native(
                     right_register=right_register,
                     left_reference=left_reference,
                     right_reference=right_reference,
-                    left_orbit_input=left_orbit_input,
-                    right_orbit_input=right_orbit_input,
+                    left_orbit_inputs=left_orbit_inputs,
+                    right_orbit_inputs=right_orbit_inputs,
                 ))
                 continue
 
