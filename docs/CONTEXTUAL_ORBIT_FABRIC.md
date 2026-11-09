@@ -28,6 +28,8 @@ After the receiver reconstructs the request and recomputes the workload/operator
 3. validate the pinned base coordinate, context, specification digest, and certificate digest; and
 4. pass the untouched request to the receiver's trusted local handler.
 
+The access mode is also declared by the receiver's registered `OperatorSpec` and is included in that operator contract's digest. The receiver refuses a workload whose `VirtualOperatorRef` mode differs from the local contract; a caller cannot switch an ordinary read-based operator into navigation mode by editing the request.
+
 This authority check does **not** call `read_revision` and does not materialize the base coordinate. The trusted handler is bound to that receiver's `StructuralMemoryRegistry` and invokes the existing `ContextualOrbitNavigator.locate_value`. The navigator performs the supported inverse, forward-verifies the candidate under the admitted law and certified horizon, then reads the actual located coordinate and creates its `StructuralMemoryReadReceipt`, `VirtualGroundProjection`, and `ObserverReceipt`.
 
 The local Computational Address resolver may independently validate the base address while selecting a receiver. That validation is also a guarded metadata/horizon check, not a value read. A relay does not need to possess the Structural Memory revision or its read capability.
