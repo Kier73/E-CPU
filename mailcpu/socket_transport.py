@@ -533,8 +533,10 @@ class SocketTransport:
                     raise SocketTransportError("socket send timed out under backpressure")
                 continue
             except OSError as error:
+                self.close()
                 raise SocketTransportClosed(f"socket send failed: {error}") from error
             if written <= 0:
+                self.close()
                 raise SocketTransportClosed("socket send made no progress")
             view = view[written:]
 
