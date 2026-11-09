@@ -423,8 +423,13 @@ class OperationNativeDataflowReport:
         if not isinstance(self.execution, DataflowExecutionReport):
             raise OperationNativeDataflowError("execution must be a DataflowExecutionReport")
         receipts = tuple(self.frontier_receipts)
-        if any(not isinstance(item, DataflowAddFrontierReceipt) for item in receipts):
-            raise OperationNativeDataflowError("frontier_receipts must contain typed receipts")
+        from .partitioned_dataflow import BinaryFrontierCompositeReceipt
+        if any(
+            not isinstance(item, DataflowAddFrontierReceipt)
+            and not isinstance(item, BinaryFrontierCompositeReceipt)
+            for item in receipts
+        ):
+            raise OperationNativeDataflowError("frontier_receipts must contain typed single-host or composite receipts")
         if len({item.request_digest for item in receipts}) != len(receipts):
             raise OperationNativeDataflowError("one execution cannot repeat an binary frontier request identity")
         object.__setattr__(self, "frontier_receipts", receipts)
@@ -850,8 +855,15 @@ def _execute_dataflow_operation_native_impl(
                 lanes=tuple(sorted(lanes, key=lambda item: item.node_id)),
             )
             receipt = operation_dispatcher(request)
-            if type(receipt) is not receipt_type:
-                raise OperationNativeDataflowError(f"dispatcher did not return the exact typed {operation} frontier receipt")
+            from .partitioned_dataflow import BinaryFrontierCompositeReceipt
+            is_composite = (
+                isinstance(receipt, BinaryFrontierCompositeReceipt)
+                and receipt.operation == operation
+            )
+            if type(receipt) is not receipt_type and not is_composite:
+                raise OperationNativeDataflowError(
+                    f"dispatcher did not return the exact typed {operation} frontier receipt or its verified composite parent receipt"
+                )
             if receipt.request_digest != request.digest:
                 raise OperationNativeDataflowError("remote receipt belongs to a different frontier request")
             expected_ids = tuple(item.node_id for item in request.lanes)
