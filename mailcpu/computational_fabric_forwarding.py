@@ -1138,6 +1138,7 @@ class ComputationalFabricForwardingServer:
         policy: ReliabilityPolicy | None = None,
         timing_probe: Any | None = None,
         claim_coordinator: RecoveryLineageCoordinator | None = None,
+        claim_status_clients: Mapping[str, ComputationalFabricPeerClient] | None = None,
     ) -> "ComputationalFabricForwardingServer":
         """Mathematics: Accept one client only when its CA-verified certificate presents the directory's exact trusted DNS SAN."""
         previous = _peer(previous_peer_id, "previous_peer_id")
@@ -1169,6 +1170,7 @@ class ComputationalFabricForwardingServer:
                 policy=policy,
                 timing_probe=timing_probe,
                 claim_coordinator=claim_coordinator,
+                claim_status_clients=claim_status_clients,
             )
         except Exception:
             transport.close()
