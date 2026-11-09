@@ -351,13 +351,172 @@ class TransferableExecutionClaim:
 
 
 @dataclass(frozen=True)
+class ExecutionClaimMerkleStep:
+    """Mathematics: One domain-separated sibling commitment in a binary claim-state inclusion path."""
+
+    side: str
+    sibling_digest: str
+
+    def __post_init__(self) -> None:
+        """Mathematics: Restrict a Merkle path step to its exact left/right position and one SHA-256 sibling."""
+        if self.side not in {"left", "right"}:
+            raise TransferableExecutionClaimError("claim Merkle step side must be left or right")
+        _digest(self.sibling_digest, "claim Merkle sibling digest")
+
+    def to_dict(self) -> dict[str, str]:
+        """Mathematics: Serialize the exact side and sibling hash needed to reconstruct one parent node."""
+        return {"side": self.side, "sibling_digest": self.sibling_digest}
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "ExecutionClaimMerkleStep":
+        """Mathematics: Restore one Merkle sibling only from its exact two-field schema."""
+        if not isinstance(payload, Mapping) or set(payload) != {"side", "sibling_digest"}:
+            raise TransferableExecutionClaimError("claim Merkle step fields are malformed")
+        return cls(payload["side"], payload["sibling_digest"])
+
+
+def _claim_leaf_digest(claim: TransferableExecutionClaim) -> str:
+    """Mathematics: Domain-separate a claim leaf from internal tree nodes and bind both stable ID and current claim digest."""
+    if not isinstance(claim, TransferableExecutionClaim):
+        raise TransferableExecutionClaimError("claim Merkle leaves require typed claims")
+    payload = _canonical_json({
+        "claim_id": claim.claim_id,
+        "claim_digest": claim.digest,
+    })
+    return hashlib.sha256(b"\\x00" + payload).hexdigest()
+
+
+def _claim_parent_digest(left: str, right: str) -> str:
+    """Mathematics: Domain-separate an internal node as H(0x01 || left || right)."""
+    return hashlib.sha256(b"\\x01" + bytes.fromhex(left) + bytes.fromhex(right)).hexdigest()
+
+
+def _claim_merkle_paths(
+    claims: Mapping[str, TransferableExecutionClaim],
+) -> tuple[str, dict[str, tuple[int, tuple[ExecutionClaimMerkleStep, ...]]]]:
+    """Mathematics: Build a deterministic sorted binary Merkle root and one O(log n) inclusion path per claim."""
+    ordered = tuple(claims[key] for key in sorted(claims))
+    if not ordered:
+        return hashlib.sha256(b"\\x02empty-claim-state").hexdigest(), {}
+    levels: list[list[str]] = [[_claim_leaf_digest(item) for item in ordered]]
+    while len(levels[-1]) > 1:
+        current = levels[-1]
+        next_level = [
+            _claim_parent_digest(
+                current[index],
+                current[index + 1] if index + 1 < len(current) else current[index],
+            )
+            for index in range(0, len(current), 2)
+        ]
+        levels.append(next_level)
+    paths: dict[str, tuple[int, tuple[ExecutionClaimMerkleStep, ...]]] = {}
+    for original_index, claim in enumerate(ordered):
+        index = original_index
+        steps: list[ExecutionClaimMerkleStep] = []
+        for level in levels[:-1]:
+            if index % 2:
+                sibling = level[index - 1]
+                side = "left"
+            else:
+                sibling = level[index + 1] if index + 1 < len(level) else level[index]
+                side = "right"
+            steps.append(ExecutionClaimMerkleStep(side, sibling))
+            index //= 2
+        paths[claim.claim_id] = original_index, tuple(steps)
+    return levels[-1][0], paths
+
+
+def _verify_claim_merkle_path(
+    claim: TransferableExecutionClaim,
+    *,
+    claim_index: int,
+    claim_count: int,
+    steps: tuple[ExecutionClaimMerkleStep, ...],
+    expected_root: str,
+) -> None:
+    """Mathematics: Reconstruct the unique sorted-tree root from one claim leaf, index, finite count and ordered siblings."""
+    if type(claim_count) is not int or not 1 <= claim_count <= _MAX_CLAIMS:
+        raise TransferableExecutionClaimError("claim inclusion count is outside the finite state bound")
+    if type(claim_index) is not int or not 0 <= claim_index < claim_count:
+        raise TransferableExecutionClaimError("claim inclusion index is outside its state count")
+    _digest(expected_root, "claim Merkle root")
+    if any(not isinstance(item, ExecutionClaimMerkleStep) for item in steps):
+        raise TransferableExecutionClaimError("claim inclusion path must contain typed Merkle steps")
+    current = _claim_leaf_digest(claim)
+    index = claim_index
+    width = claim_count
+    cursor = 0
+    while width > 1:
+        if cursor >= len(steps):
+            raise TransferableExecutionClaimError("claim inclusion path is truncated")
+        step = steps[cursor]
+        expected_side = "left" if index % 2 else "right"
+        if step.side != expected_side:
+            raise TransferableExecutionClaimError("claim inclusion path has an invalid sibling orientation")
+        if index % 2 == 0 and index + 1 >= width and step.sibling_digest != current:
+            raise TransferableExecutionClaimError("claim inclusion path has an invalid odd-leaf duplication")
+        current = (
+            _claim_parent_digest(step.sibling_digest, current)
+            if step.side == "left"
+            else _claim_parent_digest(current, step.sibling_digest)
+        )
+        index //= 2
+        width = (width + 1) // 2
+        cursor += 1
+    if cursor != len(steps) or current != expected_root:
+        raise TransferableExecutionClaimError("claim inclusion path does not reach the quorum-anchored state root")
+
+
+def _state_commitment(
+    generation: int,
+    predecessor_digest: str,
+    claim_count: int,
+    claims_root: str,
+) -> dict[str, Any]:
+    """Mathematics: Commit the sorted claim-set Merkle root, count and lineage edge in a compact manifest payload."""
+    return {
+        "schema": "mailcpu.transferable-execution-claim-state-root.v1",
+        "generation": generation,
+        "predecessor_digest": predecessor_digest,
+        "claim_count": claim_count,
+        "claims_root": claims_root,
+    }
+
+
+def _validate_state_commitment(
+    payload: Mapping[str, Any],
+    manifest: RecoveryStateManifest,
+) -> dict[str, Any]:
+    """Mathematics: Require the compact Merkle-root envelope to be the exact bytes committed by the recovery manifest."""
+    expected = {"schema", "generation", "predecessor_digest", "claim_count", "claims_root"}
+    if not isinstance(payload, Mapping) or set(payload) != expected:
+        raise TransferableExecutionClaimError("claim state-root commitment fields are malformed")
+    if (
+        payload["schema"] != "mailcpu.transferable-execution-claim-state-root.v1"
+        or type(payload["generation"]) is not int
+        or payload["generation"] != manifest.generation
+        or payload["predecessor_digest"] != manifest.predecessor_digest
+        or type(payload["claim_count"]) is not int
+        or not 0 <= payload["claim_count"] <= _MAX_CLAIMS
+    ):
+        raise TransferableExecutionClaimError("claim state-root commitment does not match its recovery manifest")
+    _digest(payload["claims_root"], "claim Merkle root")
+    root_bytes = _canonical_json(dict(payload)) + b"\\n"
+    if len(root_bytes) > 64 * 1024 or hashlib.sha256(root_bytes).hexdigest() != manifest.state_digest:
+        raise TransferableExecutionClaimError("claim state-root bytes do not match their quorum manifest digest")
+    return dict(payload)
+
+
+@dataclass(frozen=True)
 class PortableExecutionClaimBundle:
-    """Mathematics: Portable claim, full state payload, recovery manifest and quorum proof form one independently verifiable bundle."""
+    """Mathematics: Compact claim, Merkle inclusion path, recovery manifest and quorum proof form a portable result-ownership ticket."""
 
     claim: TransferableExecutionClaim
     manifest: RecoveryStateManifest
     proof: RecoveryLineageProof
-    state_snapshot: Mapping[str, Any]
+    state_commitment: Mapping[str, Any]
+    claim_index: int
+    merkle_proof: tuple[ExecutionClaimMerkleStep, ...]
 
     def __post_init__(self) -> None:
         if not isinstance(self.claim, TransferableExecutionClaim):
@@ -366,74 +525,57 @@ class PortableExecutionClaimBundle:
             raise TransferableExecutionClaimError("claim bundle requires a typed recovery state manifest")
         if not isinstance(self.proof, RecoveryLineageProof):
             raise TransferableExecutionClaimError("claim bundle requires a typed recovery lineage proof")
-        if not isinstance(self.state_snapshot, Mapping):
-            raise TransferableExecutionClaimError("claim bundle state snapshot must be a mapping")
-        snapshot = deepcopy(dict(self.state_snapshot))
-        if set(snapshot) != {"schema", "claims"} or snapshot.get("schema") != _SCHEMA:
-            raise TransferableExecutionClaimError("claim ledger state snapshot fields or schema are invalid")
-        if not isinstance(snapshot.get("claims"), list):
-            raise TransferableExecutionClaimError("claim ledger state snapshot claims must be a list")
-        if len(snapshot["claims"]) > _MAX_CLAIMS:
-            raise TransferableExecutionClaimError("claim ledger exceeds the finite claim-count bound")
-        claims = tuple(TransferableExecutionClaim.from_dict(item) for item in snapshot["claims"])
-        ids = tuple(item.claim_id for item in claims)
-        if ids != tuple(sorted(set(ids))):
-            raise TransferableExecutionClaimError("claim ledger snapshot identities must be unique and sorted")
-        selected = tuple(item for item in claims if item.claim_id == self.claim.claim_id)
-        if len(selected) != 1 or selected[0].to_dict() != self.claim.to_dict():
-            raise TransferableExecutionClaimError("bundle claim is absent or differs from the quorum-bound state snapshot")
+        if not isinstance(self.state_commitment, Mapping):
+            raise TransferableExecutionClaimError("claim bundle state commitment must be a mapping")
+        commitment = _validate_state_commitment(deepcopy(dict(self.state_commitment)), self.manifest)
+        steps = tuple(self.merkle_proof)
+        _verify_claim_merkle_path(
+            self.claim,
+            claim_index=self.claim_index,
+            claim_count=commitment["claim_count"],
+            steps=steps,
+            expected_root=commitment["claims_root"],
+        )
         if self.manifest.capture_cut != _CAPTURE_CUT:
             raise TransferableExecutionClaimError("claim bundle manifest has the wrong capture cut")
-        payload = _canonical_json(snapshot) + b"\n"
-        if len(payload) > _MAX_STATE_BYTES:
-            raise TransferableExecutionClaimError("claim ledger state exceeds its finite serialized-byte bound")
-        if hashlib.sha256(payload).hexdigest() != self.manifest.state_digest:
-            raise TransferableExecutionClaimError("claim bundle state bytes differ from the recovery manifest")
         if (
             self.proof.proposal.slot != self.manifest.generation
             or self.proof.proposal.result_state_digest != self.manifest.digest
             or self.proof.proposal.request_fingerprint != self.manifest.request_fingerprint
             or self.proof.proposal.membership_digest != self.manifest.membership_digest
         ):
-            raise TransferableExecutionClaimError("claim bundle quorum proof does not anchor its exact manifest")
-        object.__setattr__(self, "state_snapshot", snapshot)
+            raise TransferableExecutionClaimError("claim bundle quorum proof does not anchor its exact state-root manifest")
+        object.__setattr__(self, "state_commitment", commitment)
+        object.__setattr__(self, "merkle_proof", steps)
 
-    def _validate_state_snapshot(self) -> dict[str, Any]:
-        """Mathematics: Recheck mutable nested snapshot projections against the immutable state digest and exact bound claim."""
-        snapshot = deepcopy(dict(self.state_snapshot))
-        if (
-            set(snapshot) != {"schema", "claims"}
-            or snapshot.get("schema") != _SCHEMA
-            or not isinstance(snapshot.get("claims"), list)
-            or len(snapshot["claims"]) > _MAX_CLAIMS
-        ):
-            raise TransferableExecutionClaimError("claim bundle state snapshot is malformed after construction")
-        state_bytes = _canonical_json(snapshot) + b"\n"
-        if len(state_bytes) > _MAX_STATE_BYTES or hashlib.sha256(state_bytes).hexdigest() != self.manifest.state_digest:
-            raise TransferableExecutionClaimError("claim bundle state snapshot changed after construction")
-        claims = tuple(TransferableExecutionClaim.from_dict(item) for item in snapshot["claims"])
-        ids = tuple(item.claim_id for item in claims)
-        if ids != tuple(sorted(set(ids))):
-            raise TransferableExecutionClaimError("claim bundle state snapshot identities are no longer canonical")
-        matches = tuple(item for item in claims if item.claim_id == self.claim.claim_id)
-        if len(matches) != 1 or matches[0].to_dict() != self.claim.to_dict():
-            raise TransferableExecutionClaimError("claim bundle no longer contains its exact bound claim")
-        return snapshot
+    def _validate_projection(self) -> dict[str, Any]:
+        """Mathematics: Recheck mutable root projections, proof orientation, count and claim inclusion against the immutable manifest."""
+        commitment = _validate_state_commitment(deepcopy(dict(self.state_commitment)), self.manifest)
+        _verify_claim_merkle_path(
+            self.claim,
+            claim_index=self.claim_index,
+            claim_count=commitment["claim_count"],
+            steps=tuple(self.merkle_proof),
+            expected_root=commitment["claims_root"],
+        )
+        return commitment
 
     @property
     def digest(self) -> str:
-        """Mathematics: Identify the complete portable claim, state snapshot, manifest and quorum proof."""
+        """Mathematics: Identify the compact claim ticket, manifest, inclusion path and quorum proof."""
         return hashlib.sha256(_canonical_json(self.to_dict(include_digest=False))).hexdigest()
 
     def to_dict(self, *, include_digest: bool = True) -> dict[str, Any]:
-        """Mathematics: Serialize the complete claim bundle without omitting the state bytes needed for independent validation."""
-        snapshot = self._validate_state_snapshot()
+        """Mathematics: Serialize only the claim leaf, compact quorum root and logarithmic inclusion path."""
+        commitment = self._validate_projection()
         payload = {
-            "schema": "mailcpu.portable-execution-claim-bundle.v1",
+            "schema": "mailcpu.portable-execution-claim-bundle.v2",
             "claim": self.claim.to_dict(),
             "manifest": self.manifest.snapshot(),
             "proof": self.proof.snapshot(),
-            "state_snapshot": snapshot,
+            "state_commitment": commitment,
+            "claim_index": self.claim_index,
+            "merkle_proof": [item.to_dict() for item in self.merkle_proof],
         }
         if include_digest:
             payload["digest"] = hashlib.sha256(_canonical_json(payload)).hexdigest()
@@ -441,43 +583,46 @@ class PortableExecutionClaimBundle:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "PortableExecutionClaimBundle":
-        """Mathematics: Rehydrate a portable claim bundle and recompute every nested digest before exposure."""
-        expected = {"schema", "claim", "manifest", "proof", "state_snapshot", "digest"}
+        """Mathematics: Restore one compact claim ticket only after its Merkle path, root commitment and quorum proof validate."""
+        expected = {
+            "schema", "claim", "manifest", "proof", "state_commitment",
+            "claim_index", "merkle_proof", "digest",
+        }
         if (
             not isinstance(payload, Mapping)
             or set(payload) != expected
-            or payload.get("schema") != "mailcpu.portable-execution-claim-bundle.v1"
-            or not all(isinstance(payload.get(key), Mapping) for key in ("claim", "manifest", "proof", "state_snapshot"))
+            or payload.get("schema") != "mailcpu.portable-execution-claim-bundle.v2"
+            or not all(isinstance(payload.get(key), Mapping) for key in (
+                "claim", "manifest", "proof", "state_commitment"
+            ))
+            or not isinstance(payload.get("merkle_proof"), list)
         ):
-            raise TransferableExecutionClaimError("portable execution claim bundle fields or schema are invalid")
-        state_claims = payload["state_snapshot"].get("claims")
-        if not isinstance(state_claims, list) or len(state_claims) > _MAX_CLAIMS:
-            raise TransferableExecutionClaimError("portable claim bundle exceeds the finite claim-count bound")
-        state_bytes = _canonical_json(payload["state_snapshot"]) + b"\n"
-        if len(state_bytes) > _MAX_STATE_BYTES:
-            raise TransferableExecutionClaimError("portable claim bundle exceeds the finite state-byte bound")
+            raise TransferableExecutionClaimError("portable execution claim ticket fields or schema are invalid")
         projection = {key: payload[key] for key in (
-            "schema", "claim", "manifest", "proof", "state_snapshot"
+            "schema", "claim", "manifest", "proof", "state_commitment",
+            "claim_index", "merkle_proof",
         )}
         if payload["digest"] != hashlib.sha256(_canonical_json(projection)).hexdigest():
-            raise TransferableExecutionClaimError("portable execution claim bundle digest mismatch")
+            raise TransferableExecutionClaimError("portable execution claim ticket digest mismatch")
         try:
             return cls(
                 TransferableExecutionClaim.from_dict(payload["claim"]),
                 RecoveryStateManifest.from_snapshot(payload["manifest"]),
                 RecoveryLineageProof.from_snapshot(payload["proof"]),
-                payload["state_snapshot"],
+                payload["state_commitment"],
+                payload["claim_index"],
+                tuple(ExecutionClaimMerkleStep.from_dict(item) for item in payload["merkle_proof"]),
             )
         except (KeyError, TypeError, ValueError, RecoveryLineageError) as exc:
             if isinstance(exc, TransferableExecutionClaimError):
                 raise
-            raise TransferableExecutionClaimError("portable execution claim bundle contains invalid proof material") from exc
+            raise TransferableExecutionClaimError("portable execution claim ticket contains invalid proof material") from exc
 
     def verify_current(self, coordinator: RecoveryLineageCoordinator) -> None:
-        """Mathematics: Admit the bundle only if the configured live quorum still recognizes this exact manifest as high-water."""
+        """Mathematics: Admit the ticket only if live quorum high-water still matches its root manifest and exact commit proof."""
         if not isinstance(coordinator, RecoveryLineageCoordinator):
             raise TransferableExecutionClaimError("claim verification requires a RecoveryLineageCoordinator")
-        self._validate_state_snapshot()
+        self._validate_projection()
         try:
             proof = coordinator.verify_state(self.manifest)
         except RecoveryLineageError as exc:
@@ -498,7 +643,7 @@ class PortableExecutionClaimBundle:
         owner_host_id: str,
         implementation_fingerprint: str,
     ) -> None:
-        """Mathematics: Verify current quorum ownership and the exact typed semantic/address/implementation target binding."""
+        """Mathematics: Verify live quorum ownership and exact typed semantic/address/implementation target binding."""
         self.verify_current(coordinator)
         if not isinstance(operator_spec, OperatorSpec) or not operator_spec.replay_safe:
             raise TransferableExecutionClaimError("target must provide a typed deterministic pure OperatorSpec")
