@@ -94,7 +94,7 @@ Claim-bound child receipts preserve the original assignment ticket and terminal 
 
 ### Remaining recovery boundary
 
-This increment does not yet automatically rehome a failed child to another host. It refuses stale or conflicting child completion and preserves incomplete progress, but a later orchestration layer must use the existing `reassign()` transition, re-resolve a compatible route and retry the same semantic child under the new epoch. The failure-evidence digest is an observation commitment, not proof that an isolated prior Host has stopped.
+Automatic pure-child rehome is implemented in the partitioned dispatcher. The remaining distributed boundary is authenticated claim-status access on each execution Host and adversarial testing of concurrent rehome/completion, authority quorum loss, and receiver/relay restart during each persisted checkpoint cut. The existing `DistributedRecoveryLineageCoordinator` and mutual-TLS authority service provide the underlying quorum path; each Host must still be provisioned with the same live fixed-membership coordinator. A portable ticket or local cache alone is never current authority.
 
 The `DistributedRecoveryLineageCoordinator` and existing mutual-TLS authority service provide the multi-process authority path. Each participating Host must bind its own live coordinator to the same configured fixed membership; no local cache or caller-supplied ticket substitutes for current quorum status.
 
