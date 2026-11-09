@@ -1697,6 +1697,8 @@ class ComputationalFabricDataflowBinaryDispatcher:
             raise OperationNativeDataflowError("parent request digest and portable execution claim must be supplied together")
         if claim_bundle is not None and not isinstance(claim_bundle, PortableExecutionClaimBundle):
             raise OperationNativeDataflowError("claim_bundle must be a typed PortableExecutionClaimBundle")
+        if claim_bundle is not None and self.execution_claim_store is None:
+            raise OperationNativeDataflowError("claim-bound dispatch requires the origin's live TransferableExecutionClaimStore")
         envelope = ComputationalFabricForwardingEnvelope.begin(
             address,
             route,
@@ -1742,6 +1744,22 @@ class ComputationalFabricDataflowBinaryDispatcher:
             }
             if not isinstance(execution_claim_attestation, Mapping) or dict(execution_claim_attestation) != expected_attestation:
                 raise OperationNativeDataflowError("terminal receipt does not preserve the exact admitted claim identity, epoch and quorum ticket")
+            try:
+                current_bundle = self.refresh_execution_claims((claim_bundle.claim.claim_id,))[claim_bundle.claim.claim_id]
+            except OperationNativeDataflowError:
+                raise
+            current_claim = current_bundle.claim
+            if (
+                current_claim.status.value != "assigned"
+                or current_claim.claim_id != claim_bundle.claim.claim_id
+                or current_claim.current_assignment != claim_bundle.claim.current_assignment
+                or current_claim.parent_request_digest != claim_bundle.claim.parent_request_digest
+                or current_claim.child_request_digest != claim_bundle.claim.child_request_digest
+                or current_claim.address_digest != claim_bundle.claim.address_digest
+            ):
+                raise OperationNativeDataflowError(
+                    "origin refused the child result because its assignment changed before receipt acceptance"
+                )
         elif execution_claim_attestation is not None:
             raise OperationNativeDataflowError("unclaimed dispatch received an unexpected execution-claim attestation")
         execution = terminal_execution["execution"]
