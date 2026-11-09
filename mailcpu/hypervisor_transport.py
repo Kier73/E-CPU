@@ -119,18 +119,27 @@ class HypervisorOperationChannel:
     ) -> HypervisorExecutionResult | None:
         """Mathematics: commit `result` to the reverse channel before request `ACK`, preserving retryability when response delivery fails."""
 
+        if not isinstance(response, HypervisorOperationResultChannel):
+            raise HypervisorOperationTransportError("operation reply requires a HypervisorOperationResultChannel")
+        # Reconcile reverse-direction ACKs before deciding whether a previous
+        # response frame still owns delivery of this semantic operation.
+        response.channel.process_ack()
         prepared = self._prepare_execution(arbitration, authorize)
         if prepared is None:
             return None
         transport_sequence, authorized, replay = prepared
-        if not isinstance(response, HypervisorOperationResultChannel):
-            raise HypervisorOperationTransportError("operation reply requires a HypervisorOperationResultChannel")
         if replay is not None:
-            # The old transport sequence was already consumed after its
-            # result was published. Re-ACK it, but leave result delivery to
-            # the already-pending response channel frame.
+            if response.has_pending_result(replay.identity):
+                # The exact committed result is still in the sender window.
+                # Re-ACK the stale request and leave delivery to that frame.
+                self._consume_after_execution(transport_sequence)
+                return None
+            # The previous result was already acknowledged. Re-publish the
+            # cached semantic result under a new transport sequence, without
+            # entering the handler or mutating guest state again.
+            response.send(replay)
             self._consume_after_execution(transport_sequence)
-            return None
+            return replay
         result = arbitration.execute(authorized, handlers, effect_encoder)
         response.send(result)
         self._consume_after_execution(transport_sequence)
@@ -151,16 +160,21 @@ class HypervisorOperationChannel:
             raise HypervisorOperationTransportError("operation reply requires a HypervisorOperationResultChannel")
         if not isinstance(handlers, Mapping) or any(not callable(handler) for handler in handlers.values()):
             raise HypervisorOperationTransportError("event handlers must be a mapping of callables")
+        # The reverse reliable channel is independently owned. Drain its
+        # ACK mailbox before selecting between the original pending result
+        # and a fresh transport delivery of the same cached semantic result.
+        response.channel.process_ack()
         prepared = self._prepare_execution(arbitration, authorize)
         if prepared is None:
             return None
         transport_sequence, authorized, replay = prepared
         if replay is not None:
-            # In this ordered path, request ACK follows response publication.
-            # A retransmitted old frame therefore cannot own a second result
-            # publication; the captured pending response remains authoritative.
+            if response.has_pending_result(replay.identity):
+                self._consume_after_execution(transport_sequence)
+                return None
+            response.send(replay)
             self._consume_after_execution(transport_sequence)
-            return None
+            return replay
         if fault_hook is not None:
             if not callable(fault_hook):
                 raise HypervisorOperationTransportError("fault hook must be callable")
@@ -267,6 +281,40 @@ class HypervisorOperationResultChannel:
 
         self._validate_result(result)
         return self.channel.send({"kind": OPERATION_RESULT_KIND, "result": result.to_dict()})
+
+    def has_pending_result(
+        self,
+        identity: tuple[str, str, int],
+    ) -> bool:
+        """Mathematics: test whether the reliable sender window still owns a result for semantic identity I."""
+        if (
+            not isinstance(identity, tuple)
+            or len(identity) != 3
+            or not isinstance(identity[0], str)
+            or not identity[0]
+            or not isinstance(identity[1], str)
+            or not identity[1]
+            or type(identity[2]) is not int
+            or identity[2] <= 0
+        ):
+            raise HypervisorOperationTransportError(
+                "pending result lookup requires a valid semantic operation identity"
+            )
+        for sequence, pending in sorted(self.channel._pending.items()):
+            frame = pending.frame
+            if (
+                frame.op != "RDATA"
+                or len(frame.body) != 3
+                or frame.body[0] != self.channel.channel
+                or frame.body[1] != sequence
+            ):
+                raise HypervisorOperationTransportError(
+                    "pending result sender window contains a foreign frame"
+                )
+            result = self._decode_payload(frame.body[2])
+            if result.identity == identity:
+                return True
+        return False
 
     def receive(self) -> HypervisorExecutionResult | None:
         """Mathematics: apply semantic result law `S[I]` before consuming and acknowledging the reliable response frame."""
