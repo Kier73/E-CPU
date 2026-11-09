@@ -624,9 +624,9 @@ def run_benchmark(
                 max_work_units=len(plan.nodes),
                 timing_probe=local_probe,
             )
-            verification_digest = _verification_digest(
-                plan, program, measured_report, expected, lanes
-            )
+        verification_digest = _verification_digest(
+            plan, program, measured_report, expected, lanes
+        )
         local_report = measured_report
         if index >= warmups:
             local_run_evidence.append((
