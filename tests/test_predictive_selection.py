@@ -577,7 +577,7 @@ def test_predictive_selector_advises_page_access_trace_from_independent_held_out
     baseline_law = Law(
         "fgraph",
         {"orbit": [0, 1, 2, 3], "mu": 0, "lam": 4},
-        1,
+        4,
         "GROUND",
     )
     memory_id = "page-access-description"
@@ -630,7 +630,7 @@ def test_predictive_selector_advises_page_access_trace_from_independent_held_out
             "mu": 0,
             "lam": len(observed_access_trace),
         },
-        1,
+        len(observed_access_trace),
         "GROUND",
     )
     observed_proposal = registry.propose(
