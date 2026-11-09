@@ -198,7 +198,6 @@ def test_binary_frontier_partition_rejects_wrong_operation_host_contract() -> No
         energy_per_byte=2,
         max_input_bytes=262_144,
         max_output_bytes=262_144,
-        replay_safe=True,
     )
     route = _route(
         "peer-b",
