@@ -26,6 +26,7 @@ from .recovery_lineage import (
     RecoveryLineageProof,
     RecoveryStateManifest,
 )
+from .virtual_layer import OperatorSpec
 
 
 class TransferableExecutionClaimError(ValueError):
@@ -176,6 +177,7 @@ class TransferableExecutionClaim:
     address_digest: str
     operator_id: str
     operator_contract_digest: str
+    operator_spec: OperatorSpec
     computational_ground_fingerprint: str
     replay_policy: str
     assignments: tuple[ExecutionClaimAssignment, ...]
@@ -194,6 +196,16 @@ class TransferableExecutionClaim:
         ):
             _digest(getattr(self, name), name)
         _label(self.operator_id, "operator id", 256)
+        if not isinstance(self.operator_spec, OperatorSpec):
+            raise TransferableExecutionClaimError("transferable claim requires the exact typed OperatorSpec")
+        if (
+            self.operator_spec.operator_id != self.operator_id
+            or self.operator_spec.digest != self.operator_contract_digest
+            or not self.operator_spec.replay_safe
+        ):
+            raise TransferableExecutionClaimError(
+                "transferable claim requires a matching deterministic pure OperatorSpec"
+            )
         if self.replay_policy != REPLAY_POLICY_PURE:
             raise TransferableExecutionClaimError(
                 "transferable claims currently admit only the pure replay-safe execution policy"
@@ -243,6 +255,7 @@ class TransferableExecutionClaim:
             "address_digest": self.address_digest,
             "operator_id": self.operator_id,
             "operator_contract_digest": self.operator_contract_digest,
+            "operator_spec": self.operator_spec.to_dict(),
             "computational_ground_fingerprint": self.computational_ground_fingerprint,
             "replay_policy": self.replay_policy,
         })).hexdigest()
@@ -261,6 +274,7 @@ class TransferableExecutionClaim:
             "address_digest": self.address_digest,
             "operator_id": self.operator_id,
             "operator_contract_digest": self.operator_contract_digest,
+            "operator_spec": self.operator_spec.to_dict(),
             "computational_ground_fingerprint": self.computational_ground_fingerprint,
             "replay_policy": self.replay_policy,
             "assignments": [item.to_dict() for item in self.assignments],
@@ -284,7 +298,7 @@ class TransferableExecutionClaim:
         """Mathematics: Restore a claim only after validating its exact schema, assignment sequence, stable id and digest."""
         expected = {
             "schema", "parent_request_digest", "child_request_digest", "address_digest",
-            "operator_id", "operator_contract_digest", "computational_ground_fingerprint",
+            "operator_id", "operator_contract_digest", "operator_spec", "computational_ground_fingerprint",
             "replay_policy", "assignments", "status", "result_digest",
             "child_receipt_digest", "completion_generation", "claim_id", "digest",
         }
@@ -293,6 +307,7 @@ class TransferableExecutionClaim:
             or set(payload) != expected
             or payload.get("schema") != "mailcpu.transferable-execution-claim.v1"
             or not isinstance(payload.get("assignments"), list)
+            or not isinstance(payload.get("operator_spec"), Mapping)
         ):
             raise TransferableExecutionClaimError("transferable execution claim fields or schema are invalid")
         try:
@@ -302,6 +317,7 @@ class TransferableExecutionClaim:
                 address_digest=payload["address_digest"],
                 operator_id=payload["operator_id"],
                 operator_contract_digest=payload["operator_contract_digest"],
+                operator_spec=OperatorSpec.from_dict(payload["operator_spec"]),
                 computational_ground_fingerprint=payload["computational_ground_fingerprint"],
                 replay_policy=payload["replay_policy"],
                 assignments=tuple(ExecutionClaimAssignment.from_dict(item) for item in payload["assignments"]),
@@ -744,8 +760,7 @@ class TransferableExecutionClaimStore:
         parent_request_digest: str,
         child_request_digest: str,
         address_digest: str,
-        operator_id: str,
-        operator_contract_digest: str,
+        operator_spec: OperatorSpec,
         computational_ground_fingerprint: str,
         owner_peer_id: str,
         owner_host_id: str,
@@ -755,6 +770,8 @@ class TransferableExecutionClaimStore:
         """Mathematics: Create exactly one quorum-assigned claim for an immutable replay-safe child operation."""
         if replay_policy != REPLAY_POLICY_PURE:
             raise TransferableExecutionClaimError("only pure replay-safe operations are currently transferable")
+        if not isinstance(operator_spec, OperatorSpec) or not operator_spec.replay_safe:
+            raise TransferableExecutionClaimError("only a typed deterministic pure OperatorSpec may receive a transferable claim")
         initial = ExecutionClaimAssignment(
             1,
             owner_peer_id,
@@ -766,8 +783,9 @@ class TransferableExecutionClaimStore:
             parent_request_digest,
             child_request_digest,
             address_digest,
-            operator_id,
-            operator_contract_digest,
+            operator_spec.operator_id,
+            operator_spec.digest,
+            operator_spec,
             computational_ground_fingerprint,
             replay_policy,
             (initial,),
@@ -792,6 +810,7 @@ class TransferableExecutionClaimStore:
                 candidate.address_digest,
                 candidate.operator_id,
                 candidate.operator_contract_digest,
+                candidate.operator_spec,
                 candidate.computational_ground_fingerprint,
                 candidate.replay_policy,
                 (ExecutionClaimAssignment(1, owner_peer_id, owner_host_id, implementation_fingerprint, next_generation),),
@@ -871,6 +890,7 @@ class TransferableExecutionClaimStore:
                 current.address_digest,
                 current.operator_id,
                 current.operator_contract_digest,
+                current.operator_spec,
                 current.computational_ground_fingerprint,
                 current.replay_policy,
                 current.assignments + (assignment,),
@@ -933,6 +953,7 @@ class TransferableExecutionClaimStore:
                 current.address_digest,
                 current.operator_id,
                 current.operator_contract_digest,
+                current.operator_spec,
                 current.computational_ground_fingerprint,
                 current.replay_policy,
                 current.assignments,
