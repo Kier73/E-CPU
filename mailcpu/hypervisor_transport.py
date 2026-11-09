@@ -129,7 +129,7 @@ class HypervisorOperationChannel:
             return None
         transport_sequence, authorized, replay = prepared
         if replay is not None:
-            if response.has_pending_result(replay.identity):
+            if response.has_pending_result((replay.source, replay.channel, replay.sequence)):
                 # The exact committed result is still in the sender window.
                 # Re-ACK the stale request and leave delivery to that frame.
                 self._consume_after_execution(transport_sequence)
@@ -169,7 +169,7 @@ class HypervisorOperationChannel:
             return None
         transport_sequence, authorized, replay = prepared
         if replay is not None:
-            if response.has_pending_result(replay.identity):
+            if response.has_pending_result((replay.source, replay.channel, replay.sequence)):
                 self._consume_after_execution(transport_sequence)
                 return None
             response.send(replay)
