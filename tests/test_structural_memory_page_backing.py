@@ -102,9 +102,15 @@ def test_structural_memory_page_backing_bounds_host_cache_and_reuses_verified_ra
     assert backing.get_page(first_digest) == first_expected
     assert backing._retention_score(first_digest) >= score_before * 2
 
-    # The fifth candidate may itself be the lowest-value page. The weighted
-    # policy must retain exactly four of the five and evict the minimum score,
-    # not unconditionally displace an older page.
+    # Give one original page a deliberately low measured regeneration
+    # cost. The policy must evict it even though it is not the oldest page;
+    # this makes the adaptive decision deterministic without wall-clock tests.
+    forced_victim = pages[3][0]
+    backing._regeneration_cost_ns[forced_victim] = 1
+    backing._cache_hits[forced_victim] = 0
+    assert backing._retention_score(forced_victim) == 0
+
+    # The fifth candidate competes for the bounded page-cache slots.
     assert backing.get_page(pages[4][0]) == pages[4][1]
     assert backing.cached_page_count == 4
     assert backing.cached_page_bytes == 4 * 8
@@ -122,6 +128,7 @@ def test_structural_memory_page_backing_bounds_host_cache_and_reuses_verified_ra
     ]
     assert len(evicted) == 1
     evicted_digest, evicted_expected, old_receipt = evicted[0]
+    assert evicted_digest == forced_victim
     assert old_receipt is not None
 
     # Re-faulting whichever candidate lost the retention competition
