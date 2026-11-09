@@ -1406,6 +1406,7 @@ class ComputationalFabricDataflowBinaryDispatcher:
         self.eligible_nodes_by_frontier = eligible_nodes_by_frontier
         self.origin_channel = origin_channel
         self.first_sequence = first_sequence
+        self.frontier_sequence_stride = 1
         self.logical_time = logical_time
         self.max_hops = max_hops
         self.metric_order = metrics
@@ -1575,7 +1576,7 @@ class ComputationalFabricDataflowBinaryDispatcher:
                 )
             route = matching[0]
         if origin_sequence is None:
-            selected_origin_sequence = self.first_sequence + request.frontier_index
+            selected_origin_sequence = self.first_sequence + request.frontier_index * self.frontier_sequence_stride
         else:
             if type(origin_sequence) is not int or origin_sequence < 1:
                 raise OperationNativeDataflowError("origin_sequence override must be a positive strict integer")
