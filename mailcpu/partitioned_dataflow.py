@@ -635,7 +635,6 @@ class BinaryFrontierExecutionCheckpoint:
         if any(not isinstance(item, BinaryFrontierPartitionReassignment) for item in history):
             raise OperationNativeDataflowError("checkpoint reassignment history must contain typed reassignment records")
         current = {item.request.digest: item for item in self.plan.partitions}
-        original = dict(current)
         latest_epochs: dict[str, int] = {}
         for item in history:
             key = item.child_request_digest
@@ -1064,8 +1063,7 @@ class PartitionedComputationalFabricDataflowBinaryDispatcher:
             "acknowledgement exhausted its retry budget",
             "without acknowledging the corresponding request frame",
             "could not enqueue forwarding operation",
-            "no authenticated forwarding client is configured",
-            "no feasible remote host for child",
+            "preplanned child route is no longer an exact candidate",
         ))
 
     def _apply_reassignment_intents(
@@ -1134,7 +1132,11 @@ class PartitionedComputationalFabricDataflowBinaryDispatcher:
         if not failed:
             return state
         failed_keys = {partition.request.digest for partition, _error in failed}
-        occupied_hosts = {
+        failed_hosts = {
+            (partition.route_witness.target_host.peer_id, partition.route_witness.target_host.host_id)
+            for partition, _error in failed
+        }
+        occupied_hosts = failed_hosts | {
             (partition.route_witness.target_host.peer_id, partition.route_witness.target_host.host_id)
             for partition in state.current_partitions
             if partition.request.digest not in failed_keys
@@ -1488,6 +1490,10 @@ class PartitionedComputationalFabricDataflowBinaryDispatcher:
                     rehomeable,
                     claim_tickets,
                 )
+            except PartitionedFrontierIncomplete as exc:
+                state = exc.checkpoint
+                last_failures.append(f"rehome: {type(exc).__name__}: {str(exc)[:512]}")
+                break
             except Exception as exc:
                 last_failures.append(f"rehome: {type(exc).__name__}: {str(exc)[:512]}")
                 break
