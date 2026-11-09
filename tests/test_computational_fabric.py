@@ -3114,3 +3114,347 @@ def test_compiled_dataflow_frontiers_execute_on_distinct_fabric_hosts_with_egpu(
                 thread.join(timeout=5.0)
         listener_b.close()
         listener_c.close()
+
+
+
+def test_contextual_orbit_inverse_navigation_executes_on_receiver_over_multihop_fabric(tmp_path) -> None:
+    """A→B→C routes an inverse query; C reads only the located coordinate after local Hypervisor admission."""
+    from mailcpu import (
+        ComputationalFabricForwardingClient,
+        ComputationalFabricForwardingServer,
+        RepresentationRef,
+    )
+    from mailcpu.classifier import HypervisorPolicy
+    from mailcpu.computational_fabric_forwarding import (
+        COMPUTATIONAL_FABRIC_EXECUTE_RESOURCE,
+        COMPUTATIONAL_FABRIC_FORWARD_RESOURCE,
+    )
+    from mailcpu.law_certifier import Law
+    from mailcpu.observer_orbit import (
+        ContextualOrbitAddress,
+        ObserverContract,
+        contextual_orbit_context,
+    )
+    from mailcpu.orbit_fabric import (
+        ContextualOrbitLocateValueDispatcher,
+        ContextualOrbitLocateValueRequest,
+        contextual_orbit_locate_value_operator_spec,
+        make_contextual_orbit_locate_value_handler,
+    )
+    from mailcpu.semantic_translation import (
+        ObservationContract,
+        canonical_value_digest,
+        structural_memory_spec_representation_ref,
+    )
+    from mailcpu.temporal import SchedulerReading
+    from mailcpu.virtual_layer import VirtualStructuralMemoryRef
+
+    certificates = _make_test_certificates(tmp_path)
+    listener_b = SocketTransport.listen("127.0.0.1", 0)
+    listener_c = SocketTransport.listen("127.0.0.1", 0)
+    endpoint_a = _endpoint("peer-a", port=44001)
+    endpoint_b = _endpoint("peer-b", port=listener_b.getsockname()[1])
+    endpoint_c = _endpoint("peer-c", port=listener_c.getsockname()[1])
+
+    seed_source = HeadlessOS()
+    system_identity = SystemIdentity("contextual-orbit-fabric-system", 1)
+    seed_envelope = SystemSeedEnvelope(
+        system_identity,
+        "contextual-orbit-fabric",
+        "contextual-orbit-fabric",
+        SystemSeed.from_system(seed_source),
+    )
+    peer_b_os = HeadlessOS()
+    peer_c_os = HeadlessOS(
+        structural_memory_admission_policy=lambda proposal: proposal.spec.domain == "contextual-orbit"
+    )
+    assert peer_c_os.seed_admission.admit(seed_envelope).accepted
+    system_ground = VirtualGroundRef.from_envelope(seed_envelope)
+
+    computational_ground = RepresentationRef.from_payload(
+        "mailcpu.computational-ground",
+        1,
+        {"name": "integer-orbit-ground", "revision": 1},
+    )
+    context = contextual_orbit_context(
+        system_identity,
+        system_ground,
+        computational_ground,
+        scheduler_id="vm-scheduler",
+        extensions={"lane": "primary", "purpose": "remote-inverse"},
+    )
+    law = Law(
+        family="int",
+        params={"x0": 4, "step": 7, "mod": 101},
+        order=1,
+        verdict="GROUND",
+    )
+    target_coordinate = 23
+    target_value = law.navigate(target_coordinate)
+    memory_proposal = peer_c_os.structural_memory.propose(
+        "contextual-orbit-remote-inverse",
+        law,
+        {coordinate: law.navigate(coordinate) for coordinate in range(12)},
+        domain="contextual-orbit",
+        context=context,
+    )
+    memory_version = peer_c_os.structural_memory.admit(
+        memory_proposal.proposal_id,
+        expected_revision=0,
+    )
+    base_memory_reference = VirtualStructuralMemoryRef.from_version(
+        "orbit-generator",
+        memory_version,
+        0,
+    )
+    base_address = ContextualOrbitAddress(
+        system_identity=system_identity,
+        base_ground=system_ground,
+        computational_ground=computational_ground,
+        coordinate=SchedulerReading("vm-scheduler", system_ground.coordinate),
+        structural_memory=base_memory_reference,
+        context_extensions={"lane": "primary", "purpose": "remote-inverse"},
+    )
+    observer = ObserverContract(
+        observer_id="remote-inverse-observer",
+        revision=1,
+        subject=structural_memory_spec_representation_ref(memory_version.spec),
+        interpretation=computational_ground,
+        observation=ObservationContract.from_definition(
+            "mailcpu.orbit.scalar-value",
+            1,
+            {"fields": ["coordinate", "offset", "value", "value_digest"]},
+        ),
+        context_digest=canonical_value_digest(context),
+    )
+    request = ContextualOrbitLocateValueRequest(
+        base_address,
+        observer,
+        target_value,
+    )
+    operator_spec = contextual_orbit_locate_value_operator_spec()
+
+    allow_policy = HypervisorPolicy(
+        review_confidence=0.0,
+        automatic_confidence=0.0,
+        destructive_confidence=0.0,
+        danger_review_probability=1.0,
+    )
+    peer_b_os.hypervisor.policy = allow_policy
+    peer_c_os.hypervisor.policy = allow_policy
+    peer_b_pid = peer_b_os.environment.kernel.spawn(
+        "contextual-orbit-relay-b",
+        capabilities=(Capability(COMPUTATIONAL_FABRIC_FORWARD_RESOURCE, frozenset({"forward"})),),
+        parent_pid=peer_b_os.environment.init_pid,
+    )
+    peer_c_pid = peer_c_os.environment.kernel.spawn(
+        "contextual-orbit-receiver-c",
+        capabilities=(
+            Capability(COMPUTATIONAL_FABRIC_EXECUTE_RESOURCE, frozenset({"execute"})),
+            Capability("/virtual-layer/operators", frozenset({"compute"})),
+            Capability("/structural-memory/read", frozenset({"read"})),
+        ),
+        parent_pid=peer_c_os.environment.init_pid,
+    )
+
+    registry_c = OperatorRegistry()
+    registry_c.register(
+        operator_spec,
+        make_contextual_orbit_locate_value_handler(peer_c_os.structural_memory),
+    )
+    runtime_c = VirtualLayerRuntime(registry_c, "node-c", frozenset({"cpu"}))
+    implementation_fingerprint = "d" * 64
+    locus_c = ComputationalHostLocus.from_runtime(
+        host_id="logical-host-c-orbit",
+        runtime=runtime_c,
+        authority_pid=peer_c_pid,
+        operator_id=operator_spec.operator_id,
+        version=operator_spec.version,
+        computational_ground_fingerprints=(GROUND_FP,),
+        supports_ground_program_compilation=True,
+        supports_structural_memory=True,
+        costs=_host_costs(3, energy=12, bytes_=256),
+        implementation_fingerprint=implementation_fingerprint,
+    )
+    catalogue_c = ComputationalHostCatalogue((locus_c,))
+    advertisement_c = ComputationalHostAdvertisement.from_locus(locus_c, "peer-c")
+
+    snapshot_a = ComputationalPeerSnapshot(endpoint_a, 1, 60, (), (_link("peer-a", "peer-b", 2),))
+    snapshot_b = ComputationalPeerSnapshot(endpoint_b, 1, 60, (), (_link("peer-b", "peer-c", 3),))
+    snapshot_c = ComputationalPeerSnapshot(endpoint_c, 1, 60, (advertisement_c,), ())
+    directory_a = _directory(snapshot_a, snapshot_b, snapshot_c, local_peer_id="peer-a")
+    directory_b = _directory(snapshot_a, snapshot_b, snapshot_c, local_peer_id="peer-b")
+    directory_c = _directory(snapshot_b, snapshot_c, local_peer_id="peer-c")
+
+    origin_channel = "application.contextual-orbit"
+    stop_b = threading.Event()
+    stop_c = threading.Event()
+    failures: list[BaseException] = []
+    server_b_holder: dict[str, ComputationalFabricForwardingServer] = {}
+    server_c_holder: dict[str, ComputationalFabricForwardingServer] = {}
+    client_ab = None
+    client_bc = None
+    threads: list[threading.Thread] = []
+
+    client_context_a = _client_context(certificates)
+    client_context_b = ssl.create_default_context(
+        ssl.Purpose.SERVER_AUTH,
+        cafile=str(certificates["ca"]),
+    )
+    client_context_b.minimum_version = ssl.TLSVersion.TLSv1_2
+    client_context_b.load_cert_chain(
+        str(certificates["server_cert"]),
+        str(certificates["server_key"]),
+    )
+
+    def accept_c() -> None:
+        try:
+            server_c_holder["server"] = ComputationalFabricForwardingServer.accept_mutual_tls(
+                listener_c,
+                "peer-c",
+                "peer-b",
+                _server_context_c(certificates),
+                directory_c,
+                peer_c_os,
+                peer_c_pid,
+                origin_peer_id="peer-a",
+                origin_channel=origin_channel,
+                catalogue=catalogue_c,
+                timeout=5.0,
+            )
+        except BaseException as exc:
+            failures.append(exc)
+
+    def accept_b() -> None:
+        try:
+            server_b_holder["server"] = ComputationalFabricForwardingServer.accept_mutual_tls(
+                listener_b,
+                "peer-b",
+                "peer-a",
+                _server_context(certificates),
+                directory_b,
+                peer_b_os,
+                peer_b_pid,
+                origin_peer_id="peer-a",
+                origin_channel=origin_channel,
+                next_hop_clients={"peer-c": client_bc},
+                timeout=5.0,
+            )
+        except BaseException as exc:
+            failures.append(exc)
+
+    def serve(server: ComputationalFabricForwardingServer, stop: threading.Event) -> None:
+        while not stop.is_set():
+            try:
+                result = server.serve_once()
+                if result is None:
+                    time.sleep(0.001)
+            except BaseException as exc:
+                if stop.is_set():
+                    return
+                server.last_error = f"{type(exc).__name__}: {exc}"
+                failures.append(RuntimeError(f"{server.local_peer_id}: {type(exc).__name__}: {exc}"))
+                stop.set()
+                return
+
+    try:
+        thread_c_accept = threading.Thread(target=accept_c, daemon=True)
+        threads.append(thread_c_accept)
+        thread_c_accept.start()
+        client_bc = ComputationalFabricForwardingClient.connect_mutual_tls(
+            "peer-b",
+            endpoint_c,
+            client_context_b,
+            origin_peer_id="peer-a",
+            origin_channel=origin_channel,
+            timeout=5.0,
+        )
+        thread_c_accept.join(timeout=5.0)
+        assert not thread_c_accept.is_alive()
+        assert "server" in server_c_holder
+
+        thread_b_accept = threading.Thread(target=accept_b, daemon=True)
+        threads.append(thread_b_accept)
+        thread_b_accept.start()
+        client_ab = ComputationalFabricForwardingClient.connect_mutual_tls(
+            "peer-a",
+            endpoint_b,
+            client_context_a,
+            origin_peer_id="peer-a",
+            origin_channel=origin_channel,
+            timeout=5.0,
+        )
+        thread_b_accept.join(timeout=5.0)
+        assert not thread_b_accept.is_alive()
+        assert "server" in server_b_holder
+
+        thread_c_serve = threading.Thread(
+            target=serve,
+            args=(server_c_holder["server"], stop_c),
+            daemon=True,
+        )
+        thread_b_serve = threading.Thread(
+            target=serve,
+            args=(server_b_holder["server"], stop_b),
+            daemon=True,
+        )
+        threads.extend((thread_c_serve, thread_b_serve))
+        thread_c_serve.start()
+        thread_b_serve.start()
+
+        dispatcher = ContextualOrbitLocateValueDispatcher(
+            origin_peer_id="peer-a",
+            directory=directory_a,
+            forwarding_clients={"peer-b": client_ab},
+            operator_spec=operator_spec,
+            computational_ground_fingerprint=GROUND_FP,
+            budget=VirtualBudget(100_000, 262_144, 10_000),
+            eligible_nodes=("node-c",),
+            origin_channel=origin_channel,
+            first_sequence=1,
+            logical_time=40,
+            max_hops=2,
+            metric_order=METRICS,
+        )
+        receipt = dispatcher(request)
+
+        assert receipt.peer_path == ("peer-a", "peer-b", "peer-c")
+        assert receipt.peer_id == "peer-c"
+        assert receipt.host_id == "logical-host-c-orbit"
+        assert receipt.implementation_fingerprint == implementation_fingerprint
+        assert receipt.result.target_value == target_value
+        assert receipt.result.orbit_coordinate == target_coordinate
+        assert receipt.result.expanded_states == 0
+        assert receipt.result.navigation.projection.coordinate.tick == (
+            system_ground.coordinate + target_coordinate
+        )
+        assert receipt.result.navigation.projection.read_receipt.coordinate == target_coordinate
+
+        receiver_reads = [
+            record for record in peer_c_os.environment.kernel.journal.records()
+            if record.kind == "structural_memory.read_revision"
+        ]
+        relay_reads = [
+            record for record in peer_b_os.environment.kernel.journal.records()
+            if record.kind == "structural_memory.read_revision"
+        ]
+        assert len(receiver_reads) == 1
+        assert not relay_reads
+        assert receiver_reads[0].payload["receipt"]["coordinate"] == target_coordinate
+        assert receiver_reads[0].payload["receipt"]["coordinate"] != base_address.orbit_offset
+        assert not failures, failures
+    finally:
+        stop_b.set()
+        stop_c.set()
+        if client_ab is not None:
+            client_ab.close()
+        if client_bc is not None:
+            client_bc.close()
+        for server in server_b_holder.values():
+            server.close()
+        for server in server_c_holder.values():
+            server.close()
+        listener_b.close()
+        listener_c.close()
+        for thread in threads:
+            thread.join(timeout=5.0)

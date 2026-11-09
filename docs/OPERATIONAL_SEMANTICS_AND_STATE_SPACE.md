@@ -172,15 +172,16 @@ The existing modules establish complementary pieces:
 |---|---|---|
 | Stable operation DAG | MailCPU dataflow compiler | Bounded straight-line pure subset |
 | Heterogeneous operation placement | Virtual Layer + Computational Fabric | Receiver must advertise compatible Ground, operator and capabilities |
-| Receiver-local memory resolution | Virtual Layer \`VirtualStructuralMemoryRef\` | Exact pinned coordinate; receiver read authority required |
-| Contextual coordinate evaluation | \`ContextualOrbitNavigator.locate\` | Admitted Structural Memory generator families |
-| Target-value coordinate inversion | \`ContextualOrbitNavigator.locate_value\` | Explicitly supported inverses only; unsupported families refuse |
+| Receiver-local memory resolution | Virtual Layer `VirtualStructuralMemoryRef` | Exact pinned coordinate; receiver read authority required |
+| Authority-only navigation access | Virtual Layer schema-v3 `structural_memory_access="navigate"` | Receiver validates an exact revision and coordinate after Hypervisor ALLOW without materializing that coordinate |
+| Contextual coordinate evaluation | `ContextualOrbitNavigator.locate` | Admitted Structural Memory generator families |
+| Target-value coordinate inversion | `ContextualOrbitNavigator.locate_value`, exposed through `ContextualOrbitLocateValueDispatcher` | Explicitly supported inverses only; bounded receiver descriptor/index profiles; unsupported families refuse |
 | State/path navigation | Contextual Process Navigation | Finite declared rule language and bounded BFS |
-| Result integrity | Translation contracts, receipts, DAG commits | Digest integrity is not a signature or remote hardware attestation |
+| Result integrity | Translation contracts, receipts, DAG commits, contextual orbit route receipt | Digests bind content and provenance; they are not signatures or remote hardware attestation |
 
-The operation-native dataflow profile now composes symbolic memory references with remote ADD execution, and checks the receiver's read receipt plus an independent scalar operation oracle before committing the frontier. It does not yet make \`locate_value\` itself a distributed Virtual Layer operation, nor does it choose arbitrary output predicates over arbitrary state-spaces.
+The operation-native dataflow profile composes symbolic memory references with remote ADD execution and checks receiver read receipts plus an independent scalar operation oracle before committing a frontier. The contextual orbit profile now routes a typed target-value query through the existing fabric: the destination validates its local Structural Memory authority, invokes the existing inverse navigator, forward-verifies the candidate, and returns the selected projection and located-coordinate receipt. The explicit `navigate` access mode prevents the receiver's authorization step from eagerly reading the base coordinate. A three-peer integration test asserts that the relay performs no Structural Memory read and the destination journals only the selected coordinate read.
 
-The next natural integration is to represent a direct inverse query as a typed, bounded operation request: bind the base Virtual Ground, Computational Ground, Structural Memory revision, observer contract, and target predicate; let the authorized host run the admitted inverse and forward verification; return the selected coordinate, projection, and evidence; then allow dependent algorithm operations to consume that result. Such a query must preserve the existing no-fallback rules and receiver-local authority.
+These remain bounded operation profiles, not arbitrary predicate search over arbitrary state-spaces. The next composition is to let downstream algorithm DAG nodes consume a verified contextual-orbit result as a typed symbolic input, so a selected state coordinate can become a predecessor-bound input to later operations without copying the complete state trajectory. That extension must preserve the request's Ground, observer, memory-revision and read-receipt identities, and must not turn a digest receipt into a proof of trusted hardware execution.
 
 ## Design rule
 

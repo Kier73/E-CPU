@@ -297,6 +297,17 @@ from .virtual_layer import (
     VirtualOperatorRef,
     VirtualStructuralMemoryRef,
 )
+
+from .orbit_fabric import (
+    CONTEXTUAL_ORBIT_LOCATE_VALUE_OPERATOR_ID,
+    CONTEXTUAL_ORBIT_LOCATE_VALUE_OPERATOR_VERSION,
+    ContextualOrbitFabricError,
+    ContextualOrbitLocateValueDispatcher,
+    ContextualOrbitLocateValueReceipt,
+    ContextualOrbitLocateValueRequest,
+    contextual_orbit_locate_value_operator_spec,
+    make_contextual_orbit_locate_value_handler,
+)
 from .vgi_host import (
     VGIHostError,
     VGI_SIGNAL8_INPUT_SCHEMA,
@@ -950,6 +961,14 @@ __all__ = [
     "StructuralMemoryVerifier",
     "StructuralNavigator",
     "VerificationClass",
+    "CONTEXTUAL_ORBIT_LOCATE_VALUE_OPERATOR_ID",
+    "CONTEXTUAL_ORBIT_LOCATE_VALUE_OPERATOR_VERSION",
+    "ContextualOrbitFabricError",
+    "ContextualOrbitLocateValueDispatcher",
+    "ContextualOrbitLocateValueReceipt",
+    "ContextualOrbitLocateValueRequest",
+    "contextual_orbit_locate_value_operator_spec",
+    "make_contextual_orbit_locate_value_handler",
     "ContextualOrbitAddress",
     "ContextualOrbitNavigator",
     "ObserverAggregateReceipt",

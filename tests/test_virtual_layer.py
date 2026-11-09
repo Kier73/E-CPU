@@ -333,3 +333,125 @@ def test_array_operator_accepts_immutable_workload_sequence() -> None:
     assert result.action is HypervisorAction.ALLOW
     assert result.effect["result"] == 6
 
+
+
+def test_authority_only_structural_memory_navigation_requires_schema_v3_and_round_trips() -> None:
+    """Mathematics: navigation authority is a typed, non-materializing reference mode and cannot be downgraded to workload schema v2."""
+    from mailcpu import VirtualStructuralMemoryRef
+
+    operating_system = HeadlessOS()
+    identity, _envelope, ground = _admitted_ground(operating_system)
+    memory_reference = VirtualStructuralMemoryRef(
+        binding="base-ground",
+        memory_id="memory-orbit",
+        revision=3,
+        context={"tenant": "virtual-layer-test"},
+        coordinate=0,
+        spec_digest="a" * 64,
+        certificate_digest="b" * 64,
+    )
+    operator_reference = VirtualOperatorRef(
+        "core.sum_pair",
+        preferred_substrate="cpu",
+        structural_memory=(memory_reference,),
+        structural_memory_access="navigate",
+    )
+    workload = VirtualLayerWorkload(
+        "navigation-authority-workload",
+        identity,
+        ground,
+        {"goal": {"kind": "inverse-navigation"}},
+        (operator_reference,),
+        {"target": 11},
+        VirtualBudget(5000, 5000, 100),
+        17,
+        schema_version=3,
+    )
+
+    restored = VirtualLayerWorkload.from_dict(workload.to_dict())
+    restored_reference = restored.operator_ref("core.sum_pair")
+    assert restored.digest == workload.digest
+    assert restored_reference.structural_memory_access == "navigate"
+    assert restored_reference.structural_memory == (memory_reference,)
+    assert restored.to_dict()["schema_version"] == 3
+
+    with pytest.raises(VirtualLayerError, match="schema version 3"):
+        VirtualLayerWorkload(
+            "navigation-authority-workload-v2",
+            identity,
+            ground,
+            {"goal": {"kind": "inverse-navigation"}},
+            (operator_reference,),
+            {"target": 11},
+            VirtualBudget(5000, 5000, 100),
+            17,
+            schema_version=2,
+        )
+    with pytest.raises(VirtualLayerError, match="must be read or navigate"):
+        VirtualOperatorRef("core.sum_pair", structural_memory_access=[])
+
+
+def test_virtual_layer_binds_navigation_access_to_the_registered_operator_contract() -> None:
+    """Mathematics: a workload cannot select an access mode that differs from its receiver-registered operator contract."""
+    from mailcpu import VirtualStructuralMemoryRef
+
+    operating_system = HeadlessOS()
+    identity, _envelope, ground = _admitted_ground(operating_system)
+    memory_reference = VirtualStructuralMemoryRef(
+        binding="base-ground",
+        memory_id="memory-orbit",
+        revision=1,
+        context={"tenant": "contract-binding"},
+        coordinate=0,
+        spec_digest="c" * 64,
+        certificate_digest="d" * 64,
+    )
+    navigation_reference = VirtualOperatorRef(
+        "core.contextual_nav",
+        structural_memory=(memory_reference,),
+        structural_memory_access="navigate",
+    )
+    workload = VirtualLayerWorkload(
+        "navigation-contract-mismatch",
+        identity,
+        ground,
+        {"goal": {"kind": "inverse-navigation"}},
+        (navigation_reference,),
+        {"target": 12},
+        VirtualBudget(5000, 5000, 100),
+        17,
+        schema_version=3,
+    )
+    ordinary_read_spec = OperatorSpec(
+        "core.contextual_nav",
+        1,
+        "A handler whose declared memory interaction is an ordinary read",
+        "object",
+        "object",
+        ("cpu",),
+    )
+    registry = OperatorRegistry()
+    registry.register(ordinary_read_spec, lambda value, _workload: value)
+    runtime = VirtualLayerRuntime(registry, "node-a", frozenset({"cpu"}))
+    event = runtime.build_event(
+        "origin",
+        "virtual-layer",
+        1,
+        workload.logical_time,
+        workload,
+        "core.contextual_nav",
+    )
+    with pytest.raises(VirtualLayerError, match="access mode differs"):
+        runtime.execute_authorized_event(
+            operating_system,
+            operating_system.environment.init_pid,
+            event,
+        )
+
+    navigation_spec = replace(
+        ordinary_read_spec,
+        structural_memory_access="navigate",
+    )
+    assert "structural_memory_access" not in ordinary_read_spec.to_dict()
+    assert navigation_spec.to_dict()["structural_memory_access"] == "navigate"
+    assert OperatorSpec.from_dict(navigation_spec.to_dict()).digest == navigation_spec.digest

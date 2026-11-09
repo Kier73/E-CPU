@@ -305,6 +305,7 @@ class VirtualOperatorRef:
     preferred_substrate: str | None = None
     target_node: str | None = None
     structural_memory: tuple[VirtualStructuralMemoryRef, ...] = ()
+    structural_memory_access: str = "read"
 
     def __post_init__(self) -> None:
         _operator_id(self.operator_id)
@@ -318,6 +319,13 @@ class VirtualOperatorRef:
             raise VirtualLayerError("structural_memory must contain typed VirtualStructuralMemoryRef values")
         if len({item.binding for item in references}) != len(references):
             raise VirtualLayerError("structural-memory binding names must be unique per operator")
+        if (
+            not isinstance(self.structural_memory_access, str)
+            or self.structural_memory_access not in {"read", "navigate"}
+        ):
+            raise VirtualLayerError("structural_memory_access must be read or navigate")
+        if self.structural_memory_access == "navigate" and not references:
+            raise VirtualLayerError("navigation access requires at least one pinned Structural Memory reference")
         object.__setattr__(self, "structural_memory", references)
 
     def to_dict(self) -> dict[str, object]:
@@ -328,6 +336,8 @@ class VirtualOperatorRef:
         }
         if self.structural_memory:
             payload["structural_memory"] = [item.to_dict() for item in self.structural_memory]
+        if self.structural_memory_access != "read":
+            payload["structural_memory_access"] = self.structural_memory_access
         return payload
 
     @classmethod
@@ -342,6 +352,7 @@ class VirtualOperatorRef:
             payload.get("operator_id", ""), payload.get("version", 1),
             payload.get("preferred_substrate"), payload.get("target_node"),
             tuple(VirtualStructuralMemoryRef.from_dict(item) for item in raw_memory),
+            payload.get("structural_memory_access", "read"),
         )
 
 
@@ -387,11 +398,14 @@ class VirtualLayerWorkload:
         _positive_int(self.logical_time, "logical_time", allow_zero=True)
         _positive_int(self.max_hops, "max_hops")
         _positive_int(self.schema_version, "schema_version")
-        if self.schema_version not in {1, 2}:
+        if self.schema_version not in {1, 2, 3}:
             raise VirtualLayerError("unsupported Virtual Layer workload schema version")
         has_structural_memory = any(item.structural_memory for item in operators)
+        has_navigation_access = any(item.structural_memory_access == "navigate" for item in operators)
         if has_structural_memory and self.schema_version < 2:
             raise VirtualLayerError("structural-memory operator bindings require workload schema version 2")
+        if has_navigation_access and self.schema_version < 3:
+            raise VirtualLayerError("authority-only Structural Memory navigation requires workload schema version 3")
         if not isinstance(self.eligible_nodes, (tuple, list)):
             raise VirtualLayerError("eligible_nodes must be a sequence")
         nodes = tuple(_label(node, "eligible node") for node in self.eligible_nodes)
@@ -470,6 +484,7 @@ class OperatorSpec:
     max_output_bytes: int = 1_048_576
     deterministic: bool = True
     effect_mode: str = "pure"
+    structural_memory_access: str = "read"
 
     def __post_init__(self) -> None:
         _operator_id(self.operator_id)
@@ -499,6 +514,11 @@ class OperatorSpec:
             raise VirtualLayerError("deterministic must be boolean")
         if not isinstance(self.effect_mode, str) or self.effect_mode not in _EFFECT_MODES:
             raise VirtualLayerError("unsupported operator effect_mode")
+        if (
+            not isinstance(self.structural_memory_access, str)
+            or self.structural_memory_access not in {"read", "navigate"}
+        ):
+            raise VirtualLayerError("operator structural_memory_access must be read or navigate")
 
     @property
     def replay_safe(self) -> bool:
@@ -517,13 +537,16 @@ class OperatorSpec:
 
     def to_dict(self) -> dict[str, object]:
         """Mathematics: Serialize the full declarative operator contract."""
-        return {
+        payload: dict[str, object] = {
             "operator_id": self.operator_id, "version": self.version, "description": self.description,
             "input_kind": self.input_kind, "output_kind": self.output_kind, "substrates": list(self.substrates),
             "required_rights": sorted(self.required_rights), "base_energy": self.base_energy,
             "energy_per_byte": self.energy_per_byte, "max_input_bytes": self.max_input_bytes,
             "max_output_bytes": self.max_output_bytes, "deterministic": self.deterministic, "effect_mode": self.effect_mode,
         }
+        if self.structural_memory_access != "read":
+            payload["structural_memory_access"] = self.structural_memory_access
+        return payload
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "OperatorSpec":
@@ -537,6 +560,7 @@ class OperatorSpec:
                 frozenset(payload.get("required_rights", ("compute",))), payload.get("base_energy", 1),
                 payload.get("energy_per_byte", 1), payload.get("max_input_bytes", 1_048_576),
                 payload.get("max_output_bytes", 1_048_576), payload.get("deterministic", True), str(payload.get("effect_mode", "pure")),
+                payload.get("structural_memory_access", "read"),
             )
         except (TypeError, ValueError) as exc:
             if isinstance(exc, VirtualLayerError):
@@ -849,6 +873,57 @@ class VirtualLayerRuntime:
             raise VirtualLayerError("Virtual Layer intent projection exceeds its 4096-byte bound")
         return projection
 
+    def _authorize_structural_memory_navigation(
+        self,
+        operating_system: Any,
+        pid: int,
+        references: tuple[VirtualStructuralMemoryRef, ...],
+    ) -> None:
+        """Authorize exact receiver-local revisions without materializing their addressed coordinates.
+
+        Mathematics: verify capability and immutable (memory, revision, spec,
+        certificate, context, coordinate) identity while leaving value
+        evaluation to the trusted navigation operator. This is the explicit
+        no-eager-read path for inverse state-space navigation.
+        """
+        try:
+            process = operating_system.environment.kernel._process(pid)
+        except Exception as exc:
+            raise VirtualLayerError(f"Structural Memory navigation process is unavailable: {exc}") from exc
+        if not any(
+            capability.allows("/structural-memory/read", "read")
+            for capability in process.capabilities
+        ):
+            raise VirtualLayerError("receiver authority lacks 'read' permission for /structural-memory/read")
+        for reference in references:
+            try:
+                version = operating_system.structural_memory.version_for_revision(
+                    reference.memory_id,
+                    reference.revision,
+                )
+                context_digest = operating_system.structural_memory.navigator.validate(
+                    version.spec,
+                    version.certificate,
+                    reference.coordinate,
+                    context=dict(reference.context),
+                )
+            except StructuralMemoryError as exc:
+                raise VirtualLayerError(f"Structural Memory navigation authority refused: {exc}") from exc
+            expected_context_digest = _digest(
+                dict(reference.context),
+                "structural-memory context",
+            )
+            if (
+                version.spec.memory_id != reference.memory_id
+                or version.spec.revision != reference.revision
+                or version.spec.digest != reference.spec_digest
+                or version.certificate.digest != reference.certificate_digest
+                or context_digest != expected_context_digest
+            ):
+                raise VirtualLayerError(
+                    "Structural Memory navigation reference does not match the exact admitted revision"
+                )
+
     def _resolve_structural_memory_inputs(
         self,
         operating_system: Any,
@@ -990,6 +1065,10 @@ class VirtualLayerRuntime:
         if not isinstance(operator_id, str) or not isinstance(version, int) or isinstance(version, bool):
             raise VirtualLayerError("operation event has an invalid operator reference")
         reference, spec, handler, input_value, input_bytes, energy, ticks = self._resolve_operator(workload, operator_id)
+        if reference.structural_memory_access != spec.structural_memory_access:
+            raise VirtualLayerError(
+                "Structural Memory access mode differs from the receiver's declared operator contract"
+            )
         if payload.get("operator_contract_digest") != spec.digest:
             raise VirtualLayerError("operator contract does not match this execution node")
         validated_admission = None
@@ -1046,9 +1125,16 @@ class VirtualLayerRuntime:
             resolved_input: Any = input_value
             memory_receipts: dict[str, dict[str, object]] = {}
             if reference.structural_memory:
-                resolved_input, memory_receipts = self._resolve_structural_memory_inputs(
-                    operating_system, pid, input_value, reference.structural_memory
-                )
+                if reference.structural_memory_access == "read":
+                    resolved_input, memory_receipts = self._resolve_structural_memory_inputs(
+                        operating_system, pid, input_value, reference.structural_memory
+                    )
+                elif reference.structural_memory_access == "navigate":
+                    self._authorize_structural_memory_navigation(
+                        operating_system, pid, reference.structural_memory
+                    )
+                else:
+                    raise VirtualLayerError("unsupported Structural Memory access mode")
             if not _value_matches(resolved_input, spec.input_kind):
                 raise VirtualLayerError(f"resolved operator input does not match {spec.input_kind}")
             resolved_input_bytes = len(_canonical_bytes(resolved_input, "resolved operator input"))
