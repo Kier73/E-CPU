@@ -52,7 +52,7 @@ _NODE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
 _HOST_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
 _PEER_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
 _REGISTER = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}\Z")
-_LANE_MEMORY_BINDING = re.compile(r"pc-[0-9]{6}\\.(?:left|right)\\Z")
+_LANE_MEMORY_BINDING = re.compile(r"pc-[0-9]{6}\.(?:left|right)\Z")
 _MAX_ADD_LANES = 64
 _MAX_ADD_INTEGER_BITS = 4096
 
