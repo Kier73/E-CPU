@@ -231,6 +231,7 @@ def contextual_orbit_locate_value_operator_spec() -> OperatorSpec:
         max_output_bytes=262_144,
         deterministic=True,
         effect_mode="pure",
+        structural_memory_access="navigate",
     )
 
 
