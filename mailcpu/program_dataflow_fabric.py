@@ -779,11 +779,24 @@ def execute_dataflow_operation_native(
                     raise OperationNativeDataflowError(
                         f"remote {operation} result for {lane.node_id!r} failed the independent scalar oracle"
                     )
+                operator_spec = getattr(operation_dispatcher, "operator_spec", None)
                 pending[lane.node_id] = {
                     "register": lane.destination,
                     "value": expected_value,
                     "operation": operation,
-                    "operator_id": receipt.to_dict().get("operator_id", f"mailcpu.dataflow.{operation.lower()}_frontier"),
+                    "operator_id": (
+                        operator_spec.operator_id
+                        if isinstance(operator_spec, OperatorSpec)
+                        else f"mailcpu.dataflow.{operation.lower()}_frontier"
+                    ),
+                    "operator_version": (
+                        operator_spec.version
+                        if isinstance(operator_spec, OperatorSpec)
+                        else (3 if operation == "ADD" else 1)
+                    ),
+                    "operator_contract_digest": (
+                        operator_spec.digest if isinstance(operator_spec, OperatorSpec) else None
+                    ),
                     "frontier_request_digest": request.digest,
                     "operation_receipt": receipt.to_dict(),
                     "operation_receipt_digest": receipt.digest,
