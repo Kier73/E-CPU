@@ -53,6 +53,7 @@ _RECEIPT_TYPES = {
 
 
 def _operation_for_request(request: Any) -> str:
+    """Mathematics: select the exact binary operator family by typed request class; structurally similar payloads are not interchangeable."""
     for operation, request_type in _REQUEST_TYPES.items():
         if type(request) is request_type:
             return operation
@@ -98,9 +99,11 @@ class BinaryFrontierChildReceipt:
 
     @property
     def digest(self) -> str:
+        """Mathematics: identify the complete child evidence or checkpoint projection with a canonical content digest."""
         return canonical_value_digest(self.to_dict())
 
     def to_dict(self) -> dict[str, Any]:
+        """Mathematics: serialize the complete typed evidence while retaining the fields required to recompute its digest."""
         return {
             "schema": "mailcpu.binary-frontier-child-receipt.v1",
             "partition": self.partition.to_dict(),
@@ -109,6 +112,7 @@ class BinaryFrontierChildReceipt:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "BinaryFrontierChildReceipt":
+        """Mathematics: restore typed evidence only after validating the schema, nested values and canonical digest."""
         expected = {"schema", "partition", "receipt"}
         if not isinstance(payload, Mapping) or set(payload) != expected:
             raise OperationNativeDataflowError("binary frontier child receipt fields are malformed")
@@ -129,6 +133,7 @@ def _validate_parent_plan(
     request: DataflowAddFrontierRequest | DataflowCompareFrontierRequest | DataflowMultiplyFrontierRequest,
     plan: BinaryFrontierPartitionPlan,
 ) -> None:
+    """Mathematics: prove that child partitions preserve the parent plan, context, frontier, operation and exact ordered lane set."""
     operation = _operation_for_request(request)
     if (
         plan.plan_digest != request.plan_digest
@@ -154,6 +159,7 @@ def _ordered_child_receipts(
     *,
     allow_partial: bool,
 ) -> tuple[BinaryFrontierChildReceipt, ...]:
+    """Mathematics: construct a canonical child-receipt subset and require unique membership in the fixed parent partition plan."""
     by_partition: dict[str, BinaryFrontierChildReceipt] = {}
     for child in children:
         if not isinstance(child, BinaryFrontierChildReceipt):
@@ -196,14 +202,17 @@ class BinaryFrontierCompositeReceipt:
 
     @property
     def operation(self) -> str:
+        """Mathematics: project the homogeneous binary operator identity committed by the parent partition plan."""
         return self.plan.operation
 
     @property
     def request_digest(self) -> str:
+        """Mathematics: expose the exact parent request identity without deriving a surrogate from child partitions."""
         return self.request.digest
 
     @property
     def results(self) -> tuple[tuple[str, int], ...]:
+        """Mathematics: reconstruct the original parent result vector by concatenating and sorting all verified child lane results."""
         return tuple(sorted(
             (item for child in self.children for item in child.receipt.results),
             key=lambda item: item[0],
@@ -211,6 +220,7 @@ class BinaryFrontierCompositeReceipt:
 
     @property
     def structural_memory_receipts(self) -> tuple[tuple[str, Any], ...]:
+        """Mathematics: aggregate child memory receipts by binding and refuse duplicate bindings across partitions."""
         receipts = tuple(sorted(
             (item for child in self.children for item in child.receipt.structural_memory_receipts),
             key=lambda item: item[0],
@@ -220,6 +230,7 @@ class BinaryFrontierCompositeReceipt:
         return receipts
 
     def _payload(self) -> dict[str, Any]:
+        """Mathematics: project the complete receipt or checkpoint contents that participate in its canonical digest."""
         return {
             "schema": "mailcpu.binary-frontier-composite-receipt.v1",
             "operation": self.operation,
@@ -235,13 +246,16 @@ class BinaryFrontierCompositeReceipt:
 
     @property
     def digest(self) -> str:
+        """Mathematics: identify the complete child evidence or checkpoint projection with a canonical content digest."""
         return canonical_value_digest(self._payload())
 
     def to_dict(self) -> dict[str, Any]:
+        """Mathematics: serialize the complete typed evidence while retaining the fields required to recompute its digest."""
         return {**self._payload(), "digest": self.digest}
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "BinaryFrontierCompositeReceipt":
+        """Mathematics: restore typed evidence only after validating the schema, nested values and canonical digest."""
         expected = {
             "schema", "operation", "request", "plan", "children", "results",
             "structural_memory_receipt_digests", "digest",
@@ -296,14 +310,17 @@ class BinaryFrontierExecutionCheckpoint:
 
     @property
     def complete(self) -> bool:
+        """Mathematics: determine completeness by equality between validated child receipt count and fixed partition count."""
         return len(self.successful_children) == len(self.plan.partitions)
 
     @property
     def remaining_partitions(self) -> tuple[BinaryFrontierPartition, ...]:
+        """Mathematics: subtract validated child partition identities from the immutable parent assignment."""
         completed = {item.partition.digest for item in self.successful_children}
         return tuple(item for item in self.plan.partitions if item.digest not in completed)
 
     def _payload(self) -> dict[str, Any]:
+        """Mathematics: project the complete receipt or checkpoint contents that participate in its canonical digest."""
         return {
             "schema": "mailcpu.binary-frontier-execution-checkpoint.v1",
             "request": self.request.to_dict(),
@@ -313,13 +330,16 @@ class BinaryFrontierExecutionCheckpoint:
 
     @property
     def digest(self) -> str:
+        """Mathematics: identify the complete child evidence or checkpoint projection with a canonical content digest."""
         return canonical_value_digest(self._payload())
 
     def to_dict(self) -> dict[str, Any]:
+        """Mathematics: serialize the complete typed evidence while retaining the fields required to recompute its digest."""
         return {**self._payload(), "digest": self.digest}
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "BinaryFrontierExecutionCheckpoint":
+        """Mathematics: restore typed evidence only after validating the schema, nested values and canonical digest."""
         expected = {"schema", "request", "plan", "successful_children", "digest"}
         if not isinstance(payload, Mapping) or set(payload) != expected:
             raise OperationNativeDataflowError("binary frontier execution checkpoint fields are malformed")
@@ -405,6 +425,7 @@ class PartitionedComputationalFabricDataflowBinaryDispatcher:
         self.partition_groups_by_frontier = partition_groups_by_frontier
 
     def _groups_for_request(self, request: Any) -> tuple[tuple[str, ...], ...] | None:
+        """Mathematics: split a sorted lane sequence into deterministic, bounded, non-empty child groups or use the caller's explicit grouping."""
         configured = self.partition_groups_by_frontier
         if callable(configured):
             selected = configured(request)
@@ -431,6 +452,7 @@ class PartitionedComputationalFabricDataflowBinaryDispatcher:
         request: DataflowAddFrontierRequest | DataflowCompareFrontierRequest | DataflowMultiplyFrontierRequest,
         partition_groups: Sequence[Sequence[str]],
     ) -> BinaryFrontierPartitionPlan:
+        """Mathematics: bind each exact child request to a live route candidate and solve a stable distinct-host assignment over the candidate sets."""
         child_requests = split_binary_frontier_request(request, partition_groups)
         choices: list[tuple[BinaryFrontierPartition, ...]] = []
         directory_digest: str | None = None
@@ -477,6 +499,7 @@ class PartitionedComputationalFabricDataflowBinaryDispatcher:
         selected: dict[int, BinaryFrontierPartition] = {}
 
         def place(child_index: int, visited_children: set[int], visited_hosts: set[tuple[str, str]]) -> bool:
+            """Mathematics: find a distinct-host assignment with augmenting-path reassignment while visiting each child and host at most once per search."""
             if child_index in visited_children:
                 return False
             visited_children.add(child_index)
@@ -532,6 +555,7 @@ class PartitionedComputationalFabricDataflowBinaryDispatcher:
         *,
         checkpoint: BinaryFrontierExecutionCheckpoint | Mapping[str, Any] | None = None,
     ) -> BinaryFrontierCompositeReceipt:
+        """Mathematics: execute only children absent from the validated checkpoint and construct a parent receipt only when every fixed partition has a typed receipt."""
         operation = _operation_for_request(request)
         if operation != self.operation:
             raise OperationNativeDataflowError("parent request operation differs from the configured binary dispatcher")
@@ -577,6 +601,7 @@ class PartitionedComputationalFabricDataflowBinaryDispatcher:
         index_by_digest = {item.digest: index for index, item in enumerate(state.plan.partitions)}
 
         def dispatch_one(partition: BinaryFrontierPartition) -> BinaryFrontierChildReceipt:
+            """Mathematics: dispatch one child through the wrapped authenticated fabric using its fixed route and deterministic sequence slot."""
             partition_index = index_by_digest[partition.digest]
             # Each frontier reserves one bounded 64-sequence window on this
             # dispatcher channel; child ordinals are stable across recovery.
@@ -602,6 +627,7 @@ class PartitionedComputationalFabricDataflowBinaryDispatcher:
         def dispatch_group(
             group: Sequence[BinaryFrontierPartition],
         ) -> tuple[tuple[BinaryFrontierChildReceipt, ...], tuple[str, ...]]:
+            """Mathematics: serialize one first-hop stream, stopping at the first ambiguous failure so later stream sequence slots remain recoverable."""
             group_successes: list[BinaryFrontierChildReceipt] = []
             group_failures: list[str] = []
             # One authenticated next-hop client is one serialized channel.
