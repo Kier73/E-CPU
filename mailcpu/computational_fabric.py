@@ -1212,7 +1212,7 @@ class ComputationalFabricPeerServer:
             raise
 
     def service_once(self) -> bool:
-        """Mathematics: Serve bounded directory or authenticated current-claim reads before acknowledging each request."""
+        """Mathematics: Serve bounded directory and scoped claim-status requests before acknowledging each request."""
         self.outbound.process_ack()
         if self.outbound.available_window < 1:
             self._tick_outbound_if_due()
