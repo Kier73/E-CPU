@@ -720,6 +720,8 @@ from .partitioned_dataflow import (
     BinaryFrontierChildReceipt,
     BinaryFrontierCompositeReceipt,
     BinaryFrontierExecutionCheckpoint,
+    BinaryFrontierPartitionReassignment,
+    BinaryFrontierReassignmentIntent,
     PartitionedComputationalFabricDataflowBinaryDispatcher,
     PartitionedFrontierIncomplete,
 )
@@ -990,6 +992,8 @@ __all__ = [
     "BinaryFrontierChildReceipt",
     "BinaryFrontierCompositeReceipt",
     "BinaryFrontierExecutionCheckpoint",
+    "BinaryFrontierPartitionReassignment",
+    "BinaryFrontierReassignmentIntent",
     "PartitionedComputationalFabricDataflowBinaryDispatcher",
     "PartitionedFrontierIncomplete",
     "dataflow_add_operator_spec",
