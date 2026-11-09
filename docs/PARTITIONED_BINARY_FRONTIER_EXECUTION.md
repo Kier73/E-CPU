@@ -49,7 +49,7 @@ The children do not commit DAG nodes independently. A failed or invalid child th
 
 ## Recovery and semantic replay
 
-`BinaryFrontierExecutionCheckpoint` binds the exact parent request, exact partition plan and the typed child receipts already validated. A checkpoint sink receives the initial plan before any child is sent, then receives updated progress after child groups complete. The checkpoint can be serialized, restored and passed to `dispatch(request, checkpoint=...)`.
+`BinaryFrontierExecutionCheckpoint` binds the exact parent request, exact partition plan and the typed child receipts already validated. The optional checkpoint sink receives the initial plan before any child is sent, then receives updated progress after child groups complete. The checkpoint can be serialized, restored and passed to `dispatch(request, checkpoint=...)`. The checkpoint is a portable orchestration record, not a replacement for the existing fabric recovery bundle: process-crash recovery requires the caller to persist it and restore the corresponding authenticated forwarding-client and receiver execution-ledger state through the existing E-CPU recovery mechanisms. Without a sink, the checkpoint is returned in memory on an incomplete dispatch and can be supplied directly for an in-process resume.
 
 Resume has three rules:
 
