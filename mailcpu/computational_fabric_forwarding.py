@@ -1234,7 +1234,10 @@ class ComputationalFabricForwardingServer:
             or resolution.witness.implementation_fingerprint != advertisement.implementation_fingerprint
         ):
             raise ComputationalFabricForwardingError("fresh terminal semantic resolution did not reproduce the advertised host locus")
-        outcome = ComputationalExecutionAdmissionCoordinator(self.operating_system).execute(
+        outcome = ComputationalExecutionAdmissionCoordinator(
+            self.operating_system,
+            timing_probe=self.timing_probe,
+        ).execute(
             envelope.address,
             resolution.witness,
             self.catalogue,
