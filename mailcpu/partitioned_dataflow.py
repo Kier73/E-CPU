@@ -681,6 +681,12 @@ class BinaryFrontierExecutionCheckpoint:
             allow_partial=True,
             current_partitions=tuple(current[item.request.digest] for item in self.plan.partitions),
         )
+        if any(
+            child.claim_bundle is not None
+            and child.claim_bundle.claim.parent_request_digest != self.request.digest
+            for child in ordered
+        ):
+            raise OperationNativeDataflowError("checkpoint child assignment ticket does not bind the exact parent request")
         object.__setattr__(self, "successful_children", ordered)
         object.__setattr__(self, "reassignments", history)
         object.__setattr__(self, "reassignment_intents", intents)
@@ -742,6 +748,7 @@ class BinaryFrontierExecutionCheckpoint:
         base_fields = {"schema", "request", "plan", "successful_children", "digest"}
         if schema == "mailcpu.binary-frontier-execution-checkpoint.v1" and set(payload) == base_fields:
             reassignments = ()
+            intents = ()
         elif schema == "mailcpu.binary-frontier-execution-checkpoint.v2" and set(payload) == base_fields | {"reassignments"}:
             if not isinstance(payload.get("reassignments"), list):
                 raise OperationNativeDataflowError("checkpoint reassignment history must be a list")
