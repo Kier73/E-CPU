@@ -745,6 +745,29 @@ class GeneratorRegistry:
             raise StructuralMemoryRefused("generator returned a non-integer value outside the E0 value ABI")
         return value
 
+    def navigate_guarded_range(
+        self,
+        spec: StructuralMemorySpec,
+        coordinate_start: int,
+        count: int,
+    ) -> tuple[int, ...]:
+        """Evaluate a bounded ordered range under one reconstructed law. Mathematics: return (G(a),...,G(a+n-1)) using one admitted generator instance and the same per-coordinate horizon guard."""
+        _require_int(coordinate_start, "coordinate_start", minimum=0)
+        _require_int(count, "count", minimum=1)
+        if count > 65_536:
+            raise StructuralMemoryRefused("one structural range read cannot exceed 65536 coordinates")
+        law = self.build_law(spec)
+        values: list[int] = []
+        for coordinate in range(coordinate_start, coordinate_start + count):
+            try:
+                value = navigate_guarded(law, coordinate)
+            except (HorizonExceeded, Refused) as exc:
+                raise StructuralMemoryRefused(str(exc)) from exc
+            if type(value) is not int:
+                raise StructuralMemoryRefused("generator returned a non-integer value outside the E0 value ABI")
+            values.append(value)
+        return tuple(values)
+
     def predict_prefix_boundary(self, spec: StructuralMemorySpec, coordinate: int) -> int:
         """Evaluate exactly first_bad for witness adjudication, never for runtime reads. Mathematics: evaluates G(first_bad) only to adjudicate the observed escape witness. """
         if spec.first_bad != coordinate:
