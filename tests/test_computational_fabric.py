@@ -3840,6 +3840,8 @@ def test_contextual_orbit_inverse_navigation_composes_compare_and_add_over_multi
 
 def test_terminal_host_checks_live_claim_before_hypervisor_and_refuses_stale_ticket(tmp_path: Path) -> None:
     """Mathematics: the terminal receiver admits only a current quorum claim and refuses a ticket expired by a concurrent ledger transition before invoking the operator."""
+    import hashlib
+
     from mailcpu.classifier import HypervisorPolicy
     from mailcpu.computational_fabric_forwarding import (
         ComputationalFabricForwardingEnvelope,
@@ -3852,7 +3854,6 @@ def test_terminal_host_checks_live_claim_before_hypervisor_and_refuses_stale_tic
         SeedCommitMembership,
     )
     from mailcpu.transferable_execution_claim import (
-        TransferableExecutionClaimError,
         TransferableExecutionClaimStore,
     )
 
@@ -3892,8 +3893,8 @@ def test_terminal_host_checks_live_claim_before_hypervisor_and_refuses_stale_tic
     catalogue = ComputationalHostCatalogue((locus,))
     advertisement = ComputationalHostAdvertisement.from_locus(locus, "peer-b")
 
-    parent_digest = __import__("hashlib").sha256(b"terminal-parent").hexdigest()
-    child_digest = __import__("hashlib").sha256(b"terminal-child").hexdigest()
+    parent_digest = hashlib.sha256(b"terminal-parent").hexdigest()
+    child_digest = hashlib.sha256(b"terminal-child").hexdigest()
     address_workload = VirtualLayerWorkload(
         workload_id="terminal-claim-sum",
         system=identity,
@@ -3901,8 +3902,8 @@ def test_terminal_host_checks_live_claim_before_hypervisor_and_refuses_stale_tic
         intention={"goal": {
             "kind": spec.operator_id,
             "request_digest": child_digest,
-            "plan_digest": __import__("hashlib").sha256(b"terminal-plan").hexdigest(),
-            "context_digest": __import__("hashlib").sha256(b"terminal-context").hexdigest(),
+            "plan_digest": hashlib.sha256(b"terminal-plan").hexdigest(),
+            "context_digest": hashlib.sha256(b"terminal-context").hexdigest(),
             "frontier_index": 1,
         }},
         operators=(VirtualOperatorRef(spec.operator_id, spec.version, "cpu"),),
@@ -3994,14 +3995,14 @@ def test_terminal_host_checks_live_claim_before_hypervisor_and_refuses_stale_tic
 
     # An unrelated claim-state transition advances the shared quorum root.
     store.create(
-        parent_request_digest=__import__("hashlib").sha256(b"unrelated-parent").hexdigest(),
-        child_request_digest=__import__("hashlib").sha256(b"unrelated-child").hexdigest(),
-        address_digest=__import__("hashlib").sha256(b"unrelated-address").hexdigest(),
+        parent_request_digest=hashlib.sha256(b"unrelated-parent").hexdigest(),
+        child_request_digest=hashlib.sha256(b"unrelated-child").hexdigest(),
+        address_digest=hashlib.sha256(b"unrelated-address").hexdigest(),
         operator_spec=spec,
         computational_ground_fingerprint=GROUND_FP,
         owner_peer_id="peer-c",
         owner_host_id="logical-host-c",
-        implementation_fingerprint=__import__("hashlib").sha256(b"other-host").hexdigest(),
+        implementation_fingerprint=hashlib.sha256(b"other-host").hexdigest(),
     )
     with pytest.raises(ComputationalFabricForwardingError, match="claim was not admitted"):
         server._execute_terminal(envelope)
