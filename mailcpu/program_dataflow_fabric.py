@@ -134,6 +134,7 @@ class DataflowAddFrontierRequest:
         return tuple(item.right for item in self.lanes)
 
     def to_dict(self) -> dict[str, Any]:
+        """Mathematics: serialize the exact typed operation identity and its bound fields."""
         return {
             "schema": "mailcpu.dataflow.add-frontier-request.v1",
             "plan_digest": self.plan_digest,
@@ -193,9 +194,11 @@ class DataflowAddFrontierReceipt:
 
     @property
     def digest(self) -> str:
+        """Mathematics: identify the canonical ordered frontier request or remote result."""
         return canonical_value_digest(self.to_dict())
 
     def to_dict(self) -> dict[str, Any]:
+        """Mathematics: serialize the exact typed operation identity and its bound fields."""
         return {
             "schema": "mailcpu.dataflow.add-frontier-receipt.v1",
             "request_digest": self.request_digest,
@@ -242,6 +245,7 @@ class OperationNativeDataflowReport:
         return canonical_value_digest(self._payload())
 
     def to_dict(self) -> dict[str, Any]:
+        """Mathematics: serialize the exact typed operation identity and its bound fields."""
         return {**self._payload(), "digest": self.digest}
 
 
