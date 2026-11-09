@@ -80,7 +80,7 @@ def assemble(source: str) -> Program:
             args = (operands[0], _parse_integer(operands[1], line_number))
         elif opcode is Op.COPY:
             args = tuple(operands)
-        elif opcode in (Op.ADD, Op.COMPARE):
+        elif opcode in (Op.ADD, Op.MUL, Op.COMPARE):
             args = tuple(operands)
         elif opcode is Op.BRANCH:
             args = (operands[0], _branch_target(operands[1], labels, line_number))
