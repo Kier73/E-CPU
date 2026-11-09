@@ -1162,7 +1162,11 @@ def evaluate_dataflow(
                 elif opcode == Op.ADD.value:
                     value = operands[0] + operands[1]
                 elif opcode == Op.MUL.value:
-                    value = operands[0] * operands[1]
+                    if timing_probe is None:
+                        value = operands[0] * operands[1]
+                    else:
+                        with timing_probe.measure("local_compute", correlation_id=plan.digest):
+                            value = operands[0] * operands[1]
                 elif opcode == Op.COMPARE.value:
                     value = compare_values(operands[0], operands[1])
                 else:

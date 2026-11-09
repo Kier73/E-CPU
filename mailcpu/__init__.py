@@ -489,6 +489,12 @@ from .temporal import (
     TemporalProfile,
     WallTimeReading,
 )
+from .operation_timing import (
+    OperationTimingError,
+    OperationTimingProbe,
+    OperationTimingSample,
+    OperationTimingToken,
+)
 from .holonomy_engine import (
     IDENTITY_2,
     SIGMA_X,
@@ -920,6 +926,10 @@ from .predictive_selection import (
 )
 
 __all__ = [
+    "OperationTimingError",
+    "OperationTimingProbe",
+    "OperationTimingSample",
+    "OperationTimingToken",
     "CompiledMailCPUDataflow",
     "DataflowExecutionReport",
     "ComputationalFabricDataflowAddDispatcher",

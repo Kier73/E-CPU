@@ -634,6 +634,37 @@ def execute_dataflow_operation_native(
     *,
     operation_dispatchers: Mapping[str, Callable[[Any], Any]] | None = None,
     max_work_units: int | None = None,
+    timing_probe: Any | None = None,
+) -> OperationNativeDataflowReport:
+    """Execute operation-native dataflow and optionally record endpoint-local phase timings."""
+    token = None
+    if timing_probe is not None:
+        if not callable(getattr(timing_probe, "measure", None)) or not callable(getattr(timing_probe, "start", None)) or not callable(getattr(timing_probe, "finish", None)):
+            raise OperationNativeDataflowError("timing_probe must expose start/finish/measure")
+        token = timing_probe.start(
+            "total_completion",
+            correlation_id=plan.digest if isinstance(plan, CompiledMailCPUDataflow) else None,
+        )
+    try:
+        return _execute_dataflow_operation_native_impl(
+            plan,
+            dispatcher,
+            operation_dispatchers=operation_dispatchers,
+            max_work_units=max_work_units,
+            timing_probe=timing_probe,
+        )
+    finally:
+        if token is not None:
+            timing_probe.finish(token)
+
+
+def _execute_dataflow_operation_native_impl(
+    plan: CompiledMailCPUDataflow,
+    dispatcher: Callable[[DataflowAddFrontierRequest], DataflowAddFrontierReceipt] | None = None,
+    *,
+    operation_dispatchers: Mapping[str, Callable[[Any], Any]] | None = None,
+    max_work_units: int | None = None,
+    timing_probe: Any | None = None,
 ) -> OperationNativeDataflowReport:
     """Mathematics: evaluate a DAG while optionally dispatching typed ADD, COMPARE, and MUL frontiers.
 
@@ -644,6 +675,8 @@ def execute_dataflow_operation_native(
     """
     if not isinstance(plan, CompiledMailCPUDataflow):
         raise OperationNativeDataflowError("plan must be a CompiledMailCPUDataflow")
+    if timing_probe is not None and not callable(getattr(timing_probe, "measure", None)):
+        raise OperationNativeDataflowError("timing_probe must expose a measure context manager")
     dispatchers: dict[str, Callable[[Any], Any]] = {}
     if dispatcher is not None:
         if not callable(dispatcher):
@@ -764,7 +797,11 @@ def execute_dataflow_operation_native(
             elif opcode == Op.MUL.value:
                 if len(values) != 2:
                     raise OperationNativeDataflowError("MUL node must have two operands")
-                result_value = values[0] * values[1]
+                if timing_probe is None:
+                    result_value = values[0] * values[1]
+                else:
+                    with timing_probe.measure("local_compute", correlation_id=plan.digest):
+                        result_value = values[0] * values[1]
             elif opcode == Op.COMPARE.value:
                 if len(values) != 2:
                     raise OperationNativeDataflowError("COMPARE node must have two operands")
@@ -854,7 +891,7 @@ def execute_dataflow_operation_native(
                     raise OperationNativeDataflowError("one symbolic Structural Memory register resolved inconsistently across frontiers")
                 resolved_initial_registers[source_register] = memory_receipt.value
 
-            for lane in request.lanes:
+            def verify_lane(lane: DataflowBinaryLane) -> None:
                 # The independent scalar oracle consumes receiver-resolved values
                 # only after checking their exact pinned memory identities.
                 left_value = lane.left
@@ -890,6 +927,13 @@ def execute_dataflow_operation_native(
                     "operation_receipt": receipt.to_dict(),
                     "operation_receipt_digest": receipt.digest,
                 }
+
+            for lane in request.lanes:
+                if timing_probe is None:
+                    verify_lane(lane)
+                else:
+                    with timing_probe.measure("origin_verification", correlation_id=request.digest):
+                        verify_lane(lane)
             receipts.append(receipt)
 
         # The frontier is published only after every remote lane has passed
@@ -964,15 +1008,30 @@ def dataflow_multiply_operator_spec() -> OperatorSpec:
     )
 
 
-def make_cpu_dataflow_multiply_handler() -> Callable[[Mapping[str, Any], VirtualLayerWorkload], dict[str, Any]]:
+def make_cpu_dataflow_multiply_handler(
+    *,
+    timing_probe: Any | None = None,
+) -> Callable[[Mapping[str, Any], VirtualLayerWorkload], dict[str, Any]]:
     """Mathematics: construct the CPU realization of the common bounded integer-product Ground."""
-    def execute(value: Mapping[str, Any], _workload: VirtualLayerWorkload) -> dict[str, Any]:
+    if timing_probe is not None and not callable(getattr(timing_probe, "measure", None)):
+        raise OperationNativeDataflowError("timing_probe must expose a measure context manager")
+
+    def execute(value: Mapping[str, Any], workload: VirtualLayerWorkload) -> dict[str, Any]:
         """Mathematics: map aligned strict integer pairs through the product law."""
-        left, right, _max_steps = _materialize_frontier_operands(value)
-        outputs = [
-            _bounded_binary_integer(a * b, f"CPU MUL result[{index}]")
-            for index, (a, b) in enumerate(zip(left, right))
-        ]
+        if timing_probe is None:
+            left, right, _max_steps = _materialize_frontier_operands(value)
+            outputs = [
+                _bounded_binary_integer(a * b, f"CPU MUL result[{index}]")
+                for index, (a, b) in enumerate(zip(left, right))
+            ]
+        else:
+            with timing_probe.measure("receiver_provenance_validation", correlation_id=workload.digest):
+                left, right, _max_steps = _materialize_frontier_operands(value)
+            with timing_probe.measure("backend_compute", correlation_id=workload.digest):
+                outputs = [
+                    _bounded_binary_integer(a * b, f"CPU MUL result[{index}]")
+                    for index, (a, b) in enumerate(zip(left, right))
+                ]
         backend = {
             "implementation": "mailcpu.cpu.strict-integer-vector-multiply.v1",
             "values": outputs,
@@ -985,7 +1044,11 @@ def make_cpu_dataflow_multiply_handler() -> Callable[[Mapping[str, Any], Virtual
     return execute
 
 
-def make_egpu_dataflow_multiply_handler(egpu_host: Any) -> Callable[[Mapping[str, Any], VirtualLayerWorkload], dict[str, Any]]:
+def make_egpu_dataflow_multiply_handler(
+    egpu_host: Any,
+    *,
+    timing_probe: Any | None = None,
+) -> Callable[[Mapping[str, Any], VirtualLayerWorkload], dict[str, Any]]:
     """Mathematics: bind the common product Ground to the existing receiver-local E-GPU vector.multiply method."""
     from .egpu import EGPUHost
 
@@ -998,32 +1061,55 @@ def make_egpu_dataflow_multiply_handler(egpu_host: Any) -> Callable[[Mapping[str
         raise OperationNativeDataflowError(
             "E-GPU host does not implement the full shared 64-lane/4096-bit MUL domain"
         )
+    if timing_probe is not None and not callable(getattr(timing_probe, "measure", None)):
+        raise OperationNativeDataflowError("timing_probe must expose a measure context manager")
 
-    def execute(value: Mapping[str, Any], _workload: VirtualLayerWorkload) -> dict[str, Any]:
+    def execute(value: Mapping[str, Any], workload: VirtualLayerWorkload) -> dict[str, Any]:
         """Mathematics: compute lane-wise products through the existing bounded E-GPU SIMT method and verify them."""
-        left, right, max_steps = _materialize_frontier_operands(value)
-        result = egpu_host.execute_authorized_method(
-            "vector.multiply",
-            {
-                "method": "vector.multiply",
-                "left": left,
-                "right": right,
-                "max_steps": max_steps,
-            },
-        )
-        raw_values = result["result"]["outputs"]["result"]
-        if not isinstance(raw_values, list) or len(raw_values) != len(left):
-            raise OperationNativeDataflowError("E-GPU MUL returned a result vector outside the shared lane shape")
-        values = [
-            _bounded_binary_integer(item, f"E-GPU MUL result[{index}]")
-            for index, item in enumerate(raw_values)
-        ]
-        expected = [
-            _bounded_binary_integer(a * b, f"MUL reference result[{index}]")
-            for index, (a, b) in enumerate(zip(left, right))
-        ]
-        if values != expected:
-            raise OperationNativeDataflowError("E-GPU MUL failed its independent scalar reference check")
+        if timing_probe is None:
+            left, right, max_steps = _materialize_frontier_operands(value)
+            result = egpu_host.execute_authorized_method(
+                "vector.multiply",
+                {
+                    "method": "vector.multiply",
+                    "left": left,
+                    "right": right,
+                    "max_steps": max_steps,
+                },
+            )
+        else:
+            with timing_probe.measure("receiver_provenance_validation", correlation_id=workload.digest):
+                left, right, max_steps = _materialize_frontier_operands(value)
+            with timing_probe.measure("backend_compute", correlation_id=workload.digest):
+                result = egpu_host.execute_authorized_method(
+                    "vector.multiply",
+                    {
+                        "method": "vector.multiply",
+                        "left": left,
+                        "right": right,
+                        "max_steps": max_steps,
+                    },
+                )
+        def verify_result() -> list[int]:
+            raw_values = result["result"]["outputs"]["result"]
+            if not isinstance(raw_values, list) or len(raw_values) != len(left):
+                raise OperationNativeDataflowError("E-GPU MUL returned a result vector outside the shared lane shape")
+            values = [
+                _bounded_binary_integer(item, f"E-GPU MUL result[{index}]")
+                for index, item in enumerate(raw_values)
+            ]
+            expected = [
+                _bounded_binary_integer(a * b, f"MUL reference result[{index}]")
+                for index, (a, b) in enumerate(zip(left, right))
+            ]
+            if values != expected:
+                raise OperationNativeDataflowError("E-GPU MUL failed its independent scalar reference check")
+            return values
+        if timing_probe is None:
+            values = verify_result()
+        else:
+            with timing_probe.measure("receiver_backend_verification", correlation_id=workload.digest):
+                values = verify_result()
         return {
             "values": values,
             "backend_method": "egpu.vector.multiply",
@@ -1248,6 +1334,7 @@ class ComputationalFabricDataflowBinaryDispatcher:
         max_hops: int = 8,
         metric_order: Sequence[RouteMetricKey],
         max_steps: int = 64,
+        timing_probe: Any | None = None,
     ) -> None:
         from .computational_fabric import ComputationalFabricDirectory
 
@@ -1290,6 +1377,8 @@ class ComputationalFabricDataflowBinaryDispatcher:
             raise OperationNativeDataflowError("max_hops must be a positive strict integer")
         if type(max_steps) is not int or not 1 <= max_steps <= 10_000:
             raise OperationNativeDataflowError("max_steps is outside the bounded E-GPU method range")
+        if timing_probe is not None and not callable(getattr(timing_probe, "measure", None)):
+            raise OperationNativeDataflowError("timing_probe must expose a measure context manager")
         metrics = tuple(metric_order)
         if not metrics or any(not isinstance(item, RouteMetricKey) for item in metrics):
             raise OperationNativeDataflowError("metric_order must contain RouteMetricKey values")
@@ -1309,6 +1398,7 @@ class ComputationalFabricDataflowBinaryDispatcher:
         self.max_hops = max_hops
         self.metric_order = metrics
         self.max_steps = max_steps
+        self.timing_probe = timing_probe
 
     def __call__(self, request: DataflowAddFrontierRequest | DataflowCompareFrontierRequest | DataflowMultiplyFrontierRequest) -> DataflowAddFrontierReceipt | DataflowCompareFrontierReceipt | DataflowMultiplyFrontierReceipt:
         from .computational_fabric import ComputationalFabricStatus
@@ -1388,12 +1478,21 @@ class ComputationalFabricDataflowBinaryDispatcher:
             program_fingerprint=None,
             metric_order=self.metric_order,
         )
-        planned = ComputationalFabricResolver().resolve(
-            address,
-            self.directory,
-            origin_peer_id=self.origin_peer_id,
-            max_hops=self.max_hops,
-        )
+        if self.timing_probe is None:
+            planned = ComputationalFabricResolver().resolve(
+                address,
+                self.directory,
+                origin_peer_id=self.origin_peer_id,
+                max_hops=self.max_hops,
+            )
+        else:
+            with self.timing_probe.measure("fabric_route_resolution", correlation_id=request.digest):
+                planned = ComputationalFabricResolver().resolve(
+                    address,
+                    self.directory,
+                    origin_peer_id=self.origin_peer_id,
+                    max_hops=self.max_hops,
+                )
         if planned.status is not ComputationalFabricStatus.FOUND or planned.witness is None:
             details = "; ".join(item.detail for item in planned.blockers[:4])
             raise OperationNativeDataflowError(
@@ -1415,7 +1514,11 @@ class ComputationalFabricDataflowBinaryDispatcher:
             origin_channel=self.origin_channel,
             origin_sequence=self.first_sequence + request.frontier_index,
         )
-        hop_receipt = client.forward(envelope, self.directory)
+        if self.timing_probe is None:
+            hop_receipt = client.forward(envelope, self.directory)
+        else:
+            with self.timing_probe.measure("origin_round_trip", correlation_id=request.digest):
+                hop_receipt = client.forward(envelope, self.directory)
         if not isinstance(hop_receipt, ComputationalFabricHopReceipt) or not hop_receipt.succeeded:
             raise OperationNativeDataflowError("fabric forwarding did not commit a successful terminal execution")
         if hop_receipt.operation_digest != envelope.operation_digest:

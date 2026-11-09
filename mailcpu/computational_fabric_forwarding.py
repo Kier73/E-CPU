@@ -551,6 +551,7 @@ class ComputationalFabricForwardingClient:
         timeout: float = 5.0,
         max_payload_bytes: int = _DEFAULT_MAX_PAYLOAD_BYTES,
         policy: ReliabilityPolicy | None = None,
+        timing_probe: Any | None = None,
     ) -> None:
         """Mathematics: Bind one adjacent TLS stream and reliable request/result pair to a stable origin operation channel."""
         local = _peer(local_peer_id, "local_peer_id")
@@ -578,6 +579,9 @@ class ComputationalFabricForwardingClient:
         self.channel_id = channel_id
         self.timeout = float(timeout)
         self.max_payload_bytes = max_payload_bytes
+        self.timing_probe = timing_probe
+        if timing_probe is not None and not callable(getattr(timing_probe, "measure", None)):
+            raise ComputationalFabricForwardingError("client timing_probe must expose a measure context manager")
         self.request = HypervisorOperationChannel(
             ReliableChannel(transport, local, remote_endpoint.peer_id, channel_id, selected_policy)
         )
@@ -608,6 +612,7 @@ class ComputationalFabricForwardingClient:
         handshake_timeout: float = 5.0,
         max_payload_bytes: int = _DEFAULT_MAX_PAYLOAD_BYTES,
         policy: ReliabilityPolicy | None = None,
+        timing_probe: Any | None = None,
     ) -> "ComputationalFabricForwardingClient":
         """Mathematics: Open a direct peer stream only after CA-chain and exact DNS SAN validation."""
         if not isinstance(remote_endpoint, ComputationalPeerEndpoint):
@@ -632,6 +637,7 @@ class ComputationalFabricForwardingClient:
                 timeout=timeout,
                 max_payload_bytes=max_payload_bytes,
                 policy=policy,
+                timing_probe=timing_probe,
             )
         except Exception:
             transport.close()
@@ -723,61 +729,61 @@ class ComputationalFabricForwardingClient:
             request,
         )
         try:
-            request_sequence = self.request.send_or_retransmit(event)
+            if self.timing_probe is None:
+                request_sequence = self.request.send_or_retransmit(event)
+            else:
+                with self.timing_probe.measure("transport_request_send", correlation_id=child.operation_digest):
+                    request_sequence = self.request.send_or_retransmit(event)
         except Exception as exc:
             raise ComputationalFabricForwardingError(f"could not enqueue forwarding operation: {exc}") from exc
 
         deadline = time.monotonic() + self.timeout
         last_tick = time.monotonic()
         result: HypervisorExecutionResult | None = None
-        while time.monotonic() < deadline:
-            try:
-                self.request.channel.process_ack()
-                result, _response_transport_sequence, stale_response_frame = (
-                    self.response.receive_with_transport()
-                )
-            except Exception as exc:
-                raise ComputationalFabricForwardingError(f"forwarding peer stream failed: {exc}") from exc
-            if result is not None and stale_response_frame and result.replayed:
-                # This RPC invocation must not be satisfied by an old reliable
-                # frame whose semantic result the client already observed.
-                # The frame has been ACKed; keep waiting for a fresh response
-                # transport sequence associated with the new request delivery.
-                continue
-            if (
-                result is not None
-                and result.source == self.local_peer_id
-                and result.channel == child.channel_id
-                and result.sequence < child.origin_sequence
-            ):
-                # A recovered downstream peer may re-publish an older result.
-                # It can be a semantic duplicate already seen here, or a
-                # first delivery if the prior relay process died before reading
-                # it. In either case it belongs to an earlier operation, so
-                # consume/ACK it and keep waiting for this operation's result.
-                continue
-            if result is not None:
-                # The peer publishes the request ACK and the operation result
-                # on the same reliable stream. The ACK can arrive after the
-                # loop's pre-receive poll, so drain it at the result boundary
-                # before a later semantic retry decides whether to retransmit
-                # the still-pending frame or allocate a fresh transport sequence.
+        response_token = (
+            self.timing_probe.start("transport_response_wait", correlation_id=child.operation_digest)
+            if self.timing_probe is not None else None
+        )
+        try:
+            while time.monotonic() < deadline:
                 try:
                     self.request.channel.process_ack()
+                    result, _response_transport_sequence, stale_response_frame = (
+                        self.response.receive_with_transport()
+                    )
                 except Exception as exc:
-                    raise ComputationalFabricForwardingError(
-                        f"cannot reconcile forwarding request acknowledgement: {exc}"
-                    ) from exc
-                break
-            now = time.monotonic()
-            if now - last_tick >= 0.03:
-                failed = self.request.channel.tick()
-                if failed:
-                    raise ComputationalFabricForwardingError("forwarding request exhausted reliable retry attempts")
-                last_tick = now
-            time.sleep(0.002)
-        if result is None:
-            raise ComputationalFabricForwardingError("next peer did not return a result before the RPC deadline")
+                    raise ComputationalFabricForwardingError(f"forwarding peer stream failed: {exc}") from exc
+                if result is not None and stale_response_frame and result.replayed:
+                    # Do not accept a stale result frame for this invocation.
+                    continue
+                if (
+                    result is not None
+                    and result.source == self.local_peer_id
+                    and result.channel == child.channel_id
+                    and result.sequence < child.origin_sequence
+                ):
+                    # Consume/ACK a recovered result for an earlier operation.
+                    continue
+                if result is not None:
+                    try:
+                        self.request.channel.process_ack()
+                    except Exception as exc:
+                        raise ComputationalFabricForwardingError(
+                            f"cannot reconcile forwarding request acknowledgement: {exc}"
+                        ) from exc
+                    break
+                now = time.monotonic()
+                if now - last_tick >= 0.03:
+                    failed = self.request.channel.tick()
+                    if failed:
+                        raise ComputationalFabricForwardingError("forwarding request exhausted reliable retry attempts")
+                    last_tick = now
+                time.sleep(0.002)
+            if result is None:
+                raise ComputationalFabricForwardingError("next peer did not return a result before the RPC deadline")
+        finally:
+            if response_token is not None:
+                self.timing_probe.finish(response_token)
         if (
             result.source != self.local_peer_id
             or result.channel != child.channel_id
@@ -810,34 +816,42 @@ class ComputationalFabricForwardingClient:
         # this operation. Do not report this RPC as complete while the exact
         # request frame just sent/retried is still pending: the receiver may
         # not yet have consumed this delivery or advanced its receive cursor.
-        ack_deadline = time.monotonic() + self.timeout
-        last_ack_tick = time.monotonic()
-        while request_sequence in self.request.channel.pending_sequences():
-            try:
-                self.request.channel.process_ack()
-            except Exception as exc:
-                raise ComputationalFabricForwardingError(
-                    f"could not confirm forwarding request acknowledgement: {exc}"
-                ) from exc
-            if request_sequence not in self.request.channel.pending_sequences():
-                break
-            now = time.monotonic()
-            if request_sequence in self.request.channel.failed_sequences:
-                raise ComputationalFabricForwardingError(
-                    "forwarding request acknowledgement exhausted its retry budget"
-                )
-            if now >= ack_deadline:
-                raise ComputationalFabricForwardingError(
-                    "next peer returned a result without acknowledging the corresponding request frame"
-                )
-            if now - last_ack_tick >= 0.03:
-                failed = self.request.channel.tick()
-                if request_sequence in failed:
+        ack_token = (
+            self.timing_probe.start("transport_request_ack_wait", correlation_id=child.operation_digest)
+            if self.timing_probe is not None else None
+        )
+        try:
+            ack_deadline = time.monotonic() + self.timeout
+            last_ack_tick = time.monotonic()
+            while request_sequence in self.request.channel.pending_sequences():
+                try:
+                    self.request.channel.process_ack()
+                except Exception as exc:
+                    raise ComputationalFabricForwardingError(
+                        f"could not confirm forwarding request acknowledgement: {exc}"
+                    ) from exc
+                if request_sequence not in self.request.channel.pending_sequences():
+                    break
+                now = time.monotonic()
+                if request_sequence in self.request.channel.failed_sequences:
                     raise ComputationalFabricForwardingError(
                         "forwarding request acknowledgement exhausted its retry budget"
                     )
-                last_ack_tick = now
-            time.sleep(0.002)
+                if now >= ack_deadline:
+                    raise ComputationalFabricForwardingError(
+                        "next peer returned a result without acknowledging the corresponding request frame"
+                    )
+                if now - last_ack_tick >= 0.03:
+                    failed = self.request.channel.tick()
+                    if request_sequence in failed:
+                        raise ComputationalFabricForwardingError(
+                            "forwarding request acknowledgement exhausted its retry budget"
+                        )
+                    last_ack_tick = now
+                time.sleep(0.002)
+        finally:
+            if ack_token is not None:
+                self.timing_probe.finish(ack_token)
         return receipt
 
     def snapshot(self) -> dict[str, Any]:
@@ -945,6 +959,7 @@ class ComputationalFabricForwardingServer:
         timeout: float = 5.0,
         max_payload_bytes: int = _DEFAULT_MAX_PAYLOAD_BYTES,
         policy: ReliabilityPolicy | None = None,
+        timing_probe: Any | None = None,
     ) -> None:
         """Mathematics: Bind one adjacent authenticated stream, local capability identity, receiver view and optional terminal catalogue."""
         local = _peer(local_peer_id, "local_peer_id")
@@ -981,6 +996,9 @@ class ComputationalFabricForwardingServer:
         self.origin_channel = _text(origin_channel, "origin_channel")
         self.channel_id = computational_fabric_forward_channel_id(origin_peer_id, origin_channel)
         self.catalogue = catalogue
+        self.timing_probe = timing_probe
+        if timing_probe is not None and not callable(getattr(timing_probe, "measure", None)):
+            raise ComputationalFabricForwardingError("server timing_probe must expose a measure context manager")
         self.next_hop_clients = dict(next_hop_clients or {})
         if any(not isinstance(client, ComputationalFabricForwardingClient) for client in self.next_hop_clients.values()):
             raise ComputationalFabricForwardingError("next-hop clients must be ComputationalFabricForwardingClient values")
@@ -1039,6 +1057,7 @@ class ComputationalFabricForwardingServer:
         timeout: float = 5.0,
         max_payload_bytes: int = _DEFAULT_MAX_PAYLOAD_BYTES,
         policy: ReliabilityPolicy | None = None,
+        timing_probe: Any | None = None,
     ) -> "ComputationalFabricForwardingServer":
         """Mathematics: Accept one client only when its CA-verified certificate presents the directory's exact trusted DNS SAN."""
         previous = _peer(previous_peer_id, "previous_peer_id")
@@ -1068,6 +1087,7 @@ class ComputationalFabricForwardingServer:
                 timeout=timeout,
                 max_payload_bytes=max_payload_bytes,
                 policy=policy,
+                timing_probe=timing_probe,
             )
         except Exception:
             transport.close()
@@ -1197,11 +1217,19 @@ class ComputationalFabricForwardingServer:
         local_advertisement = ComputationalHostAdvertisement.from_locus(locus, self.local_peer_id)
         if local_advertisement.digest != advertisement.digest:
             raise ComputationalFabricForwardingError("terminal host advertisement differs from the live local locus")
-        resolution = ComputationalAddressResolver().resolve(
-            envelope.address,
-            self.catalogue,
-            self.operating_system,
-        )
+        if self.timing_probe is None:
+            resolution = ComputationalAddressResolver().resolve(
+                envelope.address,
+                self.catalogue,
+                self.operating_system,
+            )
+        else:
+            with self.timing_probe.measure("receiver_semantic_resolution", correlation_id=envelope.operation_digest):
+                resolution = ComputationalAddressResolver().resolve(
+                    envelope.address,
+                    self.catalogue,
+                    self.operating_system,
+                )
         if (
             resolution.status.value != "found"
             or resolution.witness is None
@@ -1210,7 +1238,10 @@ class ComputationalFabricForwardingServer:
             or resolution.witness.implementation_fingerprint != advertisement.implementation_fingerprint
         ):
             raise ComputationalFabricForwardingError("fresh terminal semantic resolution did not reproduce the advertised host locus")
-        outcome = ComputationalExecutionAdmissionCoordinator(self.operating_system).execute(
+        outcome = ComputationalExecutionAdmissionCoordinator(
+            self.operating_system,
+            timing_probe=self.timing_probe,
+        ).execute(
             envelope.address,
             resolution.witness,
             self.catalogue,
@@ -1330,7 +1361,7 @@ class ComputationalFabricForwardingServer:
             return None
         authorized_events: list[HypervisorArbitrationEvent] = []
 
-        def authorize(event: HypervisorArbitrationEvent) -> HypervisorArbitrationEvent:
+        def authorize_unmeasured(event: HypervisorArbitrationEvent) -> HypervisorArbitrationEvent:
             """Mathematics: Verify the envelope and replace every peer-supplied grant with this process's local rights."""
             envelope = self._decode_envelope(event)
             self._validate_local_route(envelope)
@@ -1372,9 +1403,20 @@ class ComputationalFabricForwardingServer:
             authorized_events[:] = [authorized]
             return authorized
 
+        def authorize(event: HypervisorArbitrationEvent) -> HypervisorArbitrationEvent:
+            if self.timing_probe is None:
+                return authorize_unmeasured(event)
+            correlation_id = event.request.payload.get("envelope", {}).get("operation_digest", f"{event.channel}:{event.sequence}")
+            with self.timing_probe.measure("receiver_peer_admission", correlation_id=correlation_id):
+                return authorize_unmeasured(event)
+
         def execute(event: HypervisorArbitrationEvent) -> dict[str, Any]:
             """Mathematics: Dispatch one authorized CPU operation to the local route transition."""
-            return self._handle(event)
+            if self.timing_probe is None:
+                return self._handle(event)
+            correlation_id = event.request.payload.get("envelope", {}).get("operation_digest", f"{event.channel}:{event.sequence}")
+            with self.timing_probe.measure("receiver_route_dispatch", correlation_id=correlation_id):
+                return self._handle(event)
 
         def encode(raw_effect: Any) -> dict[str, Any]:
             """Mathematics: Convert one committed pure operation effect into a digest-linked per-hop receipt."""
