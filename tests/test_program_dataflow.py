@@ -230,3 +230,55 @@ def test_compilation_verification_binds_initial_state_and_source_bytes() -> None
     assert changed_initial.digest != plan.digest
     with pytest.raises(ProgramDataflowError, match="max_work_units"):
         evaluate_dataflow(plan, max_work_units=1)
+
+
+def test_symbolic_structural_memory_is_compiled_as_a_pinned_initial_operand_without_a_read() -> None:
+    from mailcpu.virtual_layer import VirtualStructuralMemoryRef
+
+    operating_system = HeadlessOS(
+        structural_memory_admission_policy=lambda proposal: proposal.spec.domain == "integer-orbit"
+    )
+    law = Law(
+        family="int",
+        params={"x0": 5, "step": 3, "mod": 97},
+        order=1,
+        verdict="GROUND",
+    )
+    proposal = operating_system.structural_memory.propose(
+        "lazy-dataflow-orbit",
+        law,
+        {0: 5, 1: 8, 2: 11, 3: 14},
+        domain="integer-orbit",
+        context={"tenant": "dataflow", "partition": 2},
+    )
+    version = operating_system.structural_memory.admit(
+        proposal.proposal_id,
+        expected_revision=0,
+    )
+    reference = VirtualStructuralMemoryRef.from_version(
+        "caller-binding-is-normalized",
+        version,
+        4,
+    )
+    program = assemble("set offset 11\nadd answer memory_value offset\nhalt")
+    compiler = MailCPUDataflowCompiler()
+    plan = compiler.compile_program(
+        program,
+        structural_memory_refs={"memory_value": reference},
+    )
+
+    assert plan.structural_memory_refs[0][0] == "memory_value"
+    assert plan.structural_memory_refs[0][1].binding == "memory_value"
+    assert plan.nodes[1].payload["operands"][0]["kind"] == "structural_memory"
+    assert plan.nodes[1].payload["operands"][0]["reference"] == plan.structural_memory_refs[0][1].to_dict()
+    assert next(item for item in plan.final_register_sources if item.register == "memory_value").kind == "structural_memory"
+    assert plan.to_dict()["structural_memory_refs"][0][0] == "memory_value"
+    assert verify_dataflow_compilation(compiler, program, plan)
+    with pytest.raises(ProgramDataflowError, match="not materialized"):
+        _ = plan.initial_values
+    with pytest.raises(ProgramDataflowError, match="receiver-authorized operation-native execution"):
+        evaluate_dataflow(plan)
+    assert not [
+        record for record in operating_system.environment.kernel.journal.records()
+        if record.kind == "structural_memory.read_revision"
+    ]
