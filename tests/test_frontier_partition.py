@@ -4,6 +4,8 @@ import copy
 
 import pytest
 
+from mailcpu.computational_resolver import ComputationalAddress
+
 from mailcpu import (
     BinaryFrontierPartition,
     BinaryFrontierPartitionPlan,
@@ -15,6 +17,12 @@ from mailcpu import (
     FrontierPartitionError,
     OperatorSpec,
     RouteMetric,
+    RouteMetricKey,
+    SystemIdentity,
+    VirtualBudget,
+    VirtualGroundRef,
+    VirtualLayerWorkload,
+    VirtualOperatorRef,
     dataflow_multiply_operator_spec,
     split_binary_frontier_request,
 )
@@ -46,6 +54,70 @@ def _request() -> DataflowMultiplyFrontierRequest:
         context_digest=CONTEXT,
         frontier_index=3,
         lanes=lanes,
+    )
+
+
+def _address(request: DataflowMultiplyFrontierRequest, peer_id: str = "peer-b") -> ComputationalAddress:
+    """Mathematics: construct the exact child Virtual Layer address whose goal and operands commit the typed request."""
+    spec = dataflow_multiply_operator_spec()
+    references = {
+        reference.binding: reference
+        for lane in request.lanes
+        for reference in (lane.left_reference, lane.right_reference)
+        if reference is not None
+    }
+    wire_lanes = []
+    for lane in request.lanes:
+        wire_lane = {"node_id": lane.node_id}
+        for side in ("left", "right"):
+            reference = getattr(lane, f"{side}_reference")
+            value = getattr(lane, side)
+            if reference is not None:
+                wire_lane[side] = {"kind": "structural_memory", "binding": reference.binding}
+            elif getattr(lane, f"{side}_orbit_inputs"):
+                wire_lane[side] = {
+                    "kind": "contextual_orbit",
+                    "value": value,
+                    "inputs": [item.to_dict() for item in getattr(lane, f"{side}_orbit_inputs")],
+                }
+            else:
+                wire_lane[side] = {"kind": "inline", "value": value}
+        wire_lanes.append(wire_lane)
+    workload = VirtualLayerWorkload(
+        workload_id=f"dataflow-mul-{request.plan_digest[:12]}-{request.frontier_index:04d}",
+        system=SystemIdentity("partition-plan-test", 1),
+        ground=VirtualGroundRef("3" * 64, "4" * 64, 1, "5" * 64),
+        intention={"goal": {
+            "kind": spec.operator_id,
+            "plan_digest": request.plan_digest,
+            "context_digest": request.context_digest,
+            "request_digest": request.digest,
+            "frontier_index": request.frontier_index,
+            "lanes": [item.to_dict() for item in request.lanes],
+        }},
+        operators=(VirtualOperatorRef(
+            spec.operator_id,
+            spec.version,
+            structural_memory=tuple(references[key] for key in sorted(references)),
+        ),),
+        input_value={"lanes": wire_lanes, "max_steps": 64},
+        budget=VirtualBudget(100_000, 1_000_000, 100_000),
+        logical_time=request.frontier_index,
+        eligible_nodes=(f"node-{peer_id}",),
+        max_hops=8,
+        schema_version=2 if references else 1,
+    )
+    return ComputationalAddress.from_workload(
+        workload,
+        spec.operator_id,
+        spec,
+        GROUND,
+        metric_order=(
+            RouteMetricKey("latency", "ticks"),
+            RouteMetricKey("energy", "units"),
+            RouteMetricKey("bytes", "bytes"),
+            RouteMetricKey("risk", "score"),
+        ),
     )
 
 
@@ -138,21 +210,23 @@ def test_binary_frontier_partition_plan_round_trips_full_child_routes_and_lane_e
         request,
         (("pc-000001", "pc-000002"), ("pc-000003", "pc-000004")),
     )
+    first_address = _address(first, "peer-b")
+    second_address = _address(second, "peer-c")
     first_route = _route(
         "peer-b",
         "logical-host-b",
-        "6" * 64,
+        first_address.digest,
         implementation=IMPLEMENTATION_B,
     )
     second_route = _route(
         "peer-c",
         "logical-host-c",
-        "7" * 64,
+        second_address.digest,
         implementation=IMPLEMENTATION_C,
     )
     partitions = (
-        BinaryFrontierPartition(first, first_route),
-        BinaryFrontierPartition(second, second_route),
+        BinaryFrontierPartition(first, first_address, first_route),
+        BinaryFrontierPartition(second, second_address, second_route),
     )
     plan = BinaryFrontierPartitionPlan(
         plan_digest=PLAN,
@@ -199,16 +273,17 @@ def test_binary_frontier_partition_rejects_wrong_operation_host_contract() -> No
         max_input_bytes=262_144,
         max_output_bytes=262_144,
     )
+    child_address = _address(child, "peer-b")
     route = _route(
         "peer-b",
         "logical-host-b",
-        "8" * 64,
+        child_address.digest,
         implementation=IMPLEMENTATION_B,
         operator_spec=wrong,
     )
 
     with pytest.raises(FrontierPartitionError, match="exact operation contract"):
-        BinaryFrontierPartition(child, route)
+        BinaryFrontierPartition(child, child_address, route)
 
 
 def test_binary_frontier_partition_plan_rejects_gaps_duplicates_and_one_host() -> None:
@@ -218,11 +293,13 @@ def test_binary_frontier_partition_plan_rejects_gaps_duplicates_and_one_host() -
         request,
         (("pc-000001", "pc-000002"), ("pc-000003", "pc-000004")),
     )
+    first_address = _address(first, "peer-b")
+    second_address = _address(second, "peer-c")
     route_b = _route(
-        "peer-b", "logical-host-b", "9" * 64, implementation=IMPLEMENTATION_B
+        "peer-b", "logical-host-b", first_address.digest, implementation=IMPLEMENTATION_B
     )
     route_c = _route(
-        "peer-c", "logical-host-c", "1" * 64, implementation=IMPLEMENTATION_C
+        "peer-c", "logical-host-c", second_address.digest, implementation=IMPLEMENTATION_C
     )
 
     with pytest.raises(FrontierPartitionError, match="cover every frontier node exactly once"):
@@ -237,18 +314,19 @@ def test_binary_frontier_partition_plan_rejects_gaps_duplicates_and_one_host() -
             topology_digest=TOPOLOGY,
             frontier_node_ids=tuple(lane.node_id for lane in request.lanes) + ("pc-000005",),
             partitions=(
-                BinaryFrontierPartition(first, route_b),
-                BinaryFrontierPartition(second, route_c),
+                BinaryFrontierPartition(first, first_address, route_b),
+                BinaryFrontierPartition(second, second_address, route_c),
             ),
         )
 
+    second_address_same_host = _address(second, "peer-b")
     same_host_route = _route(
         "peer-b",
         "logical-host-b",
-        "2" * 64,
+        second_address_same_host.digest,
         implementation=IMPLEMENTATION_B,
     )
-    second_on_same_host = BinaryFrontierPartition(second, same_host_route)
+    second_on_same_host = BinaryFrontierPartition(second, second_address_same_host, same_host_route)
     with pytest.raises(FrontierPartitionError, match="at least two distinct logical hosts"):
         BinaryFrontierPartitionPlan(
             plan_digest=PLAN,
@@ -274,9 +352,11 @@ def test_binary_frontier_partition_plan_refuses_mixed_directory_or_topology_view
         request,
         (("pc-000001", "pc-000002"), ("pc-000003", "pc-000004")),
     )
-    first_route = _route("peer-b", "logical-host-b", "3" * 64, implementation=IMPLEMENTATION_B)
+    first_address = _address(first, "peer-b")
+    second_address = _address(second, "peer-c")
+    first_route = _route("peer-b", "logical-host-b", first_address.digest, implementation=IMPLEMENTATION_B)
     second_route = _route(
-        "peer-c", "logical-host-c", "4" * 64,
+        "peer-c", "logical-host-c", second_address.digest,
         implementation=IMPLEMENTATION_C, topology_digest="5" * 64,
     )
     plan_args = {
@@ -290,8 +370,8 @@ def test_binary_frontier_partition_plan_refuses_mixed_directory_or_topology_view
         "topology_digest": TOPOLOGY,
         "frontier_node_ids": tuple(lane.node_id for lane in request.lanes),
         "partitions": (
-            BinaryFrontierPartition(first, first_route),
-            BinaryFrontierPartition(second, second_route),
+            BinaryFrontierPartition(first, first_address, first_route),
+            BinaryFrontierPartition(second, second_address, second_route),
         ),
     }
 
@@ -319,11 +399,13 @@ def test_binary_frontier_partition_plan_deserialization_rejects_tampered_winner_
         partitions=(
             BinaryFrontierPartition(
                 first,
-                _route("peer-b", "logical-host-b", "a" * 64, implementation=IMPLEMENTATION_B),
+                _address(first, "peer-b"),
+                _route("peer-b", "logical-host-b", _address(first, "peer-b").digest, implementation=IMPLEMENTATION_B),
             ),
             BinaryFrontierPartition(
                 second,
-                _route("peer-c", "logical-host-c", "b" * 64, implementation=IMPLEMENTATION_C),
+                _address(second, "peer-c"),
+                _route("peer-c", "logical-host-c", _address(second, "peer-c").digest, implementation=IMPLEMENTATION_C),
             ),
         ),
     )
