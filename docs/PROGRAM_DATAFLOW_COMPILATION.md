@@ -40,7 +40,7 @@ The byte identity does not establish program meaning by itself. Meaning comes fr
 
 ## Structural Memory inputs
 
-The compiler distinguishes two materially different inputs.
+The compiler distinguishes three materially different input classes.
 
 **Materialized read receipt.** A caller may supply a `StructuralMemoryReadReceipt` for an initial register. The compiler checks its typed form and the digest relationship between its integer value and `value_digest`, then binds the full receipt into the initial-state representation and relevant initial-register operands. The value is already known to the compiler caller.
 
@@ -54,7 +54,13 @@ where (m) is the memory identity, (r) its exact revision, (c) the context, (q) t
 
 A plan containing symbolic references cannot be evaluated by the local `evaluate_dataflow` path, because that evaluator has no receiver-local memory authority. In the current operation-native profile, a symbolic reference may feed an `ADD` operand. The executor carries it as a schema-v2 Virtual Layer memory reference. The selected receiving host resolves it only after its local Hypervisor admission and only when its execution process holds `read` on `/structural-memory/read`. It returns the value and full typed read receipt. The requester checks the receipt against the exact pinned reference, then applies the independent scalar ADD oracle before committing the DAG node.
 
-The reference is not a read grant, capability, generator, or executable closure. It only identifies what must be read. The receiver's registry, current revision, context, certificate and process authority determine whether resolution succeeds. A register cannot be supplied both inline, by a materialized receipt, or by a symbolic reference.
+The reference is not a read grant, capability, generator, or executable closure. It only identifies what must be read. The receiver's registry, current revision, context, certificate and process authority determine whether resolution succeeds.
+
+**Verified contextual-orbit predecessor.** A caller may supply a ContextualOrbitDataflowInput for an initial register. The object binds the original ContextualOrbitLocateValueRequest to its origin-verified routed ContextualOrbitLocateValueReceipt. It rechecks request identity, the selected OrbitValueResult, the observer projection, the located-coordinate Structural Memory read receipt, and the operator-effect digest. Its explicit field selects either coordinate or value; both selected values remain available alongside the observer receipt and exact read receipt.
+
+The compiler accepts these inputs through contextual_orbit_inputs={"register": predecessor}. Rather than flattening the input into an untyped integer, it emits a distinct orbit-input-{register} source node containing the predecessor digest and receipt identities. Every instruction that reads that register receives a real dependency edge to the source node. The compiled plan and graph representation bind the complete typed request/receipt object. On commit, the source node retains the selected integer plus the serialized typed evidence; downstream operations can recover the evidence through DAG ancestry.
+
+This is a compact result, not a trajectory. It carries the query, selected coordinate/value and the evidence needed to interpret that selection, but does not copy intermediate states or replay transitions. The compiler's v3 plan identity includes the new input class, with at most 64 contextual-orbit inputs. The request remains data/provenance, not a capability or proof of trusted hardware execution. A register cannot be supplied by more than one of inline state, a materialized receipt, a symbolic Structural Memory reference, or a contextual-orbit predecessor.
 
 ## Dependency and topology profile
 
