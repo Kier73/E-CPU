@@ -9,6 +9,23 @@ from mailcpu.assembler import assemble
 from mailcpu.computation_dag import NavigableComputationDAG
 from mailcpu.law_certifier import Law
 from mailcpu.headless import HeadlessOS
+from mailcpu import (
+    ContextualOrbitAddress,
+    ContextualOrbitDataflowInput,
+    ContextualOrbitLocateValueReceipt,
+    ContextualOrbitLocateValueRequest,
+    ContextualOrbitNavigator,
+    ObserverContract,
+    RepresentationRef,
+    SchedulerReading,
+    StructuralMemoryRegistry,
+    VirtualGroundRef,
+    VirtualStructuralMemoryRef,
+    contextual_orbit_context,
+    structural_memory_spec_representation_ref,
+)
+from mailcpu.semantic_translation import ObservationContract, canonical_value_digest
+from mailcpu.seed import SystemIdentity
 from mailcpu.program_dataflow import (
     MailCPUDataflowCompiler,
     ProgramDataflowError,
@@ -16,6 +33,93 @@ from mailcpu.program_dataflow import (
     evaluate_dataflow,
     verify_dataflow_compilation,
 )
+
+
+
+def _contextual_orbit_dataflow_input(*, field: str, coordinate: int = 37) -> ContextualOrbitDataflowInput:
+    """Mathematics: create an origin-verified, trajectory-free inverse result for the compiled DAG."""
+    system = SystemIdentity("dataflow-orbit-system", 1)
+    base_ground = VirtualGroundRef("a" * 64, "b" * 64, 41, "c" * 64)
+    interpretation = RepresentationRef.from_payload(
+        "test.dataflow.integer-ground",
+        1,
+        {"domain": "integer", "meaning": "counter-state"},
+    )
+    extensions = {"lane": "primary", "purpose": "typed-dataflow-predecessor"}
+    context = contextual_orbit_context(
+        system,
+        base_ground,
+        interpretation,
+        scheduler_id="vm-scheduler",
+        extensions=extensions,
+    )
+    law = Law(
+        family="int",
+        params={"step": 7, "mod": 101, "x0": 4},
+        order=1,
+        verdict="GROUND",
+    )
+    registry = StructuralMemoryRegistry(admission_policy=lambda _proposal: True)
+    proposal = registry.propose(
+        "dataflow-contextual-orbit",
+        law,
+        {index: law.navigate(index) for index in range(8)},
+        domain="contextual-orbit-test",
+        context=context,
+    )
+    version = registry.admit(proposal.proposal_id, expected_revision=0)
+    memory_reference = VirtualStructuralMemoryRef.from_version(
+        "orbit-generator",
+        version,
+        0,
+    )
+    address = ContextualOrbitAddress(
+        system_identity=system,
+        base_ground=base_ground,
+        computational_ground=interpretation,
+        coordinate=SchedulerReading("vm-scheduler", base_ground.coordinate),
+        structural_memory=memory_reference,
+        context_extensions=extensions,
+    )
+    observer = ObserverContract(
+        observer_id="dataflow-orbit-observer",
+        revision=1,
+        subject=structural_memory_spec_representation_ref(version.spec),
+        interpretation=interpretation,
+        observation=ObservationContract.from_definition(
+            "mailcpu.orbit.scalar-value",
+            1,
+            {"fields": ["coordinate", "offset", "value", "value_digest"]},
+        ),
+        context_digest=canonical_value_digest(context),
+    )
+    target_value = law.navigate(coordinate)
+    request = ContextualOrbitLocateValueRequest(
+        address=address,
+        observer=observer,
+        target_value=target_value,
+    )
+    result = ContextualOrbitNavigator(registry).locate_value(
+        address,
+        observer,
+        target_value,
+        operation_id=request.operation_id,
+    )
+    receipt = ContextualOrbitLocateValueReceipt(
+        request_digest=request.digest,
+        result=result,
+        host_id="logical-host-c",
+        peer_id="peer-c",
+        peer_path=("peer-a", "peer-c"),
+        route_witness_digest="1" * 64,
+        forwarding_receipt_digest="2" * 64,
+        operator_effect_digest=canonical_value_digest({
+            "request_digest": request.digest,
+            "result": result.to_dict(),
+        }),
+        implementation_fingerprint="3" * 64,
+    )
+    return ContextualOrbitDataflowInput(request, receipt, field=field)
 
 
 def test_dataflow_compiler_preserves_program_identity_and_reference_terminal_observation() -> None:
