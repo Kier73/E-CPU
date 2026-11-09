@@ -14,7 +14,6 @@ from typing import Any, Callable, Mapping, Sequence
 
 from .computational_fabric import (
     ComputationalFabricPlacementSet,
-    ComputationalFabricResolver,
     ComputationalFabricRouteWitness,
     ComputationalFabricStatus,
 )
