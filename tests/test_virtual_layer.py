@@ -333,3 +333,59 @@ def test_array_operator_accepts_immutable_workload_sequence() -> None:
     assert result.action is HypervisorAction.ALLOW
     assert result.effect["result"] == 6
 
+
+
+def test_authority_only_structural_memory_navigation_requires_schema_v3_and_round_trips() -> None:
+    """Mathematics: navigation authority is a typed, non-materializing reference mode and cannot be downgraded to workload schema v2."""
+    from mailcpu import VirtualStructuralMemoryRef
+
+    operating_system = HeadlessOS()
+    identity, _envelope, ground = _admitted_ground(operating_system)
+    memory_reference = VirtualStructuralMemoryRef(
+        binding="base-ground",
+        memory_id="memory-orbit",
+        revision=3,
+        context={"tenant": "virtual-layer-test"},
+        coordinate=0,
+        spec_digest="a" * 64,
+        certificate_digest="b" * 64,
+    )
+    operator_reference = VirtualOperatorRef(
+        "core.sum_pair",
+        preferred_substrate="cpu",
+        structural_memory=(memory_reference,),
+        structural_memory_access="navigate",
+    )
+    workload = VirtualLayerWorkload(
+        "navigation-authority-workload",
+        identity,
+        ground,
+        {"goal": {"kind": "inverse-navigation"}},
+        (operator_reference,),
+        {"target": 11},
+        VirtualBudget(5000, 5000, 100),
+        17,
+        schema_version=3,
+    )
+
+    restored = VirtualLayerWorkload.from_dict(workload.to_dict())
+    restored_reference = restored.operator_ref("core.sum_pair")
+    assert restored.digest == workload.digest
+    assert restored_reference.structural_memory_access == "navigate"
+    assert restored_reference.structural_memory == (memory_reference,)
+    assert restored.to_dict()["schema_version"] == 3
+
+    with pytest.raises(VirtualLayerError, match="schema version 3"):
+        VirtualLayerWorkload(
+            "navigation-authority-workload-v2",
+            identity,
+            ground,
+            {"goal": {"kind": "inverse-navigation"}},
+            (operator_reference,),
+            {"target": 11},
+            VirtualBudget(5000, 5000, 100),
+            17,
+            schema_version=2,
+        )
+    with pytest.raises(VirtualLayerError, match="must be read or navigate"):
+        VirtualOperatorRef("core.sum_pair", structural_memory_access=[])
