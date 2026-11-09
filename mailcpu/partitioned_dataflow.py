@@ -210,6 +210,115 @@ class BinaryFrontierChildReceipt:
             raise OperationNativeDataflowError("binary frontier child receipt contains invalid typed evidence") from exc
 
 
+
+@dataclass(frozen=True)
+class BinaryFrontierPartitionReassignment:
+    """One quorum-fenced route replacement for an exact semantic child partition."""
+
+    previous_partition: BinaryFrontierPartition
+    replacement_partition: BinaryFrontierPartition
+    claim_bundle: PortableExecutionClaimBundle
+    failure_evidence_digest: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.previous_partition, BinaryFrontierPartition) or not isinstance(
+            self.replacement_partition, BinaryFrontierPartition
+        ):
+            raise OperationNativeDataflowError("partition reassignment requires typed previous and replacement partitions")
+        if not isinstance(self.claim_bundle, PortableExecutionClaimBundle):
+            raise OperationNativeDataflowError("partition reassignment requires a portable quorum claim ticket")
+        if not isinstance(self.failure_evidence_digest, str) or len(self.failure_evidence_digest) != 64:
+            raise OperationNativeDataflowError("partition reassignment failure evidence must be a SHA-256 digest")
+        if any(ch not in "0123456789abcdef" for ch in self.failure_evidence_digest):
+            raise OperationNativeDataflowError("partition reassignment failure evidence must be lowercase SHA-256 hex")
+        previous = self.previous_partition
+        replacement = self.replacement_partition
+        if (
+            previous.request.to_dict() != replacement.request.to_dict()
+            or previous.address.to_dict() != replacement.address.to_dict()
+            or previous.node_ids != replacement.node_ids
+            or previous.operation != replacement.operation
+        ):
+            raise OperationNativeDataflowError("partition reassignment changed the semantic child request or ComputationalAddress")
+        old_route = previous.route_witness
+        new_route = replacement.route_witness
+        if (
+            old_route.target_host.peer_id,
+            old_route.target_host.host_id,
+        ) == (
+            new_route.target_host.peer_id,
+            new_route.target_host.host_id,
+        ):
+            raise OperationNativeDataflowError("partition reassignment must select a different logical Host")
+        claim = self.claim_bundle.claim
+        if (
+            claim.child_request_digest != replacement.request.digest
+            or claim.address_digest != replacement.address.digest
+            or claim.operator_id != replacement.address.operator_id
+            or claim.operator_contract_digest != replacement.address.operator_contract_digest
+            or claim.computational_ground_fingerprint != replacement.address.computational_ground_fingerprint
+            or claim.status is not ExecutionClaimStatus.ASSIGNED
+            or len(claim.assignments) < 2
+        ):
+            raise OperationNativeDataflowError("reassignment claim does not bind this assigned semantic child")
+        prior, current = claim.assignments[-2], claim.current_assignment
+        if (
+            prior.owner_peer_id != old_route.target_host.peer_id
+            or prior.owner_host_id != old_route.target_host.host_id
+            or prior.implementation_fingerprint != old_route.target_host.implementation_fingerprint
+            or current.owner_peer_id != new_route.target_host.peer_id
+            or current.owner_host_id != new_route.target_host.host_id
+            or current.implementation_fingerprint != new_route.target_host.implementation_fingerprint
+            or current.failure_evidence_digest != self.failure_evidence_digest
+            or current.epoch != prior.epoch + 1
+        ):
+            raise OperationNativeDataflowError("reassignment route does not match the quorum-committed adjacent assignment epochs")
+
+    @property
+    def child_request_digest(self) -> str:
+        return self.replacement_partition.request.digest
+
+    @property
+    def digest(self) -> str:
+        return canonical_value_digest(self.to_dict())
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema": "mailcpu.binary-frontier-partition-reassignment.v1",
+            "previous_partition": self.previous_partition.to_dict(),
+            "replacement_partition": self.replacement_partition.to_dict(),
+            "claim_bundle": self.claim_bundle.to_dict(),
+            "failure_evidence_digest": self.failure_evidence_digest,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "BinaryFrontierPartitionReassignment":
+        expected = {
+            "schema", "previous_partition", "replacement_partition",
+            "claim_bundle", "failure_evidence_digest",
+        }
+        if not isinstance(payload, Mapping) or set(payload) != expected:
+            raise OperationNativeDataflowError("partition reassignment fields are malformed")
+        if (
+            payload["schema"] != "mailcpu.binary-frontier-partition-reassignment.v1"
+            or not all(isinstance(payload[key], Mapping) for key in (
+                "previous_partition", "replacement_partition", "claim_bundle"
+            ))
+        ):
+            raise OperationNativeDataflowError("partition reassignment schema or nested evidence is invalid")
+        try:
+            return cls(
+                BinaryFrontierPartition.from_dict(payload["previous_partition"]),
+                BinaryFrontierPartition.from_dict(payload["replacement_partition"]),
+                PortableExecutionClaimBundle.from_dict(payload["claim_bundle"]),
+                payload["failure_evidence_digest"],
+            )
+        except (KeyError, TypeError, ValueError, FrontierPartitionError) as exc:
+            if isinstance(exc, OperationNativeDataflowError):
+                raise
+            raise OperationNativeDataflowError("partition reassignment contains invalid typed evidence") from exc
+
+
 def _validate_parent_plan(
     request: DataflowAddFrontierRequest | DataflowCompareFrontierRequest | DataflowMultiplyFrontierRequest,
     plan: BinaryFrontierPartitionPlan,
@@ -239,32 +348,64 @@ def _ordered_child_receipts(
     children: Sequence[BinaryFrontierChildReceipt],
     *,
     allow_partial: bool,
+    current_partitions: Sequence[BinaryFrontierPartition] | None = None,
 ) -> tuple[BinaryFrontierChildReceipt, ...]:
-    """Mathematics: construct a canonical child-receipt subset and require unique membership in the fixed parent partition plan."""
-    by_partition: dict[str, BinaryFrontierChildReceipt] = {}
+    """Mathematics: require one receipt per exact semantic child while permitting only claim-proven route epochs."""
+    expected = {item.request.digest: item for item in plan.partitions}
+    active = {
+        item.request.digest: item
+        for item in (plan.partitions if current_partitions is None else current_partitions)
+    }
+    if set(active) != set(expected):
+        raise OperationNativeDataflowError("active route assignments do not cover the exact parent child partition set")
+    by_child: dict[str, BinaryFrontierChildReceipt] = {}
     for child in children:
         if not isinstance(child, BinaryFrontierChildReceipt):
             raise OperationNativeDataflowError("parent receipt children must be typed child receipts")
-        partition_digest = child.partition.digest
-        if partition_digest in by_partition:
-            raise OperationNativeDataflowError("one child partition has more than one receipt")
-        by_partition[partition_digest] = child
-    expected = {partition.digest: partition for partition in plan.partitions}
-    if not set(by_partition).issubset(expected):
-        raise OperationNativeDataflowError("child receipt refers to a partition outside the parent plan")
-    if not allow_partial and set(by_partition) != set(expected):
+        child_key = child.partition.request.digest
+        if child_key not in expected:
+            raise OperationNativeDataflowError("child receipt refers to a semantic partition outside the parent plan")
+        if child_key in by_child:
+            raise OperationNativeDataflowError("one semantic child partition has more than one receipt")
+        original = expected[child_key]
+        current = active[child_key]
+        if (
+            child.partition.request.to_dict() != original.request.to_dict()
+            or child.partition.address.to_dict() != original.address.to_dict()
+            or child.partition.node_ids != original.node_ids
+            or child.partition.operation != original.operation
+        ):
+            raise OperationNativeDataflowError("child receipt changed its exact semantic request, address or lane set")
+        if child.partition.to_dict() != current.to_dict():
+            raise OperationNativeDataflowError("child receipt route differs from the checkpoint's latest quorum assignment")
+        if child.partition.digest != original.digest:
+            ticket = child.claim_bundle
+            if ticket is None:
+                raise OperationNativeDataflowError("a changed child route requires quorum-bound reassignment history")
+            claim = ticket.claim
+            assignment = claim.current_assignment
+            original_assignment = claim.assignments[0]
+            route = child.partition.route_witness
+            if (
+                len(claim.assignments) < 2
+                or claim.child_request_digest != child.partition.request.digest
+                or claim.address_digest != child.partition.address.digest
+                or claim.parent_request_digest == ""
+                or original_assignment.owner_peer_id != original.route_witness.target_host.peer_id
+                or original_assignment.owner_host_id != original.route_witness.target_host.host_id
+                or assignment.owner_peer_id != route.target_host.peer_id
+                or assignment.owner_host_id != route.target_host.host_id
+                or assignment.implementation_fingerprint != route.target_host.implementation_fingerprint
+            ):
+                raise OperationNativeDataflowError("changed child route lacks a matching quorum assignment history")
+        by_child[child_key] = child
+    if not allow_partial and set(by_child) != set(expected):
         raise OperationNativeDataflowError("composite parent receipt is missing one or more child receipts")
-    ordered = tuple(
-        by_partition[item.digest]
+    return tuple(
+        by_child[item.request.digest]
         for item in plan.partitions
-        if item.digest in by_partition
+        if item.request.digest in by_child
     )
-    for child in ordered:
-        expected_partition = expected[child.partition.digest]
-        if child.partition.to_dict() != expected_partition.to_dict():
-            raise OperationNativeDataflowError("child receipt partition differs from the assigned parent-plan partition")
-    return ordered
-
 
 @dataclass(frozen=True)
 class BinaryFrontierCompositeReceipt:
@@ -394,18 +535,60 @@ class BinaryFrontierCompositeReceipt:
 
 @dataclass(frozen=True)
 class BinaryFrontierExecutionCheckpoint:
-    """Replay-safe progress record containing the fixed route plan and only validated child receipts."""
+    """Replay-safe parent progress plus quorum-proven route replacement history."""
 
     request: DataflowAddFrontierRequest | DataflowCompareFrontierRequest | DataflowMultiplyFrontierRequest
     plan: BinaryFrontierPartitionPlan
     successful_children: tuple[BinaryFrontierChildReceipt, ...]
+    reassignments: tuple[BinaryFrontierPartitionReassignment, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.plan, BinaryFrontierPartitionPlan):
             raise OperationNativeDataflowError("execution checkpoint requires a typed partition plan")
         _validate_parent_plan(self.request, self.plan)
-        ordered = _ordered_child_receipts(self.plan, tuple(self.successful_children), allow_partial=True)
+        history = tuple(self.reassignments)
+        if any(not isinstance(item, BinaryFrontierPartitionReassignment) for item in history):
+            raise OperationNativeDataflowError("checkpoint reassignment history must contain typed reassignment records")
+        current = {item.request.digest: item for item in self.plan.partitions}
+        original = dict(current)
+        latest_epochs: dict[str, int] = {}
+        for item in history:
+            key = item.child_request_digest
+            if key not in current:
+                raise OperationNativeDataflowError("reassignment history references a child outside the parent plan")
+            if item.previous_partition.to_dict() != current[key].to_dict():
+                raise OperationNativeDataflowError("reassignment history does not continue the exact previous route assignment")
+            claim = item.claim_bundle.claim
+            if claim.parent_request_digest != self.request.digest:
+                raise OperationNativeDataflowError("reassignment claim does not bind the exact parent request")
+            epoch = claim.current_assignment.epoch
+            expected_epoch = latest_epochs.get(key, 1) + 1
+            if epoch != expected_epoch:
+                raise OperationNativeDataflowError("checkpoint reassignment epochs are not strictly consecutive")
+            latest_epochs[key] = epoch
+            current[key] = item.replacement_partition
+        history_order = tuple(
+            (item.child_request_digest, item.claim_bundle.claim.current_assignment.epoch)
+            for item in history
+        )
+        if history_order != tuple(sorted(history_order)):
+            raise OperationNativeDataflowError("checkpoint reassignment history must use canonical child/epoch order")
+        ordered = _ordered_child_receipts(
+            self.plan,
+            tuple(self.successful_children),
+            allow_partial=True,
+            current_partitions=tuple(current[item.request.digest] for item in self.plan.partitions),
+        )
         object.__setattr__(self, "successful_children", ordered)
+        object.__setattr__(self, "reassignments", history)
+
+    @property
+    def current_partitions(self) -> tuple[BinaryFrontierPartition, ...]:
+        """Mathematics: project the latest route for each semantic child without rewriting its original parent partition plan."""
+        current = {item.request.digest: item for item in self.plan.partitions}
+        for item in self.reassignments:
+            current[item.child_request_digest] = item.replacement_partition
+        return tuple(current[item.request.digest] for item in self.plan.partitions)
 
     @property
     def complete(self) -> bool:
@@ -414,39 +597,55 @@ class BinaryFrontierExecutionCheckpoint:
 
     @property
     def remaining_partitions(self) -> tuple[BinaryFrontierPartition, ...]:
-        """Mathematics: subtract validated child partition identities from the immutable parent assignment."""
-        completed = {item.partition.digest for item in self.successful_children}
-        return tuple(item for item in self.plan.partitions if item.digest not in completed)
+        """Mathematics: subtract verified semantic child receipts from the latest quorum-assigned route view."""
+        completed = {item.partition.request.digest for item in self.successful_children}
+        return tuple(item for item in self.current_partitions if item.request.digest not in completed)
 
     def _payload(self) -> dict[str, Any]:
-        """Mathematics: project the complete receipt or checkpoint contents that participate in its canonical digest."""
-        return {
-            "schema": "mailcpu.binary-frontier-execution-checkpoint.v1",
+        """Mathematics: project complete parent progress and every route-reassignment transition into one canonical checkpoint."""
+        schema = (
+            "mailcpu.binary-frontier-execution-checkpoint.v2"
+            if self.reassignments else "mailcpu.binary-frontier-execution-checkpoint.v1"
+        )
+        payload = {
+            "schema": schema,
             "request": self.request.to_dict(),
             "plan": self.plan.to_dict(),
             "successful_children": [item.to_dict() for item in self.successful_children],
         }
+        if self.reassignments:
+            payload["reassignments"] = [item.to_dict() for item in self.reassignments]
+        return payload
 
     @property
     def digest(self) -> str:
-        """Mathematics: identify the complete child evidence or checkpoint projection with a canonical content digest."""
+        """Mathematics: identify the complete child evidence, route history and checkpoint projection."""
         return canonical_value_digest(self._payload())
 
     def to_dict(self) -> dict[str, Any]:
-        """Mathematics: serialize the complete typed evidence while retaining the fields required to recompute its digest."""
+        """Mathematics: serialize the exact typed checkpoint state with its canonical content digest."""
         return {**self._payload(), "digest": self.digest}
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "BinaryFrontierExecutionCheckpoint":
-        """Mathematics: restore typed evidence only after validating the schema, nested values and canonical digest."""
-        expected = {"schema", "request", "plan", "successful_children", "digest"}
-        if not isinstance(payload, Mapping) or set(payload) != expected:
+        """Mathematics: restore typed parent progress only after validating every original and reassigned route proof."""
+        if not isinstance(payload, Mapping):
             raise OperationNativeDataflowError("binary frontier execution checkpoint fields are malformed")
-        if (
-            payload["schema"] != "mailcpu.binary-frontier-execution-checkpoint.v1"
-            or not isinstance(payload["successful_children"], list)
-        ):
-            raise OperationNativeDataflowError("binary frontier execution checkpoint schema or children are invalid")
+        schema = payload.get("schema")
+        base_fields = {"schema", "request", "plan", "successful_children", "digest"}
+        if schema == "mailcpu.binary-frontier-execution-checkpoint.v1" and set(payload) == base_fields:
+            reassignments = ()
+        elif schema == "mailcpu.binary-frontier-execution-checkpoint.v2" and set(payload) == base_fields | {"reassignments"}:
+            if not isinstance(payload.get("reassignments"), list):
+                raise OperationNativeDataflowError("checkpoint reassignment history must be a list")
+            reassignments = tuple(
+                BinaryFrontierPartitionReassignment.from_dict(item)
+                for item in payload["reassignments"]
+            )
+        else:
+            raise OperationNativeDataflowError("binary frontier execution checkpoint schema or fields are unsupported")
+        if not isinstance(payload.get("successful_children"), list):
+            raise OperationNativeDataflowError("binary frontier execution checkpoint children are invalid")
         try:
             checkpoint = cls(
                 request=_request_from_dict(payload["request"]),
@@ -455,6 +654,7 @@ class BinaryFrontierExecutionCheckpoint:
                     BinaryFrontierChildReceipt.from_dict(item)
                     for item in payload["successful_children"]
                 ),
+                reassignments=reassignments,
             )
         except (KeyError, TypeError, ValueError, FrontierPartitionError) as exc:
             if isinstance(exc, OperationNativeDataflowError):
