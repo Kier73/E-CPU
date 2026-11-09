@@ -42,7 +42,7 @@ The portable bundle carries:
 - the typed `RecoveryStateManifest`; and
 - the `RecoveryLineageProof` containing the matching proposal, fixed-membership prepare certificate and durable commit decisions.
 
-A receiving Host verifies the snapshot bytes and the quorum proof, then calls `verify_state` against the live coordinator. A well-formed but older bundle is refused as stale. The proof is not a signature detached from the state: it anchors one exact state manifest, and the bundle includes the state bytes needed to verify that anchor.
+A receiving Host verifies the snapshot bytes and the quorum proof, then calls `verify_state` against the live coordinator. Target admission also requires the receiving Host's actual registered typed `OperatorSpec`, and compares the complete canonical operator contract—not just a caller-provided ID/digest—to the claim. A well-formed but older bundle is refused as stale. The proof is not a signature detached from the state: it anchors one exact state manifest, and the bundle includes the state bytes needed to verify that anchor.
 
 The first implementation bounds the ledger to 16,384 claims, 64 assignments per claim and a 16 MiB serialized state snapshot. Each transition writes the full sorted claim set, so transition cost is O(number of retained claims); this is an auditable baseline rather than the final high-volume design. Claim compaction and deterministic sharding by parent/frontier are follow-on optimization tracks and must preserve the same single-winner claim semantics.
 
