@@ -344,7 +344,11 @@ def build_report(
         else max_total_resident_pages // working_set_pages
     )
     highest_requested = max(counts)
-    all_requested_passed = len(full_successes) == len(counts)
+    all_requested_passed = len(full_successes) == len(counts) and all(
+        trial["requested_vm_count"] == trial["admitted_vm_count"]
+        and trial["all_workers_halted_and_correct"]
+        for trial in trials
+    )
     return {
         "schema": SCHEMA,
         "repository": "Kier73/E-CPU",
