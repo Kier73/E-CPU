@@ -52,6 +52,8 @@ Requester RTT must be measured using two readings from the requester's own monot
 
 The system may compare these durations as separately measured quantities once their units and measurement provenance are known; it must not derive one-way delay by subtracting unsynchronized endpoint clocks.
 
+The operation-native execution path uses `OperationTimingProbe` to record those endpoint-local intervals with the existing `TemporalContext`. Each sample retains actor identity, monotonic segment, elapsed nanoseconds, correlation ID, and actor-local causal start/end stamps. It records no cross-host timestamp subtraction and does not turn scheduler or SystemEpoch coordinates into physical duration. The measured stages and their nested/inclusive relationships are specified in [OPERATION_FRONTIER_TIMING.md](OPERATION_FRONTIER_TIMING.md).
+
 ## 4. Distributed causality
 
 A `CausalStamp` contains:
