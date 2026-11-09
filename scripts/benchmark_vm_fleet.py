@@ -197,8 +197,8 @@ def benchmark_case(
     total_retired = 0
     total_resident_pages = 0
     total_snapshot_bytes = 0
+    total_snapshot_ns = 0
     total_restore_ns = 0
-    snapshot_started = perf_counter_ns()
     for worker in workers:
         machine = worker["os"]
         task = worker["task"]
@@ -216,6 +216,7 @@ def benchmark_case(
         total_resident_pages += resident_pages
         total_retired += worker["events"]
 
+        snapshot_started = perf_counter_ns()
         snapshot = machine.snapshot()
         snapshot_bytes = len(
             json.dumps(
@@ -226,6 +227,8 @@ def benchmark_case(
                 allow_nan=False,
             ).encode("utf-8")
         )
+        snapshot_elapsed_ns = perf_counter_ns() - snapshot_started
+        total_snapshot_ns += snapshot_elapsed_ns
         total_snapshot_bytes += snapshot_bytes
 
         restore_started = perf_counter_ns()
@@ -272,6 +275,7 @@ def benchmark_case(
                 "task_halted": bool(task.state.halted),
                 "journal_valid": bool(journal_valid),
                 "snapshot_bytes": snapshot_bytes,
+                "snapshot_wall_ns": snapshot_elapsed_ns,
                 "checkpoint_restore_ns": restore_ns,
                 "checkpoint_restored_correctly": bool(checkpoint_valid),
                 "checkpoint_memory_bytes_verified": len(expected_memory) if memory_restored else 0,
@@ -280,7 +284,7 @@ def benchmark_case(
                 "quantum_p95_ns": _percentile(worker["quantum_ns"], 0.95),
             }
         )
-    snapshot_ns = perf_counter_ns() - snapshot_started
+    snapshot_ns = total_snapshot_ns
 
     distinct_os_ids = len({item["headless_os_identity"] for item in worker_reports})
     distinct_vm_ids = len({item["vm_identity"] for item in worker_reports})
