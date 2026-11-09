@@ -13,6 +13,7 @@ import os
 import shutil
 import tempfile
 import threading
+from copy import deepcopy
 from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
@@ -33,6 +34,9 @@ class TransferableExecutionClaimError(ValueError):
 
 REPLAY_POLICY_PURE = "pure-replay-safe/v1"
 _CAPTURE_CUT = "transferable-execution-claims"
+_MAX_CLAIMS = 16_384
+_MAX_ASSIGNMENTS_PER_CLAIM = 64
+_MAX_STATE_BYTES = 16 * 1024 * 1024
 _SCHEMA = "mailcpu.transferable-execution-claim-ledger.v1"
 _HEX = frozenset("0123456789abcdef")
 
@@ -197,6 +201,8 @@ class TransferableExecutionClaim:
         assignments = tuple(self.assignments)
         if not assignments or any(not isinstance(item, ExecutionClaimAssignment) for item in assignments):
             raise TransferableExecutionClaimError("execution claim requires a non-empty typed assignment history")
+        if len(assignments) > _MAX_ASSIGNMENTS_PER_CLAIM:
+            raise TransferableExecutionClaimError("assignment history exceeds the finite claim bound")
         if tuple(item.epoch for item in assignments) != tuple(range(1, len(assignments) + 1)):
             raise TransferableExecutionClaimError("assignment epochs must be contiguous and begin at one")
         generations = tuple(item.state_generation for item in assignments)
@@ -331,11 +337,13 @@ class PortableExecutionClaimBundle:
             raise TransferableExecutionClaimError("claim bundle requires a typed recovery lineage proof")
         if not isinstance(self.state_snapshot, Mapping):
             raise TransferableExecutionClaimError("claim bundle state snapshot must be a mapping")
-        snapshot = dict(self.state_snapshot)
+        snapshot = deepcopy(dict(self.state_snapshot))
         if set(snapshot) != {"schema", "claims"} or snapshot.get("schema") != _SCHEMA:
             raise TransferableExecutionClaimError("claim ledger state snapshot fields or schema are invalid")
         if not isinstance(snapshot.get("claims"), list):
             raise TransferableExecutionClaimError("claim ledger state snapshot claims must be a list")
+        if len(snapshot["claims"]) > _MAX_CLAIMS:
+            raise TransferableExecutionClaimError("claim ledger exceeds the finite claim-count bound")
         claims = tuple(TransferableExecutionClaim.from_dict(item) for item in snapshot["claims"])
         ids = tuple(item.claim_id for item in claims)
         if ids != tuple(sorted(set(ids))):
@@ -346,6 +354,8 @@ class PortableExecutionClaimBundle:
         if self.manifest.capture_cut != _CAPTURE_CUT:
             raise TransferableExecutionClaimError("claim bundle manifest has the wrong capture cut")
         payload = _canonical_json(snapshot) + b"\n"
+        if len(payload) > _MAX_STATE_BYTES:
+            raise TransferableExecutionClaimError("claim ledger state exceeds its finite serialized-byte bound")
         if hashlib.sha256(payload).hexdigest() != self.manifest.state_digest:
             raise TransferableExecutionClaimError("claim bundle state bytes differ from the recovery manifest")
         if (
@@ -357,6 +367,28 @@ class PortableExecutionClaimBundle:
             raise TransferableExecutionClaimError("claim bundle quorum proof does not anchor its exact manifest")
         object.__setattr__(self, "state_snapshot", snapshot)
 
+    def _validate_state_snapshot(self) -> dict[str, Any]:
+        """Mathematics: Recheck mutable nested snapshot projections against the immutable state digest and exact bound claim."""
+        snapshot = deepcopy(dict(self.state_snapshot))
+        if (
+            set(snapshot) != {"schema", "claims"}
+            or snapshot.get("schema") != _SCHEMA
+            or not isinstance(snapshot.get("claims"), list)
+            or len(snapshot["claims"]) > _MAX_CLAIMS
+        ):
+            raise TransferableExecutionClaimError("claim bundle state snapshot is malformed after construction")
+        state_bytes = _canonical_json(snapshot) + b"\n"
+        if len(state_bytes) > _MAX_STATE_BYTES or hashlib.sha256(state_bytes).hexdigest() != self.manifest.state_digest:
+            raise TransferableExecutionClaimError("claim bundle state snapshot changed after construction")
+        claims = tuple(TransferableExecutionClaim.from_dict(item) for item in snapshot["claims"])
+        ids = tuple(item.claim_id for item in claims)
+        if ids != tuple(sorted(set(ids))):
+            raise TransferableExecutionClaimError("claim bundle state snapshot identities are no longer canonical")
+        matches = tuple(item for item in claims if item.claim_id == self.claim.claim_id)
+        if len(matches) != 1 or matches[0].to_dict() != self.claim.to_dict():
+            raise TransferableExecutionClaimError("claim bundle no longer contains its exact bound claim")
+        return snapshot
+
     @property
     def digest(self) -> str:
         """Mathematics: Identify the complete portable claim, state snapshot, manifest and quorum proof."""
@@ -364,12 +396,13 @@ class PortableExecutionClaimBundle:
 
     def to_dict(self, *, include_digest: bool = True) -> dict[str, Any]:
         """Mathematics: Serialize the complete claim bundle without omitting the state bytes needed for independent validation."""
+        snapshot = self._validate_state_snapshot()
         payload = {
             "schema": "mailcpu.portable-execution-claim-bundle.v1",
             "claim": self.claim.to_dict(),
             "manifest": self.manifest.snapshot(),
             "proof": self.proof.snapshot(),
-            "state_snapshot": dict(self.state_snapshot),
+            "state_snapshot": snapshot,
         }
         if include_digest:
             payload["digest"] = hashlib.sha256(_canonical_json(payload)).hexdigest()
@@ -407,6 +440,7 @@ class PortableExecutionClaimBundle:
         """Mathematics: Admit the bundle only if the configured live quorum still recognizes this exact manifest as high-water."""
         if not isinstance(coordinator, RecoveryLineageCoordinator):
             raise TransferableExecutionClaimError("claim verification requires a RecoveryLineageCoordinator")
+        self._validate_state_snapshot()
         try:
             proof = coordinator.verify_state(self.manifest)
         except RecoveryLineageError as exc:
@@ -561,6 +595,7 @@ class TransferableExecutionClaimStore:
             or set(snapshot) != {"schema", "claims"}
             or snapshot.get("schema") != _SCHEMA
             or not isinstance(snapshot.get("claims"), list)
+            or len(snapshot.get("claims", [])) > _MAX_CLAIMS
         ):
             raise TransferableExecutionClaimError("claim ledger snapshot fields or schema are invalid")
         claims = tuple(TransferableExecutionClaim.from_dict(item) for item in snapshot["claims"])
@@ -667,6 +702,10 @@ class TransferableExecutionClaimStore:
             "claims": [claims[key].to_dict() for key in sorted(claims)],
         }
         state_bytes = _canonical_json(snapshot) + b"\n"
+        if len(state_bytes) > _MAX_STATE_BYTES:
+            raise TransferableExecutionClaimError("claim ledger state exceeds its finite serialized-byte bound")
+        if len(claims) > _MAX_CLAIMS:
+            raise TransferableExecutionClaimError("claim ledger exceeds the finite claim-count bound")
         membership = self.coordinator.membership
         manifest = RecoveryStateManifest(
             machine_id=membership.system_id,
