@@ -20,7 +20,7 @@ from mailcpu import (
 H = lambda value: hashlib.sha256(value.encode()).hexdigest()
 GENESIS = "0" * 64
 PARENT, CHILD, ADDRESS = H("parent"), H("child"), H("address")
-CONTRACT, GROUND = H("contract"), H("ground")
+CONTRACT, GROUND = dataflow_add_operator_spec().digest, H("ground")
 IMPL_B, IMPL_C = H("cpu-b"), H("egpu-c")
 RESULT, RECEIPT, FAILURE = H("result"), H("receipt"), H("failure")
 
@@ -72,7 +72,7 @@ def test_quorum_claim_round_trip_and_exact_target_admission(tmp_path: Path) -> N
         parent_request_digest=PARENT,
         child_request_digest=CHILD,
         address_digest=ADDRESS,
-        operator_id="mailcpu.add",
+        operator_id=dataflow_add_operator_spec().operator_id,
         operator_contract_digest=CONTRACT,
         computational_ground_fingerprint=GROUND,
         owner_peer_id="peer-b",
@@ -96,7 +96,7 @@ def test_quorum_claim_round_trip_and_exact_target_admission(tmp_path: Path) -> N
             owner_host_id="logical-egpu-c",
             implementation_fingerprint=IMPL_C,
         )
-    with pytest.raises(TransferableExecutionClaimError, match="only pure replay-safe"):
+    with pytest.raises(TransferableExecutionClaimError, match="deterministic pure OperatorSpec"):
         store.create(
             parent_request_digest=PARENT,
             child_request_digest=CHILD,
