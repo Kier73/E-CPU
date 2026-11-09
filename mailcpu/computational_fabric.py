@@ -1718,8 +1718,9 @@ class ComputationalFabricPlacementSet:
             object.__setattr__(self, "status", ComputationalFabricStatus(self.status))
         for name in ("address_digest", "directory_digest", "topology_digest"):
             _digest(getattr(self, name), name)
-        for name in ("advertised_host_count", "eligible_host_count", "expanded_states"):
-            _positive(getattr(self, name), name, minimum=0, maximum=65_536)
+        _positive(self.advertised_host_count, "advertised_host_count", minimum=0, maximum=65_536)
+        _positive(self.eligible_host_count, "eligible_host_count", minimum=0, maximum=65_536)
+        _positive(self.expanded_states, "expanded_states", minimum=0, maximum=100_000)
         candidates = tuple(self.candidates)
         if len(candidates) > 128 or any(
             not isinstance(item, ComputationalFabricRouteWitness) for item in candidates
