@@ -21,6 +21,7 @@ def test_vm_fleet_runs_independent_os_instances_and_reduces_disjoint_work() -> N
     assert report["distinct_guest_memory_count"] == 3
     assert report["all_workers_halted_and_correct"] is True
     assert all(item["checkpoint_restored_correctly"] for item in report["worker_receipts"])
+    assert all(item["checkpoint_restored_as_independent_instances"] for item in report["worker_receipts"])
     assert all(item["checkpoint_memory_bytes_verified"] == 2 * 4096 for item in report["worker_receipts"])
     assert report["total_resident_pages"] == 6
     assert report["total_retired_instructions"] == 3 * (2 * 8 + 4)
