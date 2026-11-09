@@ -102,6 +102,7 @@ class ProgramDataflowError(ValueError):
 
 
 def _strict_int(value: Any, label: str, *, minimum: int | None = None) -> int:
+    """Mathematics: enforce strict integer membership and an optional lower bound."""
     if type(value) is not int:
         raise ProgramDataflowError(f"{label} must be a strict integer")
     if minimum is not None and value < minimum:
@@ -110,6 +111,7 @@ def _strict_int(value: Any, label: str, *, minimum: int | None = None) -> int:
 
 
 def _canonical(value: Any) -> bytes:
+    """Mathematics: encode one finite JSON value in canonical UTF-8 form."""
     try:
         return json.dumps(
             value,
@@ -123,6 +125,7 @@ def _canonical(value: Any) -> bytes:
 
 
 def _register(value: Any, label: str) -> str:
+    """Mathematics: restrict register identifiers to the bounded Transit-safe alphabet."""
     if not isinstance(value, str) or _REGISTER.fullmatch(value) is None:
         raise ProgramDataflowError(
             f"{label} must match [A-Za-z_][A-Za-z0-9_]{{0,63}}"
@@ -131,6 +134,7 @@ def _register(value: Any, label: str) -> str:
 
 
 def _initial_value_digest(register: str, value: int) -> str:
+    """Mathematics: bind one initial register name and integer value to a canonical digest."""
     return canonical_value_digest({
         "type": "initial-register",
         "register": register,
@@ -149,6 +153,7 @@ class RegisterSource:
     node_id: str | None = None
 
     def __post_init__(self) -> None:
+        """Mathematics: validate one final register definition source and its exact value/node shape."""
         _register(self.register, "register source name")
         if self.kind not in {"initial", "node"}:
             raise ProgramDataflowError("register source kind must be initial or node")
@@ -167,6 +172,7 @@ class RegisterSource:
                 raise ProgramDataflowError("node register source requires a node ID")
 
     def to_dict(self) -> dict[str, Any]:
+        """Mathematics: serialize the exact final-register source identity."""
         return {
             "register": self.register,
             "kind": self.kind,
@@ -190,6 +196,7 @@ class ProgramDataflowMetrics:
     recommendation_basis: str = "structural-frontier-only"
 
     def __post_init__(self) -> None:
+        """Mathematics: validate the non-negative work/depth profile and its topology label."""
         for name in (
             "work_units",
             "dependency_edges",
@@ -208,6 +215,7 @@ class ProgramDataflowMetrics:
             raise ProgramDataflowError("unsupported recommendation basis")
 
     def to_dict(self) -> dict[str, Any]:
+        """Mathematics: serialize each structural work and frontier metric without unit conversion."""
         return {
             "work_units": self.work_units,
             "dependency_edges": self.dependency_edges,
@@ -241,6 +249,7 @@ class CompiledMailCPUDataflow:
     metrics: ProgramDataflowMetrics
 
     def __post_init__(self) -> None:
+        """Mathematics: revalidate atlas identities, immutable inputs, graph topology, and translation bindings."""
         if self.source_bytes_ref is None:
             if self.source_size_bytes is not None:
                 raise ProgramDataflowError("source byte length requires a source representation")
@@ -314,7 +323,7 @@ class CompiledMailCPUDataflow:
 
     @property
     def initial_values(self) -> dict[str, int]:
-        """Return a detached register map combining inline values and memory receipts."""
+        """Mathematics: return detached initial values by combining inline state and receipt values."""
         values = dict(self.initial_registers)
         for register, receipt in self.structural_memory_reads:
             if register in values:
@@ -326,11 +335,11 @@ class CompiledMailCPUDataflow:
 
     @property
     def digest(self) -> str:
-        """Content identity of the complete compilation atlas and declared translation."""
+        """Mathematics: identify the complete compilation atlas and declared translation."""
         return canonical_value_digest(self.to_dict())
 
     def graph(self) -> NavigableComputationDAG:
-        """Build a fresh mutable execution graph from the immutable compiled node set."""
+        """Mathematics: rebuild a fresh mutable DAG from the immutable compiled node set."""
         try:
             return NavigableComputationDAG(
                 self.nodes,
@@ -340,6 +349,7 @@ class CompiledMailCPUDataflow:
             raise ProgramDataflowError(f"compiled dependency graph is invalid: {exc}") from exc
 
     def to_dict(self) -> dict[str, Any]:
+        """Mathematics: serialize every representation, receipt, node, invariant-bearing edge, and frontier."""
         return {
             "schema": _SCHEMA,
             "source_bytes": None if self.source_bytes_ref is None else {
@@ -381,6 +391,7 @@ class DataflowExecutionReport:
     _dag_snapshot_json: str
 
     def __post_init__(self) -> None:
+        """Mathematics: validate terminal execution status, register values, and the retained DAG snapshot."""
         if not re.fullmatch(r"[0-9a-f]{64}", self.plan_digest):
             raise ProgramDataflowError("report plan_digest must be lowercase SHA-256")
         if self.status != RunStatus.HALTED.value or self.halted is not True or self.blocked is not False:
@@ -398,7 +409,7 @@ class DataflowExecutionReport:
 
     @property
     def observation(self) -> dict[str, Any]:
-        """Return the declared terminal observable as a detached mapping."""
+        """Mathematics: project the exact terminal observation into a detached mapping."""
         return {
             "status": self.status,
             "pc": self.pc,
@@ -410,15 +421,17 @@ class DataflowExecutionReport:
 
     @property
     def dag_snapshot(self) -> dict[str, Any]:
-        """Return a detached checkpoint of the committed computation frontier."""
+        """Mathematics: restore a detached checkpoint projection of the committed computation frontier."""
         return json.loads(self._dag_snapshot_json)
 
     @property
     def dag_snapshot_digest(self) -> str:
+        """Mathematics: identify the complete content-addressed DAG snapshot."""
         return canonical_value_digest(self.dag_snapshot)
 
     @property
     def digest(self) -> str:
+        """Mathematics: bind the plan, terminal observation, commits, frontiers, and DAG snapshot digest."""
         return canonical_value_digest({
             "plan_digest": self.plan_digest,
             "observation": self.observation,
@@ -428,6 +441,7 @@ class DataflowExecutionReport:
         })
 
     def to_dict(self) -> dict[str, Any]:
+        """Mathematics: serialize the execution report and snapshot identity without embedding mutable state."""
         return {
             "schema": "mailcpu.program-dataflow-execution.v1",
             "plan_digest": self.plan_digest,
@@ -445,6 +459,7 @@ class DataflowExecutionReport:
 
 
 def _instruction_registers(instruction: Any) -> tuple[str, ...]:
+    """Mathematics: project one supported instruction to its ordered register operands."""
     op, args = instruction.op, instruction.args
     if op is Op.SET:
         return (args[0],)
@@ -458,6 +473,7 @@ def _instruction_registers(instruction: Any) -> tuple[str, ...]:
 
 
 def _derive_frontiers(nodes: Sequence[ComputationNode]) -> tuple[tuple[str, ...], ...]:
+    """Mathematics: compute deterministic longest-dependency layers for an acyclic instruction graph."""
     depths: dict[str, int] = {}
     for node in nodes:
         missing = set(node.dependencies) - set(depths)
@@ -483,6 +499,7 @@ class MailCPUDataflowCompiler:
         max_source_bytes: int = _MAX_SOURCE_BYTES,
         max_instructions: int = _MAX_INSTRUCTIONS,
     ) -> None:
+        """Mathematics: establish finite source-byte and instruction-node admission bounds."""
         _strict_int(max_source_bytes, "max_source_bytes", minimum=1)
         _strict_int(max_instructions, "max_instructions", minimum=1)
         if max_source_bytes > _MAX_SOURCE_BYTES:
@@ -499,7 +516,7 @@ class MailCPUDataflowCompiler:
         initial_registers: Mapping[str, int] | None = None,
         structural_memory_reads: Mapping[str, StructuralMemoryReadReceipt] | None = None,
     ) -> CompiledMailCPUDataflow:
-        """Compile exact UTF-8 assembly bytes while retaining their independent byte identity."""
+        """Mathematics: compile exact UTF-8 assembly bytes and retain their independent byte identity."""
         if not isinstance(source, bytes):
             raise ProgramDataflowError("source must be bytes")
         if len(source) > self.max_source_bytes:
@@ -529,7 +546,7 @@ class MailCPUDataflowCompiler:
         initial_registers: Mapping[str, int] | None = None,
         structural_memory_reads: Mapping[str, StructuralMemoryReadReceipt] | None = None,
     ) -> CompiledMailCPUDataflow:
-        """Compile an already validated Program without claiming an original source-byte identity."""
+        """Mathematics: compile a validated Program without claiming an original source-byte identity."""
         if not isinstance(program, Program):
             raise ProgramDataflowError("compile_program requires a validated Program")
         return self._compile(
@@ -549,6 +566,7 @@ class MailCPUDataflowCompiler:
         source_bytes_ref: RepresentationRef | None,
         source_size_bytes: int | None,
     ) -> CompiledMailCPUDataflow:
+        """Mathematics: construct the exact SSA-like register-definition graph for the admitted program."""
         if not isinstance(program, Program):
             raise ProgramDataflowError("compiler requires a validated Program")
         instructions = tuple(program.instructions)
@@ -652,6 +670,7 @@ class MailCPUDataflowCompiler:
         instruction_nodes: list[str] = []
 
         def initial_operand(register: str) -> dict[str, Any]:
+            """Mathematics: bind one read to its exact initial integer and optional Structural Memory receipt."""
             value = initial_values.get(register, 0)
             source_digest = receipt_digests.get(
                 register,
@@ -665,6 +684,7 @@ class MailCPUDataflowCompiler:
             }
 
         def register_operand(register: str, pc: int) -> tuple[dict[str, Any], str | None]:
+            """Mathematics: resolve a register read to its latest prior definition or initial source."""
             touched.add(register)
             producer = definitions.get(register)
             if producer is None:
@@ -849,7 +869,7 @@ def evaluate_dataflow(
     *,
     max_work_units: int | None = None,
 ) -> DataflowExecutionReport:
-    """Evaluate each ready frontier as independent pure work and commit exact node results."""
+    """Mathematics: evaluate independent ready-frontier nodes and commit exact results to the DAG."""
     if not isinstance(plan, CompiledMailCPUDataflow):
         raise ProgramDataflowError("evaluate_dataflow requires a CompiledMailCPUDataflow")
     limit = len(plan.nodes) if max_work_units is None else _strict_int(
@@ -946,7 +966,7 @@ def compare_dataflow_with_reference(
     report: DataflowExecutionReport,
     program: Program,
 ) -> ObservationComparison:
-    """Compare the compiled result with the reference interpreter under the plan's exact terminal contract."""
+    """Mathematics: compare the compiled terminal result with the reference interpreter under one contract."""
     if not isinstance(plan, CompiledMailCPUDataflow):
         raise ProgramDataflowError("comparison requires a compiled plan")
     if not isinstance(report, DataflowExecutionReport) or report.plan_digest != plan.digest:
@@ -991,7 +1011,7 @@ def verify_dataflow_compilation(
     *,
     source_bytes: bytes | None = None,
 ) -> bool:
-    """Recompile and compare exact identities; byte-origin plans require their original bytes."""
+    """Mathematics: recompile and compare exact identities, requiring original bytes for byte-origin plans."""
     if not isinstance(compiler, MailCPUDataflowCompiler):
         raise ProgramDataflowError("verification requires a MailCPUDataflowCompiler")
     if not isinstance(plan, CompiledMailCPUDataflow):
