@@ -194,7 +194,7 @@ class EGPUHost:
         method: str,
         payload: Mapping[str, Any],
     ) -> dict[str, Any]:
-        """Run a method from a trusted local operator after its outer Hypervisor admission.
+        """Mathematics: run one method after outer Virtual Layer Hypervisor admission.
 
         This adapter is intended for a node-local Virtual Layer handler. The
         caller must already have admitted the workload and exact operator
