@@ -682,7 +682,7 @@ def dataflow_add_operator_spec() -> OperatorSpec:
     return OperatorSpec(
         operator_id="mailcpu.dataflow.add_frontier",
         version=1,
-        description="Apply strict integer addition to aligned dataflow frontier lanes",
+        description="Apply strict integer addition to 1..64 aligned lanes with signed operands and results bounded to 4096 bits; resolve pinned Structural Memory operands at the receiver",
         input_kind="object",
         output_kind="object",
         substrates=("cpu", "gpu"),
@@ -700,19 +700,10 @@ def make_cpu_dataflow_add_handler() -> Callable[[Mapping[str, Any], VirtualLayer
     """Mathematics: construct the CPU realization of the common vector-add Ground."""
     def execute(value: Mapping[str, Any], _workload: VirtualLayerWorkload) -> dict[str, Any]:
         """Mathematics: map aligned strict integer pairs through the local CPU addition law."""
-        if not isinstance(value, Mapping) or set(value) != {"left", "right", "max_steps"}:
-            raise OperationNativeDataflowError("CPU ADD operator input fields are invalid")
-        left, right = value["left"], value["right"]
-        if (
-            not isinstance(left, (list, tuple))
-            or not isinstance(right, (list, tuple))
-            or not left
-            or len(left) != len(right)
-        ):
-            raise OperationNativeDataflowError("CPU ADD operator requires aligned non-empty vectors")
+        left, right, _max_steps = _materialize_frontier_operands(value)
         outputs = []
         for index, (a, b) in enumerate(zip(left, right)):
-            outputs.append(_strict_integer(a, f"left[{index}]") + _strict_integer(b, f"right[{index}]"))
+            outputs.append(_bounded_add_integer(a + b, f"CPU ADD result[{index}]"))
         backend = {
             "implementation": "mailcpu.cpu.strict-integer-vector-add.v1",
             "values": outputs,
@@ -731,21 +722,33 @@ def make_egpu_dataflow_add_handler(egpu_host: Any) -> Callable[[Mapping[str, Any
 
     if not isinstance(egpu_host, EGPUHost):
         raise OperationNativeDataflowError("E-GPU ADD handler requires an EGPUHost instance")
+    if (
+        egpu_host.simt_host.max_lanes < _MAX_ADD_LANES
+        or egpu_host.simt_host.max_integer_bits < _MAX_ADD_INTEGER_BITS
+    ):
+        raise OperationNativeDataflowError(
+            "E-GPU host does not implement the full shared 64-lane/4096-bit ADD domain"
+        )
 
     def execute(value: Mapping[str, Any], _workload: VirtualLayerWorkload) -> dict[str, Any]:
         """Mathematics: realize the ordered vector-add observation through the local E-GPU method graph."""
-        if not isinstance(value, Mapping) or set(value) != {"left", "right", "max_steps"}:
-            raise OperationNativeDataflowError("E-GPU ADD operator input fields are invalid")
+        left, right, max_steps = _materialize_frontier_operands(value)
         result = egpu_host.execute_authorized_method(
             "vector.add",
             {
                 "method": "vector.add",
-                "left": value["left"],
-                "right": value["right"],
-                "max_steps": value["max_steps"],
+                "left": left,
+                "right": right,
+                "max_steps": max_steps,
             },
         )
         values = result["result"]["outputs"]["result"]
+        if not isinstance(values, list) or len(values) != len(left):
+            raise OperationNativeDataflowError("E-GPU returned a result vector outside the shared ADD shape")
+        values = [
+            _bounded_add_integer(item, f"E-GPU ADD result[{index}]")
+            for index, item in enumerate(values)
+        ]
         backend = {
             "values": values,
             "egpu_host_id": result["host_id"],
