@@ -233,6 +233,7 @@ def test_compilation_verification_binds_initial_state_and_source_bytes() -> None
 
 
 def test_symbolic_structural_memory_is_compiled_as_a_pinned_initial_operand_without_a_read() -> None:
+    """Mathematics: compile a digest-pinned memory coordinate without performing a receiver read."""
     from mailcpu.virtual_layer import VirtualStructuralMemoryRef
 
     operating_system = HeadlessOS(
