@@ -211,6 +211,88 @@ class BinaryFrontierChildReceipt:
 
 
 
+
+@dataclass(frozen=True)
+class BinaryFrontierReassignmentIntent:
+    """Durable pre-quorum intent that makes a rehome retryable across the claim/checkpoint crash cut."""
+
+    previous_partition: BinaryFrontierPartition
+    replacement_partition: BinaryFrontierPartition
+    claim_id: str
+    expected_epoch: int
+    failure_evidence_digest: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.previous_partition, BinaryFrontierPartition) or not isinstance(
+            self.replacement_partition, BinaryFrontierPartition
+        ):
+            raise OperationNativeDataflowError("reassignment intent requires typed previous and replacement partitions")
+        if (
+            self.previous_partition.request.to_dict() != self.replacement_partition.request.to_dict()
+            or self.previous_partition.address.to_dict() != self.replacement_partition.address.to_dict()
+        ):
+            raise OperationNativeDataflowError("reassignment intent changed the semantic child request or address")
+        if (
+            self.previous_partition.route_witness.target_host.peer_id,
+            self.previous_partition.route_witness.target_host.host_id,
+        ) == (
+            self.replacement_partition.route_witness.target_host.peer_id,
+            self.replacement_partition.route_witness.target_host.host_id,
+        ):
+            raise OperationNativeDataflowError("reassignment intent must select a different logical Host")
+        if not isinstance(self.claim_id, str) or len(self.claim_id) != 64 or any(
+            ch not in "0123456789abcdef" for ch in self.claim_id
+        ):
+            raise OperationNativeDataflowError("reassignment intent claim id must be lowercase SHA-256 hex")
+        if type(self.expected_epoch) is not int or self.expected_epoch < 1:
+            raise OperationNativeDataflowError("reassignment intent epoch must be a positive strict integer")
+        if not isinstance(self.failure_evidence_digest, str) or len(self.failure_evidence_digest) != 64 or any(
+            ch not in "0123456789abcdef" for ch in self.failure_evidence_digest
+        ):
+            raise OperationNativeDataflowError("reassignment intent evidence must be lowercase SHA-256 hex")
+
+    @property
+    def child_request_digest(self) -> str:
+        return self.replacement_partition.request.digest
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema": "mailcpu.binary-frontier-reassignment-intent.v1",
+            "previous_partition": self.previous_partition.to_dict(),
+            "replacement_partition": self.replacement_partition.to_dict(),
+            "claim_id": self.claim_id,
+            "expected_epoch": self.expected_epoch,
+            "failure_evidence_digest": self.failure_evidence_digest,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "BinaryFrontierReassignmentIntent":
+        expected = {
+            "schema", "previous_partition", "replacement_partition",
+            "claim_id", "expected_epoch", "failure_evidence_digest",
+        }
+        if not isinstance(payload, Mapping) or set(payload) != expected:
+            raise OperationNativeDataflowError("reassignment intent fields are malformed")
+        if (
+            payload["schema"] != "mailcpu.binary-frontier-reassignment-intent.v1"
+            or not isinstance(payload["previous_partition"], Mapping)
+            or not isinstance(payload["replacement_partition"], Mapping)
+        ):
+            raise OperationNativeDataflowError("reassignment intent schema or nested partitions are invalid")
+        try:
+            return cls(
+                BinaryFrontierPartition.from_dict(payload["previous_partition"]),
+                BinaryFrontierPartition.from_dict(payload["replacement_partition"]),
+                payload["claim_id"],
+                payload["expected_epoch"],
+                payload["failure_evidence_digest"],
+            )
+        except (KeyError, TypeError, ValueError, FrontierPartitionError) as exc:
+            if isinstance(exc, OperationNativeDataflowError):
+                raise
+            raise OperationNativeDataflowError("reassignment intent contains invalid typed evidence") from exc
+
+
 @dataclass(frozen=True)
 class BinaryFrontierPartitionReassignment:
     """One quorum-fenced route replacement for an exact semantic child partition."""
@@ -542,12 +624,14 @@ class BinaryFrontierExecutionCheckpoint:
     plan: BinaryFrontierPartitionPlan
     successful_children: tuple[BinaryFrontierChildReceipt, ...]
     reassignments: tuple[BinaryFrontierPartitionReassignment, ...] = ()
+    reassignment_intents: tuple[BinaryFrontierReassignmentIntent, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.plan, BinaryFrontierPartitionPlan):
             raise OperationNativeDataflowError("execution checkpoint requires a typed partition plan")
         _validate_parent_plan(self.request, self.plan)
         history = tuple(self.reassignments)
+        intents = tuple(self.reassignment_intents)
         if any(not isinstance(item, BinaryFrontierPartitionReassignment) for item in history):
             raise OperationNativeDataflowError("checkpoint reassignment history must contain typed reassignment records")
         current = {item.request.digest: item for item in self.plan.partitions}
@@ -574,6 +658,25 @@ class BinaryFrontierExecutionCheckpoint:
         )
         if history_order != tuple(sorted(history_order)):
             raise OperationNativeDataflowError("checkpoint reassignment history must use canonical child/epoch order")
+        if any(not isinstance(item, BinaryFrontierReassignmentIntent) for item in intents):
+            raise OperationNativeDataflowError("checkpoint reassignment intents must be typed")
+        intent_keys = tuple(item.child_request_digest for item in intents)
+        if len(intent_keys) != len(set(intent_keys)):
+            raise OperationNativeDataflowError("checkpoint cannot contain multiple pending intents for one child")
+        if intent_keys != tuple(sorted(intent_keys)):
+            raise OperationNativeDataflowError("checkpoint reassignment intents must use canonical child order")
+        completed_keys = {item.partition.request.digest for item in self.successful_children}
+        for intent in intents:
+            key = intent.child_request_digest
+            if key not in current or intent.previous_partition.to_dict() != current[key].to_dict():
+                raise OperationNativeDataflowError("pending reassignment intent does not continue the latest confirmed route")
+            if key in completed_keys:
+                raise OperationNativeDataflowError("completed child cannot also have a pending reassignment intent")
+            latest_epoch = latest_epochs.get(key, 1)
+            if intent.expected_epoch != latest_epoch:
+                raise OperationNativeDataflowError("pending reassignment intent does not bind the latest assignment epoch")
+            if intent.claim_id != intent.claim_id:
+                raise OperationNativeDataflowError("pending reassignment intent claim identity is malformed")
         ordered = _ordered_child_receipts(
             self.plan,
             tuple(self.successful_children),
@@ -582,6 +685,7 @@ class BinaryFrontierExecutionCheckpoint:
         )
         object.__setattr__(self, "successful_children", ordered)
         object.__setattr__(self, "reassignments", history)
+        object.__setattr__(self, "reassignment_intents", intents)
 
     @property
     def current_partitions(self) -> tuple[BinaryFrontierPartition, ...]:
@@ -605,7 +709,9 @@ class BinaryFrontierExecutionCheckpoint:
     def _payload(self) -> dict[str, Any]:
         """Mathematics: project complete parent progress and every route-reassignment transition into one canonical checkpoint."""
         schema = (
-            "mailcpu.binary-frontier-execution-checkpoint.v2"
+            "mailcpu.binary-frontier-execution-checkpoint.v3"
+            if self.reassignment_intents
+            else "mailcpu.binary-frontier-execution-checkpoint.v2"
             if self.reassignments else "mailcpu.binary-frontier-execution-checkpoint.v1"
         )
         payload = {
@@ -614,8 +720,10 @@ class BinaryFrontierExecutionCheckpoint:
             "plan": self.plan.to_dict(),
             "successful_children": [item.to_dict() for item in self.successful_children],
         }
-        if self.reassignments:
+        if self.reassignments or self.reassignment_intents:
             payload["reassignments"] = [item.to_dict() for item in self.reassignments]
+        if self.reassignment_intents:
+            payload["reassignment_intents"] = [item.to_dict() for item in self.reassignment_intents]
         return payload
 
     @property
@@ -643,6 +751,20 @@ class BinaryFrontierExecutionCheckpoint:
                 BinaryFrontierPartitionReassignment.from_dict(item)
                 for item in payload["reassignments"]
             )
+            intents = ()
+        elif schema == "mailcpu.binary-frontier-execution-checkpoint.v3" and set(payload) == base_fields | {"reassignments", "reassignment_intents"}:
+            if not isinstance(payload.get("reassignments"), list) or not isinstance(
+                payload.get("reassignment_intents"), list
+            ):
+                raise OperationNativeDataflowError("checkpoint route history and pending intents must be lists")
+            reassignments = tuple(
+                BinaryFrontierPartitionReassignment.from_dict(item)
+                for item in payload["reassignments"]
+            )
+            intents = tuple(
+                BinaryFrontierReassignmentIntent.from_dict(item)
+                for item in payload["reassignment_intents"]
+            )
         else:
             raise OperationNativeDataflowError("binary frontier execution checkpoint schema or fields are unsupported")
         if not isinstance(payload.get("successful_children"), list):
@@ -656,6 +778,7 @@ class BinaryFrontierExecutionCheckpoint:
                     for item in payload["successful_children"]
                 ),
                 reassignments=reassignments,
+                reassignment_intents=intents,
             )
         except (KeyError, TypeError, ValueError, FrontierPartitionError) as exc:
             if isinstance(exc, OperationNativeDataflowError):
