@@ -303,6 +303,20 @@ class CompiledMailCPUDataflow:
         if len(supplied_names) != len(set(supplied_names)):
             raise ProgramDataflowError("inline values, read receipts, and symbolic memory references must have disjoint register names")
         object.__setattr__(self, "structural_memory_refs", references)
+        initial_state_payload = {
+            "registers": {
+                **dict(registers),
+                **{name: receipt.value for name, receipt in receipts},
+            },
+            "structural_memory_receipts": {
+                name: receipt.to_dict() for name, receipt in receipts
+            },
+            "structural_memory_refs": {
+                name: reference.to_dict() for name, reference in references
+            },
+        }
+        if canonical_value_digest(initial_state_payload) != self.initial_state_ref.content_digest:
+            raise ProgramDataflowError("initial-state representation does not identify its inline, receipt, and symbolic inputs")
         nodes = tuple(self.nodes)
         if not nodes or any(not isinstance(item, ComputationNode) for item in nodes):
             raise ProgramDataflowError("dataflow plan requires typed computation nodes")
@@ -753,6 +767,7 @@ class MailCPUDataflowCompiler:
         }
         definitions: dict[str, str] = {}
         touched: set[str] = set(initial_values) | set(references)
+        consumed_references: set[str] = set()
         nodes: list[ComputationNode] = []
         instruction_nodes: list[str] = []
 
@@ -760,6 +775,7 @@ class MailCPUDataflowCompiler:
             """Mathematics: bind one read to an exact inline value, materialized receipt, or symbolic receiver-local memory address."""
             reference = references.get(register)
             if reference is not None:
+                consumed_references.add(register)
                 return {
                     "kind": "structural_memory",
                     "register": register,
@@ -832,6 +848,13 @@ class MailCPUDataflowCompiler:
             nodes.append(node)
             instruction_nodes.append(node_id)
             definitions[destination] = node_id
+
+        unused_references = set(references) - consumed_references
+        if unused_references:
+            raise ProgramDataflowError(
+                "symbolic Structural Memory references must be consumed by an admitted instruction: "
+                + ", ".join(sorted(unused_references))
+            )
 
         halt_pc = len(instructions) - 1
         halt_id = f"pc-{halt_pc:06d}"
