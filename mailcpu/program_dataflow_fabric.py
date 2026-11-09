@@ -634,6 +634,37 @@ def execute_dataflow_operation_native(
     *,
     operation_dispatchers: Mapping[str, Callable[[Any], Any]] | None = None,
     max_work_units: int | None = None,
+    timing_probe: Any | None = None,
+) -> OperationNativeDataflowReport:
+    """Execute operation-native dataflow and optionally record endpoint-local phase timings."""
+    token = None
+    if timing_probe is not None:
+        if not callable(getattr(timing_probe, "measure", None)) or not callable(getattr(timing_probe, "start", None)) or not callable(getattr(timing_probe, "finish", None)):
+            raise OperationNativeDataflowError("timing_probe must expose start/finish/measure")
+        token = timing_probe.start(
+            "total_completion",
+            correlation_id=plan.digest if isinstance(plan, CompiledMailCPUDataflow) else None,
+        )
+    try:
+        return _execute_dataflow_operation_native_impl(
+            plan,
+            dispatcher,
+            operation_dispatchers=operation_dispatchers,
+            max_work_units=max_work_units,
+            timing_probe=timing_probe,
+        )
+    finally:
+        if token is not None:
+            timing_probe.finish(token)
+
+
+def _execute_dataflow_operation_native_impl(
+    plan: CompiledMailCPUDataflow,
+    dispatcher: Callable[[DataflowAddFrontierRequest], DataflowAddFrontierReceipt] | None = None,
+    *,
+    operation_dispatchers: Mapping[str, Callable[[Any], Any]] | None = None,
+    max_work_units: int | None = None,
+    timing_probe: Any | None = None,
 ) -> OperationNativeDataflowReport:
     """Mathematics: evaluate a DAG while optionally dispatching typed ADD, COMPARE, and MUL frontiers.
 
@@ -644,6 +675,8 @@ def execute_dataflow_operation_native(
     """
     if not isinstance(plan, CompiledMailCPUDataflow):
         raise OperationNativeDataflowError("plan must be a CompiledMailCPUDataflow")
+    if timing_probe is not None and not callable(getattr(timing_probe, "measure", None)):
+        raise OperationNativeDataflowError("timing_probe must expose a measure context manager")
     dispatchers: dict[str, Callable[[Any], Any]] = {}
     if dispatcher is not None:
         if not callable(dispatcher):
@@ -764,7 +797,11 @@ def execute_dataflow_operation_native(
             elif opcode == Op.MUL.value:
                 if len(values) != 2:
                     raise OperationNativeDataflowError("MUL node must have two operands")
-                result_value = values[0] * values[1]
+                if timing_probe is None:
+                    result_value = values[0] * values[1]
+                else:
+                    with timing_probe.measure("local_compute", correlation_id=plan.digest):
+                        result_value = values[0] * values[1]
             elif opcode == Op.COMPARE.value:
                 if len(values) != 2:
                     raise OperationNativeDataflowError("COMPARE node must have two operands")
@@ -854,7 +891,7 @@ def execute_dataflow_operation_native(
                     raise OperationNativeDataflowError("one symbolic Structural Memory register resolved inconsistently across frontiers")
                 resolved_initial_registers[source_register] = memory_receipt.value
 
-            for lane in request.lanes:
+            def verify_lane(lane: DataflowBinaryLane) -> None:
                 # The independent scalar oracle consumes receiver-resolved values
                 # only after checking their exact pinned memory identities.
                 left_value = lane.left
@@ -890,6 +927,13 @@ def execute_dataflow_operation_native(
                     "operation_receipt": receipt.to_dict(),
                     "operation_receipt_digest": receipt.digest,
                 }
+
+            for lane in request.lanes:
+                if timing_probe is None:
+                    verify_lane(lane)
+                else:
+                    with timing_probe.measure("origin_verification", correlation_id=request.digest):
+                        verify_lane(lane)
             receipts.append(receipt)
 
         # The frontier is published only after every remote lane has passed
