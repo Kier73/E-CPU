@@ -246,8 +246,9 @@ class VerifiedComputationalFabricForwardingCheckpoint:
         catalogue: Any = None,
         catalogue_factory: Callable[[HeadlessOS], Any] | None = None,
         structural_memory_admission_policy: Callable[[Any], bool] | None = None,
+        claim_coordinator: Any | None = None,
     ) -> ComputationalFabricForwardingServer:
-        """Mathematics: Rebind a verified peer image to fresh transports and locally reconstructed runtime policy."""
+        """Mathematics: Rebind a verified peer image to fresh transports, local runtime policy and the live claim authority."""
         if catalogue is not None and catalogue_factory is not None:
             raise ComputationalFabricForwardingRecoveryError(
                 "supply either a catalogue or a catalogue_factory, not both"
@@ -262,6 +263,7 @@ class VerifiedComputationalFabricForwardingCheckpoint:
                 catalogue=catalogue,
                 catalogue_factory=catalogue_factory,
                 structural_memory_admission_policy=structural_memory_admission_policy,
+                claim_coordinator=claim_coordinator,
             )
         except Exception as exc:
             raise ComputationalFabricForwardingRecoveryError(

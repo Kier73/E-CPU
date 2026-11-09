@@ -18,7 +18,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Iterator, Mapping
+from typing import Any, Iterator, Mapping, Sequence
 
 from .recovery_lineage import (
     RecoveryLineageCoordinator,
@@ -1024,56 +1024,155 @@ class TransferableExecutionClaimStore:
         implementation_fingerprint: str,
         replay_policy: str = REPLAY_POLICY_PURE,
     ) -> PortableExecutionClaimBundle:
-        """Mathematics: Create exactly one quorum-assigned claim for an immutable replay-safe child operation."""
-        if replay_policy != REPLAY_POLICY_PURE:
-            raise TransferableExecutionClaimError("only pure replay-safe operations are currently transferable")
-        if not isinstance(operator_spec, OperatorSpec) or not operator_spec.replay_safe:
-            raise TransferableExecutionClaimError("only a typed deterministic pure OperatorSpec may receive a transferable claim")
-        initial = ExecutionClaimAssignment(
-            1,
-            owner_peer_id,
-            owner_host_id,
-            implementation_fingerprint,
-            1,
-        )
-        candidate = TransferableExecutionClaim(
-            parent_request_digest,
-            child_request_digest,
-            address_digest,
-            operator_spec.operator_id,
-            operator_spec.digest,
-            operator_spec,
-            computational_ground_fingerprint,
-            replay_policy,
-            (initial,),
-        )
+        """Mathematics: Create or return one exact assignment through the shared batch-generation authority."""
+        return self.create_many(({
+            "parent_request_digest": parent_request_digest,
+            "child_request_digest": child_request_digest,
+            "address_digest": address_digest,
+            "operator_spec": operator_spec,
+            "computational_ground_fingerprint": computational_ground_fingerprint,
+            "owner_peer_id": owner_peer_id,
+            "owner_host_id": owner_host_id,
+            "implementation_fingerprint": implementation_fingerprint,
+            "replay_policy": replay_policy,
+        },))[0]
+
+    def create_many(
+        self,
+        specifications: Sequence[Mapping[str, Any]],
+    ) -> tuple[PortableExecutionClaimBundle, ...]:
+        """Mathematics: Create a bounded set of child assignments in one quorum generation so every returned ticket shares the same live root."""
+        if not isinstance(specifications, (list, tuple)) or not 1 <= len(specifications) <= 64:
+            raise TransferableExecutionClaimError("claim batch must contain between one and 64 child specifications")
+        required = {
+            "parent_request_digest",
+            "child_request_digest",
+            "address_digest",
+            "operator_spec",
+            "computational_ground_fingerprint",
+            "owner_peer_id",
+            "owner_host_id",
+            "implementation_fingerprint",
+        }
+        allowed = required | {"replay_policy"}
+        candidates: list[tuple[TransferableExecutionClaim, ExecutionClaimAssignment]] = []
+        for index, specification in enumerate(specifications):
+            if not isinstance(specification, Mapping) or set(specification) not in (required, allowed):
+                raise TransferableExecutionClaimError(
+                    f"claim batch item {index} fields do not match the exact claim specification schema"
+                )
+            replay_policy = specification.get("replay_policy", REPLAY_POLICY_PURE)
+            if replay_policy != REPLAY_POLICY_PURE:
+                raise TransferableExecutionClaimError("only pure replay-safe operations are currently transferable")
+            operator_spec = specification["operator_spec"]
+            if not isinstance(operator_spec, OperatorSpec) or not operator_spec.replay_safe:
+                raise TransferableExecutionClaimError(
+                    "only a typed deterministic pure OperatorSpec may receive a transferable claim"
+                )
+            assignment = ExecutionClaimAssignment(
+                1,
+                specification["owner_peer_id"],
+                specification["owner_host_id"],
+                specification["implementation_fingerprint"],
+                1,
+            )
+            candidate = TransferableExecutionClaim(
+                specification["parent_request_digest"],
+                specification["child_request_digest"],
+                specification["address_digest"],
+                operator_spec.operator_id,
+                operator_spec.digest,
+                operator_spec,
+                specification["computational_ground_fingerprint"],
+                replay_policy,
+                (assignment,),
+            )
+            candidates.append((candidate, assignment))
+        identifiers = tuple(item.claim_id for item, _assignment in candidates)
+        if len(identifiers) != len(set(identifiers)):
+            raise TransferableExecutionClaimError("claim batch contains duplicate semantic child identities")
+
         with self._locked():
             self._resume_pending_locked()
-            generation, predecessor, _snapshot, claims, _manifest, proof = self._load_latest_locked()
-            existing = claims.get(candidate.claim_id)
-            if existing is not None:
-                if (
-                    existing.status is ExecutionClaimStatus.ASSIGNED
-                    and existing.current_assignment.owner_peer_id == owner_peer_id
-                    and existing.current_assignment.owner_host_id == owner_host_id
-                    and existing.current_assignment.implementation_fingerprint == implementation_fingerprint
-                ):
-                    return self._bundle_for_claim(existing.claim_id, claims, _manifest, proof)
-                raise TransferableExecutionClaimError("immutable execution claim identity already exists with another assignment or outcome")
+            generation, predecessor, _snapshot, claims, manifest, proof = self._load_latest_locked()
             next_generation = generation + 1
-            claim = TransferableExecutionClaim(
-                candidate.parent_request_digest,
-                candidate.child_request_digest,
-                candidate.address_digest,
-                candidate.operator_id,
-                candidate.operator_contract_digest,
-                candidate.operator_spec,
-                candidate.computational_ground_fingerprint,
-                candidate.replay_policy,
-                (ExecutionClaimAssignment(1, owner_peer_id, owner_host_id, implementation_fingerprint, next_generation),),
+            changed = False
+            for candidate, initial_assignment in candidates:
+                existing = claims.get(candidate.claim_id)
+                if existing is not None:
+                    if existing.status is not ExecutionClaimStatus.ASSIGNED:
+                        raise TransferableExecutionClaimError(
+                            "completed execution claim cannot be reissued for computation"
+                        )
+                    current = existing.current_assignment
+                    if (
+                        current.owner_peer_id,
+                        current.owner_host_id,
+                        current.implementation_fingerprint,
+                        existing.operator_spec.to_dict(),
+                    ) != (
+                        initial_assignment.owner_peer_id,
+                        initial_assignment.owner_host_id,
+                        initial_assignment.implementation_fingerprint,
+                        candidate.operator_spec.to_dict(),
+                    ):
+                        raise TransferableExecutionClaimError(
+                            "existing execution claim is assigned to another host; an explicit quorum reassignment is required"
+                        )
+                    continue
+
+                assignment = ExecutionClaimAssignment(
+                    1,
+                    initial_assignment.owner_peer_id,
+                    initial_assignment.owner_host_id,
+                    initial_assignment.implementation_fingerprint,
+                    next_generation,
+                )
+                claim = TransferableExecutionClaim(
+                    candidate.parent_request_digest,
+                    candidate.child_request_digest,
+                    candidate.address_digest,
+                    candidate.operator_id,
+                    candidate.operator_contract_digest,
+                    candidate.operator_spec,
+                    candidate.computational_ground_fingerprint,
+                    candidate.replay_policy,
+                    (assignment,),
+                )
+                claims[claim.claim_id] = claim
+                changed = True
+
+            if changed:
+                self._publish_locked(
+                    claims,
+                    generation,
+                    predecessor,
+                    candidates[0][0].claim_id,
+                )
+                _generation, _predecessor, _snapshot, claims, manifest, proof = self._load_latest_locked()
+            if manifest is None or proof is None:
+                raise TransferableExecutionClaimError("claim batch could not establish one committed state root")
+            return tuple(
+                self._bundle_for_claim(candidate.claim_id, claims, manifest, proof)
+                for candidate, _assignment in candidates
             )
-            claims[claim.claim_id] = claim
-            return self._publish_locked(claims, generation, predecessor, claim.claim_id)
+
+    def get_many(self, claim_ids: Sequence[str]) -> tuple[PortableExecutionClaimBundle, ...]:
+        """Mathematics: Refresh a bounded ordered set of tickets from one exact distributed-quorum high-water generation."""
+        if not isinstance(claim_ids, (list, tuple)) or not 1 <= len(claim_ids) <= 64:
+            raise TransferableExecutionClaimError("claim status batch must contain between one and 64 identifiers")
+        identifiers = tuple(_digest(item, "claim id") for item in claim_ids)
+        if len(identifiers) != len(set(identifiers)):
+            raise TransferableExecutionClaimError("claim status batch identifiers must be unique")
+        with self._locked():
+            self._resume_pending_locked()
+            _generation, _predecessor, _snapshot, claims, manifest, proof = self._load_latest_locked()
+            if manifest is None or proof is None:
+                raise TransferableExecutionClaimError("claim status is unavailable before the first quorum-anchored generation")
+            return tuple(
+                self._bundle_for_claim(identifier, claims, manifest, proof)
+                for identifier in identifiers
+            )
 
     def get(self, claim_id: str) -> PortableExecutionClaimBundle:
         """Mathematics: Return the current claim and full portable quorum proof from the latest anchored state."""
@@ -1162,57 +1261,133 @@ class TransferableExecutionClaimStore:
         result_digest: str,
         child_receipt_digest: str,
     ) -> PortableExecutionClaimBundle:
-        """Mathematics: Commit one result only when the expected assignment epoch still owns the claim at quorum high-water."""
-        _digest(claim_id, "claim id")
-        _positive(expected_epoch, "expected assignment epoch")
-        actor_peer = _fabric_id(owner_peer_id, "completion peer id")
-        actor_host = _fabric_id(owner_host_id, "completion host id")
-        actor_implementation = _digest(implementation_fingerprint, "completion implementation fingerprint")
-        result = _digest(result_digest, "result digest")
-        receipt = _digest(child_receipt_digest, "child receipt digest")
+        """Mathematics: Commit one result through the same atomic batch completion path used by a parent frontier."""
+        return self.complete_many(({
+            "claim_id": claim_id,
+            "expected_epoch": expected_epoch,
+            "owner_peer_id": owner_peer_id,
+            "owner_host_id": owner_host_id,
+            "implementation_fingerprint": implementation_fingerprint,
+            "result_digest": result_digest,
+            "child_receipt_digest": child_receipt_digest,
+        },))[0]
+
+    def complete_many(
+        self,
+        completions: Sequence[Mapping[str, Any]],
+    ) -> tuple[PortableExecutionClaimBundle, ...]:
+        """Mathematics: Atomically complete one bounded set of child claims in one quorum generation or publish none."""
+        if not isinstance(completions, (list, tuple)) or not 1 <= len(completions) <= 64:
+            raise TransferableExecutionClaimError("claim completion batch must contain between one and 64 children")
+        expected_fields = {
+            "claim_id",
+            "expected_epoch",
+            "owner_peer_id",
+            "owner_host_id",
+            "implementation_fingerprint",
+            "result_digest",
+            "child_receipt_digest",
+        }
+        normalized: list[dict[str, Any]] = []
+        for index, completion in enumerate(completions):
+            if not isinstance(completion, Mapping) or set(completion) != expected_fields:
+                raise TransferableExecutionClaimError(
+                    f"claim completion item {index} fields do not match the exact completion schema"
+                )
+            normalized.append({
+                "claim_id": _digest(completion["claim_id"], "claim id"),
+                "expected_epoch": _positive(completion["expected_epoch"], "expected assignment epoch"),
+                "owner_peer_id": _fabric_id(completion["owner_peer_id"], "completion peer id"),
+                "owner_host_id": _fabric_id(completion["owner_host_id"], "completion host id"),
+                "implementation_fingerprint": _digest(completion["implementation_fingerprint"], "completion implementation fingerprint"),
+                "result_digest": _digest(completion["result_digest"], "result digest"),
+                "child_receipt_digest": _digest(completion["child_receipt_digest"], "child receipt digest"),
+            })
+        claim_ids = tuple(item["claim_id"] for item in normalized)
+        if len(claim_ids) != len(set(claim_ids)):
+            raise TransferableExecutionClaimError("claim completion batch identifiers must be unique")
+
         with self._locked():
             self._resume_pending_locked()
-            generation, predecessor, snapshot, claims, manifest, proof = self._load_latest_locked()
-            current = claims.get(claim_id)
-            if current is None or manifest is None or proof is None:
-                raise TransferableExecutionClaimError("execution claim does not exist in the quorum ledger")
-            assignment = current.current_assignment
-            if current.status is ExecutionClaimStatus.COMPLETED:
-                if (
-                    assignment.epoch == expected_epoch
-                    and (assignment.owner_peer_id, assignment.owner_host_id, assignment.implementation_fingerprint)
-                    == (actor_peer, actor_host, actor_implementation)
-                    and (current.result_digest, current.child_receipt_digest)
-                    == (result, receipt)
-                ):
-                    return self._bundle_for_claim(claim_id, claims, manifest, proof)
-                raise TransferableExecutionClaimError("execution claim is already completed with another epoch or result")
-            if assignment.epoch != expected_epoch:
-                raise TransferableExecutionClaimError("stale assignment epoch cannot complete a rehomed execution claim")
-            if (
-                assignment.owner_peer_id,
-                assignment.owner_host_id,
-                assignment.implementation_fingerprint,
-            ) != (actor_peer, actor_host, actor_implementation):
-                raise TransferableExecutionClaimError("execution result producer does not own the current claim assignment")
+            generation, predecessor, _snapshot, claims, manifest, proof = self._load_latest_locked()
+            if manifest is None or proof is None:
+                raise TransferableExecutionClaimError("claim completion requires an existing quorum-anchored assignment generation")
+            selected: list[TransferableExecutionClaim] = []
+            completed_count = 0
+            for item in normalized:
+                current = claims.get(item["claim_id"])
+                if current is None:
+                    raise TransferableExecutionClaimError("claim completion batch references an unknown claim")
+                assignment = current.current_assignment
+                actor = (
+                    item["expected_epoch"],
+                    item["owner_peer_id"],
+                    item["owner_host_id"],
+                    item["implementation_fingerprint"],
+                )
+                actual = (
+                    assignment.epoch,
+                    assignment.owner_peer_id,
+                    assignment.owner_host_id,
+                    assignment.implementation_fingerprint,
+                )
+                if actor != actual:
+                    raise TransferableExecutionClaimError(
+                        "claim completion producer is not the exact current assignment epoch/Host/implementation"
+                    )
+                if current.status is ExecutionClaimStatus.COMPLETED:
+                    if (
+                        current.result_digest != item["result_digest"]
+                        or current.child_receipt_digest != item["child_receipt_digest"]
+                    ):
+                        raise TransferableExecutionClaimError(
+                            "completed claim batch retry contains a conflicting result or child receipt"
+                        )
+                    completed_count += 1
+                selected.append(current)
+
+            if completed_count not in (0, len(selected)):
+                raise TransferableExecutionClaimError(
+                    "claim completion batch cannot mix already-completed and newly-assigned children"
+                )
+            if completed_count == len(selected):
+                return tuple(
+                    self._bundle_for_claim(item["claim_id"], claims, manifest, proof)
+                    for item in normalized
+                )
+
             next_generation = generation + 1
-            updated = TransferableExecutionClaim(
-                current.parent_request_digest,
-                current.child_request_digest,
-                current.address_digest,
-                current.operator_id,
-                current.operator_contract_digest,
-                current.operator_spec,
-                current.computational_ground_fingerprint,
-                current.replay_policy,
-                current.assignments,
-                ExecutionClaimStatus.COMPLETED,
-                result,
-                receipt,
-                next_generation,
+            for item, current in zip(normalized, selected):
+                updated = TransferableExecutionClaim(
+                    current.parent_request_digest,
+                    current.child_request_digest,
+                    current.address_digest,
+                    current.operator_id,
+                    current.operator_contract_digest,
+                    current.operator_spec,
+                    current.computational_ground_fingerprint,
+                    current.replay_policy,
+                    current.assignments,
+                    ExecutionClaimStatus.COMPLETED,
+                    item["result_digest"],
+                    item["child_receipt_digest"],
+                    next_generation,
+                )
+                claims[current.claim_id] = updated
+
+            self._publish_locked(
+                claims,
+                generation,
+                predecessor,
+                claim_ids[0],
             )
-            claims[claim_id] = updated
-            return self._publish_locked(claims, generation, predecessor, claim_id)
+            _generation, _predecessor, _snapshot, claims, manifest, proof = self._load_latest_locked()
+            if manifest is None or proof is None:
+                raise TransferableExecutionClaimError("claim completion batch did not retain a quorum-committed state")
+            return tuple(
+                self._bundle_for_claim(identifier, claims, manifest, proof)
+                for identifier in claim_ids
+            )
 
     @property
     def high_water(self) -> tuple[int, str]:

@@ -34,6 +34,11 @@ from .orbit_fabric import ContextualOrbitDataflowInput
 from .seed import SystemIdentity
 from .structural_memory import StructuralMemoryReadReceipt
 from .semantic_translation import canonical_value_digest
+from .transferable_execution_claim import (
+    PortableExecutionClaimBundle,
+    TransferableExecutionClaimStore,
+    TransferableExecutionClaimError,
+)
 from .virtual_layer import (
     OperatorSpec,
     VirtualBudget,
@@ -269,6 +274,7 @@ class DataflowAddFrontierReceipt:
     implementation_fingerprint: str
     backend_receipt_digest: str
     structural_memory_receipts: tuple[tuple[str, StructuralMemoryReadReceipt], ...] = ()
+    execution_claim: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         _digest(self.request_digest, "request_digest")
@@ -316,6 +322,26 @@ class DataflowAddFrontierReceipt:
             if receipt.value_digest != expected_value_digest:
                 raise OperationNativeDataflowError("Structural Memory receipt value digest is inconsistent")
         object.__setattr__(self, "structural_memory_receipts", memory_receipts)
+        if self.execution_claim is not None:
+            claim = dict(self.execution_claim)
+            if set(claim) != {
+                "schema", "claim_id", "assignment_epoch", "ticket_digest", "state_generation",
+                "state_manifest_digest",
+            }:
+                raise OperationNativeDataflowError("execution claim receipt attestation fields are malformed")
+            if claim.get("schema") != "mailcpu.execution-claim-attestation.v1":
+                raise OperationNativeDataflowError("execution claim receipt attestation schema is unsupported")
+            _digest(claim.get("claim_id"), "execution claim id")
+            _digest(claim.get("ticket_digest"), "execution claim ticket digest")
+            _digest(claim.get("state_manifest_digest"), "execution claim manifest digest")
+            if (
+                type(claim.get("assignment_epoch")) is not int
+                or claim["assignment_epoch"] < 1
+                or type(claim.get("state_generation")) is not int
+                or claim["state_generation"] < 1
+            ):
+                raise OperationNativeDataflowError("execution claim attestation epoch/generation must be positive strict integers")
+            object.__setattr__(self, "execution_claim", claim)
 
     @property
     def digest(self) -> str:
@@ -340,6 +366,7 @@ class DataflowAddFrontierReceipt:
                 [binding, receipt.to_dict()]
                 for binding, receipt in self.structural_memory_receipts
             ],
+            **({"execution_claim": dict(self.execution_claim)} if self.execution_claim is not None else {}),
         }
 
     @classmethod
@@ -357,7 +384,7 @@ class DataflowAddFrontierReceipt:
             "route_witness_digest", "forwarding_receipt_digest", "operator_effect_digest",
             "implementation_fingerprint", "backend_receipt_digest", "structural_memory_receipts",
         }
-        if not isinstance(payload, Mapping) or set(payload) != expected:
+        if not isinstance(payload, Mapping) or set(payload) not in (expected, expected | {"execution_claim"}):
             raise OperationNativeDataflowError("binary frontier receipt fields are invalid")
         if payload["schema"] != expected_schema:
             raise OperationNativeDataflowError("binary frontier receipt schema does not match its typed operation")
@@ -389,6 +416,7 @@ class DataflowAddFrontierReceipt:
             implementation_fingerprint=payload["implementation_fingerprint"],
             backend_receipt_digest=payload["backend_receipt_digest"],
             structural_memory_receipts=tuple(memory_receipts),
+            execution_claim=payload.get("execution_claim"),
         )
 
 
@@ -1349,6 +1377,7 @@ class ComputationalFabricDataflowBinaryDispatcher:
         metric_order: Sequence[RouteMetricKey],
         max_steps: int = 64,
         timing_probe: Any | None = None,
+        execution_claim_store: TransferableExecutionClaimStore | None = None,
     ) -> None:
         from .computational_fabric import ComputationalFabricDirectory
 
@@ -1393,6 +1422,11 @@ class ComputationalFabricDataflowBinaryDispatcher:
             raise OperationNativeDataflowError("max_steps is outside the bounded E-GPU method range")
         if timing_probe is not None and not callable(getattr(timing_probe, "measure", None)):
             raise OperationNativeDataflowError("timing_probe must expose a measure context manager")
+        if execution_claim_store is not None:
+            if not isinstance(execution_claim_store, TransferableExecutionClaimStore):
+                raise OperationNativeDataflowError("execution_claim_store must be a TransferableExecutionClaimStore or None")
+            if execution_claim_store.coordinator.membership.owner_id != origin_peer_id:
+                raise OperationNativeDataflowError("execution claim authority owner must equal the computational origin peer")
         metrics = tuple(metric_order)
         if not metrics or any(not isinstance(item, RouteMetricKey) for item in metrics):
             raise OperationNativeDataflowError("metric_order must contain RouteMetricKey values")
@@ -1414,6 +1448,71 @@ class ComputationalFabricDataflowBinaryDispatcher:
         self.metric_order = metrics
         self.max_steps = max_steps
         self.timing_probe = timing_probe
+        self.execution_claim_store = execution_claim_store
+
+    def prepare_execution_claims(
+        self,
+        parent_request: DataflowAddFrontierRequest | DataflowCompareFrontierRequest | DataflowMultiplyFrontierRequest,
+        partitions: Sequence[Any],
+    ) -> dict[str, PortableExecutionClaimBundle]:
+        """Mathematics: Batch-create or refresh every child claim under one quorum generation before any sibling is dispatched."""
+        if self.execution_claim_store is None:
+            return {}
+        if not isinstance(partitions, (list, tuple)) or not 1 <= len(partitions) <= 64:
+            raise OperationNativeDataflowError("claim preparation requires one to 64 typed child partitions")
+        specifications = []
+        keys = []
+        for partition in partitions:
+            address = getattr(partition, "address", None)
+            route = getattr(partition, "route_witness", None)
+            child_request = getattr(partition, "request", None)
+            if (
+                not isinstance(address, ComputationalAddress)
+                or type(child_request) not in {
+                    DataflowAddFrontierRequest,
+                    DataflowCompareFrontierRequest,
+                    DataflowMultiplyFrontierRequest,
+                }
+                or route is None
+                or route.address_digest != address.digest
+                or route.target_host.implementation_fingerprint is None
+            ):
+                raise OperationNativeDataflowError("claim preparation received an incomplete typed child partition")
+            if address.operator_contract_digest != self.operator_spec.digest:
+                raise OperationNativeDataflowError("claim child address uses a different operator contract")
+            if address.computational_ground_fingerprint != self.computational_ground_fingerprint:
+                raise OperationNativeDataflowError("claim child address uses a different Computational Ground")
+            keys.append(partition.digest)
+            specifications.append({
+                "parent_request_digest": parent_request.digest,
+                "child_request_digest": child_request.digest,
+                "address_digest": address.digest,
+                "operator_spec": self.operator_spec,
+                "computational_ground_fingerprint": self.computational_ground_fingerprint,
+                "owner_peer_id": route.target_host.peer_id,
+                "owner_host_id": route.target_host.host_id,
+                "implementation_fingerprint": route.target_host.implementation_fingerprint,
+            })
+        try:
+            bundles = self.execution_claim_store.create_many(tuple(specifications))
+        except TransferableExecutionClaimError as exc:
+            raise OperationNativeDataflowError(f"cannot prepare quorum-bound child execution claims: {exc}") from exc
+        if len(bundles) != len(keys):
+            raise OperationNativeDataflowError("claim authority returned the wrong number of child tickets")
+        return dict(zip(keys, bundles))
+
+    def refresh_execution_claims(
+        self,
+        claim_ids: Sequence[str],
+    ) -> dict[str, PortableExecutionClaimBundle]:
+        """Mathematics: Refresh multiple child tickets from one current quorum high-water for recovery/admission retries."""
+        if self.execution_claim_store is None:
+            raise OperationNativeDataflowError("execution claim refresh requires a configured claim store")
+        try:
+            bundles = self.execution_claim_store.get_many(claim_ids)
+        except TransferableExecutionClaimError as exc:
+            raise OperationNativeDataflowError(f"cannot refresh current execution claims: {exc}") from exc
+        return {bundle.claim.claim_id: bundle for bundle in bundles}
 
     def address_for(
         self,
@@ -1538,6 +1637,8 @@ class ComputationalFabricDataflowBinaryDispatcher:
         *,
         route_witness: Any | None = None,
         origin_sequence: int | None = None,
+        parent_request_digest: str | None = None,
+        claim_bundle: PortableExecutionClaimBundle | None = None,
     ) -> DataflowAddFrontierReceipt | DataflowCompareFrontierReceipt | DataflowMultiplyFrontierReceipt:
         from .computational_fabric import ComputationalFabricStatus
         from .virtual_layer import VirtualOperatorRef
@@ -1592,11 +1693,19 @@ class ComputationalFabricDataflowBinaryDispatcher:
         if client is None:
             raise OperationNativeDataflowError(f"no authenticated forwarding client is configured for first hop {next_peer!r}")
 
+        if (claim_bundle is None) != (parent_request_digest is None):
+            raise OperationNativeDataflowError("parent request digest and portable execution claim must be supplied together")
+        if claim_bundle is not None and not isinstance(claim_bundle, PortableExecutionClaimBundle):
+            raise OperationNativeDataflowError("claim_bundle must be a typed PortableExecutionClaimBundle")
+        if claim_bundle is not None and self.execution_claim_store is None:
+            raise OperationNativeDataflowError("claim-bound dispatch requires the origin's live TransferableExecutionClaimStore")
         envelope = ComputationalFabricForwardingEnvelope.begin(
             address,
             route,
             origin_channel=self.origin_channel,
             origin_sequence=selected_origin_sequence,
+            parent_request_digest=parent_request_digest,
+            claim_bundle=claim_bundle,
         )
         if self.timing_probe is None:
             hop_receipt = client.forward(envelope, self.directory)
@@ -1623,6 +1732,36 @@ class ComputationalFabricDataflowBinaryDispatcher:
             or not isinstance(terminal_execution.get("execution"), Mapping)
         ):
             raise OperationNativeDataflowError("terminal peer did not return an accepted Hypervisor execution")
+        execution_claim_attestation = terminal_execution.get("execution_claim")
+        if claim_bundle is not None:
+            expected_attestation = {
+                "schema": "mailcpu.execution-claim-attestation.v1",
+                "claim_id": claim_bundle.claim.claim_id,
+                "assignment_epoch": claim_bundle.claim.current_assignment.epoch,
+                "ticket_digest": claim_bundle.digest,
+                "state_generation": claim_bundle.manifest.generation,
+                "state_manifest_digest": claim_bundle.manifest.digest,
+            }
+            if not isinstance(execution_claim_attestation, Mapping) or dict(execution_claim_attestation) != expected_attestation:
+                raise OperationNativeDataflowError("terminal receipt does not preserve the exact admitted claim identity, epoch and quorum ticket")
+            try:
+                current_bundle = self.refresh_execution_claims((claim_bundle.claim.claim_id,))[claim_bundle.claim.claim_id]
+            except OperationNativeDataflowError:
+                raise
+            current_claim = current_bundle.claim
+            if (
+                current_claim.status.value != "assigned"
+                or current_claim.claim_id != claim_bundle.claim.claim_id
+                or current_claim.current_assignment != claim_bundle.claim.current_assignment
+                or current_claim.parent_request_digest != claim_bundle.claim.parent_request_digest
+                or current_claim.child_request_digest != claim_bundle.claim.child_request_digest
+                or current_claim.address_digest != claim_bundle.claim.address_digest
+            ):
+                raise OperationNativeDataflowError(
+                    "origin refused the child result because its assignment changed before receipt acceptance"
+                )
+        elif execution_claim_attestation is not None:
+            raise OperationNativeDataflowError("unclaimed dispatch received an unexpected execution-claim attestation")
         execution = terminal_execution["execution"]
         if execution.get("action") != "allow" or not isinstance(execution.get("effect"), Mapping):
             raise OperationNativeDataflowError("terminal operation is missing its local Hypervisor ALLOW effect")
@@ -1682,6 +1821,7 @@ class ComputationalFabricDataflowBinaryDispatcher:
             implementation_fingerprint=route.target_host.implementation_fingerprint,
             backend_receipt_digest=backend_receipt,
             structural_memory_receipts=tuple(memory_receipts),
+            execution_claim=None if execution_claim_attestation is None else dict(execution_claim_attestation),
         )
 
 

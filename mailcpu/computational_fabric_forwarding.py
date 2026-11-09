@@ -38,6 +38,11 @@ from .hypervisor_transport import (
 from .mtls_transport import accept_mutual_tls, connect_mutual_tls
 from .reliability import ReliabilityPolicy, ReliableChannel
 from .socket_transport import SocketTransport
+from .recovery_lineage import RecoveryLineageCoordinator
+from .transferable_execution_claim import (
+    PortableExecutionClaimBundle,
+    TransferableExecutionClaimError,
+)
 
 
 COMPUTATIONAL_FABRIC_FORWARD_OPERATION = "forward network packet for federated computation"
@@ -170,6 +175,11 @@ def _forwarding_intent_projection(
         "budget": workload.budget.to_dict(),
         "payload_bytes": payload_bytes,
     }
+    if envelope.claim_bundle is not None:
+        projection["claim_id"] = envelope.claim_bundle.claim.claim_id
+        projection["claim_epoch"] = envelope.claim_bundle.claim.current_assignment.epoch
+        projection["claim_state_generation"] = envelope.claim_bundle.manifest.generation
+        projection["claim_ticket_digest"] = envelope.claim_bundle.digest
     if len(_canonical_bytes(projection, "fabric intent projection")) > 4096:
         raise ComputationalFabricForwardingError("fabric intent projection exceeds its 4096-byte bound")
     return projection
@@ -188,6 +198,8 @@ class ComputationalFabricForwardingEnvelope:
     current_peer_id: str
     previous_peer_id: str | None
     hop_index: int
+    parent_request_digest: str | None = None
+    claim_bundle: PortableExecutionClaimBundle | None = None
 
     def __post_init__(self) -> None:
         """Mathematics: Bind semantic address, route, stable origin identity, and one exact path coordinate."""
@@ -227,6 +239,36 @@ class ComputationalFabricForwardingEnvelope:
         object.__setattr__(self, "origin_peer_id", origin)
         object.__setattr__(self, "origin_channel", channel)
         object.__setattr__(self, "current_peer_id", current)
+        if self.claim_bundle is None:
+            if self.parent_request_digest is not None:
+                raise ComputationalFabricForwardingError("parent request digest requires a portable execution claim")
+        else:
+            if not isinstance(self.claim_bundle, PortableExecutionClaimBundle):
+                raise ComputationalFabricForwardingError("forwarding claim must be a typed portable execution claim bundle")
+            parent_digest = _sha256(self.parent_request_digest, "parent_request_digest")
+            claim = self.claim_bundle.claim
+            goal = self.address.workload.intention.get("goal")
+            if not isinstance(goal, Mapping):
+                raise ComputationalFabricForwardingError("claim-bound address requires a typed workload goal")
+            operator_reference = self.address.workload.operator_ref(self.address.operator_id)
+            assignment = claim.current_assignment
+            if (
+                claim.parent_request_digest != parent_digest
+                or claim.child_request_digest != goal.get("request_digest")
+                or claim.address_digest != self.address.digest
+                or claim.operator_id != self.address.operator_id
+                or claim.operator_spec.version != operator_reference.version
+                or claim.operator_contract_digest != self.address.operator_contract_digest
+                or claim.computational_ground_fingerprint != self.address.computational_ground_fingerprint
+                or assignment.owner_peer_id != self.route.target_host.peer_id
+                or assignment.owner_host_id != self.route.target_host.host_id
+                or assignment.implementation_fingerprint != self.route.target_host.implementation_fingerprint
+                or claim.status.value != "assigned"
+            ):
+                raise ComputationalFabricForwardingError(
+                    "portable execution claim does not bind the exact parent, child address, operator, Ground, or routed Host"
+                )
+            object.__setattr__(self, "parent_request_digest", parent_digest)
 
     @classmethod
     def begin(
@@ -236,6 +278,8 @@ class ComputationalFabricForwardingEnvelope:
         *,
         origin_channel: str,
         origin_sequence: int,
+        parent_request_digest: str | None = None,
+        claim_bundle: PortableExecutionClaimBundle | None = None,
     ) -> "ComputationalFabricForwardingEnvelope":
         """Mathematics: Create the initial route cursor at the authenticated origin peer."""
         if not isinstance(route, ComputationalFabricRouteWitness):
@@ -250,6 +294,8 @@ class ComputationalFabricForwardingEnvelope:
             route.origin_peer_id,
             None,
             0,
+            parent_request_digest,
+            claim_bundle,
         )
 
     @property
@@ -290,11 +336,13 @@ class ComputationalFabricForwardingEnvelope:
             self.route.peer_path[next_index],
             self.current_peer_id,
             next_index,
+            self.parent_request_digest,
+            self.claim_bundle,
         )
 
     def to_dict(self) -> dict[str, Any]:
-        """Mathematics: Serialize only portable address, non-authoritative route evidence, and operation cursor."""
-        return {
+        """Mathematics: Serialize the route cursor and, when present, its portable quorum-anchored execution claim."""
+        payload = {
             "schema": "mailcpu.computational-fabric-forward-envelope.v1",
             "address": self.address.to_dict(),
             "route": self.route.to_dict(),
@@ -306,25 +354,38 @@ class ComputationalFabricForwardingEnvelope:
             "previous_peer_id": self.previous_peer_id,
             "hop_index": self.hop_index,
         }
+        if self.claim_bundle is not None:
+            payload.update({
+                "schema": "mailcpu.computational-fabric-forward-envelope.v2",
+                "parent_request_digest": self.parent_request_digest,
+                "claim_bundle": self.claim_bundle.to_dict(),
+            })
+        return payload
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "ComputationalFabricForwardingEnvelope":
         """Mathematics: Reconstruct a route cursor only from its exact versioned JSON schema."""
-        expected = {
-            "schema",
-            "address",
-            "route",
-            "origin_peer_id",
-            "origin_channel",
-            "origin_sequence",
-            "logical_time",
-            "current_peer_id",
-            "previous_peer_id",
-            "hop_index",
+        base_fields = {
+            "schema", "address", "route", "origin_peer_id", "origin_channel",
+            "origin_sequence", "logical_time", "current_peer_id",
+            "previous_peer_id", "hop_index",
         }
-        if not isinstance(payload, Mapping) or set(payload) != expected:
+        if not isinstance(payload, Mapping):
             raise ComputationalFabricForwardingError("forwarding envelope fields are malformed")
-        if payload["schema"] != "mailcpu.computational-fabric-forward-envelope.v1":
+        schema = payload.get("schema")
+        if schema == "mailcpu.computational-fabric-forward-envelope.v1":
+            if set(payload) != base_fields:
+                raise ComputationalFabricForwardingError("legacy forwarding envelope fields are malformed")
+            parent_digest = None
+            claim_bundle = None
+        elif schema == "mailcpu.computational-fabric-forward-envelope.v2":
+            if set(payload) != base_fields | {"parent_request_digest", "claim_bundle"}:
+                raise ComputationalFabricForwardingError("claim-bound forwarding envelope fields are malformed")
+            if not isinstance(payload.get("claim_bundle"), Mapping):
+                raise ComputationalFabricForwardingError("claim-bound forwarding envelope requires a typed bundle")
+            parent_digest = payload["parent_request_digest"]
+            claim_bundle = PortableExecutionClaimBundle.from_dict(payload["claim_bundle"])
+        else:
             raise ComputationalFabricForwardingError("forwarding envelope schema is unsupported")
         try:
             return cls(
@@ -337,6 +398,8 @@ class ComputationalFabricForwardingEnvelope:
                 payload["current_peer_id"],
                 payload["previous_peer_id"],
                 payload["hop_index"],
+                parent_digest,
+                claim_bundle,
             )
         except (KeyError, TypeError, ValueError) as exc:
             if isinstance(exc, ComputationalFabricForwardingError):
@@ -960,8 +1023,9 @@ class ComputationalFabricForwardingServer:
         max_payload_bytes: int = _DEFAULT_MAX_PAYLOAD_BYTES,
         policy: ReliabilityPolicy | None = None,
         timing_probe: Any | None = None,
+        claim_coordinator: RecoveryLineageCoordinator | None = None,
     ) -> None:
-        """Mathematics: Bind one adjacent authenticated stream, local capability identity, receiver view and optional terminal catalogue."""
+        """Mathematics: Bind one adjacent authenticated stream, receiver execution authority, local capability identity and catalogue."""
         local = _peer(local_peer_id, "local_peer_id")
         previous = _peer(previous_peer_id, "previous_peer_id")
         if local == previous:
@@ -980,6 +1044,8 @@ class ComputationalFabricForwardingServer:
             raise ComputationalFabricForwardingError("authority_pid is not a live receiver-local process") from exc
         if catalogue is not None and not isinstance(catalogue, ComputationalHostCatalogue):
             raise ComputationalFabricForwardingError("catalogue must be a ComputationalHostCatalogue or None")
+        if claim_coordinator is not None and not isinstance(claim_coordinator, RecoveryLineageCoordinator):
+            raise ComputationalFabricForwardingError("claim_coordinator must be a RecoveryLineageCoordinator or None")
         if not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or timeout <= 0:
             raise ComputationalFabricForwardingError("timeout must be positive")
         if type(max_payload_bytes) is not int or max_payload_bytes < 256:
@@ -996,6 +1062,7 @@ class ComputationalFabricForwardingServer:
         self.origin_channel = _text(origin_channel, "origin_channel")
         self.channel_id = computational_fabric_forward_channel_id(origin_peer_id, origin_channel)
         self.catalogue = catalogue
+        self.claim_coordinator = claim_coordinator
         self.timing_probe = timing_probe
         if timing_probe is not None and not callable(getattr(timing_probe, "measure", None)):
             raise ComputationalFabricForwardingError("server timing_probe must expose a measure context manager")
@@ -1058,6 +1125,7 @@ class ComputationalFabricForwardingServer:
         max_payload_bytes: int = _DEFAULT_MAX_PAYLOAD_BYTES,
         policy: ReliabilityPolicy | None = None,
         timing_probe: Any | None = None,
+        claim_coordinator: RecoveryLineageCoordinator | None = None,
     ) -> "ComputationalFabricForwardingServer":
         """Mathematics: Accept one client only when its CA-verified certificate presents the directory's exact trusted DNS SAN."""
         previous = _peer(previous_peer_id, "previous_peer_id")
@@ -1088,6 +1156,7 @@ class ComputationalFabricForwardingServer:
                 max_payload_bytes=max_payload_bytes,
                 policy=policy,
                 timing_probe=timing_probe,
+                claim_coordinator=claim_coordinator,
             )
         except Exception:
             transport.close()
@@ -1217,6 +1286,38 @@ class ComputationalFabricForwardingServer:
         local_advertisement = ComputationalHostAdvertisement.from_locus(locus, self.local_peer_id)
         if local_advertisement.digest != advertisement.digest:
             raise ComputationalFabricForwardingError("terminal host advertisement differs from the live local locus")
+        claim_attestation: dict[str, Any] | None = None
+        if envelope.claim_bundle is not None:
+            if self.claim_coordinator is None:
+                raise ComputationalFabricForwardingError(
+                    "claim-bound terminal execution requires the receiver's distributed RecoveryLineage coordinator"
+                )
+            goal = envelope.address.workload.intention.get("goal")
+            if not isinstance(goal, Mapping) or not isinstance(goal.get("request_digest"), str):
+                raise ComputationalFabricForwardingError("claim-bound terminal address is missing its exact child request identity")
+            try:
+                envelope.claim_bundle.verify_for_target(
+                    self.claim_coordinator,
+                    parent_request_digest=envelope.parent_request_digest,
+                    child_request_digest=goal["request_digest"],
+                    address_digest=envelope.address.digest,
+                    operator_spec=locus.operator_spec,
+                    computational_ground_fingerprint=envelope.address.computational_ground_fingerprint,
+                    owner_peer_id=self.local_peer_id,
+                    owner_host_id=locus.host_id,
+                    implementation_fingerprint=advertisement.implementation_fingerprint,
+                )
+            except TransferableExecutionClaimError as exc:
+                raise ComputationalFabricForwardingError(f"terminal execution claim was not admitted: {exc}") from exc
+            claim = envelope.claim_bundle.claim
+            claim_attestation = {
+                "schema": "mailcpu.execution-claim-attestation.v1",
+                "claim_id": claim.claim_id,
+                "assignment_epoch": claim.current_assignment.epoch,
+                "ticket_digest": envelope.claim_bundle.digest,
+                "state_generation": envelope.claim_bundle.manifest.generation,
+                "state_manifest_digest": envelope.claim_bundle.manifest.digest,
+            }
         if self.timing_probe is None:
             resolution = ComputationalAddressResolver().resolve(
                 envelope.address,
@@ -1250,10 +1351,13 @@ class ComputationalFabricForwardingServer:
             channel=envelope.origin_channel,
             sequence=envelope.origin_sequence,
         )
-        return {
+        result = {
             "kind": "terminal",
             "terminal_execution": outcome.to_dict(),
         }
+        if claim_attestation is not None:
+            result["execution_claim"] = claim_attestation
+        return result
 
     def _handle(self, event: HypervisorArbitrationEvent) -> dict[str, Any]:
         """Mathematics: Execute exactly one locally admitted route transition or the receiver-local terminal operation."""
@@ -1306,6 +1410,14 @@ class ComputationalFabricForwardingServer:
             terminal_execution = raw_effect.get("terminal_execution")
             if not isinstance(terminal_execution, Mapping):
                 raise ComputationalFabricForwardingError("terminal result is missing its typed execution outcome")
+            terminal_execution = dict(terminal_execution)
+            claim_attestation = raw_effect.get("execution_claim")
+            if envelope.claim_bundle is not None:
+                if not isinstance(claim_attestation, Mapping):
+                    raise ComputationalFabricForwardingError("claim-bound terminal result is missing its execution-claim attestation")
+                terminal_execution["execution_claim"] = dict(claim_attestation)
+            elif claim_attestation is not None:
+                raise ComputationalFabricForwardingError("legacy terminal result cannot inject an execution-claim attestation")
             status = (
                 "replayed"
                 if terminal_execution.get("accepted") is True and terminal_execution.get("replayed") is True
@@ -1557,6 +1669,7 @@ class ComputationalFabricForwardingServer:
         catalogue_factory: Callable[[HeadlessOS], ComputationalHostCatalogue] | None = None,
         operating_system: HeadlessOS | None = None,
         structural_memory_admission_policy: Callable[[Any], bool] | None = None,
+        claim_coordinator: RecoveryLineageCoordinator | None = None,
     ) -> "ComputationalFabricForwardingServer":
         """Mathematics: Rebind one verified peer checkpoint to fresh streams and caller-reconstructed host runtimes."""
         expected = {
@@ -1631,6 +1744,7 @@ class ComputationalFabricForwardingServer:
             next_hop_clients=clients,
             timeout=float(payload["timeout"]),
             max_payload_bytes=int(payload["max_payload_bytes"]),
+            claim_coordinator=claim_coordinator,
         )
         restored_inbound = ReliableChannel.from_snapshot(
             dict(payload["inbound_channel"]),

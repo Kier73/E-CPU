@@ -19,6 +19,11 @@ from mailcpu import (
     PartitionedFrontierIncomplete,
     RouteMetric,
     RouteMetricKey,
+    RecoveryLineageAuthority,
+    RecoveryLineageCoordinator,
+    SeedCommitMembership,
+    TransferableExecutionClaimStore,
+    ComputationalFabricForwardingEnvelope,
     SystemIdentity,
     VirtualBudget,
     VirtualGroundRef,
@@ -162,8 +167,14 @@ class _FakeAuthenticatedBinaryDispatcher:
     frontier_sequence_stride = 1
     forwarding_clients = {"peer-b": object(), "peer-c": object()}
 
-    def __init__(self, *, ambiguous_node: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        ambiguous_node: str | None = None,
+        execution_claim_store: TransferableExecutionClaimStore | None = None,
+    ) -> None:
         self.ambiguous_node = ambiguous_node
+        self.execution_claim_store = execution_claim_store
         self.calls: dict[str, int] = {}
         self.semantic_effects: dict[str, int] = {}
         self.completed: dict[str, DataflowAddFrontierReceipt] = {}
@@ -198,12 +209,37 @@ class _FakeAuthenticatedBinaryDispatcher:
         )
         return address, placement
 
+    def prepare_execution_claims(self, parent_request, partitions):
+        """Mathematics: batch-bind every fake child to one real quorum generation just like the production dispatcher."""
+        if self.execution_claim_store is None:
+            return {}
+        specifications = []
+        for partition in partitions:
+            route = partition.route_witness
+            specifications.append({
+                "parent_request_digest": parent_request.digest,
+                "child_request_digest": partition.request.digest,
+                "address_digest": partition.address.digest,
+                "operator_spec": self.operator_spec,
+                "computational_ground_fingerprint": GROUND,
+                "owner_peer_id": route.target_host.peer_id,
+                "owner_host_id": route.target_host.host_id,
+                "implementation_fingerprint": route.target_host.implementation_fingerprint,
+            })
+        bundles = self.execution_claim_store.create_many(tuple(specifications))
+        return {
+            partition.digest: bundle
+            for partition, bundle in zip(partitions, bundles)
+        }
+
     def __call__(
         self,
         request: DataflowAddFrontierRequest,
         *,
         route_witness: ComputationalFabricRouteWitness | None = None,
         origin_sequence: int | None = None,
+        parent_request_digest: str | None = None,
+        claim_bundle=None,
     ) -> DataflowAddFrontierReceipt:
         assert route_witness is not None
         assert origin_sequence is not None
@@ -232,6 +268,14 @@ class _FakeAuthenticatedBinaryDispatcher:
                     operator_effect_digest=hashlib.sha256(b"effect").hexdigest(),
                     implementation_fingerprint=route_witness.target_host.implementation_fingerprint,
                     backend_receipt_digest=hashlib.sha256(b"backend").hexdigest(),
+                    execution_claim=None if claim_bundle is None else {
+                        "schema": "mailcpu.execution-claim-attestation.v1",
+                        "claim_id": claim_bundle.claim.claim_id,
+                        "assignment_epoch": claim_bundle.claim.current_assignment.epoch,
+                        "ticket_digest": claim_bundle.digest,
+                        "state_generation": claim_bundle.manifest.generation,
+                        "state_manifest_digest": claim_bundle.manifest.digest,
+                    },
                 )
                 self.completed[key] = receipt
                 self.semantic_effects[key] = self.semantic_effects.get(key, 0) + 1
@@ -383,3 +427,181 @@ def test_operation_native_executor_commits_one_composite_receipt_for_the_origina
         lane.node_id
         for lane in composite_receipts[0].request.lanes
     }
+
+
+def _claim_store(tmp_path):
+    """Mathematics: create one three-peer fixed-membership claim authority for fake authenticated child hosts."""
+    membership = SeedCommitMembership(
+        "partitioned-dataflow-claims",
+        1,
+        ("peer-a", "peer-b", "peer-c"),
+        "peer-a",
+        1,
+        "0" * 64,
+    )
+    authorities = {
+        member: RecoveryLineageAuthority(
+            membership,
+            member,
+            tmp_path / f"{member}.claims.jsonl",
+        )
+        for member in membership.member_ids
+    }
+    coordinator = RecoveryLineageCoordinator(membership, authorities)
+    return TransferableExecutionClaimStore(tmp_path / "claims", coordinator)
+
+
+def test_claim_bound_partitioned_dispatch_batches_tickets_and_preserves_receipt_provenance(tmp_path) -> None:
+    """Mathematics: every child ticket and terminal receipt in one parent frontier shares one exact quorum root."""
+    request = _request()
+    store = _claim_store(tmp_path)
+    base = _FakeAuthenticatedBinaryDispatcher(execution_claim_store=store)
+    dispatcher = PartitionedComputationalFabricDataflowBinaryDispatcher(
+        base,
+        partition_count=2,
+        max_concurrency=2,
+    )
+
+    composite = dispatcher(request)
+
+    assert isinstance(composite, BinaryFrontierCompositeReceipt)
+    assert len(composite.children) == 2
+    assert all(child.claim_bundle is not None for child in composite.children)
+    assert all(child.receipt.execution_claim is not None for child in composite.children)
+    assert all(child.completion_bundle is not None for child in composite.children)
+    assert all(child.completion_bundle.claim.status.value == "completed" for child in composite.children)
+    assert len({child.claim_bundle.manifest.generation for child in composite.children}) == 1
+    assert len({child.claim_bundle.manifest.digest for child in composite.children}) == 1
+    assert len({child.completion_bundle.manifest.generation for child in composite.children}) == 1
+    assert len({child.completion_bundle.manifest.digest for child in composite.children}) == 1
+    assert all(
+        child.completion_bundle.claim.child_receipt_digest == child.receipt.digest
+        for child in composite.children
+    )
+    assert all(
+        child.claim_bundle.claim.parent_request_digest == request.digest
+        and child.claim_bundle.claim.child_request_digest == child.partition.request.digest
+        and child.claim_bundle.claim.address_digest == child.partition.address.digest
+        for child in composite.children
+    )
+
+    restored = BinaryFrontierCompositeReceipt.from_dict(composite.to_dict())
+    assert restored.digest == composite.digest
+    assert all(child.claim_bundle is not None for child in restored.children)
+
+    child_payload = composite.children[0].to_dict()
+    child_payload["receipt"]["execution_claim"]["assignment_epoch"] += 1
+    from mailcpu.partitioned_dataflow import BinaryFrontierChildReceipt
+    with pytest.raises(ValueError, match="execution claim|claim"):
+        BinaryFrontierChildReceipt.from_dict(child_payload)
+
+    # A terminal claim from another parent cannot be paired with this child.
+    other_parent = store.create(
+        parent_request_digest=hashlib.sha256(b"another-parent").hexdigest(),
+        child_request_digest=composite.children[0].partition.request.digest,
+        address_digest=composite.children[0].partition.address.digest,
+        operator_spec=dataflow_add_operator_spec(),
+        computational_ground_fingerprint=GROUND,
+        owner_peer_id=composite.children[0].partition.route_witness.target_host.peer_id,
+        owner_host_id=composite.children[0].partition.route_witness.target_host.host_id,
+        implementation_fingerprint=composite.children[0].partition.route_witness.target_host.implementation_fingerprint,
+    )
+    with pytest.raises(ValueError, match="quorum-bound claim"):
+        BinaryFrontierChildReceipt(
+            composite.children[0].partition,
+            composite.children[0].receipt,
+            other_parent,
+        )
+
+
+def test_claim_bound_envelope_round_trip_and_relay_preserve_exact_ticket(tmp_path) -> None:
+    """Mathematics: envelope v2 transports the claim and exact parent across each route cursor without changing its ticket."""
+    from mailcpu.frontier_partition import split_binary_frontier_request
+
+    request = _request()
+    base = _FakeAuthenticatedBinaryDispatcher()
+    partition = split_binary_frontier_request(
+        request,
+        (
+            (request.lanes[0].node_id,),
+            tuple(lane.node_id for lane in request.lanes[1:]),
+        ),
+    )[0]
+    # Use the exact one-lane child address from the real partition plan.
+    store = _claim_store(tmp_path)
+    spec = {
+        "parent_request_digest": request.digest,
+        "child_request_digest": partition.request.digest,
+        "address_digest": partition.address.digest,
+        "operator_spec": base.operator_spec,
+        "computational_ground_fingerprint": GROUND,
+        "owner_peer_id": "peer-b",
+        "owner_host_id": "logical-peer-b",
+        "implementation_fingerprint": _IMPLEMENTATIONS["peer-b"],
+    }
+    ticket = store.create(**spec)
+    route = _route("peer-b", partition.address)
+    envelope = ComputationalFabricForwardingEnvelope.begin(
+        partition.address,
+        route,
+        origin_channel="claim-bound-envelope-test",
+        origin_sequence=17,
+        parent_request_digest=request.digest,
+        claim_bundle=ticket,
+    )
+    encoded = envelope.to_dict()
+    assert encoded["schema"] == "mailcpu.computational-fabric-forward-envelope.v2"
+    restored = ComputationalFabricForwardingEnvelope.from_dict(encoded)
+    assert restored.digest == envelope.digest
+    advanced = restored.advance()
+    assert advanced.claim_bundle.digest == ticket.digest
+    assert advanced.parent_request_digest == request.digest
+    assert advanced.to_dict()["claim_bundle"] == encoded["claim_bundle"]
+
+
+def test_claim_bound_partition_recovery_completes_all_children_together_after_ambiguous_reply(tmp_path) -> None:
+    """Mathematics: checkpoint resume reuses an ambiguous child receipt and commits all child claims in one completion generation."""
+    request = _request()
+    store = _claim_store(tmp_path)
+    base = _FakeAuthenticatedBinaryDispatcher(
+        ambiguous_node="pc-000003",
+        execution_claim_store=store,
+    )
+    checkpoints = []
+    dispatcher = PartitionedComputationalFabricDataflowBinaryDispatcher(
+        base,
+        partition_count=2,
+        max_concurrency=2,
+        checkpoint_sink=checkpoints.append,
+    )
+
+    with pytest.raises(PartitionedFrontierIncomplete) as caught:
+        dispatcher.dispatch(request)
+    checkpoint = caught.value.checkpoint
+    assert len(checkpoint.successful_children) == 1
+    assert all(child.claim_bundle is not None for child in checkpoint.successful_children)
+    assert all(child.completion_bundle is None for child in checkpoint.successful_children)
+    assert store.high_water[0] == 1
+
+    composite = dispatcher.dispatch(
+        request,
+        checkpoint=type(checkpoint).from_dict(checkpoint.to_dict()),
+    )
+    assert len(composite.children) == 2
+    assert all(child.completion_bundle is not None for child in composite.children)
+    assert len({child.completion_bundle.manifest.digest for child in composite.children}) == 1
+    assert sorted(base.semantic_effects.values()) == [1, 1]
+    assert store.high_water[0] == 2
+    assert checkpoints[-1].complete
+    assert all(child.completion_bundle is not None for child in checkpoints[-1].successful_children)
+
+    # Process restart after quorum completion but before the caller consumes
+    # the composite is an exact idempotent completion retry, not a new epoch.
+    committed_high_water = store.high_water
+    completed_checkpoint = type(checkpoint)(request, composite.plan, composite.children)
+    replayed = dispatcher.dispatch(
+        request,
+        checkpoint=type(checkpoint).from_dict(completed_checkpoint.to_dict()),
+    )
+    assert replayed.digest == composite.digest
+    assert store.high_water == committed_high_water
