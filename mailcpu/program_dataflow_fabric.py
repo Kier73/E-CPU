@@ -8,6 +8,7 @@ its typed result lanes back to the original DAG node identities.
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Sequence
@@ -30,6 +31,7 @@ from .program_dataflow import (
     DataflowExecutionReport,
 )
 from .seed import SystemIdentity
+from .structural_memory import StructuralMemoryReadReceipt
 from .semantic_translation import canonical_value_digest
 from .virtual_layer import (
     OperatorSpec,
@@ -37,6 +39,7 @@ from .virtual_layer import (
     VirtualGroundRef,
     VirtualLayerWorkload,
     VirtualOperatorRef,
+    VirtualStructuralMemoryRef,
 )
 
 
@@ -49,6 +52,35 @@ _NODE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
 _HOST_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
 _PEER_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
 _REGISTER = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}\Z")
+_LANE_MEMORY_BINDING = re.compile(r"pc-[0-9]{6}\.(?:left|right)\Z")
+_MAX_ADD_LANES = 64
+_MAX_ADD_INTEGER_BITS = 4096
+
+
+def _bounded_add_integer(value: Any, label: str) -> int:
+    """Mathematics: enforce the shared CPU/E-GPU ADD domain of strict integers with at most 4096 bits."""
+    result = _strict_integer(value, label)
+    if result.bit_length() > _MAX_ADD_INTEGER_BITS:
+        raise OperationNativeDataflowError(f"{label} exceeds the common {_MAX_ADD_INTEGER_BITS}-bit ADD domain")
+    return result
+
+
+def _memory_reference_with_binding(
+    reference: VirtualStructuralMemoryRef,
+    binding: str,
+) -> VirtualStructuralMemoryRef:
+    """Mathematics: rebind one immutable revision-pinned memory address to a unique lane-side name."""
+    return VirtualStructuralMemoryRef(
+        binding=binding,
+        memory_id=reference.memory_id,
+        revision=reference.revision,
+        context=reference.context,
+        coordinate=reference.coordinate,
+        spec_digest=reference.spec_digest,
+        certificate_digest=reference.certificate_digest,
+    )
+
+
 
 
 def _digest(value: Any, label: str) -> str:
@@ -67,31 +99,55 @@ def _strict_integer(value: Any, label: str) -> int:
 
 @dataclass(frozen=True)
 class DataflowAddLane:
-    """One stable correspondence between a DAG ADD node and its vector lane."""
+    """One stable correspondence between a DAG ADD node and two typed operands."""
 
     node_id: str
     node_digest: str
     destination: str
-    left: int
-    right: int
+    left: int | None
+    right: int | None
+    left_register: str | None = None
+    right_register: str | None = None
+    left_reference: VirtualStructuralMemoryRef | None = None
+    right_reference: VirtualStructuralMemoryRef | None = None
 
     def __post_init__(self) -> None:
+        """Mathematics: require each lane side to be exactly one bounded literal value or revision-pinned symbolic memory coordinate."""
         if not isinstance(self.node_id, str) or _NODE_ID.fullmatch(self.node_id) is None:
             raise OperationNativeDataflowError("lane node_id is invalid")
         _digest(self.node_digest, "lane node_digest")
         if not isinstance(self.destination, str) or _REGISTER.fullmatch(self.destination) is None:
             raise OperationNativeDataflowError("lane destination register is invalid")
-        _strict_integer(self.left, "lane left operand")
-        _strict_integer(self.right, "lane right operand")
+        for side in ("left", "right"):
+            value = getattr(self, side)
+            register = getattr(self, f"{side}_register")
+            reference = getattr(self, f"{side}_reference")
+            if value is not None:
+                _bounded_add_integer(value, f"lane {side} operand")
+                if reference is not None:
+                    raise OperationNativeDataflowError(f"lane {side} cannot contain both a value and memory reference")
+            elif not isinstance(reference, VirtualStructuralMemoryRef):
+                raise OperationNativeDataflowError(f"lane {side} requires a value or VirtualStructuralMemoryRef")
+            if reference is not None:
+                if not isinstance(register, str) or _REGISTER.fullmatch(register) is None:
+                    raise OperationNativeDataflowError(f"lane {side} memory operand requires its source register")
+                if reference.binding != f"{self.node_id}.{side}":
+                    raise OperationNativeDataflowError(f"lane {side} memory binding must be unique to its DAG node side")
+            elif register is not None and (not isinstance(register, str) or _REGISTER.fullmatch(register) is None):
+                raise OperationNativeDataflowError(f"lane {side} source register is invalid")
 
     def to_dict(self) -> dict[str, Any]:
-        """Mathematics: serialize the exact typed operation identity and its bound fields."""
+        """Mathematics: serialize the exact typed operation identity and its inline or symbolic operand sides."""
         return {
             "node_id": self.node_id,
             "node_digest": self.node_digest,
             "destination": self.destination,
             "left": self.left,
             "right": self.right,
+            "left_register": self.left_register,
+            "right_register": self.right_register,
+            "left_reference": None if self.left_reference is None else self.left_reference.to_dict(),
+            "right_reference": None if self.right_reference is None else self.right_reference.to_dict(),
         }
 
 
@@ -110,8 +166,8 @@ class DataflowAddFrontierRequest:
         if type(self.frontier_index) is not int or self.frontier_index < 0:
             raise OperationNativeDataflowError("frontier_index must be a non-negative strict integer")
         lanes = tuple(self.lanes)
-        if not lanes or any(not isinstance(item, DataflowAddLane) for item in lanes):
-            raise OperationNativeDataflowError("ADD frontier request requires typed lanes")
+        if not lanes or len(lanes) > _MAX_ADD_LANES or any(not isinstance(item, DataflowAddLane) for item in lanes):
+            raise OperationNativeDataflowError(f"ADD frontier request requires 1..{_MAX_ADD_LANES} typed lanes")
         if lanes != tuple(sorted(lanes, key=lambda item: item.node_id)):
             raise OperationNativeDataflowError("ADD frontier lanes must be sorted by stable node identity")
         if len({item.node_id for item in lanes}) != len(lanes):
@@ -125,18 +181,22 @@ class DataflowAddFrontierRequest:
 
     @property
     def left_values(self) -> tuple[int, ...]:
-        """Mathematics: project the aligned left-operand vector in canonical lane order."""
-        return tuple(item.left for item in self.lanes)
+        """Mathematics: project aligned inline left values; refuse unresolved receiver-side references."""
+        if any(item.left is None for item in self.lanes):
+            raise OperationNativeDataflowError("left operand vector contains receiver-resolved Structural Memory references")
+        return tuple(item.left for item in self.lanes if item.left is not None)
 
     @property
     def right_values(self) -> tuple[int, ...]:
-        """Mathematics: project the aligned right-operand vector in canonical lane order."""
-        return tuple(item.right for item in self.lanes)
+        """Mathematics: project aligned inline right values; refuse unresolved receiver-side references."""
+        if any(item.right is None for item in self.lanes):
+            raise OperationNativeDataflowError("right operand vector contains receiver-resolved Structural Memory references")
+        return tuple(item.right for item in self.lanes if item.right is not None)
 
     def to_dict(self) -> dict[str, Any]:
         """Mathematics: serialize the exact typed operation identity and its bound fields."""
         return {
-            "schema": "mailcpu.dataflow.add-frontier-request.v1",
+            "schema": "mailcpu.dataflow.add-frontier-request.v2",
             "plan_digest": self.plan_digest,
             "context_digest": self.context_digest,
             "frontier_index": self.frontier_index,
@@ -158,6 +218,7 @@ class DataflowAddFrontierReceipt:
     operator_effect_digest: str
     implementation_fingerprint: str
     backend_receipt_digest: str
+    structural_memory_receipts: tuple[tuple[str, StructuralMemoryReadReceipt], ...] = ()
 
     def __post_init__(self) -> None:
         _digest(self.request_digest, "request_digest")
@@ -167,7 +228,7 @@ class DataflowAddFrontierReceipt:
         for node_id, value in results:
             if not isinstance(node_id, str) or _NODE_ID.fullmatch(node_id) is None:
                 raise OperationNativeDataflowError("frontier result node identity is invalid")
-            _strict_integer(value, "frontier result value")
+            _bounded_add_integer(value, "frontier result value")
         if results != tuple(sorted(results, key=lambda item: item[0])):
             raise OperationNativeDataflowError("frontier result lanes must be sorted by node identity")
         if len({item[0] for item in results}) != len(results):
@@ -191,6 +252,20 @@ class DataflowAddFrontierReceipt:
             "backend_receipt_digest",
         ):
             _digest(getattr(self, name), name)
+        memory_receipts = tuple(self.structural_memory_receipts)
+        if memory_receipts != tuple(sorted(memory_receipts, key=lambda item: item[0])):
+            raise OperationNativeDataflowError("Structural Memory receipts must be sorted by binding")
+        if len({binding for binding, _ in memory_receipts}) != len(memory_receipts):
+            raise OperationNativeDataflowError("Structural Memory receipt bindings must be unique")
+        for binding, receipt in memory_receipts:
+            if not isinstance(binding, str) or _LANE_MEMORY_BINDING.fullmatch(binding) is None:
+                raise OperationNativeDataflowError("Structural Memory receipt binding is invalid")
+            if not isinstance(receipt, StructuralMemoryReadReceipt):
+                raise OperationNativeDataflowError("Structural Memory receipt must be a typed read receipt")
+            expected_value_digest = canonical_value_digest({"type": "integer", "value": receipt.value})
+            if receipt.value_digest != expected_value_digest:
+                raise OperationNativeDataflowError("Structural Memory receipt value digest is inconsistent")
+        object.__setattr__(self, "structural_memory_receipts", memory_receipts)
 
     @property
     def digest(self) -> str:
@@ -200,7 +275,7 @@ class DataflowAddFrontierReceipt:
     def to_dict(self) -> dict[str, Any]:
         """Mathematics: serialize the exact typed operation identity and its bound fields."""
         return {
-            "schema": "mailcpu.dataflow.add-frontier-receipt.v1",
+            "schema": "mailcpu.dataflow.add-frontier-receipt.v2",
             "request_digest": self.request_digest,
             "results": [[node_id, value] for node_id, value in self.results],
             "host_id": self.host_id,
@@ -211,6 +286,10 @@ class DataflowAddFrontierReceipt:
             "operator_effect_digest": self.operator_effect_digest,
             "implementation_fingerprint": self.implementation_fingerprint,
             "backend_receipt_digest": self.backend_receipt_digest,
+            "structural_memory_receipts": [
+                [binding, receipt.to_dict()]
+                for binding, receipt in self.structural_memory_receipts
+            ],
         }
 
 
@@ -234,7 +313,7 @@ class OperationNativeDataflowReport:
     def _payload(self) -> dict[str, Any]:
         """Mathematics: project the report fields that participate in its content digest."""
         return {
-            "schema": "mailcpu.operation-native-dataflow-execution.v1",
+            "schema": "mailcpu.operation-native-dataflow-execution.v2",
             "execution": self.execution.to_dict(),
             "frontier_receipts": [item.to_dict() for item in self.frontier_receipts],
         }
@@ -249,8 +328,12 @@ class OperationNativeDataflowReport:
         return {**self._payload(), "digest": self.digest}
 
 
-def _operand_value(graph: NavigableComputationDAG, operand: Mapping[str, Any], node_id: str) -> int:
-    """Mathematics: resolve a compiler-emitted literal, initial value, or committed predecessor."""
+def _operand_value(
+    graph: NavigableComputationDAG,
+    operand: Mapping[str, Any],
+    node_id: str,
+) -> int | VirtualStructuralMemoryRef:
+    """Mathematics: resolve a literal/value/predecessor or preserve a pinned symbolic memory address without reading it."""
     kind = operand.get("kind")
     if kind in {"literal", "initial"}:
         value = operand.get("value")
@@ -260,9 +343,111 @@ def _operand_value(graph: NavigableComputationDAG, operand: Mapping[str, Any], n
             raise OperationNativeDataflowError(f"node {node_id!r} has a malformed dependency operand")
         dependency = graph.result(dependency_id)
         value = dependency.get("value")
+    elif kind == "structural_memory":
+        raw_reference = operand.get("reference")
+        if not isinstance(raw_reference, Mapping):
+            raise OperationNativeDataflowError(f"node {node_id!r} has a malformed symbolic Structural Memory operand")
+        reference = VirtualStructuralMemoryRef.from_dict(raw_reference)
+        if reference.binding != operand.get("register"):
+            raise OperationNativeDataflowError(f"node {node_id!r} Structural Memory binding differs from its source register")
+        return reference
     else:
         raise OperationNativeDataflowError(f"node {node_id!r} has an unsupported operand source")
-    return _strict_integer(value, f"operand for node {node_id}")
+    return _bounded_add_integer(value, f"operand for node {node_id}")
+
+
+def _lane_operand(
+    value: int | VirtualStructuralMemoryRef,
+    *,
+    node_id: str,
+    side: str,
+    source_register: Any,
+) -> tuple[int | None, str | None, VirtualStructuralMemoryRef | None]:
+    """Mathematics: map one compiled register operand into a stable inline or lane-bound symbolic reference."""
+    if isinstance(value, VirtualStructuralMemoryRef):
+        if not isinstance(source_register, str) or _REGISTER.fullmatch(source_register) is None:
+            raise OperationNativeDataflowError("symbolic ADD operand is missing its source register")
+        return None, source_register, _memory_reference_with_binding(value, f"{node_id}.{side}")
+    return _bounded_add_integer(value, f"{side} ADD operand"), (
+        source_register if isinstance(source_register, str) else None
+    ), None
+
+
+def _validate_memory_receipt_for_reference(
+    reference: VirtualStructuralMemoryRef,
+    receipt: StructuralMemoryReadReceipt,
+) -> None:
+    """Mathematics: require a receiver read receipt to match every pinned memory coordinate and evidence identity."""
+    if (
+        receipt.memory_id != reference.memory_id
+        or receipt.revision != reference.revision
+        or receipt.coordinate != reference.coordinate
+        or receipt.spec_digest != reference.spec_digest
+        or receipt.certificate_digest != reference.certificate_digest
+        or receipt.context_digest != canonical_value_digest(dict(reference.context))
+        or receipt.value_digest != canonical_value_digest({"type": "integer", "value": receipt.value})
+    ):
+        raise OperationNativeDataflowError("receiver Structural Memory receipt differs from the exact pinned reference")
+
+
+def _materialize_frontier_operands(
+    value: Mapping[str, Any],
+) -> tuple[list[int], list[int], int]:
+    """Mathematics: realize aligned lane operands from inline literals or receiver-authorized Structural Memory bindings."""
+    if not isinstance(value, Mapping):
+        raise OperationNativeDataflowError("ADD frontier input must be an object")
+    if set(value) == {"input", "structural_memory"}:
+        raw = value["input"]
+        memory = value["structural_memory"]
+    else:
+        raw = value
+        memory = {}
+    if not isinstance(raw, Mapping) or set(raw) != {"lanes", "max_steps"}:
+        raise OperationNativeDataflowError("ADD frontier input fields are invalid")
+    if not isinstance(memory, Mapping):
+        raise OperationNativeDataflowError("resolved Structural Memory input must be an object")
+    lanes = raw["lanes"]
+    if not isinstance(lanes, (list, tuple)) or not 1 <= len(lanes) <= _MAX_ADD_LANES:
+        raise OperationNativeDataflowError(f"ADD frontier must contain 1..{_MAX_ADD_LANES} lanes")
+    max_steps = raw["max_steps"]
+    if type(max_steps) is not int or not 1 <= max_steps <= 10_000:
+        raise OperationNativeDataflowError("ADD frontier max_steps is outside its bounded profile")
+
+    left_values: list[int] = []
+    right_values: list[int] = []
+    used_memory_bindings: set[str] = set()
+    for index, lane in enumerate(lanes):
+        if not isinstance(lane, Mapping) or set(lane) != {"node_id", "left", "right"}:
+            raise OperationNativeDataflowError(f"ADD frontier lane {index} has invalid fields")
+        if not isinstance(lane["node_id"], str) or _NODE_ID.fullmatch(lane["node_id"]) is None:
+            raise OperationNativeDataflowError(f"ADD frontier lane {index} has an invalid node identity")
+        for side in ("left", "right"):
+            operand = lane[side]
+            if not isinstance(operand, Mapping):
+                raise OperationNativeDataflowError(f"ADD frontier lane {index} {side} operand must be typed")
+            if set(operand) == {"kind", "value"} and operand["kind"] == "inline":
+                resolved = _bounded_add_integer(operand["value"], f"lane {index} {side} value")
+            elif set(operand) == {"kind", "binding"} and operand["kind"] == "structural_memory":
+                binding = operand["binding"]
+                if not isinstance(binding, str) or not binding:
+                    raise OperationNativeDataflowError(f"ADD frontier lane {index} {side} memory binding is invalid")
+                used_memory_bindings.add(binding)
+                entry = memory.get(binding)
+                if not isinstance(entry, Mapping) or set(entry) != {"value", "receipt"}:
+                    raise OperationNativeDataflowError(f"receiver did not resolve Structural Memory binding {binding!r}")
+                receipt_payload = entry["receipt"]
+                if not isinstance(receipt_payload, Mapping):
+                    raise OperationNativeDataflowError(f"Structural Memory binding {binding!r} has no typed receipt")
+                receipt = StructuralMemoryReadReceipt.from_dict(receipt_payload)
+                resolved = _bounded_add_integer(entry["value"], f"Structural Memory value {binding}")
+                if receipt.value != resolved:
+                    raise OperationNativeDataflowError(f"Structural Memory binding {binding!r} value differs from its receipt")
+            else:
+                raise OperationNativeDataflowError(f"ADD frontier lane {index} {side} operand descriptor is unsupported")
+            (left_values if side == "left" else right_values).append(resolved)
+    if used_memory_bindings != set(memory):
+        raise OperationNativeDataflowError("resolved Structural Memory bindings differ from the lane operand descriptors")
+    return left_values, right_values, max_steps
 
 
 def execute_dataflow_operation_native(
@@ -289,6 +474,7 @@ def execute_dataflow_operation_native(
     graph = plan.graph()
     node_by_id = {node.node_id: node for node in plan.nodes}
     receipts: list[DataflowAddFrontierReceipt] = []
+    resolved_initial_registers: dict[str, int] = {}
     executed_frontiers: list[tuple[str, ...]] = []
     committed: list[str] = []
 
@@ -320,16 +506,38 @@ def execute_dataflow_operation_native(
             if opcode == Op.ADD.value:
                 if len(operands) != 2:
                     raise OperationNativeDataflowError(f"ADD node {node_id!r} must have two operands")
+                left_value = _operand_value(graph, operands[0], node_id)
+                right_value = _operand_value(graph, operands[1], node_id)
+                left, left_register, left_reference = _lane_operand(
+                    left_value,
+                    node_id=node_id,
+                    side="left",
+                    source_register=operands[0].get("register"),
+                )
+                right, right_register, right_reference = _lane_operand(
+                    right_value,
+                    node_id=node_id,
+                    side="right",
+                    source_register=operands[1].get("register"),
+                )
                 add_lanes.append(DataflowAddLane(
                     node_id=node_id,
                     node_digest=node.digest,
                     destination=destination,
-                    left=_operand_value(graph, operands[0], node_id),
-                    right=_operand_value(graph, operands[1], node_id),
+                    left=left,
+                    right=right,
+                    left_register=left_register,
+                    right_register=right_register,
+                    left_reference=left_reference,
+                    right_reference=right_reference,
                 ))
                 continue
 
             values = [_operand_value(graph, item, node_id) for item in operands]
+            if any(isinstance(item, VirtualStructuralMemoryRef) for item in values):
+                raise OperationNativeDataflowError(
+                    f"symbolic Structural Memory operands are only admitted by ADD in this execution profile (node {node_id!r})"
+                )
             if opcode in {Op.SET.value, Op.COPY.value}:
                 if len(values) != 1:
                     raise OperationNativeDataflowError(f"{opcode} node {node_id!r} must have one operand")
@@ -366,10 +574,51 @@ def execute_dataflow_operation_native(
                 raise OperationNativeDataflowError("remote result lane identities differ from the exact request ordering")
 
             returned = dict(receipt.results)
+            expected_memory_references = {
+                reference.binding: reference
+                for lane in request.lanes
+                for reference in (lane.left_reference, lane.right_reference)
+                if reference is not None
+            }
+            received_memory_receipts = dict(receipt.structural_memory_receipts)
+            if set(received_memory_receipts) != set(expected_memory_references):
+                raise OperationNativeDataflowError(
+                    "receiver Structural Memory receipt bindings differ from the exact frontier request"
+                )
+            for binding, reference in expected_memory_references.items():
+                memory_receipt = received_memory_receipts[binding]
+                _validate_memory_receipt_for_reference(reference, memory_receipt)
+                matching_registers = {
+                    lane.left_register
+                    for lane in request.lanes
+                    if lane.left_reference is not None and lane.left_reference.binding == binding
+                } | {
+                    lane.right_register
+                    for lane in request.lanes
+                    if lane.right_reference is not None and lane.right_reference.binding == binding
+                }
+                if len(matching_registers) != 1:
+                    raise OperationNativeDataflowError("Structural Memory binding does not identify exactly one source register")
+                source_register = next(iter(matching_registers))
+                previous_value = resolved_initial_registers.get(source_register)
+                if previous_value is not None and previous_value != memory_receipt.value:
+                    raise OperationNativeDataflowError("one symbolic Structural Memory register resolved inconsistently across frontiers")
+                resolved_initial_registers[source_register] = memory_receipt.value
+
             for lane in request.lanes:
-                # Independent scalar oracle: it shares neither the E-GPU SIMT
-                # evaluator nor the remote operator's implementation.
-                expected_value = lane.left + lane.right
+                # The independent scalar oracle consumes the receiver receipt
+                # value only after checking its exact pinned memory identity.
+                left_value = lane.left
+                if lane.left_reference is not None:
+                    left_value = received_memory_receipts[lane.left_reference.binding].value
+                right_value = lane.right
+                if lane.right_reference is not None:
+                    right_value = received_memory_receipts[lane.right_reference.binding].value
+                expected_value = _bounded_add_integer(
+                    _bounded_add_integer(left_value, f"left operand for {lane.node_id}")
+                    + _bounded_add_integer(right_value, f"right operand for {lane.node_id}"),
+                    f"ADD result for {lane.node_id}",
+                )
                 if returned[lane.node_id] != expected_value:
                     raise OperationNativeDataflowError(
                         f"remote ADD result for {lane.node_id!r} failed the independent scalar oracle"
@@ -404,6 +653,8 @@ def execute_dataflow_operation_native(
     for source in plan.final_register_sources:
         if source.kind == "initial":
             value = source.value
+        elif source.kind == "structural_memory":
+            value = resolved_initial_registers.get(source.register)
         else:
             value = graph.result(source.node_id or "").get("value")
         registers[source.register] = _strict_integer(value, f"final register {source.register}")
@@ -426,6 +677,7 @@ def execute_dataflow_operation_native(
         committed_node_ids=tuple(committed),
         executed_frontiers=tuple(executed_frontiers),
         _dag_snapshot_json=snapshot_json,
+        resolved_initial_registers=tuple(sorted(resolved_initial_registers.items())),
     )
     return OperationNativeDataflowReport(report, tuple(receipts))
 
@@ -434,8 +686,8 @@ def dataflow_add_operator_spec() -> OperatorSpec:
     """Mathematics: define one strict integer vector-add contract for CPU and E-GPU realizations."""
     return OperatorSpec(
         operator_id="mailcpu.dataflow.add_frontier",
-        version=1,
-        description="Apply strict integer addition to aligned dataflow frontier lanes",
+        version=2,
+        description="Apply strict integer addition to 1..64 aligned lanes with signed operands and results bounded to 4096 bits; resolve pinned Structural Memory operands at the receiver",
         input_kind="object",
         output_kind="object",
         substrates=("cpu", "gpu"),
@@ -453,19 +705,10 @@ def make_cpu_dataflow_add_handler() -> Callable[[Mapping[str, Any], VirtualLayer
     """Mathematics: construct the CPU realization of the common vector-add Ground."""
     def execute(value: Mapping[str, Any], _workload: VirtualLayerWorkload) -> dict[str, Any]:
         """Mathematics: map aligned strict integer pairs through the local CPU addition law."""
-        if not isinstance(value, Mapping) or set(value) != {"left", "right", "max_steps"}:
-            raise OperationNativeDataflowError("CPU ADD operator input fields are invalid")
-        left, right = value["left"], value["right"]
-        if (
-            not isinstance(left, (list, tuple))
-            or not isinstance(right, (list, tuple))
-            or not left
-            or len(left) != len(right)
-        ):
-            raise OperationNativeDataflowError("CPU ADD operator requires aligned non-empty vectors")
+        left, right, _max_steps = _materialize_frontier_operands(value)
         outputs = []
         for index, (a, b) in enumerate(zip(left, right)):
-            outputs.append(_strict_integer(a, f"left[{index}]") + _strict_integer(b, f"right[{index}]"))
+            outputs.append(_bounded_add_integer(a + b, f"CPU ADD result[{index}]"))
         backend = {
             "implementation": "mailcpu.cpu.strict-integer-vector-add.v1",
             "values": outputs,
@@ -484,21 +727,33 @@ def make_egpu_dataflow_add_handler(egpu_host: Any) -> Callable[[Mapping[str, Any
 
     if not isinstance(egpu_host, EGPUHost):
         raise OperationNativeDataflowError("E-GPU ADD handler requires an EGPUHost instance")
+    if (
+        egpu_host.simt_host.max_lanes < _MAX_ADD_LANES
+        or egpu_host.simt_host.max_integer_bits < _MAX_ADD_INTEGER_BITS
+    ):
+        raise OperationNativeDataflowError(
+            "E-GPU host does not implement the full shared 64-lane/4096-bit ADD domain"
+        )
 
     def execute(value: Mapping[str, Any], _workload: VirtualLayerWorkload) -> dict[str, Any]:
         """Mathematics: realize the ordered vector-add observation through the local E-GPU method graph."""
-        if not isinstance(value, Mapping) or set(value) != {"left", "right", "max_steps"}:
-            raise OperationNativeDataflowError("E-GPU ADD operator input fields are invalid")
+        left, right, max_steps = _materialize_frontier_operands(value)
         result = egpu_host.execute_authorized_method(
             "vector.add",
             {
                 "method": "vector.add",
-                "left": value["left"],
-                "right": value["right"],
-                "max_steps": value["max_steps"],
+                "left": left,
+                "right": right,
+                "max_steps": max_steps,
             },
         )
         values = result["result"]["outputs"]["result"]
+        if not isinstance(values, list) or len(values) != len(left):
+            raise OperationNativeDataflowError("E-GPU returned a result vector outside the shared ADD shape")
+        values = [
+            _bounded_add_integer(item, f"E-GPU ADD result[{index}]")
+            for index, item in enumerate(values)
+        ]
         backend = {
             "values": values,
             "egpu_host_id": result["host_id"],
@@ -556,7 +811,7 @@ class ComputationalFabricDataflowAddDispatcher:
             raise OperationNativeDataflowError("dispatcher requires typed System and Virtual Grounds")
         if not isinstance(operator_spec, OperatorSpec) or not operator_spec.replay_safe:
             raise OperationNativeDataflowError("dispatcher requires a deterministic pure OperatorSpec")
-        if operator_spec.operator_id != "mailcpu.dataflow.add_frontier" or operator_spec.version != 1:
+        if operator_spec.operator_id != "mailcpu.dataflow.add_frontier" or operator_spec.version != 2:
             raise OperationNativeDataflowError("dispatcher operator contract is not the dataflow ADD frontier contract")
         _digest(computational_ground_fingerprint, "computational_ground_fingerprint")
         if not isinstance(budget, VirtualBudget):
@@ -603,11 +858,27 @@ class ComputationalFabricDataflowAddDispatcher:
         if not eligible_nodes or any(not isinstance(item, str) or not item for item in eligible_nodes):
             raise OperationNativeDataflowError("frontier has no declared eligible execution node")
 
-        input_value = {
-            "left": list(request.left_values),
-            "right": list(request.right_values),
-            "max_steps": self.max_steps,
-        }
+        structural_references: dict[str, VirtualStructuralMemoryRef] = {}
+        wire_lanes: list[dict[str, Any]] = []
+        for lane in request.lanes:
+            wire_lane: dict[str, Any] = {"node_id": lane.node_id}
+            for side in ("left", "right"):
+                reference = getattr(lane, f"{side}_reference")
+                operand_value = getattr(lane, side)
+                if reference is not None:
+                    if reference.binding in structural_references:
+                        raise OperationNativeDataflowError("frontier Structural Memory binding identities must be unique")
+                    structural_references[reference.binding] = reference
+                    wire_lane[side] = {"kind": "structural_memory", "binding": reference.binding}
+                else:
+                    wire_lane[side] = {"kind": "inline", "value": _bounded_add_integer(operand_value, f"{lane.node_id} {side} operand")}
+            wire_lanes.append(wire_lane)
+        input_value = {"lanes": wire_lanes, "max_steps": self.max_steps}
+        operator_reference = VirtualOperatorRef(
+            self.operator_spec.operator_id,
+            self.operator_spec.version,
+            structural_memory=tuple(structural_references[key] for key in sorted(structural_references)),
+        )
         workload_id = f"dataflow-add-{request.plan_digest[:12]}-{request.frontier_index:04d}"
         workload = VirtualLayerWorkload(
             workload_id=workload_id,
@@ -623,12 +894,13 @@ class ComputationalFabricDataflowAddDispatcher:
                     "lanes": [item.to_dict() for item in request.lanes],
                 }
             },
-            operators=(VirtualOperatorRef(self.operator_spec.operator_id, self.operator_spec.version),),
+            operators=(operator_reference,),
             input_value=input_value,
             budget=self.budget,
             logical_time=self.logical_time + request.frontier_index,
             eligible_nodes=eligible_nodes,
             max_hops=self.max_hops,
+            schema_version=2 if structural_references else 1,
         )
         address = ComputationalAddress.from_workload(
             workload,
@@ -713,6 +985,20 @@ class ComputationalFabricDataflowAddDispatcher:
         )
         backend_receipt = operator_result.get("backend_receipt_digest")
         _digest(backend_receipt, "backend_receipt_digest")
+        raw_memory_receipts = effect.get("structural_memory_receipts", {})
+        if not isinstance(raw_memory_receipts, Mapping):
+            raise OperationNativeDataflowError("terminal Structural Memory receipts must be an object")
+        expected_bindings = set(structural_references)
+        if set(raw_memory_receipts) != expected_bindings:
+            raise OperationNativeDataflowError("terminal Structural Memory receipt bindings differ from requested references")
+        memory_receipts: list[tuple[str, StructuralMemoryReadReceipt]] = []
+        for binding in sorted(expected_bindings):
+            payload = raw_memory_receipts[binding]
+            if not isinstance(payload, Mapping):
+                raise OperationNativeDataflowError(f"terminal Structural Memory receipt {binding!r} is malformed")
+            memory_receipt = StructuralMemoryReadReceipt.from_dict(payload)
+            _validate_memory_receipt_for_reference(structural_references[binding], memory_receipt)
+            memory_receipts.append((binding, memory_receipt))
 
         return DataflowAddFrontierReceipt(
             request_digest=request.digest,
@@ -725,6 +1011,7 @@ class ComputationalFabricDataflowAddDispatcher:
             operator_effect_digest=effect["result_digest"],
             implementation_fingerprint=route.target_host.implementation_fingerprint,
             backend_receipt_digest=backend_receipt,
+            structural_memory_receipts=tuple(memory_receipts),
         )
 
 
