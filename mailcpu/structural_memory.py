@@ -593,6 +593,98 @@ class StructuralMemoryReadReceipt:
         )
 
 
+@dataclass(frozen=True)
+class StructuralMemoryRangeReadReceipt:
+    """Compact commitment to one ordered, revision-pinned range of generated integer values."""
+
+    receipt_id: str
+    memory_id: str
+    revision: int
+    spec_digest: str
+    certificate_digest: str
+    coordinate_start: int
+    length: int
+    context_digest: str
+    value_range_digest: str
+    value_receipt_digest: str
+    verification_class: VerificationClass
+    witness_digest: str
+
+    def __post_init__(self) -> None:
+        """Mathematics: bind an exact integer interval to its generator, certificate, context, value commitment and ordered per-coordinate receipt commitment."""
+        _require_hash(self.receipt_id, "range receipt_id")
+        _require_nonempty_string(self.memory_id, "range memory_id")
+        _require_int(self.revision, "range revision", minimum=1)
+        _require_int(self.coordinate_start, "range coordinate_start", minimum=0)
+        _require_int(self.length, "range length", minimum=1)
+        for name in (
+            "spec_digest",
+            "certificate_digest",
+            "context_digest",
+            "value_range_digest",
+            "value_receipt_digest",
+            "witness_digest",
+        ):
+            _require_hash(getattr(self, name), f"range {name}")
+        if not isinstance(self.verification_class, VerificationClass):
+            raise StructuralMemoryError("range receipt verification class is invalid")
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize the compact range commitment. Mathematics: project the complete range identity and both aggregate digests."""
+        return {
+            "receipt_id": self.receipt_id,
+            "memory_id": self.memory_id,
+            "revision": self.revision,
+            "spec_digest": self.spec_digest,
+            "certificate_digest": self.certificate_digest,
+            "coordinate_start": self.coordinate_start,
+            "length": self.length,
+            "context_digest": self.context_digest,
+            "value_range_digest": self.value_range_digest,
+            "value_receipt_digest": self.value_receipt_digest,
+            "verification_class": self.verification_class.value,
+            "witness_digest": self.witness_digest,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "StructuralMemoryRangeReadReceipt":
+        """Reconstruct one typed aggregate range receipt. Mathematics: invert the exact range receipt schema without dropping either aggregate commitment."""
+        expected = {
+            "receipt_id",
+            "memory_id",
+            "revision",
+            "spec_digest",
+            "certificate_digest",
+            "coordinate_start",
+            "length",
+            "context_digest",
+            "value_range_digest",
+            "value_receipt_digest",
+            "verification_class",
+            "witness_digest",
+        }
+        if not isinstance(payload, Mapping) or set(payload) != expected:
+            raise StructuralMemoryError("structural memory range receipt fields are invalid")
+        try:
+            verification_class = VerificationClass(payload["verification_class"])
+        except (TypeError, ValueError) as exc:
+            raise StructuralMemoryError("structural memory range verification class is invalid") from exc
+        return cls(
+            receipt_id=payload["receipt_id"],
+            memory_id=payload["memory_id"],
+            revision=payload["revision"],
+            spec_digest=payload["spec_digest"],
+            certificate_digest=payload["certificate_digest"],
+            coordinate_start=payload["coordinate_start"],
+            length=payload["length"],
+            context_digest=payload["context_digest"],
+            value_range_digest=payload["value_range_digest"],
+            value_receipt_digest=payload["value_receipt_digest"],
+            verification_class=verification_class,
+            witness_digest=payload["witness_digest"],
+        )
+
+
 class ContextMapper:
     """Canonicalize and bind an explicit context object without changing its law.
 
