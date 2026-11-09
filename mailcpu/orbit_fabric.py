@@ -93,7 +93,7 @@ class ContextualOrbitLocateValueRequest:
             raise ContextualOrbitFabricError("inverse query must be pinned at its base Virtual Ground coordinate")
         if self.observer.context_digest != self.address.context_digest:
             raise ContextualOrbitFabricError("observer context differs from the contextual orbit address")
-        if self.address.system_identity is None or self.address.structural_memory.coordinate != 0:
+        if self.address.structural_memory.coordinate != 0:
             raise ContextualOrbitFabricError("inverse query must carry the exact zero-offset Structural Memory reference")
 
     def to_dict(self) -> dict[str, Any]:
@@ -336,16 +336,25 @@ def _validate_navigation_result(
         item for item in observation.evidence
         if item.type_id == "mailcpu.structural-memory.read-receipt"
     ]
+    evidence_projections = [
+        item for item in observation.evidence
+        if item.type_id == "mailcpu.virtual-ground.projection"
+    ]
     if (
         observation.observer_id != request.observer.observer_id
         or observation.revision != request.observer.revision
         or observation.contract_digest != request.observer.digest
+        or observation.subject != request.observer.subject
+        or observation.interpretation != request.observer.interpretation
+        or observation.observation != request.observer.observation
         or observation.operation_id != request.operation_id
         or observation.input_digest != located_address.digest
         or observation.context_digest != request.observer.context_digest
         or observation.projection != expected_observation
         or len(evidence_read_receipts) != 1
         or evidence_read_receipts[0].content_digest != canonical_value_digest(read_receipt.to_dict())
+        or len(evidence_projections) != 1
+        or evidence_projections[0].content_digest != canonical_value_digest(projection.identity_payload())
     ):
         raise ContextualOrbitFabricError("observer receipt does not bind the requested located coordinate and read evidence")
 
@@ -376,6 +385,7 @@ class ContextualOrbitLocateValueDispatcher:
             not isinstance(client, ComputationalFabricForwardingClient)
             or peer_id != client.remote_endpoint.peer_id
             or client.local_peer_id != origin_peer_id
+            or client.origin_channel != origin_channel
             for peer_id, client in clients.items()
         ):
             raise ContextualOrbitFabricError("forwarding clients must be authenticated adjacent peers owned by the origin")
@@ -434,7 +444,7 @@ class ContextualOrbitLocateValueDispatcher:
             structural_memory_access="navigate",
         )
         workload = VirtualLayerWorkload(
-            workload_id=f"orbit-locate-{request.digest[:20]}",
+            workload_id=f"orbit-locate-{request.digest[:16]}-{sequence:08d}",
             system=request.address.system_identity,
             ground=request.address.base_ground,
             intention={
