@@ -339,7 +339,7 @@ def test_binary_frontier_partition_plan_rejects_gaps_duplicates_and_one_host() -
             topology_digest=TOPOLOGY,
             frontier_node_ids=tuple(lane.node_id for lane in request.lanes),
             partitions=(
-                BinaryFrontierPartition(first, route_b),
+                BinaryFrontierPartition(first, first_address, route_b),
                 second_on_same_host,
             ),
         )
