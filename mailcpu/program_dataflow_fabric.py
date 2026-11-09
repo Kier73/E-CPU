@@ -1,0 +1,732 @@
+"""Operation-native execution of compiled MailCPU dataflow frontiers over the E-CPU fabric.
+
+The compiler's dependency DAG remains independent of the communication topology.
+This module binds one ready ADD frontier to one semantic vector-add request,
+dispatches that request through the existing Computational Fabric, and maps
+its typed result lanes back to the original DAG node identities.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from typing import Any, Callable, Mapping, Sequence
+
+from .computation_dag import ComputationDAGError, NavigableComputationDAG
+from .computational_execution import ComputationalExecutionResult
+from .computational_fabric import (
+    ComputationalFabricResolver,
+    ComputationalFabricStatus,
+    ComputationalPeerSnapshot,
+)
+from .computational_fabric_forwarding import (
+    ComputationalFabricForwardingClient,
+    ComputationalFabricForwardingEnvelope,
+    ComputationalFabricHopReceipt,
+)
+from .computational_resolver import ComputationalAddress
+from .evidence_path_resolver import RouteMetricKey
+from .interpreter import compare_values
+from .model import Op, RunStatus
+from .program_dataflow import (
+    CompiledMailCPUDataflow,
+    DataflowExecutionReport,
+    ProgramDataflowError,
+)
+from .seed import SystemIdentity
+from .semantic_translation import canonical_value_digest
+from .virtual_layer import (
+    OperatorSpec,
+    VirtualBudget,
+    VirtualGroundRef,
+    VirtualLayerWorkload,
+    VirtualOperatorRef,
+)
+
+
+class OperationNativeDataflowError(ValueError):
+    """A dataflow operation could not be safely dispatched, verified, or committed."""
+
+
+_SHA256 = re.compile(r"[0-9a-f]{64}\Z")
+_NODE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
+_HOST_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
+_PEER_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
+_REGISTER = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}\Z")
+
+
+def _digest(value: Any, label: str) -> str:
+    """Mathematics: admit only a lowercase 256-bit content identity."""
+    if not isinstance(value, str) or _SHA256.fullmatch(value) is None:
+        raise OperationNativeDataflowError(f"{label} must be a lowercase SHA-256 digest")
+    return value
+
+
+def _strict_integer(value: Any, label: str) -> int:
+    """Mathematics: distinguish ℤ from booleans and machine-specific coercions."""
+    if type(value) is not int:
+        raise OperationNativeDataflowError(f"{label} must be a strict integer")
+    return value
+
+
+@dataclass(frozen=True)
+class DataflowAddLane:
+    """One stable correspondence between a DAG ADD node and its vector lane."""
+
+    node_id: str
+    node_digest: str
+    destination: str
+    left: int
+    right: int
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.node_id, str) or _NODE_ID.fullmatch(self.node_id) is None:
+            raise OperationNativeDataflowError("lane node_id is invalid")
+        _digest(self.node_digest, "lane node_digest")
+        if not isinstance(self.destination, str) or _REGISTER.fullmatch(self.destination) is None:
+            raise OperationNativeDataflowError("lane destination register is invalid")
+        _strict_integer(self.left, "lane left operand")
+        _strict_integer(self.right, "lane right operand")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "node_id": self.node_id,
+            "node_digest": self.node_digest,
+            "destination": self.destination,
+            "left": self.left,
+            "right": self.right,
+        }
+
+
+@dataclass(frozen=True)
+class DataflowAddFrontierRequest:
+    """A content-bound batch of independent ADD nodes from one exact DAG frontier."""
+
+    plan_digest: str
+    context_digest: str
+    frontier_index: int
+    lanes: tuple[DataflowAddLane, ...]
+
+    def __post_init__(self) -> None:
+        _digest(self.plan_digest, "plan_digest")
+        _digest(self.context_digest, "context_digest")
+        if type(self.frontier_index) is not int or self.frontier_index < 0:
+            raise OperationNativeDataflowError("frontier_index must be a non-negative strict integer")
+        lanes = tuple(self.lanes)
+        if not lanes or any(not isinstance(item, DataflowAddLane) for item in lanes):
+            raise OperationNativeDataflowError("ADD frontier request requires typed lanes")
+        if lanes != tuple(sorted(lanes, key=lambda item: item.node_id)):
+            raise OperationNativeDataflowError("ADD frontier lanes must be sorted by stable node identity")
+        if len({item.node_id for item in lanes}) != len(lanes):
+            raise OperationNativeDataflowError("ADD frontier node identities must be unique")
+        object.__setattr__(self, "lanes", lanes)
+
+    @property
+    def digest(self) -> str:
+        return canonical_value_digest(self.to_dict())
+
+    @property
+    def left_values(self) -> tuple[int, ...]:
+        return tuple(item.left for item in self.lanes)
+
+    @property
+    def right_values(self) -> tuple[int, ...]:
+        return tuple(item.right for item in self.lanes)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema": "mailcpu.dataflow.add-frontier-request.v1",
+            "plan_digest": self.plan_digest,
+            "context_digest": self.context_digest,
+            "frontier_index": self.frontier_index,
+            "lanes": [item.to_dict() for item in self.lanes],
+        }
+
+
+@dataclass(frozen=True)
+class DataflowAddFrontierReceipt:
+    """Verified transport result retaining lane-to-node and route identities."""
+
+    request_digest: str
+    results: tuple[tuple[str, int], ...]
+    host_id: str
+    peer_id: str
+    peer_path: tuple[str, ...]
+    route_witness_digest: str
+    forwarding_receipt_digest: str
+    operator_effect_digest: str
+    implementation_fingerprint: str
+    backend_receipt_digest: str
+
+    def __post_init__(self) -> None:
+        _digest(self.request_digest, "request_digest")
+        results = tuple(self.results)
+        if not results:
+            raise OperationNativeDataflowError("frontier receipt requires at least one result lane")
+        for node_id, value in results:
+            if not isinstance(node_id, str) or _NODE_ID.fullmatch(node_id) is None:
+                raise OperationNativeDataflowError("frontier result node identity is invalid")
+            _strict_integer(value, "frontier result value")
+        if results != tuple(sorted(results, key=lambda item: item[0])):
+            raise OperationNativeDataflowError("frontier result lanes must be sorted by node identity")
+        if len({item[0] for item in results}) != len(results):
+            raise OperationNativeDataflowError("frontier result node identities must be unique")
+        object.__setattr__(self, "results", results)
+        if not isinstance(self.host_id, str) or _HOST_ID.fullmatch(self.host_id) is None:
+            raise OperationNativeDataflowError("target logical host identity is invalid")
+        if not isinstance(self.peer_id, str) or _PEER_ID.fullmatch(self.peer_id) is None:
+            raise OperationNativeDataflowError("target peer identity is invalid")
+        path = tuple(self.peer_path)
+        if len(path) < 2 or any(not isinstance(item, str) or _PEER_ID.fullmatch(item) is None for item in path):
+            raise OperationNativeDataflowError("operation-native receipt must describe a remote peer path")
+        if len(set(path)) != len(path) or path[-1] != self.peer_id:
+            raise OperationNativeDataflowError("receipt peer path is cyclic or does not terminate at its target")
+        object.__setattr__(self, "peer_path", path)
+        for name in (
+            "route_witness_digest",
+            "forwarding_receipt_digest",
+            "operator_effect_digest",
+            "implementation_fingerprint",
+            "backend_receipt_digest",
+        ):
+            _digest(getattr(self, name), name)
+
+    @property
+    def digest(self) -> str:
+        return canonical_value_digest(self.to_dict())
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema": "mailcpu.dataflow.add-frontier-receipt.v1",
+            "request_digest": self.request_digest,
+            "results": [[node_id, value] for node_id, value in self.results],
+            "host_id": self.host_id,
+            "peer_id": self.peer_id,
+            "peer_path": list(self.peer_path),
+            "route_witness_digest": self.route_witness_digest,
+            "forwarding_receipt_digest": self.forwarding_receipt_digest,
+            "operator_effect_digest": self.operator_effect_digest,
+            "implementation_fingerprint": self.implementation_fingerprint,
+            "backend_receipt_digest": self.backend_receipt_digest,
+        }
+
+
+@dataclass(frozen=True)
+class OperationNativeDataflowReport:
+    """Local DAG result plus independently retained remote operation receipts."""
+
+    execution: DataflowExecutionReport
+    frontier_receipts: tuple[DataflowAddFrontierReceipt, ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.execution, DataflowExecutionReport):
+            raise OperationNativeDataflowError("execution must be a DataflowExecutionReport")
+        receipts = tuple(self.frontier_receipts)
+        if any(not isinstance(item, DataflowAddFrontierReceipt) for item in receipts):
+            raise OperationNativeDataflowError("frontier_receipts must contain typed receipts")
+        if len({item.request_digest for item in receipts}) != len(receipts):
+            raise OperationNativeDataflowError("one execution cannot repeat an ADD frontier request identity")
+        object.__setattr__(self, "frontier_receipts", receipts)
+
+    @property
+    def digest(self) -> str:
+        return canonical_value_digest(self.to_dict())
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema": "mailcpu.operation-native-dataflow-execution.v1",
+            "execution": self.execution.to_dict(),
+            "frontier_receipts": [item.to_dict() for item in self.frontier_receipts],
+            "digest": self.digest,
+        }
+
+
+def _operand_value(graph: NavigableComputationDAG, operand: Mapping[str, Any], node_id: str) -> int:
+    """Resolve one compiler-emitted operand without weakening its source identity."""
+    kind = operand.get("kind")
+    if kind in {"literal", "initial"}:
+        value = operand.get("value")
+    elif kind == "dependency":
+        dependency_id = operand.get("node_id")
+        if not isinstance(dependency_id, str):
+            raise OperationNativeDataflowError(f"node {node_id!r} has a malformed dependency operand")
+        dependency = graph.result(dependency_id)
+        value = dependency.get("value")
+    else:
+        raise OperationNativeDataflowError(f"node {node_id!r} has an unsupported operand source")
+    return _strict_integer(value, f"operand for node {node_id}")
+
+
+def execute_dataflow_operation_native(
+    plan: CompiledMailCPUDataflow,
+    dispatcher: Callable[[DataflowAddFrontierRequest], DataflowAddFrontierReceipt],
+    *,
+    max_work_units: int | None = None,
+) -> OperationNativeDataflowReport:
+    """Evaluate a DAG while dispatching each ready ADD frontier as one semantic operation.
+
+    SET, COPY, COMPARE, and HALT are evaluated locally in this first profile.
+    ADD nodes in the same frontier are packed into ordered lanes. The returned
+    values are checked against an independent scalar definition before any
+    node in that frontier is committed.
+    """
+    if not isinstance(plan, CompiledMailCPUDataflow):
+        raise OperationNativeDataflowError("plan must be a CompiledMailCPUDataflow")
+    if not callable(dispatcher):
+        raise OperationNativeDataflowError("dispatcher must be callable")
+    limit = len(plan.nodes) if max_work_units is None else max_work_units
+    if type(limit) is not int or limit < 1 or len(plan.nodes) > limit:
+        raise OperationNativeDataflowError("compiled graph exceeds max_work_units")
+
+    graph = plan.graph()
+    node_by_id = {node.node_id: node for node in plan.nodes}
+    receipts: list[DataflowAddFrontierReceipt] = []
+    executed_frontiers: list[tuple[str, ...]] = []
+    committed: list[str] = []
+
+    for frontier_index, expected_frontier in enumerate(plan.frontiers):
+        ready = tuple(node.node_id for node in graph.ready_nodes())
+        if ready != expected_frontier:
+            raise OperationNativeDataflowError("live DAG readiness differs from the compiled frontier")
+
+        pending: dict[str, dict[str, Any]] = {}
+        add_lanes: list[DataflowAddLane] = []
+        for node_id in expected_frontier:
+            node = node_by_id[node_id]
+            payload = node.payload
+            opcode = payload.get("opcode")
+            destination = payload.get("destination")
+            if opcode == Op.HALT.value:
+                pending[node_id] = {
+                    "status": RunStatus.HALTED.value,
+                    "pc": payload["pc"],
+                    "steps": payload["instruction_count"],
+                    "halted": True,
+                    "blocked": False,
+                }
+                continue
+
+            operands = payload.get("operands")
+            if not isinstance(operands, list):
+                raise OperationNativeDataflowError(f"node {node_id!r} has no typed operand list")
+            if opcode == Op.ADD.value:
+                if len(operands) != 2:
+                    raise OperationNativeDataflowError(f"ADD node {node_id!r} must have two operands")
+                add_lanes.append(DataflowAddLane(
+                    node_id=node_id,
+                    node_digest=node.digest,
+                    destination=destination,
+                    left=_operand_value(graph, operands[0], node_id),
+                    right=_operand_value(graph, operands[1], node_id),
+                ))
+                continue
+
+            values = [_operand_value(graph, item, node_id) for item in operands]
+            if opcode in {Op.SET.value, Op.COPY.value}:
+                if len(values) != 1:
+                    raise OperationNativeDataflowError(f"{opcode} node {node_id!r} must have one operand")
+                result_value = values[0]
+            elif opcode == Op.COMPARE.value:
+                if len(values) != 2:
+                    raise OperationNativeDataflowError("COMPARE node must have two operands")
+                result_value = compare_values(values[0], values[1])
+            else:
+                raise OperationNativeDataflowError(f"compiled opcode {opcode!r} is unsupported")
+
+            if not isinstance(destination, str):
+                raise OperationNativeDataflowError(f"node {node_id!r} has no destination register")
+            pending[node_id] = {
+                "register": destination,
+                "value": _strict_integer(result_value, f"result for node {node_id}"),
+            }
+
+        if add_lanes:
+            request = DataflowAddFrontierRequest(
+                plan_digest=plan.digest,
+                context_digest=plan.context_digest,
+                frontier_index=frontier_index,
+                lanes=tuple(sorted(add_lanes, key=lambda item: item.node_id)),
+            )
+            receipt = dispatcher(request)
+            if not isinstance(receipt, DataflowAddFrontierReceipt):
+                raise OperationNativeDataflowError("dispatcher did not return a typed ADD frontier receipt")
+            if receipt.request_digest != request.digest:
+                raise OperationNativeDataflowError("remote receipt belongs to a different frontier request")
+            expected_ids = tuple(item.node_id for item in request.lanes)
+            actual_ids = tuple(item[0] for item in receipt.results)
+            if actual_ids != expected_ids:
+                raise OperationNativeDataflowError("remote result lane identities differ from the exact request ordering")
+
+            returned = dict(receipt.results)
+            for lane in request.lanes:
+                # Independent scalar oracle: it shares neither the E-GPU SIMT
+                # evaluator nor the remote operator's implementation.
+                expected_value = lane.left + lane.right
+                if returned[lane.node_id] != expected_value:
+                    raise OperationNativeDataflowError(
+                        f"remote ADD result for {lane.node_id!r} failed the independent scalar oracle"
+                    )
+                pending[lane.node_id] = {
+                    "register": lane.destination,
+                    "value": expected_value,
+                }
+            receipts.append(receipt)
+
+        # The frontier is published only after every remote lane has passed
+        # identity, cardinality, type and independent semantic checks.
+        for node_id in expected_frontier:
+            result = pending.get(node_id)
+            if result is None:
+                raise OperationNativeDataflowError(f"frontier node {node_id!r} has no prepared result")
+            try:
+                graph.commit(node_id, result)
+            except ComputationDAGError as exc:
+                raise OperationNativeDataflowError(f"could not commit verified node {node_id!r}: {exc}") from exc
+            committed.append(node_id)
+        executed_frontiers.append(expected_frontier)
+
+    halt_nodes = [item for item in plan.nodes if item.payload.get("opcode") == Op.HALT.value]
+    if len(halt_nodes) != 1:
+        raise OperationNativeDataflowError("compiled plan must have exactly one terminal HALT node")
+    halt = graph.result(halt_nodes[0].node_id)
+    if halt.get("status") != RunStatus.HALTED.value:
+        raise OperationNativeDataflowError("terminal node did not commit a HALTED result")
+
+    registers: dict[str, int] = {}
+    for source in plan.final_register_sources:
+        if source.kind == "initial":
+            value = source.value
+        else:
+            value = graph.result(source.node_id or "").get("value")
+        registers[source.register] = _strict_integer(value, f"final register {source.register}")
+
+    snapshot_json = __import__("json").dumps(
+        graph.snapshot(),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    )
+    report = DataflowExecutionReport(
+        plan_digest=plan.digest,
+        status=RunStatus.HALTED.value,
+        pc=halt["pc"],
+        steps=halt["steps"],
+        halted=True,
+        blocked=False,
+        registers=tuple(sorted(registers.items())),
+        committed_node_ids=tuple(committed),
+        executed_frontiers=tuple(executed_frontiers),
+        _dag_snapshot_json=snapshot_json,
+    )
+    return OperationNativeDataflowReport(report, tuple(receipts))
+
+
+def dataflow_add_operator_spec() -> OperatorSpec:
+    """The semantic contract shared by CPU and E-GPU realizations of a dataflow ADD batch."""
+    return OperatorSpec(
+        operator_id="mailcpu.dataflow.add_frontier",
+        version=1,
+        description="Apply strict integer addition to aligned dataflow frontier lanes",
+        input_kind="object",
+        output_kind="object",
+        substrates=("cpu", "gpu"),
+        required_rights=frozenset({"compute"}),
+        base_energy=16,
+        energy_per_byte=2,
+        max_input_bytes=262_144,
+        max_output_bytes=262_144,
+        deterministic=True,
+        effect_mode="pure",
+    )
+
+
+def make_cpu_dataflow_add_handler() -> Callable[[Mapping[str, Any], VirtualLayerWorkload], dict[str, Any]]:
+    """Build a simple CPU realization of the common vector-add Ground."""
+    def execute(value: Mapping[str, Any], _workload: VirtualLayerWorkload) -> dict[str, Any]:
+        if not isinstance(value, Mapping) or set(value) != {"left", "right", "max_steps"}:
+            raise OperationNativeDataflowError("CPU ADD operator input fields are invalid")
+        left, right = value["left"], value["right"]
+        if (
+            not isinstance(left, (list, tuple))
+            or not isinstance(right, (list, tuple))
+            or not left
+            or len(left) != len(right)
+        ):
+            raise OperationNativeDataflowError("CPU ADD operator requires aligned non-empty vectors")
+        outputs = []
+        for index, (a, b) in enumerate(zip(left, right)):
+            outputs.append(_strict_integer(a, f"left[{index}]") + _strict_integer(b, f"right[{index}]"))
+        backend = {
+            "implementation": "mailcpu.cpu.strict-integer-vector-add.v1",
+            "values": outputs,
+        }
+        return {
+            "values": outputs,
+            "backend_method": "cpu.vector.add",
+            "backend_receipt_digest": canonical_value_digest(backend),
+        }
+    return execute
+
+
+def make_egpu_dataflow_add_handler(egpu_host: Any) -> Callable[[Mapping[str, Any], VirtualLayerWorkload], dict[str, Any]]:
+    """Bind the common vector-add Ground to one trusted local EGPUHost instance."""
+    from .egpu import EGPUHost
+
+    if not isinstance(egpu_host, EGPUHost):
+        raise OperationNativeDataflowError("E-GPU ADD handler requires an EGPUHost instance")
+
+    def execute(value: Mapping[str, Any], _workload: VirtualLayerWorkload) -> dict[str, Any]:
+        if not isinstance(value, Mapping) or set(value) != {"left", "right", "max_steps"}:
+            raise OperationNativeDataflowError("E-GPU ADD operator input fields are invalid")
+        result = egpu_host.execute_authorized_method(
+            "vector.add",
+            {
+                "method": "vector.add",
+                "left": value["left"],
+                "right": value["right"],
+                "max_steps": value["max_steps"],
+            },
+        )
+        values = result["result"]["outputs"]["result"]
+        backend = {
+            "values": values,
+            "egpu_host_id": result["host_id"],
+            "egpu_receipt_digest": result["receipt_digest"],
+        }
+        return {
+            "values": values,
+            "backend_method": "egpu.vector.add",
+            "backend_receipt_digest": result["receipt_digest"],
+            "backend_host_id": result["host_id"],
+        }
+    return execute
+
+
+class ComputationalFabricDataflowAddDispatcher:
+    """Turn one ADD frontier into a typed Virtual Layer workload and a multi-hop operation request."""
+
+    def __init__(
+        self,
+        *,
+        origin_peer_id: str,
+        directory: Any,
+        forwarding_clients: Mapping[str, ComputationalFabricForwardingClient],
+        system: SystemIdentity,
+        ground: VirtualGroundRef,
+        operator_spec: OperatorSpec,
+        computational_ground_fingerprint: str,
+        budget: VirtualBudget,
+        eligible_nodes_by_frontier: Mapping[int, Sequence[str]] | Callable[[DataflowAddFrontierRequest], Sequence[str]],
+        origin_channel: str,
+        first_sequence: int,
+        logical_time: int = 0,
+        max_hops: int = 8,
+        metric_order: Sequence[RouteMetricKey],
+        max_steps: int = 64,
+    ) -> None:
+        from .computational_fabric import ComputationalFabricDirectory
+
+        if not isinstance(directory, ComputationalFabricDirectory):
+            raise OperationNativeDataflowError("dispatcher requires a ComputationalFabricDirectory")
+        if directory.local_peer_id != origin_peer_id:
+            raise OperationNativeDataflowError("origin peer must own the supplied fabric directory")
+        if not forwarding_clients:
+            raise OperationNativeDataflowError("dispatcher requires at least one authenticated next-hop client")
+        clients = dict(forwarding_clients)
+        if any(
+            not isinstance(client, ComputationalFabricForwardingClient)
+            or peer_id != client.remote_endpoint.peer_id
+            or client.local_peer_id != origin_peer_id
+            or client.origin_channel != origin_channel
+            for peer_id, client in clients.items()
+        ):
+            raise OperationNativeDataflowError("forwarding clients are not bound to this origin/channel")
+        if not isinstance(system, SystemIdentity) or not isinstance(ground, VirtualGroundRef):
+            raise OperationNativeDataflowError("dispatcher requires typed System and Virtual Grounds")
+        if not isinstance(operator_spec, OperatorSpec) or not operator_spec.replay_safe:
+            raise OperationNativeDataflowError("dispatcher requires a deterministic pure OperatorSpec")
+        if operator_spec.operator_id != "mailcpu.dataflow.add_frontier" or operator_spec.version != 1:
+            raise OperationNativeDataflowError("dispatcher operator contract is not the dataflow ADD frontier contract")
+        _digest(computational_ground_fingerprint, "computational_ground_fingerprint")
+        if not isinstance(budget, VirtualBudget):
+            raise OperationNativeDataflowError("dispatcher requires a VirtualBudget")
+        if not isinstance(origin_channel, str) or not origin_channel.strip():
+            raise OperationNativeDataflowError("origin_channel must be non-empty")
+        if type(first_sequence) is not int or first_sequence < 1:
+            raise OperationNativeDataflowError("first_sequence must be a positive strict integer")
+        if type(logical_time) is not int or logical_time < 0:
+            raise OperationNativeDataflowError("logical_time must be a non-negative strict integer")
+        if type(max_hops) is not int or max_hops < 1:
+            raise OperationNativeDataflowError("max_hops must be a positive strict integer")
+        if type(max_steps) is not int or not 1 <= max_steps <= 10_000:
+            raise OperationNativeDataflowError("max_steps is outside the bounded E-GPU method range")
+        metrics = tuple(metric_order)
+        if not metrics or any(not isinstance(item, RouteMetricKey) for item in metrics):
+            raise OperationNativeDataflowError("metric_order must contain RouteMetricKey values")
+        self.origin_peer_id = origin_peer_id
+        self.directory = directory
+        self.forwarding_clients = clients
+        self.system = system
+        self.ground = ground
+        self.operator_spec = operator_spec
+        self.computational_ground_fingerprint = computational_ground_fingerprint
+        self.budget = budget
+        self.eligible_nodes_by_frontier = eligible_nodes_by_frontier
+        self.origin_channel = origin_channel
+        self.first_sequence = first_sequence
+        self.logical_time = logical_time
+        self.max_hops = max_hops
+        self.metric_order = metrics
+        self.max_steps = max_steps
+
+    def __call__(self, request: DataflowAddFrontierRequest) -> DataflowAddFrontierReceipt:
+        from .computational_fabric import ComputationalFabricStatus
+        from .virtual_layer import VirtualOperatorRef
+
+        if not isinstance(request, DataflowAddFrontierRequest):
+            raise OperationNativeDataflowError("dispatcher requires a DataflowAddFrontierRequest")
+        if callable(self.eligible_nodes_by_frontier):
+            eligible_nodes = tuple(self.eligible_nodes_by_frontier(request))
+        else:
+            eligible_nodes = tuple(self.eligible_nodes_by_frontier.get(request.frontier_index, ()))
+        if not eligible_nodes or any(not isinstance(item, str) or not item for item in eligible_nodes):
+            raise OperationNativeDataflowError("frontier has no declared eligible execution node")
+
+        input_value = {
+            "left": list(request.left_values),
+            "right": list(request.right_values),
+            "max_steps": self.max_steps,
+        }
+        workload_id = f"dataflow-add-{request.plan_digest[:12]}-{request.frontier_index:04d}"
+        workload = VirtualLayerWorkload(
+            workload_id=workload_id,
+            system=self.system,
+            ground=self.ground,
+            intention={
+                "goal": {
+                    "kind": "mailcpu.dataflow.add_frontier",
+                    "plan_digest": request.plan_digest,
+                    "context_digest": request.context_digest,
+                    "request_digest": request.digest,
+                    "frontier_index": request.frontier_index,
+                    "lanes": [item.to_dict() for item in request.lanes],
+                }
+            },
+            operators=(VirtualOperatorRef(self.operator_spec.operator_id, self.operator_spec.version),),
+            input_value=input_value,
+            budget=self.budget,
+            logical_time=self.logical_time + request.frontier_index,
+            eligible_nodes=eligible_nodes,
+            max_hops=self.max_hops,
+        )
+        address = ComputationalAddress.from_workload(
+            workload,
+            self.operator_spec.operator_id,
+            self.operator_spec,
+            self.computational_ground_fingerprint,
+            program_fingerprint=None,
+            metric_order=self.metric_order,
+        )
+        planned = ComputationalFabricResolver().resolve(
+            address,
+            self.directory,
+            origin_peer_id=self.origin_peer_id,
+            max_hops=self.max_hops,
+        )
+        if planned.status is not ComputationalFabricStatus.FOUND or planned.witness is None:
+            details = "; ".join(item.detail for item in planned.blockers[:4])
+            raise OperationNativeDataflowError(
+                f"fabric could not resolve ADD frontier to an eligible host: {planned.status.value}: {details}"
+            )
+        route = planned.witness
+        if len(route.peer_path) < 2:
+            raise OperationNativeDataflowError("operation-native dispatcher expected a remote host, not local execution")
+        if route.target_host.implementation_fingerprint is None:
+            raise OperationNativeDataflowError("target host has no pinned implementation fingerprint")
+        next_peer = route.peer_path[1]
+        client = self.forwarding_clients.get(next_peer)
+        if client is None:
+            raise OperationNativeDataflowError(f"no authenticated forwarding client is configured for first hop {next_peer!r}")
+
+        envelope = ComputationalFabricForwardingEnvelope.begin(
+            address,
+            route,
+            origin_channel=self.origin_channel,
+            origin_sequence=self.first_sequence + request.frontier_index,
+        )
+        hop_receipt = client.forward(envelope, self.directory)
+        if not isinstance(hop_receipt, ComputationalFabricHopReceipt) or not hop_receipt.succeeded:
+            raise OperationNativeDataflowError("fabric forwarding did not commit a successful terminal execution")
+        if hop_receipt.operation_digest != envelope.operation_digest:
+            raise OperationNativeDataflowError("forwarding receipt belongs to a different semantic operation")
+        terminal = hop_receipt
+        while terminal.next_peer_id is not None:
+            if terminal.downstream is None:
+                raise OperationNativeDataflowError("forwarding receipt has an incomplete downstream chain")
+            terminal = terminal.downstream
+        if terminal.peer_id != route.peer_path[-1] or not isinstance(terminal.terminal_execution, Mapping):
+            raise OperationNativeDataflowError("forwarding receipt does not terminate at the selected host peer")
+
+        terminal_execution = terminal.terminal_execution
+        if (
+            terminal_execution.get("accepted") is not True
+            or terminal_execution.get("executed") is not True
+            or terminal_execution.get("status") not in {"executed", "replayed"}
+            or not isinstance(terminal_execution.get("execution"), Mapping)
+        ):
+            raise OperationNativeDataflowError("terminal peer did not return an accepted Hypervisor execution")
+        execution = terminal_execution["execution"]
+        if execution.get("action") != "allow" or not isinstance(execution.get("effect"), Mapping):
+            raise OperationNativeDataflowError("terminal operation is missing its local Hypervisor ALLOW effect")
+        effect = execution["effect"]
+        if (
+            effect.get("kind") != "virtual_layer.operator_result"
+            or effect.get("workload_id") != workload.workload_id
+            or effect.get("workload_digest") != workload.digest
+            or effect.get("operator_id") != self.operator_spec.operator_id
+            or effect.get("operator_version") != self.operator_spec.version
+            or effect.get("operator_contract_digest") != self.operator_spec.digest
+            or effect.get("input_digest") != address.input_digest
+            or not isinstance(effect.get("result"), Mapping)
+        ):
+            raise OperationNativeDataflowError("terminal operator effect does not bind the addressed workload and contract")
+        operator_result = effect["result"]
+        if canonical_value_digest(operator_result) != effect.get("result_digest"):
+            raise OperationNativeDataflowError("terminal operator result digest is inconsistent")
+        values = operator_result.get("values")
+        if not isinstance(values, list) or len(values) != len(request.lanes):
+            raise OperationNativeDataflowError("terminal operator returned the wrong number of ADD lanes")
+        results = tuple(
+            (lane.node_id, _strict_integer(value, f"remote result for {lane.node_id}"))
+            for lane, value in zip(request.lanes, values)
+        )
+        backend_receipt = operator_result.get("backend_receipt_digest")
+        _digest(backend_receipt, "backend_receipt_digest")
+
+        return DataflowAddFrontierReceipt(
+            request_digest=request.digest,
+            results=results,
+            host_id=route.target_host.host_id,
+            peer_id=route.target_host.peer_id,
+            peer_path=route.peer_path,
+            route_witness_digest=route.digest,
+            forwarding_receipt_digest=hop_receipt.digest,
+            operator_effect_digest=effect["result_digest"],
+            implementation_fingerprint=route.target_host.implementation_fingerprint,
+            backend_receipt_digest=backend_receipt,
+        )
+
+
+__all__ = [
+    "ComputationalFabricDataflowAddDispatcher",
+    "DataflowAddFrontierReceipt",
+    "DataflowAddFrontierRequest",
+    "DataflowAddLane",
+    "OperationNativeDataflowError",
+    "OperationNativeDataflowReport",
+    "dataflow_add_operator_spec",
+    "execute_dataflow_operation_native",
+    "make_cpu_dataflow_add_handler",
+    "make_egpu_dataflow_add_handler",
+]
