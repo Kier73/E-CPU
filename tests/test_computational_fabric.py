@@ -3619,6 +3619,7 @@ def test_contextual_orbit_inverse_navigation_composes_compare_and_add_over_multi
         receiver_runtime_phases = set(receiver_runtime_timing.summary())
         assert {
             "receiver_admission",
+            "receiver_hypervisor_execution",
             "receiver_provenance_validation",
             "backend_compute",
             "receiver_backend_verification",
