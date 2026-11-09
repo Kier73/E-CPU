@@ -406,3 +406,26 @@ def test_claim_state_root_tampering_breaks_the_quorum_manifest_binding(tmp_path:
     )
     with pytest.raises(TransferableExecutionClaimError, match="state-root bytes|quorum high-water"):
         store.get(bundle.claim.claim_id)
+
+
+def test_unrelated_claim_transition_expires_cached_ticket_and_refetch_restores_current_proof(tmp_path: Path) -> None:
+    """Mathematics: every full-ledger generation advances one global high-water, so an unchanged claim needs a refreshed inclusion ticket."""
+    store, coordinator = _store(tmp_path)
+    first = _create(store)
+    cached = store.get(first.claim.claim_id)
+    store.create(
+        parent_request_digest=PARENT,
+        child_request_digest=H("unrelated-child"),
+        address_digest=H("unrelated-address"),
+        operator_spec=dataflow_add_operator_spec(),
+        computational_ground_fingerprint=GROUND,
+        owner_peer_id="peer-c",
+        owner_host_id="logical-cpu-c",
+        implementation_fingerprint=IMPL_C,
+    )
+    with pytest.raises(TransferableExecutionClaimError, match="not current"):
+        cached.verify_current(coordinator)
+    refreshed = store.get(first.claim.claim_id)
+    refreshed.verify_current(coordinator)
+    assert refreshed.claim.current_assignment == first.claim.current_assignment
+    assert refreshed.manifest.generation == cached.manifest.generation + 1
