@@ -236,11 +236,16 @@ class BinaryFrontierPartition:
             raise FrontierPartitionError("child ComputationalAddress Structural Memory bindings differ from its exact lanes")
         if len(self.route_witness.peer_path) < 2:
             raise FrontierPartitionError("partition route must identify a remote execution path")
-        if self.address.operator_contract_digest != expected_spec.digest:
-            raise FrontierPartitionError("child ComputationalAddress does not bind the exact operator contract")
+        if (
+            self.address.operator_contract_digest != expected_spec.digest
+            or self.address.observation_kind != expected_spec.output_kind
+        ):
+            raise FrontierPartitionError("child ComputationalAddress does not bind the exact operator contract and observation")
         host = self.route_witness.target_host
         if host.node_id not in self.address.workload.eligible_nodes:
             raise FrontierPartitionError("child ComputationalAddress does not admit the route witness target node")
+        if len(self.route_witness.peer_path) - 1 > self.address.workload.max_hops:
+            raise FrontierPartitionError("child ComputationalAddress hop bound is exceeded by the proposed route")
         if host.operator_spec.digest != expected_spec.digest:
             raise FrontierPartitionError("partition route host does not advertise the exact operation contract")
         if host.implementation_fingerprint is None:
