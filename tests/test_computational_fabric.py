@@ -813,6 +813,18 @@ def test_fabric_resolver_returns_bounded_ranked_placement_candidates_without_cha
     assert bounded.eligible_host_count == 2
     assert bounded.truncated is True
 
+    exhausted = resolver.resolve_candidates(
+        _address(),
+        directory,
+        origin_peer_id="peer-a",
+        max_expansions=1,
+    )
+    assert exhausted.status is ComputationalFabricStatus.BUDGET_EXHAUSTED
+    assert exhausted.candidates == ()
+    assert exhausted.eligible_host_count == 0
+    assert exhausted.expanded_states == 1
+    assert ComputationalFabricPlacementSet.from_dict(exhausted.to_dict()) == exhausted
+
     legacy = resolver.resolve(
         _address(),
         directory,
