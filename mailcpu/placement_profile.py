@@ -443,7 +443,14 @@ class PlacementProfile:
             if isinstance(exc, PlacementProfileError):
                 raise
             raise PlacementProfileError("placement profile contains invalid nested values") from exc
-        if payload["summary"] != profile.summary or payload["digest"] != profile.digest:
+        summary = payload["summary"]
+        if (
+            not isinstance(summary, Mapping)
+            or set(summary) != set(profile.summary)
+            or any(type(value) is not int or value < 0 for value in summary.values())
+            or summary != profile.summary
+            or payload["digest"] != profile.digest
+        ):
             raise PlacementProfileError("placement profile summary or digest does not match its evidence")
         return profile
 
@@ -480,6 +487,8 @@ class PlacementRanking:
             raise PlacementProfileError("incomplete evidence cannot produce a partial placement ranking")
         if any(count >= self.minimum_observations for _, count in insufficient):
             raise PlacementProfileError("insufficient profile entry meets the minimum observation count")
+        if insufficient != tuple(sorted(insufficient)):
+            raise PlacementProfileError("insufficient profile entries are not in canonical digest order")
         object.__setattr__(self, "ordered_profile_digests", ranked)
         object.__setattr__(self, "insufficient_profiles", insufficient)
 
@@ -498,8 +507,8 @@ class PlacementRanking:
         """Mathematics: placement comparisons never grant execution authority."""
         return False
 
-    def to_dict(self) -> dict[str, Any]:
-        """Mathematics: serialize ranked profiles and insufficient evidence without claiming authority."""
+    def _payload(self) -> dict[str, Any]:
+        """Mathematics: project the exact comparison identity, profile order and insufficient-evidence set."""
         return {
             "schema": "mailcpu.placement-ranking.v1",
             "comparison_digest": self.comparison_digest,
@@ -509,6 +518,18 @@ class PlacementRanking:
                 {"profile_digest": digest, "observation_count": count}
                 for digest, count in self.insufficient_profiles
             ],
+        }
+
+    @property
+    def digest(self) -> str:
+        """Mathematics: identify the exact ranking proposal without making it authoritative."""
+        return _canonical_digest(self._payload())
+
+    def to_dict(self) -> dict[str, Any]:
+        """Mathematics: serialize ranked profiles and insufficient evidence without claiming authority."""
+        return {
+            **self._payload(),
+            "digest": self.digest,
             "complete": self.complete,
             "best_profile_digest": self.best_profile_digest,
             "recommendation_authoritative": False,
@@ -520,7 +541,7 @@ class PlacementRanking:
         expected = {
             "schema", "comparison_digest", "minimum_observations",
             "ordered_profile_digests", "insufficient_profiles", "complete",
-            "best_profile_digest", "recommendation_authoritative",
+            "best_profile_digest", "recommendation_authoritative", "digest",
         }
         if not isinstance(payload, Mapping) or set(payload) != expected:
             raise PlacementProfileError("placement ranking fields are malformed")
@@ -551,6 +572,7 @@ class PlacementRanking:
         if (
             payload["complete"] is not ranking.complete
             or payload["best_profile_digest"] != ranking.best_profile_digest
+            or payload["digest"] != ranking.digest
         ):
             raise PlacementProfileError("placement ranking completeness or selected profile differs from its evidence")
         return ranking
