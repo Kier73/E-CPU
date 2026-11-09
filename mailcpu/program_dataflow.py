@@ -338,7 +338,7 @@ class CompiledMailCPUDataflow:
             raise ProgramDataflowError("metrics must be ProgramDataflowMetrics")
         graph = self.graph()
         target_payload = {
-            "schema": "mailcpu.program-dataflow-graph.v1",
+            "schema": "mailcpu.program-dataflow-graph.v2",
             "program": self.program_ref.to_dict(),
             "initial_state": self.initial_state_ref.to_dict(),
             "computational_ground": self.computational_ground.to_dict(),
@@ -914,7 +914,7 @@ class MailCPUDataflowCompiler:
             raise ProgramDataflowError("compiled graph identity ordering is inconsistent")
 
         target_payload = {
-            "schema": "mailcpu.program-dataflow-graph.v1",
+            "schema": "mailcpu.program-dataflow-graph.v2",
             "program": program_ref.to_dict(),
             "initial_state": initial_state_ref.to_dict(),
             "computational_ground": ground_ref.to_dict(),
@@ -926,7 +926,7 @@ class MailCPUDataflowCompiler:
         }
         dataflow_ref = RepresentationRef.from_payload(
             "mailcpu.program.dataflow-graph",
-            1,
+            2,
             target_payload,
         )
         invariant_refs = tuple(
