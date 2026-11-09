@@ -4,7 +4,7 @@
 
 This document defines the deterministic description layer for splitting one homogeneous binary-operation frontier across multiple proposed fabric destinations.
 
-It follows the atomic frontier commit boundary in NAVIGABLE_COMPUTATION_DAG.md. It does **not** yet dispatch partitions concurrently or claim multi-host execution. Its purpose is to make the split, node ownership, child-request identities, operation contract and route proposals explicit and serializable before the executor is extended.
+It follows the atomic frontier commit boundary in [NAVIGABLE_COMPUTATION_DAG.md](NAVIGABLE_COMPUTATION_DAG.md). It does **not** yet dispatch partitions concurrently or claim multi-host execution. Its purpose is to make the split, node ownership, child-request identities, operation contract and route proposals explicit and serializable before the executor is extended.
 
 ## Parent frontier and child requests
 
@@ -69,4 +69,4 @@ It does **not** yet deliver partition dispatch, a composite parent receipt, mult
 - B-55 requires all-or-none frontier publication and idempotent exact replay.
 - B-56 requires child-request partitions to form an exact disjoint cover and bind to typed route proposals from one coherent fabric view across at least two logical hosts.
 
-See INVARIANTS.md for the executable registry.
+See [INVARIANTS.md](INVARIANTS.md) for the executable registry.
