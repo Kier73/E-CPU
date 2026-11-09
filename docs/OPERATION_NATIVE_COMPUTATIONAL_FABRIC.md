@@ -142,7 +142,7 @@ This experiment demonstrates operation-level placement across different hosts an
 
 ## Shared arithmetic domain
 
-The CPU and E-GPU implementations of `mailcpu.dataflow.add_frontier@1` implement one explicit shared domain:
+The CPU and E-GPU implementations of `mailcpu.dataflow.add_frontier@2` implement one explicit shared domain:
 
 - 1 to 64 aligned lanes per operation;
 - strict integers (booleans are not integers in this contract);
