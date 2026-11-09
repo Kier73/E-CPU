@@ -30,6 +30,7 @@ from mailcpu.program_dataflow_fabric import (
     DataflowCompareFrontierReceipt,
     OperationNativeDataflowError,
     dataflow_compare_operator_spec,
+    dataflow_add_operator_spec,
     execute_dataflow_operation_native,
     make_cpu_dataflow_compare_handler,
     make_egpu_dataflow_compare_handler,
@@ -319,6 +320,9 @@ def test_operation_native_compare_frontier_preserves_orbit_provenance_and_commit
     def dispatch_add(request):
         add_requests.append(request)
         return _good_receipt(request)
+
+    dispatch_compare.operator_spec = dataflow_compare_operator_spec()
+    dispatch_add.operator_spec = dataflow_add_operator_spec()
 
     report = execute_dataflow_operation_native(
         plan,
