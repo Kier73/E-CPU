@@ -142,7 +142,8 @@ class BinaryFrontierChildReceipt:
                 "operator_effect_digest": receipt.operator_effect_digest,
             })
             if (
-                completed.status is not ExecutionClaimStatus.COMPLETED
+                admitted.status is not ExecutionClaimStatus.ASSIGNED
+                or completed.status is not ExecutionClaimStatus.COMPLETED
                 or completed.claim_id != admitted.claim_id
                 or completed.assignments != admitted.assignments
                 or completed.result_digest != expected_result_digest
@@ -283,6 +284,14 @@ class BinaryFrontierCompositeReceipt:
             raise OperationNativeDataflowError("composite receipt cannot mix claimed and unclaimed child operations")
         if claim_children and any(child.completion_bundle is None for child in claim_children):
             raise OperationNativeDataflowError("claim-bound composite receipt requires quorum-completed evidence for every child")
+        completion_roots = {
+            (child.completion_bundle.manifest.generation, child.completion_bundle.manifest.digest)
+            for child in claim_children
+        }
+        if len(completion_roots) > 1:
+            raise OperationNativeDataflowError(
+                "parent child completion tickets must share one atomic quorum generation"
+            )
         if any(
             child.claim_bundle.claim.parent_request_digest != self.request.digest
             for child in claim_children
