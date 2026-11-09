@@ -221,11 +221,15 @@ def test_operation_native_multiply_frontier_preserves_orbit_provenance_and_recei
         return _good_multiply_receipt(request)
 
     dispatch_multiply.operator_spec = dataflow_multiply_operator_spec()
+    timing_probe = OperationTimingProbe("peer-a/origin-test")
     report = execute_dataflow_operation_native(
         plan,
         operation_dispatchers={"MUL": dispatch_multiply},
+        timing_probe=timing_probe,
     )
 
+    assert "total_completion" in timing_probe.summary()
+    assert timing_probe.summary()["origin_verification"]["count"] == 2
     assert len(requests) == 2
     first_lane, second_lane = requests[0].lanes[0], requests[1].lanes[0]
     assert requests[0].to_dict()["schema"] == "mailcpu.dataflow.multiply-frontier-request.v1"
