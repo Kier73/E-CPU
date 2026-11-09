@@ -42,6 +42,7 @@ TOPOLOGY = "e" * 64
 _IMPLEMENTATIONS = {
     "peer-b": hashlib.sha256(b"partition-peer-b").hexdigest(),
     "peer-c": hashlib.sha256(b"partition-peer-c").hexdigest(),
+    "peer-d": hashlib.sha256(b"partition-peer-d").hexdigest(),
 }
 _METRICS = (
     RouteMetricKey("latency", "ticks"),
@@ -97,7 +98,7 @@ def _address(request: DataflowAddFrontierRequest) -> ComputationalAddress:
         },
         budget=VirtualBudget(100_000, 1_000_000, 100_000),
         logical_time=request.frontier_index,
-        eligible_nodes=("node-peer-b", "node-peer-c"),
+        eligible_nodes=("node-peer-b", "node-peer-c", "node-peer-d"),
         max_hops=8,
     )
     return ComputationalAddress.from_workload(
@@ -165,7 +166,7 @@ class _FakeAuthenticatedBinaryDispatcher:
     origin_peer_id = "peer-a"
     first_sequence = 100
     frontier_sequence_stride = 1
-    forwarding_clients = {"peer-b": object(), "peer-c": object()}
+    forwarding_clients = {"peer-b": object(), "peer-c": object(), "peer-d": object()}
 
     def __init__(
         self,
@@ -177,7 +178,7 @@ class _FakeAuthenticatedBinaryDispatcher:
         self.execution_claim_store = execution_claim_store
         self.calls: dict[str, int] = {}
         self.semantic_effects: dict[str, int] = {}
-        self.completed: dict[str, DataflowAddFrontierReceipt] = {}
+        self.completed: dict[tuple[str, str, int], DataflowAddFrontierReceipt] = {}
         self._lock = threading.Lock()
         self.active = 0
         self.max_active = 0
@@ -186,7 +187,7 @@ class _FakeAuthenticatedBinaryDispatcher:
     def prepare_routes(self, request: DataflowAddFrontierRequest, *, max_candidates: int = 128):
         address = _address(request)
         routes = tuple(sorted(
-            (_route("peer-b", address), _route("peer-c", address)),
+            (_route("peer-b", address), _route("peer-c", address), _route("peer-d", address)),
             key=lambda item: (
                 tuple(metric.amount for metric in item.total_costs),
                 len(item.link_ids),
@@ -201,8 +202,8 @@ class _FakeAuthenticatedBinaryDispatcher:
             address_digest=address.digest,
             directory_digest=DIRECTORY,
             topology_digest=TOPOLOGY,
-            advertised_host_count=2,
-            eligible_host_count=2,
+            advertised_host_count=3,
+            eligible_host_count=3,
             expanded_states=1,
             candidates=routes[:max_candidates],
             truncated=False,
@@ -251,7 +252,9 @@ class _FakeAuthenticatedBinaryDispatcher:
             self.max_active = max(self.max_active, self.active)
         try:
             time.sleep(0.02)
-            receipt = self.completed.get(key)
+            claim_epoch = 0 if claim_bundle is None else claim_bundle.claim.current_assignment.epoch
+            receipt_key = (key, route_witness.target_host.peer_id, claim_epoch)
+            receipt = self.completed.get(receipt_key)
             if receipt is None:
                 results = tuple(
                     (lane.node_id, lane.left + lane.right)
@@ -277,7 +280,7 @@ class _FakeAuthenticatedBinaryDispatcher:
                         "state_manifest_digest": claim_bundle.manifest.digest,
                     },
                 )
-                self.completed[key] = receipt
+                self.completed[receipt_key] = receipt
                 self.semantic_effects[key] = self.semantic_effects.get(key, 0) + 1
                 if self.ambiguous_node in {lane.node_id for lane in request.lanes}:
                     self.ambiguous_node = None
