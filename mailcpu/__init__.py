@@ -176,6 +176,16 @@ from .recovery_lineage_transport import (
     RecoveryLineageTransportError,
 )
 from .recovery_lineage_service import RecoveryLineageAuthorityService
+from .transferable_execution_claim import (
+    ExecutionClaimAssignment,
+    ExecutionClaimMerkleStep,
+    ExecutionClaimStatus,
+    PortableExecutionClaimBundle,
+    TransferableExecutionClaim,
+    TransferableExecutionClaimError,
+    TransferableExecutionClaimStore,
+    REPLAY_POLICY_PURE,
+)
 from .recovery_deployment import (
     RecoveryLineageDeployment,
     RecoveryLineageDeploymentError,
@@ -1191,6 +1201,14 @@ __all__ = [
     "RecoveryLineageProcessParticipant",
     "RecoveryLineageTransportError",
     "RecoveryLineageAuthorityService",
+    "ExecutionClaimAssignment",
+    "ExecutionClaimMerkleStep",
+    "ExecutionClaimStatus",
+    "PortableExecutionClaimBundle",
+    "TransferableExecutionClaim",
+    "TransferableExecutionClaimError",
+    "TransferableExecutionClaimStore",
+    "REPLAY_POLICY_PURE",
     "RecoveryLineageDeployment",
     "RecoveryLineageDeploymentError",
     "RecoveryLineageDeploymentMember",
