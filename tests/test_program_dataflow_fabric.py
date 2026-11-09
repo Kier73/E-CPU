@@ -103,6 +103,7 @@ def test_operation_native_executor_refuses_semantically_wrong_remote_value() -> 
 
 
 def _lazy_structural_memory():
+    """Mathematics: admit a finite integer orbit and return its exact symbolic read coordinate."""
     from mailcpu.headless import HeadlessOS
     from mailcpu.law_certifier import Law
     from mailcpu.virtual_layer import VirtualStructuralMemoryRef
@@ -132,6 +133,7 @@ def _lazy_structural_memory():
 
 
 def _receipt_for_reference(operating_system, reference, version):
+    """Mathematics: read the exact version/context/coordinate named by one symbolic reference."""
     return operating_system.structural_memory.read_revision(
         reference.memory_id,
         version.spec.revision,
@@ -141,6 +143,7 @@ def _receipt_for_reference(operating_system, reference, version):
 
 
 def test_operation_native_add_resolves_symbolic_memory_and_compares_reference_observation() -> None:
+    """Mathematics: accept an ADD only after its receiver read receipt matches the symbolic input and scalar oracle."""
     from mailcpu.program_dataflow_fabric import (
         DataflowAddFrontierReceipt,
         execute_dataflow_operation_native,
@@ -197,6 +200,7 @@ def test_operation_native_add_resolves_symbolic_memory_and_compares_reference_ob
 
 
 def test_operation_native_add_refuses_a_receipt_from_another_memory_identity() -> None:
+    """Mathematics: reject a correct numeric value when its Structural Memory identity is not the requested one."""
     from dataclasses import replace
     from mailcpu.program_dataflow_fabric import (
         DataflowAddFrontierReceipt,
@@ -234,6 +238,7 @@ def test_operation_native_add_refuses_a_receipt_from_another_memory_identity() -
 
 
 def test_cpu_and_egpu_share_the_declared_bounded_add_domain() -> None:
+    """Mathematics: confirm both implementations share the same strict lane and integer domain."""
     from mailcpu.egpu import EGPUHost
     from mailcpu.program_dataflow_fabric import (
         OperationNativeDataflowError,
