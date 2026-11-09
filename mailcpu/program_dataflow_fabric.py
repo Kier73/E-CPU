@@ -63,7 +63,7 @@ def _bounded_binary_integer(value: Any, label: str) -> int:
     """Mathematics: enforce the shared CPU/E-GPU binary integer domain of strict integers with at most 4096 bits."""
     result = _strict_integer(value, label)
     if result.bit_length() > _MAX_BINARY_INTEGER_BITS:
-        raise OperationNativeDataflowError(f"{label} exceeds the common {_MAX_BINARY_INTEGER_BITS}-bit ADD domain")
+        raise OperationNativeDataflowError(f"{label} exceeds the common {_MAX_BINARY_INTEGER_BITS}-bit binary integer domain")
     return result
 
 
