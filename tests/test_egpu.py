@@ -540,3 +540,26 @@ def test_shared_memory_is_scoped_to_one_workgroup_invocation() -> None:
     )
     with pytest.raises(TransitSIMTError, match="has not been initialized"):
         host.handle(second_event)
+
+
+def test_egpu_exposes_a_trusted_node_local_method_adapter_for_virtual_layer() -> None:
+    """An outer admitted operator may call the same bounded E-GPU route without shipping a synthetic VM."""
+    host = EGPUHost(host_id="egpu.virtual-layer")
+    payload = {
+        "method": "vector.add",
+        "left": [3, -2, 17],
+        "right": [4, 9, -8],
+        "max_steps": 16,
+    }
+    result = host.execute_authorized_method("vector.add", payload)
+    assert result["result"]["outputs"]["result"] == [7, 7, 9]
+    assert result["route"] == [
+        "egpu.virtual-layer.dispatch",
+        "egpu.virtual-layer.simt",
+        "egpu.virtual-layer.verify",
+    ]
+    with pytest.raises(EGPUError, match="exact E-GPU method"):
+        host.execute_authorized_method(
+            "vector.multiply",
+            payload,
+        )
