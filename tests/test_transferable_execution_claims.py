@@ -623,3 +623,112 @@ def test_batch_completion_refuses_stale_sibling_without_completing_any_claim(tmp
     assert store.high_water == before
     current = store.get_many(tuple(ticket.claim.claim_id for ticket in tickets))
     assert all(item.claim.status is ExecutionClaimStatus.ASSIGNED for item in current)
+
+
+def test_batch_reassignment_fences_all_old_epochs_at_one_quorum_generation(tmp_path: Path) -> None:
+    """Mathematics: a failed sibling set moves to distinct replacement Hosts under one shared root and one retry identity."""
+    store, coordinator = _store(tmp_path)
+    specifications = tuple(
+        {
+            "parent_request_digest": PARENT,
+            "child_request_digest": H(f"rehome-child-{index}"),
+            "address_digest": H(f"rehome-address-{index}"),
+            "operator_spec": dataflow_add_operator_spec(),
+            "computational_ground_fingerprint": GROUND,
+            "owner_peer_id": "peer-b" if index == 0 else "peer-c",
+            "owner_host_id": "logical-cpu-b" if index == 0 else "logical-egpu-c",
+            "implementation_fingerprint": IMPL_B if index == 0 else IMPL_C,
+        }
+        for index in range(2)
+    )
+    original = store.create_many(specifications)
+    failure_digests = (H("rehome-failure-0"), H("rehome-failure-1"))
+    changes = (
+        {
+            "claim_id": original[0].claim.claim_id,
+            "expected_epoch": 1,
+            "owner_peer_id": "peer-d",
+            "owner_host_id": "logical-cpu-d",
+            "implementation_fingerprint": H("cpu-d"),
+            "failure_evidence_digest": failure_digests[0],
+        },
+        {
+            "claim_id": original[1].claim.claim_id,
+            "expected_epoch": 1,
+            "owner_peer_id": "peer-e",
+            "owner_host_id": "logical-cpu-e",
+            "implementation_fingerprint": H("cpu-e"),
+            "failure_evidence_digest": failure_digests[1],
+        },
+    )
+
+    reassigned = store.reassign_many(changes)
+    assert len(reassigned) == 2
+    assert len({item.manifest.generation for item in reassigned}) == 1
+    assert len({item.manifest.digest for item in reassigned}) == 1
+    assert store.high_water == (reassigned[0].manifest.generation, reassigned[0].manifest.digest)
+    for old, new, change in zip(original, reassigned, changes):
+        assert new.claim.claim_id == old.claim.claim_id
+        assert new.claim.current_assignment.epoch == 2
+        assert new.claim.current_assignment.failure_evidence_digest == change["failure_evidence_digest"]
+        assert new.claim.current_assignment.owner_peer_id == change["owner_peer_id"]
+        with pytest.raises(TransferableExecutionClaimError, match="not current"):
+            old.verify_current(coordinator)
+        new.verify_for_target(
+            coordinator,
+            parent_request_digest=PARENT,
+            child_request_digest=new.claim.child_request_digest,
+            address_digest=new.claim.address_digest,
+            operator_spec=dataflow_add_operator_spec(),
+            computational_ground_fingerprint=GROUND,
+            owner_peer_id=new.claim.current_assignment.owner_peer_id,
+            owner_host_id=new.claim.current_assignment.owner_host_id,
+            implementation_fingerprint=new.claim.current_assignment.implementation_fingerprint,
+        )
+
+    exact_retry = store.reassign_many(changes)
+    assert tuple(item.digest for item in exact_retry) == tuple(item.digest for item in reassigned)
+    assert store.high_water == (reassigned[0].manifest.generation, reassigned[0].manifest.digest)
+
+
+def test_batch_reassignment_refuses_partial_retry_without_advancing_quorum(tmp_path: Path) -> None:
+    """Mathematics: a retry cannot combine one already-reassigned claim with a sibling at its prior epoch."""
+    store, _coordinator = _store(tmp_path)
+    specifications = tuple(
+        {
+            "parent_request_digest": PARENT,
+            "child_request_digest": H(f"partial-rehome-child-{index}"),
+            "address_digest": H(f"partial-rehome-address-{index}"),
+            "operator_spec": dataflow_add_operator_spec(),
+            "computational_ground_fingerprint": GROUND,
+            "owner_peer_id": "peer-b" if index == 0 else "peer-c",
+            "owner_host_id": "logical-b" if index == 0 else "logical-c",
+            "implementation_fingerprint": IMPL_B if index == 0 else IMPL_C,
+        }
+        for index in range(2)
+    )
+    original = store.create_many(specifications)
+    failure0, failure1 = H("partial-failure-0"), H("partial-failure-1")
+    first = {
+        "claim_id": original[0].claim.claim_id,
+        "expected_epoch": 1,
+        "owner_peer_id": "peer-d",
+        "owner_host_id": "logical-d",
+        "implementation_fingerprint": H("cpu-d"),
+        "failure_evidence_digest": failure0,
+    }
+    store.reassign(**first)
+    before = store.high_water
+    with pytest.raises(TransferableExecutionClaimError, match="cannot mix already-reassigned"):
+        store.reassign_many((
+            first,
+            {
+                "claim_id": original[1].claim.claim_id,
+                "expected_epoch": 1,
+                "owner_peer_id": "peer-e",
+                "owner_host_id": "logical-e",
+                "implementation_fingerprint": H("cpu-e"),
+                "failure_evidence_digest": failure1,
+            },
+        ))
+    assert store.high_water == before
