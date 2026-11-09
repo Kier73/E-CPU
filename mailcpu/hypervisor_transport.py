@@ -371,6 +371,13 @@ class HypervisorOperationResultChannel:
         received = self.channel.receive()
         if received is not None and received[0] != transport_sequence:
             raise HypervisorOperationTransportError("operation result sequence changed during validation")
+        if received is None and previous is not None:
+            # A stale retransmission of an already-observed response is only
+            # transport housekeeping. It must not satisfy a later request
+            # invocation that happens to share the same semantic identity.
+            # A fresh transport sequence carrying that cached result remains
+            # a valid semantic replay and is returned below.
+            return None
         self._seen.setdefault(identity, (incoming.fingerprint, result if not result.replayed else stored))
         return result
 
