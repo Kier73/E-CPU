@@ -305,6 +305,7 @@ from .orbit_fabric import (
     ContextualOrbitLocateValueDispatcher,
     ContextualOrbitLocateValueReceipt,
     ContextualOrbitLocateValueRequest,
+    ContextualOrbitDataflowInput,
     contextual_orbit_locate_value_operator_spec,
     make_contextual_orbit_locate_value_handler,
 )
@@ -967,6 +968,7 @@ __all__ = [
     "ContextualOrbitLocateValueDispatcher",
     "ContextualOrbitLocateValueReceipt",
     "ContextualOrbitLocateValueRequest",
+    "ContextualOrbitDataflowInput",
     "contextual_orbit_locate_value_operator_spec",
     "make_contextual_orbit_locate_value_handler",
     "ContextualOrbitAddress",

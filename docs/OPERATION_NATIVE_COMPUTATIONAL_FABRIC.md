@@ -107,17 +107,25 @@ The compiled MailCPU plan supplies immutable ComputationNode identities and dete
 
 The operation-native executor:
 
-1. Reads the exact operands from immutable initial values or already committed predecessor results. A symbolic Structural Memory operand remains an address at this point; it is not eagerly read by the compiler or coordinator.
+1. Reads the exact operands from immutable initial values or already committed predecessor results. A symbolic Structural Memory operand remains an address at this point; it is not eagerly read by the compiler or coordinator. A contextual-orbit source remains a typed DAG predecessor and is not flattened into an untracked initial integer.
 2. Selects the ADD nodes in the ready frontier and orders them by stable node_id.
-3. Constructs one DataflowAddFrontierRequest binding the plan digest, context digest, frontier index, node digests, destination registers and ordered operand pairs.
-4. Builds one pure VirtualLayerWorkload for the vector-add contract. Inline values travel as values; symbolic references travel as schema-v2 Virtual Layer addresses containing the memory identity, exact revision, context, coordinate, specification digest and certificate digest. Only the operation inputs and frontier description are sent; the full VM image, complete MailCPU program and unrelated register state are not shipped.
+3. Constructs one DataflowAddFrontierRequest binding the plan digest, context digest, frontier index, node digests, destination registers, ordered scalar operands, and any contextual-orbit predecessor evidence recovered from DAG ancestry.
+4. Builds one pure VirtualLayerWorkload for the vector-add contract. Inline values travel as values; symbolic Structural Memory references travel as schema-v2 Virtual Layer addresses containing the memory identity, exact revision, context, coordinate, specification digest and certificate digest. A contextual-orbit operand travels as a typed descriptor containing its scalar projection and complete predecessor input(s). Only the selected query/result evidence is sent; no orbit trajectory or full VM image is shipped.
 5. Uses ComputationalFabricResolver to select an advertised host and directed peer route.
 6. Sends the operation through the existing authenticated per-hop forwarding protocol. Relay peers apply their local forwarding policy; the terminal peer re-resolves the workload and executes its local operator.
-7. Verifies that the typed terminal effect binds the workload, Ground, operator contract, input and implementation route. When symbolic memory is present, it also requires the exact receiver-generated read receipts for every requested binding.
-8. Independently recomputes every returned lane with the scalar integer law z_i=a_i+b_i, using the value from a receipt only after checking its pinned memory identity. It checks lane cardinality and the exact ordered node-ID map.
+7. Verifies that the typed terminal effect binds the workload, Ground, operator contract, input and implementation route. When symbolic memory is present, it also requires the exact receiver-generated read receipts for every requested binding. The CPU and E-GPU handlers revalidate every contextual-orbit predecessor object in the operation input.
+8. Independently recomputes every returned lane with the scalar integer law z_i=a_i+b_i, using receiver memory values only after checking their pinned receipts. The contextual-orbit receipt remains provenance for the selected input; it does not replace the independent scalar oracle. The executor checks lane cardinality and the exact ordered node-ID map.
 9. Only after all lanes pass does it commit the results to their original ComputationNode IDs.
 
 The route receipt and scalar oracle establish different properties. The receipt provides path and receiver-local admission provenance; the scalar oracle checks operation meaning. Neither is substituted for the other. A failed identity or value check prevents the affected frontier from being committed.
+
+## Contextual-orbit predecessor composition
+
+A ContextualOrbitDataflowInput binds one origin-verified routed inverse result to an explicit scalar projection: coordinate or value. The object retains the original inverse request, routed receipt, observer projection and located-coordinate Structural Memory read receipt. It does not include the intermediate orbit states.
+
+The compiler's v3 dataflow plan creates one orbit-input source node per supplied register and adds ordinary dependency edges from consuming instructions. The source node commits the selected integer together with the typed input and receipt identities. For an operation-native descendant, the executor follows the DAG ancestry and includes the relevant typed inputs alongside the current scalar operand. This also works after intermediate DAG operations: the value may have been transformed, while the compact predecessor evidence remains traceable through its dependency lineage.
+
+The operation-native ADD request/receipt schemas and the shared CPU/E-GPU operator contract are v3. The receiving handler rehydrates and validates each contextual-orbit input before executing the strict integer operation; the requester still verifies the returned scalar result independently before commit. Only coordinate/value projections are accepted in this slice, the compiled profile remains bounded, and evidence digests are integrity/provenance bindings rather than signatures or hardware attestation.
 
 This first profile dispatches one ADD batch per ready frontier. A frontier is not yet split across several hosts, and the RPCs are sequential. The local DAG coordinator retains the result mapping and sends the next dependent frontier only after its predecessor frontier has committed.
 

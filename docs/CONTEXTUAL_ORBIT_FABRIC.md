@@ -77,6 +77,14 @@ The digests bind canonical content and provenance. They are not digital signatur
 
 The operation does not establish a speedup over native execution. Remote latency still includes serialization, route, queueing, receiver resolution, inverse work, forward verification, result validation, and return transport. The demonstrated property is *interpretive compression*: for supported laws, the receiver can locate and materialize the needed coordinate without materializing the intervening trajectory or reading the base coordinate merely for authorization.
 
+## Typed predecessor input for compiled dataflow
+
+ContextualOrbitDataflowInput is the compact adapter from this routed result into the MailCPU dataflow compiler. It binds the original ContextualOrbitLocateValueRequest and ContextualOrbitLocateValueReceipt, then revalidates request identity, the inverse-selected OrbitValueResult, the observer projection, the exact located-coordinate read receipt, and the operator-effect digest.
+
+The adapter exposes two explicit scalar projections: selected coordinate and selected value. Its serialized form retains the full typed request and receipt, including observer evidence and the exact Structural Memory read receipt, but never includes the intervening state trajectory. The adapter is data/provenance, not an access grant or an attestation of physical execution.
+
+MailCPUDataflowCompiler accepts the adapter under contextual_orbit_inputs for a register. It emits a distinct DAG predecessor source node and binds each consuming instruction by a dependency edge. The operation-native executor can later recover the adapter from the DAG ancestry and send it with the scalar operand to a remote ADD operation. The receiver revalidates the adapter before applying the arithmetic operator, while the requester independently checks the returned arithmetic result before committing the DAG node. The current profile supports coordinate/value inputs into the bounded pure dataflow subset and remote ADD frontiers; it does not imply arbitrary state-space search or remote offload of every opcode.
+
 ## Implementation
 
 - `mailcpu/orbit_fabric.py`: request, operator contract, receiver handler, dispatcher, and origin verification.

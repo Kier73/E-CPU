@@ -6,6 +6,24 @@ import pytest
 
 from mailcpu.assembler import assemble
 from mailcpu.program_dataflow import MailCPUDataflowCompiler, compare_dataflow_with_reference
+from mailcpu import (
+    ContextualOrbitAddress,
+    ContextualOrbitDataflowInput,
+    ContextualOrbitLocateValueReceipt,
+    ContextualOrbitLocateValueRequest,
+    ContextualOrbitNavigator,
+    ObserverContract,
+    RepresentationRef,
+    SchedulerReading,
+    StructuralMemoryRegistry,
+    VirtualGroundRef,
+    VirtualStructuralMemoryRef,
+    contextual_orbit_context,
+    structural_memory_spec_representation_ref,
+)
+from mailcpu.law_certifier import Law
+from mailcpu.semantic_translation import ObservationContract, canonical_value_digest
+from mailcpu.seed import SystemIdentity
 from mailcpu.program_dataflow_fabric import (
     DataflowAddFrontierReceipt,
     OperationNativeDataflowError,
@@ -45,6 +63,89 @@ def _program():
     )
 
 
+
+def _contextual_orbit_inputs():
+    """Mathematics: produce two scalar projections over the same receiver-verified inverse result."""
+    system = SystemIdentity("operation-native-orbit-system", 1)
+    base_ground = VirtualGroundRef("a" * 64, "b" * 64, 41, "c" * 64)
+    interpretation = RepresentationRef.from_payload(
+        "test.operation-native.integer-ground",
+        1,
+        {"domain": "integer", "meaning": "counter-state"},
+    )
+    extensions = {"lane": "primary", "purpose": "operation-native-orbit"}
+    context = contextual_orbit_context(
+        system,
+        base_ground,
+        interpretation,
+        scheduler_id="vm-scheduler",
+        extensions=extensions,
+    )
+    law = Law(
+        family="int",
+        params={"step": 7, "mod": 101, "x0": 4},
+        order=1,
+        verdict="GROUND",
+    )
+    registry = StructuralMemoryRegistry(admission_policy=lambda _proposal: True)
+    proposal = registry.propose(
+        "operation-native-contextual-orbit",
+        law,
+        {index: law.navigate(index) for index in range(8)},
+        domain="contextual-orbit-test",
+        context=context,
+    )
+    version = registry.admit(proposal.proposal_id, expected_revision=0)
+    reference = VirtualStructuralMemoryRef.from_version("orbit-generator", version, 0)
+    address = ContextualOrbitAddress(
+        system_identity=system,
+        base_ground=base_ground,
+        computational_ground=interpretation,
+        coordinate=SchedulerReading("vm-scheduler", base_ground.coordinate),
+        structural_memory=reference,
+        context_extensions=extensions,
+    )
+    observer = ObserverContract(
+        observer_id="operation-native-orbit-observer",
+        revision=1,
+        subject=structural_memory_spec_representation_ref(version.spec),
+        interpretation=interpretation,
+        observation=ObservationContract.from_definition(
+            "mailcpu.orbit.scalar-value",
+            1,
+            {"fields": ["coordinate", "offset", "value", "value_digest"]},
+        ),
+        context_digest=canonical_value_digest(context),
+    )
+    target_coordinate = 37
+    target_value = law.navigate(target_coordinate)
+    request = ContextualOrbitLocateValueRequest(address, observer, target_value)
+    result = ContextualOrbitNavigator(registry).locate_value(
+        address,
+        observer,
+        target_value,
+        operation_id=request.operation_id,
+    )
+    receipt = ContextualOrbitLocateValueReceipt(
+        request_digest=request.digest,
+        result=result,
+        host_id="logical-host-c",
+        peer_id="peer-c",
+        peer_path=("peer-a", "peer-c"),
+        route_witness_digest="1" * 64,
+        forwarding_receipt_digest="2" * 64,
+        operator_effect_digest=canonical_value_digest({
+            "request_digest": request.digest,
+            "result": result.to_dict(),
+        }),
+        implementation_fingerprint="3" * 64,
+    )
+    return (
+        ContextualOrbitDataflowInput(request, receipt, field="coordinate"),
+        ContextualOrbitDataflowInput(request, receipt, field="value"),
+    )
+
+
 def test_operation_native_executor_batches_frontiers_and_preserves_node_identity() -> None:
     program = _program()
     plan = MailCPUDataflowCompiler().compile_program(program)
@@ -57,8 +158,8 @@ def test_operation_native_executor_batches_frontiers_and_preserves_node_identity
     report = execute_dataflow_operation_native(plan, dispatch)
 
     assert len(requests) == 2
-    assert requests[0].to_dict()["schema"] == "mailcpu.dataflow.add-frontier-request.v2"
-    assert report.frontier_receipts[0].to_dict()["schema"] == "mailcpu.dataflow.add-frontier-receipt.v2"
+    assert requests[0].to_dict()["schema"] == "mailcpu.dataflow.add-frontier-request.v3"
+    assert report.frontier_receipts[0].to_dict()["schema"] == "mailcpu.dataflow.add-frontier-receipt.v3"
     assert requests[0].frontier_index == 1
     assert tuple(item.node_id for item in requests[0].lanes) == ("pc-000002", "pc-000005")
     assert requests[1].frontier_index == 2
@@ -72,6 +173,95 @@ def test_operation_native_executor_batches_frontiers_and_preserves_node_identity
     assert compare_dataflow_with_reference(
         plan, report.execution, program
     ).equivalent is True
+
+
+
+def test_operation_native_add_carries_orbit_receipts_through_multiple_dag_generations() -> None:
+    """Mathematics: later fabric operations can recover exact orbit evidence from a value's DAG ancestry."""
+    coordinate_input, value_input = _contextual_orbit_inputs()
+    program = assemble(
+        "add partial orbit_coordinate orbit_value\n"
+        "add answer partial orbit_value\n"
+        "halt"
+    )
+    plan = MailCPUDataflowCompiler().compile_program(
+        program,
+        contextual_orbit_inputs={
+            "orbit_coordinate": coordinate_input,
+            "orbit_value": value_input,
+        },
+    )
+    requests = []
+
+    def dispatch(request):
+        requests.append(request)
+        return _good_receipt(request)
+
+    report = execute_dataflow_operation_native(plan, dispatch)
+
+    assert len(requests) == 2
+    first_lane = requests[0].lanes[0]
+    second_lane = requests[1].lanes[0]
+    assert [item.digest for item in first_lane.left_orbit_inputs] == [coordinate_input.digest]
+    assert [item.digest for item in first_lane.right_orbit_inputs] == [value_input.digest]
+    assert {item.digest for item in second_lane.left_orbit_inputs} == {
+        coordinate_input.digest,
+        value_input.digest,
+    }
+    assert [item.digest for item in second_lane.right_orbit_inputs] == [value_input.digest]
+    assert requests[1].to_dict()["lanes"][0]["left_orbit_inputs"][0]["schema"] == "mailcpu.contextual-orbit.dataflow-input.v1"
+    assert report.execution.observation["registers"]["partial"] == coordinate_input.value + value_input.value
+    assert report.execution.observation["registers"]["answer"] == (
+        coordinate_input.value + value_input.value * 2
+    )
+    assert compare_dataflow_with_reference(
+        plan, report.execution, program
+    ).equivalent is True
+
+
+def test_cpu_add_receiver_revalidates_contextual_orbit_receipt_payload() -> None:
+    """Mathematics: receiver-side ADD realization accepts typed orbit evidence, not a naked value substitution."""
+    from mailcpu.program_dataflow_fabric import (
+        OperationNativeDataflowError,
+        dataflow_add_operator_spec,
+        make_cpu_dataflow_add_handler,
+    )
+
+    _coordinate_input, value_input = _contextual_orbit_inputs()
+    payload = {
+        "lanes": [{
+            "node_id": "pc-000001",
+            "left": {
+                "kind": "contextual_orbit",
+                "value": value_input.value,
+                "inputs": [value_input.to_dict()],
+            },
+            "right": {"kind": "inline", "value": 11},
+        }],
+        "max_steps": 16,
+    }
+    result = make_cpu_dataflow_add_handler()(payload, None)
+    assert result["values"] == [value_input.value + 11]
+    assert dataflow_add_operator_spec().version == 3
+
+    tampered = {
+        **payload,
+        "lanes": [{
+            **payload["lanes"][0],
+            "left": {
+                **payload["lanes"][0]["left"],
+                "inputs": [{
+                    **value_input.to_dict(),
+                    "receipt": {
+                        **value_input.receipt.to_dict(),
+                        "operator_effect_digest": "f" * 64,
+                    },
+                }],
+            },
+        }],
+    }
+    with pytest.raises(OperationNativeDataflowError, match="operator effect"):
+        make_cpu_dataflow_add_handler()(tampered, None)
 
 
 def test_operation_native_executor_refuses_wrong_lane_identity_before_frontier_commit() -> None:
@@ -257,7 +447,7 @@ def test_cpu_and_egpu_share_the_declared_bounded_add_domain() -> None:
         "max_steps": 16,
     }
     from mailcpu.program_dataflow_fabric import dataflow_add_operator_spec
-    assert dataflow_add_operator_spec().version == 2
+    assert dataflow_add_operator_spec().version == 3
     cpu_result = make_cpu_dataflow_add_handler()(payload, None)
     egpu_result = make_egpu_dataflow_add_handler(EGPUHost(host_id="egpu-domain-test"))(payload, None)
 
