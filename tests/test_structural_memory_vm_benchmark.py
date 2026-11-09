@@ -48,6 +48,7 @@ def test_structural_memory_vm_pair_holds_virtual_geometry_and_working_set_consta
     assert structural["host_backing_cached_provider_coordinate_count_after_cold_access"] == 0
     assert structural["cache_probe_page_content_valid"] is True
     assert structural["host_backing_cached_reuse_count_after_probe"] >= 2
+    assert structural["host_backing_cache_probe_hit_delta"] == 2
     assert structural["host_backing_cached_page_count_after_probe"] == 2
     assert structural["host_backing_cached_page_bytes_after_probe"] == 2 * 256
     assert structural["host_backing_cached_provider_coordinate_count_after_probe"] == 0
