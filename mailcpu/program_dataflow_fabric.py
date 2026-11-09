@@ -217,6 +217,7 @@ class DataflowAddFrontierReceipt:
     operator_effect_digest: str
     implementation_fingerprint: str
     backend_receipt_digest: str
+    structural_memory_receipts: tuple[tuple[str, StructuralMemoryReadReceipt], ...] = ()
 
     def __post_init__(self) -> None:
         _digest(self.request_digest, "request_digest")
@@ -250,6 +251,20 @@ class DataflowAddFrontierReceipt:
             "backend_receipt_digest",
         ):
             _digest(getattr(self, name), name)
+        memory_receipts = tuple(self.structural_memory_receipts)
+        if memory_receipts != tuple(sorted(memory_receipts, key=lambda item: item[0])):
+            raise OperationNativeDataflowError("Structural Memory receipts must be sorted by binding")
+        if len({binding for binding, _ in memory_receipts}) != len(memory_receipts):
+            raise OperationNativeDataflowError("Structural Memory receipt bindings must be unique")
+        for binding, receipt in memory_receipts:
+            if not isinstance(binding, str) or _REGISTER.fullmatch(binding) is None:
+                raise OperationNativeDataflowError("Structural Memory receipt binding is invalid")
+            if not isinstance(receipt, StructuralMemoryReadReceipt):
+                raise OperationNativeDataflowError("Structural Memory receipt must be a typed read receipt")
+            expected_value_digest = canonical_value_digest({"type": "integer", "value": receipt.value})
+            if receipt.value_digest != expected_value_digest:
+                raise OperationNativeDataflowError("Structural Memory receipt value digest is inconsistent")
+        object.__setattr__(self, "structural_memory_receipts", memory_receipts)
 
     @property
     def digest(self) -> str:
@@ -270,6 +285,10 @@ class DataflowAddFrontierReceipt:
             "operator_effect_digest": self.operator_effect_digest,
             "implementation_fingerprint": self.implementation_fingerprint,
             "backend_receipt_digest": self.backend_receipt_digest,
+            "structural_memory_receipts": [
+                [binding, receipt.to_dict()]
+                for binding, receipt in self.structural_memory_receipts
+            ],
         }
 
 
