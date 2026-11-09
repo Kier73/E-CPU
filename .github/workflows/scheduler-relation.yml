@@ -24,6 +24,12 @@ jobs:
           tests/test_computational_fabric.py::test_federated_workload_forwards_over_two_authenticated_hops_and_replays_once
           tests/test_computational_fabric.py::test_persistent_vgi_session_transfers_through_fabric_and_replays_once
           'tests/test_process_crash_boundaries.py::test_requester_and_receiver_processes_recover_at_each_transit_crash_cut[after_request_ack]'
+          tests/test_hypervisor_transport.py
+          tests/test_duplex_operation_recovery.py::test_duplex_recovery_rebinds_both_loss_paths_and_trains_from_live_operations
+          tests/test_cross_transport_duplex_migration.py::test_duplex_socket_state_migrates_into_one_memory_host_without_replaying_effect
+          tests/test_operation_response.py::test_operation_response_returns_effect_and_deduplicates_after_lost_response_ack
+          tests/test_receiver_only_process_recovery.py::test_receiver_restart_after_response_publish_before_request_ack
+          'tests/test_federated_forwarding_process_recovery.py::test_terminal_peer_c_hard_process_kill_recovers_while_relay_b_survives[after_request_ack]'
 
       - name: Run repository conformance checks
         run: python scripts/verify_repo.py
