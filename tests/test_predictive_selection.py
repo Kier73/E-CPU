@@ -633,14 +633,16 @@ def test_predictive_selector_advises_page_access_trace_from_independent_held_out
         len(observed_access_trace),
         "GROUND",
     )
+    alternative_memory_id = "page-access-description-forecast"
     observed_proposal = registry.propose(
-        memory_id,
+        alternative_memory_id,
         observed_law,
         {coordinate: observed_law.navigate(coordinate) for coordinate in range(8)},
         domain="page-access-trace",
         context=component_context,
     )
-    registry.admit(observed_proposal.proposal_id, expected_revision=1)
+    registry.admit(observed_proposal.proposal_id, expected_revision=0)
+    baseline_active_before = registry.active_version(memory_id)
 
     pool = PredictiveCandidatePoolBuilder(registry).build_one_factor(
         address,
@@ -716,6 +718,7 @@ def test_predictive_selector_advises_page_access_trace_from_independent_held_out
     assert baseline_evaluation.partition("validation").predictive_yield < 1.0
     assert baseline_evaluation.partition("test").predictive_yield < 1.0
     assert report.recommendation_authoritative is False
+    assert registry.active_version(memory_id) == baseline_active_before
     assert report.identity_payload()["candidate_pool"]["pool_digest"] == pool.digest
     assert report.to_dict()["report_digest"] == report.digest
 
