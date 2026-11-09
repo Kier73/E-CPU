@@ -683,8 +683,8 @@ class TransferableExecutionClaimStore:
             or manifest.predecessor_digest != predecessor
             or manifest.membership_digest != self.coordinator.membership.digest
             or manifest.capture_cut != _CAPTURE_CUT
-            or manifest_bytes != _canonical_json(manifest.snapshot()) + b"\\n"
-            or state_bytes != _canonical_json(snapshot) + b"\\n"
+            or manifest_bytes != _canonical_json(manifest.snapshot()) + b"\n"
+            or state_bytes != _canonical_json(snapshot) + b"\n"
         ):
             raise TransferableExecutionClaimError("pending claim generation does not extend the exact current quorum state")
         claims = self._claims_from_snapshot(snapshot)
