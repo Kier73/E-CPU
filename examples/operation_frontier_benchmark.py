@@ -574,21 +574,26 @@ def run_benchmark(
     if not local_comparison.equivalent:
         raise AssertionError("local reference baseline did not preserve the MailCPU observation")
     local_probe.clear()
-
-    with local_probe.measure("total_completion", correlation_id=plan.digest):
-        local_report = evaluate_dataflow(
-            plan,
-            max_work_units=len(plan.nodes),
-            timing_probe=local_probe,
-        )
-    if not compare_dataflow_with_reference(plan, local_report, program).equivalent:
-        raise AssertionError("local CPU timing run changed the result")
-    local_registers = local_report.observation["registers"]
-    if any(local_registers[f"product_{index}"] != expected for index in range(lanes)):
-        raise AssertionError("local CPU output does not match the scalar product oracle")
-
+    local_report = None
+    for index in range(warmups + iterations):
+        with local_probe.measure("total_completion", correlation_id=plan.digest):
+            measured_report = evaluate_dataflow(
+                plan,
+                max_work_units=len(plan.nodes),
+                timing_probe=local_probe,
+            )
+        if not compare_dataflow_with_reference(plan, measured_report, program).equivalent:
+            raise AssertionError("local CPU timing run changed the result")
+        local_registers = measured_report.observation["registers"]
+        if any(local_registers[f"product_{lane}"] != expected for lane in range(lanes)):
+            raise AssertionError("local CPU output does not match the scalar product oracle")
+        local_report = measured_report
+        if index == warmups - 1:
+            local_probe.clear()
+    assert local_report is not None
     local_times: dict[str, Any] = {
         "actor_id": local_probe.actor_id,
+        "measured_iterations": iterations,
         "summary": local_probe.summary(),
         "samples": [sample.to_dict() for sample in local_probe.samples],
     }
