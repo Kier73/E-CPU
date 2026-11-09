@@ -35,6 +35,7 @@ from .program_dataflow_fabric import (
     OperationNativeDataflowError,
 )
 from .semantic_translation import canonical_value_digest
+from .transferable_execution_claim import PortableExecutionClaimBundle
 
 
 _MAX_PARTITIONS = 64
@@ -65,6 +66,7 @@ class BinaryFrontierChildReceipt:
 
     partition: BinaryFrontierPartition
     receipt: Any
+    claim_bundle: PortableExecutionClaimBundle | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.partition, BinaryFrontierPartition):
@@ -95,6 +97,34 @@ class BinaryFrontierChildReceipt:
         actual_memory = {binding for binding, _receipt in receipt.structural_memory_receipts}
         if actual_memory != expected_memory:
             raise OperationNativeDataflowError("child receipt Structural Memory bindings differ from the exact child request")
+        if self.claim_bundle is not None:
+            if not isinstance(self.claim_bundle, PortableExecutionClaimBundle):
+                raise OperationNativeDataflowError("child receipt claim evidence must be a typed PortableExecutionClaimBundle")
+            claim = self.claim_bundle.claim
+            assignment = claim.current_assignment
+            expected_attestation = {
+                "schema": "mailcpu.execution-claim-attestation.v1",
+                "claim_id": claim.claim_id,
+                "assignment_epoch": assignment.epoch,
+                "ticket_digest": self.claim_bundle.digest,
+                "state_generation": self.claim_bundle.manifest.generation,
+                "state_manifest_digest": self.claim_bundle.manifest.digest,
+            }
+            if (
+                claim.child_request_digest != self.partition.request.digest
+                or claim.address_digest != self.partition.address.digest
+                or claim.operator_spec.digest != self.partition.address.operator_contract_digest
+                or claim.computational_ground_fingerprint != self.partition.address.computational_ground_fingerprint
+                or assignment.owner_peer_id != route.target_host.peer_id
+                or assignment.owner_host_id != route.target_host.host_id
+                or assignment.implementation_fingerprint != route.target_host.implementation_fingerprint
+                or dict(receipt.execution_claim or {}) != expected_attestation
+            ):
+                raise OperationNativeDataflowError(
+                    "child receipt does not preserve the exact quorum-bound claim, assignment epoch and target"
+                )
+        elif receipt.execution_claim is not None:
+            raise OperationNativeDataflowError("unclaimed child receipt cannot inject execution-claim evidence")
 
     @property
     def digest(self) -> str:
@@ -103,25 +133,36 @@ class BinaryFrontierChildReceipt:
 
     def to_dict(self) -> dict[str, Any]:
         """Mathematics: serialize the complete typed evidence while retaining the fields required to recompute its digest."""
-        return {
+        payload = {
             "schema": "mailcpu.binary-frontier-child-receipt.v1",
             "partition": self.partition.to_dict(),
             "receipt": self.receipt.to_dict(),
         }
+        if self.claim_bundle is not None:
+            payload["schema"] = "mailcpu.binary-frontier-child-receipt.v2"
+            payload["claim_bundle"] = self.claim_bundle.to_dict()
+        return payload
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "BinaryFrontierChildReceipt":
         """Mathematics: restore typed evidence only after validating the schema, nested values and canonical digest."""
-        expected = {"schema", "partition", "receipt"}
-        if not isinstance(payload, Mapping) or set(payload) != expected:
+        base_fields = {"schema", "partition", "receipt"}
+        if not isinstance(payload, Mapping):
             raise OperationNativeDataflowError("binary frontier child receipt fields are malformed")
-        if payload["schema"] != "mailcpu.binary-frontier-child-receipt.v1":
-            raise OperationNativeDataflowError("binary frontier child receipt schema is unsupported")
+        schema = payload.get("schema")
+        if schema == "mailcpu.binary-frontier-child-receipt.v1" and set(payload) == base_fields:
+            claim_bundle = None
+        elif schema == "mailcpu.binary-frontier-child-receipt.v2" and set(payload) == base_fields | {"claim_bundle"}:
+            if not isinstance(payload.get("claim_bundle"), Mapping):
+                raise OperationNativeDataflowError("claim-bound child receipt requires a typed claim bundle")
+            claim_bundle = PortableExecutionClaimBundle.from_dict(payload["claim_bundle"])
+        else:
+            raise OperationNativeDataflowError("binary frontier child receipt fields or schema are unsupported")
         try:
             partition = BinaryFrontierPartition.from_dict(payload["partition"])
             receipt_type = _RECEIPT_TYPES[partition.operation]
             receipt = receipt_type.from_dict(payload["receipt"])
-            return cls(partition, receipt)
+            return cls(partition, receipt, claim_bundle)
         except (KeyError, TypeError, ValueError, FrontierPartitionError) as exc:
             if isinstance(exc, OperationNativeDataflowError):
                 raise
@@ -197,6 +238,14 @@ class BinaryFrontierCompositeReceipt:
             raise OperationNativeDataflowError("composite receipt requires a typed partition plan")
         _validate_parent_plan(self.request, self.plan)
         ordered = _ordered_child_receipts(self.plan, tuple(self.children), allow_partial=False)
+        claim_children = tuple(child for child in ordered if child.claim_bundle is not None)
+        if claim_children and len(claim_children) != len(ordered):
+            raise OperationNativeDataflowError("composite receipt cannot mix claimed and unclaimed child operations")
+        if any(
+            child.claim_bundle.claim.parent_request_digest != self.request.digest
+            for child in claim_children
+        ):
+            raise OperationNativeDataflowError("composite child claim does not bind the exact original parent request")
         object.__setattr__(self, "children", ordered)
 
     @property
@@ -584,6 +633,17 @@ class PartitionedComputationalFabricDataflowBinaryDispatcher:
         if state.complete:
             return BinaryFrontierCompositeReceipt(request, state.plan, state.successful_children)
 
+        claim_tickets: dict[str, PortableExecutionClaimBundle] = {}
+        if getattr(self.dispatcher, "execution_claim_store", None) is not None:
+            try:
+                claim_tickets = self.dispatcher.prepare_execution_claims(request, state.plan.partitions)
+            except Exception as exc:
+                raise PartitionedFrontierIncomplete(
+                    f"could not establish one current quorum claim generation for the parent frontier: {exc}",
+                    state,
+                    (f"execution_claim: {type(exc).__name__}: {str(exc)[:512]}",),
+                ) from exc
+
         if self.checkpoint_sink is not None:
             try:
                 self.checkpoint_sink(state)
@@ -609,12 +669,15 @@ class PartitionedComputationalFabricDataflowBinaryDispatcher:
                 + request.frontier_index * self.dispatcher.frontier_sequence_stride
                 + partition_index
             )
+            claim_bundle = claim_tickets.get(partition.digest)
             receipt = self.dispatcher(
                 partition.request,
                 route_witness=partition.route_witness,
                 origin_sequence=sequence,
+                parent_request_digest=request.digest if claim_bundle is not None else None,
+                claim_bundle=claim_bundle,
             )
-            return BinaryFrontierChildReceipt(partition, receipt)
+            return BinaryFrontierChildReceipt(partition, receipt, claim_bundle)
 
         by_first_hop: dict[str, list[BinaryFrontierPartition]] = {}
         for partition in pending:
