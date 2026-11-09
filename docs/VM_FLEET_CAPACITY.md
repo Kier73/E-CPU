@@ -18,7 +18,9 @@ The global expected result for N VMs and W units per VM is:
 \sum_{k=0}^{NW-1} k = \frac{NW(NW-1)}{2}.
 \]
 
-The benchmark refuses to count a VM as successful unless its task halted, its instruction count is exact, its partial result matches its assigned interval, its journal verifies, and the fleet has distinct scheduler and kernel instances.
+The benchmark refuses to count a VM as successful unless its task halted, its instruction count is exact, its partial result matches its assigned interval, its journal verifies, and the fleet has distinct HeadlessOS, VM, scheduler, kernel, journal, and guest-memory instances.
+
+Every completed VM is then snapshotted and restored through the normal `HeadlessOS.from_snapshot` path. The benchmark checks that the restored task remains halted with the same step count and result register, the resident-page count is preserved, the complete guest working-set bytes match, and the restored journal chain verifies. Snapshot serialization and restore durations are reported separately.
 
 ## Resource profile
 
@@ -55,8 +57,10 @@ The benchmark report includes:
 - independent scheduler/kernel counts;
 - total and per-worker retired instructions;
 - worker and aggregate correctness evidence;
+- independent HeadlessOS, VM, scheduler, kernel, journal and guest-memory identity counts;
 - guest resident pages and bytes;
-- full OS snapshot size;
+- full OS snapshot size and checkpoint/restore verification;
+- byte-for-byte restored guest working-set checks and restored journal verification;
 - process RSS and available-memory observations on Linux;
 - timing and throughput measurements.
 
