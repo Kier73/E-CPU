@@ -269,6 +269,7 @@ class DataflowAddFrontierReceipt:
     implementation_fingerprint: str
     backend_receipt_digest: str
     structural_memory_receipts: tuple[tuple[str, StructuralMemoryReadReceipt], ...] = ()
+    execution_claim: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         _digest(self.request_digest, "request_digest")
@@ -316,6 +317,26 @@ class DataflowAddFrontierReceipt:
             if receipt.value_digest != expected_value_digest:
                 raise OperationNativeDataflowError("Structural Memory receipt value digest is inconsistent")
         object.__setattr__(self, "structural_memory_receipts", memory_receipts)
+        if self.execution_claim is not None:
+            claim = dict(self.execution_claim)
+            if set(claim) != {
+                "schema", "claim_id", "assignment_epoch", "ticket_digest", "state_generation",
+                "state_manifest_digest",
+            }:
+                raise OperationNativeDataflowError("execution claim receipt attestation fields are malformed")
+            if claim.get("schema") != "mailcpu.execution-claim-attestation.v1":
+                raise OperationNativeDataflowError("execution claim receipt attestation schema is unsupported")
+            _digest(claim.get("claim_id"), "execution claim id")
+            _digest(claim.get("ticket_digest"), "execution claim ticket digest")
+            _digest(claim.get("state_manifest_digest"), "execution claim manifest digest")
+            if (
+                type(claim.get("assignment_epoch")) is not int
+                or claim["assignment_epoch"] < 1
+                or type(claim.get("state_generation")) is not int
+                or claim["state_generation"] < 1
+            ):
+                raise OperationNativeDataflowError("execution claim attestation epoch/generation must be positive strict integers")
+            object.__setattr__(self, "execution_claim", claim)
 
     @property
     def digest(self) -> str:
@@ -340,6 +361,7 @@ class DataflowAddFrontierReceipt:
                 [binding, receipt.to_dict()]
                 for binding, receipt in self.structural_memory_receipts
             ],
+            **({"execution_claim": dict(self.execution_claim)} if self.execution_claim is not None else {}),
         }
 
     @classmethod
@@ -357,7 +379,7 @@ class DataflowAddFrontierReceipt:
             "route_witness_digest", "forwarding_receipt_digest", "operator_effect_digest",
             "implementation_fingerprint", "backend_receipt_digest", "structural_memory_receipts",
         }
-        if not isinstance(payload, Mapping) or set(payload) != expected:
+        if not isinstance(payload, Mapping) or set(payload) not in (expected, expected | {"execution_claim"}):
             raise OperationNativeDataflowError("binary frontier receipt fields are invalid")
         if payload["schema"] != expected_schema:
             raise OperationNativeDataflowError("binary frontier receipt schema does not match its typed operation")
@@ -389,6 +411,7 @@ class DataflowAddFrontierReceipt:
             implementation_fingerprint=payload["implementation_fingerprint"],
             backend_receipt_digest=payload["backend_receipt_digest"],
             structural_memory_receipts=tuple(memory_receipts),
+            execution_claim=payload.get("execution_claim"),
         )
 
 
