@@ -738,55 +738,11 @@ class ComputationalFabricForwardingClient:
         deadline = time.monotonic() + self.timeout
         last_tick = time.monotonic()
         result: HypervisorExecutionResult | None = None
-        if self.timing_probe is None:
-        while time.monotonic() < deadline:
-            try:
-                self.request.channel.process_ack()
-                result, _response_transport_sequence, stale_response_frame = (
-                    self.response.receive_with_transport()
-                )
-            except Exception as exc:
-                raise ComputationalFabricForwardingError(f"forwarding peer stream failed: {exc}") from exc
-            if result is not None and stale_response_frame and result.replayed:
-                # This RPC invocation must not be satisfied by an old reliable
-                # frame whose semantic result the client already observed.
-                # The frame has been ACKed; keep waiting for a fresh response
-                # transport sequence associated with the new request delivery.
-                continue
-            if (
-                result is not None
-                and result.source == self.local_peer_id
-                and result.channel == child.channel_id
-                and result.sequence < child.origin_sequence
-            ):
-                # A recovered downstream peer may re-publish an older result.
-                # It can be a semantic duplicate already seen here, or a
-                # first delivery if the prior relay process died before reading
-                # it. In either case it belongs to an earlier operation, so
-                # consume/ACK it and keep waiting for this operation's result.
-                continue
-            if result is not None:
-                # The peer publishes the request ACK and the operation result
-                # on the same reliable stream. The ACK can arrive after the
-                # loop's pre-receive poll, so drain it at the result boundary
-                # before a later semantic retry decides whether to retransmit
-                # the still-pending frame or allocate a fresh transport sequence.
-                try:
-                    self.request.channel.process_ack()
-                except Exception as exc:
-                    raise ComputationalFabricForwardingError(
-                        f"cannot reconcile forwarding request acknowledgement: {exc}"
-                    ) from exc
-                break
-            now = time.monotonic()
-            if now - last_tick >= 0.03:
-                failed = self.request.channel.tick()
-                if failed:
-                    raise ComputationalFabricForwardingError("forwarding request exhausted reliable retry attempts")
-                last_tick = now
-            time.sleep(0.002)
-        else:
-            with self.timing_probe.measure("transport_response_wait", correlation_id=child.operation_digest):
+        response_token = (
+            self.timing_probe.start("transport_response_wait", correlation_id=child.operation_digest)
+            if self.timing_probe is not None else None
+        )
+        try:
             while time.monotonic() < deadline:
                 try:
                     self.request.channel.process_ack()
@@ -796,10 +752,7 @@ class ComputationalFabricForwardingClient:
                 except Exception as exc:
                     raise ComputationalFabricForwardingError(f"forwarding peer stream failed: {exc}") from exc
                 if result is not None and stale_response_frame and result.replayed:
-                    # This RPC invocation must not be satisfied by an old reliable
-                    # frame whose semantic result the client already observed.
-                    # The frame has been ACKed; keep waiting for a fresh response
-                    # transport sequence associated with the new request delivery.
+                    # Do not accept a stale result frame for this invocation.
                     continue
                 if (
                     result is not None
@@ -807,18 +760,9 @@ class ComputationalFabricForwardingClient:
                     and result.channel == child.channel_id
                     and result.sequence < child.origin_sequence
                 ):
-                    # A recovered downstream peer may re-publish an older result.
-                    # It can be a semantic duplicate already seen here, or a
-                    # first delivery if the prior relay process died before reading
-                    # it. In either case it belongs to an earlier operation, so
-                    # consume/ACK it and keep waiting for this operation's result.
+                    # Consume/ACK a recovered result for an earlier operation.
                     continue
                 if result is not None:
-                    # The peer publishes the request ACK and the operation result
-                    # on the same reliable stream. The ACK can arrive after the
-                    # loop's pre-receive poll, so drain it at the result boundary
-                    # before a later semantic retry decides whether to retransmit
-                    # the still-pending frame or allocate a fresh transport sequence.
                     try:
                         self.request.channel.process_ack()
                     except Exception as exc:
@@ -833,8 +777,11 @@ class ComputationalFabricForwardingClient:
                         raise ComputationalFabricForwardingError("forwarding request exhausted reliable retry attempts")
                     last_tick = now
                 time.sleep(0.002)
-        if result is None:
-            raise ComputationalFabricForwardingError("next peer did not return a result before the RPC deadline")
+            if result is None:
+                raise ComputationalFabricForwardingError("next peer did not return a result before the RPC deadline")
+        finally:
+            if response_token is not None:
+                self.timing_probe.finish(response_token)
         if (
             result.source != self.local_peer_id
             or result.channel != child.channel_id
