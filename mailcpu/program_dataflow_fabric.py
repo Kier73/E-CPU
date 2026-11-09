@@ -1030,8 +1030,8 @@ def make_egpu_dataflow_add_handler(egpu_host: Any) -> Callable[[Mapping[str, Any
     return execute
 
 
-class ComputationalFabricDataflowAddDispatcher:
-    """Turn one ADD frontier into a typed Virtual Layer workload and a multi-hop operation request."""
+class ComputationalFabricDataflowBinaryDispatcher:
+    """Turn one typed binary frontier into a Virtual Layer workload and multi-hop operation request."""
 
     def __init__(
         self,
@@ -1042,7 +1042,8 @@ class ComputationalFabricDataflowAddDispatcher:
         system: SystemIdentity,
         ground: VirtualGroundRef,
         operator_spec: OperatorSpec,
-        computational_ground_fingerprint: str,
+        operation: str = "ADD",
+        computational_ground_fingerprint: str = "",
         budget: VirtualBudget,
         eligible_nodes_by_frontier: Mapping[int, Sequence[str]] | Callable[[DataflowAddFrontierRequest], Sequence[str]],
         origin_channel: str,
@@ -1073,8 +1074,12 @@ class ComputationalFabricDataflowAddDispatcher:
             raise OperationNativeDataflowError("dispatcher requires typed System and Virtual Grounds")
         if not isinstance(operator_spec, OperatorSpec) or not operator_spec.replay_safe:
             raise OperationNativeDataflowError("dispatcher requires a deterministic pure OperatorSpec")
-        if operator_spec.operator_id != "mailcpu.dataflow.add_frontier" or operator_spec.version != 3:
-            raise OperationNativeDataflowError("dispatcher operator contract is not the dataflow ADD frontier contract")
+        expected_operator = {
+            "ADD": ("mailcpu.dataflow.add_frontier", 3),
+            "COMPARE": ("mailcpu.dataflow.compare_frontier", 1),
+        }.get(operation)
+        if expected_operator is None or (operator_spec.operator_id, operator_spec.version) != expected_operator:
+            raise OperationNativeDataflowError("dispatcher operator contract does not match its binary operation")
         _digest(computational_ground_fingerprint, "computational_ground_fingerprint")
         if not isinstance(budget, VirtualBudget):
             raise OperationNativeDataflowError("dispatcher requires a VirtualBudget")
@@ -1097,6 +1102,7 @@ class ComputationalFabricDataflowAddDispatcher:
         self.system = system
         self.ground = ground
         self.operator_spec = operator_spec
+        self.operation = operation
         self.computational_ground_fingerprint = computational_ground_fingerprint
         self.budget = budget
         self.eligible_nodes_by_frontier = eligible_nodes_by_frontier
@@ -1107,12 +1113,13 @@ class ComputationalFabricDataflowAddDispatcher:
         self.metric_order = metrics
         self.max_steps = max_steps
 
-    def __call__(self, request: DataflowAddFrontierRequest) -> DataflowAddFrontierReceipt:
+    def __call__(self, request: DataflowAddFrontierRequest | DataflowCompareFrontierRequest) -> DataflowAddFrontierReceipt:
         from .computational_fabric import ComputationalFabricStatus
         from .virtual_layer import VirtualOperatorRef
 
-        if not isinstance(request, DataflowAddFrontierRequest):
-            raise OperationNativeDataflowError("dispatcher requires a DataflowAddFrontierRequest")
+        expected_request_type = DataflowAddFrontierRequest if self.operation == "ADD" else DataflowCompareFrontierRequest
+        if type(request) is not expected_request_type:
+            raise OperationNativeDataflowError(f"dispatcher requires a typed {self.operation} frontier request")
         if callable(self.eligible_nodes_by_frontier):
             eligible_nodes = tuple(self.eligible_nodes_by_frontier(request))
         else:
@@ -1149,14 +1156,14 @@ class ComputationalFabricDataflowAddDispatcher:
             self.operator_spec.version,
             structural_memory=tuple(structural_references[key] for key in sorted(structural_references)),
         )
-        workload_id = f"dataflow-add-{request.plan_digest[:12]}-{request.frontier_index:04d}"
+        workload_id = f"dataflow-{self.operation.lower()}-{request.plan_digest[:12]}-{request.frontier_index:04d}"
         workload = VirtualLayerWorkload(
             workload_id=workload_id,
             system=self.system,
             ground=self.ground,
             intention={
                 "goal": {
-                    "kind": "mailcpu.dataflow.add_frontier",
+                    "kind": self.operator_spec.operator_id,
                     "plan_digest": request.plan_digest,
                     "context_digest": request.context_digest,
                     "request_digest": request.digest,
@@ -1189,7 +1196,7 @@ class ComputationalFabricDataflowAddDispatcher:
         if planned.status is not ComputationalFabricStatus.FOUND or planned.witness is None:
             details = "; ".join(item.detail for item in planned.blockers[:4])
             raise OperationNativeDataflowError(
-                f"fabric could not resolve ADD frontier to an eligible host: {planned.status.value}: {details}"
+                f"fabric could not resolve {self.operation} frontier to an eligible host: {planned.status.value}: {details}"
             )
         route = planned.witness
         if len(route.peer_path) < 2:
@@ -1248,7 +1255,7 @@ class ComputationalFabricDataflowAddDispatcher:
             raise OperationNativeDataflowError("terminal operator result digest is inconsistent")
         values = operator_result.get("values")
         if not isinstance(values, list) or len(values) != len(request.lanes):
-            raise OperationNativeDataflowError("terminal operator returned the wrong number of ADD lanes")
+            raise OperationNativeDataflowError(f"terminal operator returned the wrong number of {self.operation} lanes")
         results = tuple(
             (lane.node_id, _strict_integer(value, f"remote result for {lane.node_id}"))
             for lane, value in zip(request.lanes, values)
@@ -1270,7 +1277,8 @@ class ComputationalFabricDataflowAddDispatcher:
             _validate_memory_receipt_for_reference(structural_references[binding], memory_receipt)
             memory_receipts.append((binding, memory_receipt))
 
-        return DataflowAddFrontierReceipt(
+        receipt_type = DataflowAddFrontierReceipt if self.operation == "ADD" else DataflowCompareFrontierReceipt
+        return receipt_type(
             request_digest=request.digest,
             results=results,
             host_id=route.target_host.host_id,
@@ -1285,15 +1293,40 @@ class ComputationalFabricDataflowAddDispatcher:
         )
 
 
+class ComputationalFabricDataflowAddDispatcher(ComputationalFabricDataflowBinaryDispatcher):
+    """Dispatch strict integer ADD frontiers through the shared binary-operation fabric adapter."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        """Mathematics: bind the existing ADD@3 contract to the shared binary dispatcher."""
+        super().__init__(operation="ADD", **kwargs)
+
+
+class ComputationalFabricDataflowCompareDispatcher(ComputationalFabricDataflowBinaryDispatcher):
+    """Dispatch sign-COMPARE frontiers through the shared binary-operation fabric adapter."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        """Mathematics: bind the sign-COMPARE@1 contract to the shared binary dispatcher."""
+        super().__init__(operation="COMPARE", **kwargs)
+
+
+
 __all__ = [
     "ComputationalFabricDataflowAddDispatcher",
+    "ComputationalFabricDataflowBinaryDispatcher",
+    "ComputationalFabricDataflowCompareDispatcher",
     "DataflowAddFrontierReceipt",
     "DataflowAddFrontierRequest",
     "DataflowAddLane",
+    "DataflowBinaryLane",
+    "DataflowCompareFrontierReceipt",
+    "DataflowCompareFrontierRequest",
     "OperationNativeDataflowError",
     "OperationNativeDataflowReport",
     "dataflow_add_operator_spec",
+    "dataflow_compare_operator_spec",
     "execute_dataflow_operation_native",
     "make_cpu_dataflow_add_handler",
+    "make_cpu_dataflow_compare_handler",
     "make_egpu_dataflow_add_handler",
+    "make_egpu_dataflow_compare_handler",
 ]
