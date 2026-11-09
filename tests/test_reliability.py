@@ -197,6 +197,32 @@ def test_reliable_channel_reads_legacy_pending_frame_snapshots(version: int) -> 
     assert receiver.receive() == (1, {"blob": b"legacy"})
 
 
+def test_legacy_delivered_sequences_migrate_to_v5_without_fabricated_digests() -> None:
+    """Older receive ledgers retain their delivered cursor while marking unavailable payload digests as unknown."""
+    transport = InMemoryTransport()
+    sender = ReliableChannel(transport, "sender", "receiver", "legacy-delivered")
+    receiver = ReliableChannel(
+        transport,
+        "receiver",
+        "receiver",
+        "legacy-delivered",
+        peer="sender",
+    )
+    assert sender.send({"value": "delivered"}) == 1
+    assert receiver.receive() == (1, {"value": "delivered"})
+
+    legacy = receiver.snapshot()
+    legacy["version"] = 4
+    legacy.pop("received_digests", None)
+    restored = ReliableChannel.from_snapshot(legacy, transport)
+    migrated = restored.snapshot()
+
+    assert migrated["version"] == 5
+    assert migrated["delivered"] == [1]
+    assert migrated["received_digests"] == {"1": None}
+    assert ReliableChannel.from_snapshot(migrated, transport).next_receive_sequence == 2
+
+
 def test_reliable_channel_rejects_changed_payload_under_delivered_sequence_after_restore() -> None:
     """A replayed transport sequence must retain its originally delivered payload identity across restore."""
 
