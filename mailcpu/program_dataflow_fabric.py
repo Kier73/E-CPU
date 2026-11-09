@@ -55,6 +55,7 @@ _PEER_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
 _REGISTER = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}\Z")
 _LANE_MEMORY_BINDING = re.compile(r"pc-[0-9]{6}\.(?:left|right)\Z")
 _MAX_ADD_LANES = 64
+_MAX_CONTEXTUAL_ORBIT_INPUTS = 64
 _MAX_ADD_INTEGER_BITS = 4096
 
 
@@ -115,7 +116,7 @@ class DataflowAddLane:
     right_orbit_inputs: tuple[ContextualOrbitDataflowInput, ...] = ()
 
     def __post_init__(self) -> None:
-        """Mathematics: require each lane side to be exactly one bounded literal value or revision-pinned symbolic memory coordinate."""
+        """Mathematics: validate each scalar operand, optional pinned memory address, and typed orbit provenance."""
         if not isinstance(self.node_id, str) or _NODE_ID.fullmatch(self.node_id) is None:
             raise OperationNativeDataflowError("lane node_id is invalid")
         _digest(self.node_digest, "lane node_digest")
@@ -135,6 +136,8 @@ class DataflowAddLane:
             if orbit_inputs:
                 if reference is not None or value is None:
                     raise OperationNativeDataflowError(f"lane {side} cannot combine contextual-orbit provenance with unresolved Structural Memory")
+                if len(orbit_inputs) > _MAX_CONTEXTUAL_ORBIT_INPUTS:
+                    raise OperationNativeDataflowError(f"lane {side} contextual-orbit provenance exceeds {_MAX_CONTEXTUAL_ORBIT_INPUTS} inputs")
                 if any(not isinstance(item, ContextualOrbitDataflowInput) for item in orbit_inputs):
                     raise OperationNativeDataflowError(f"lane {side} contextual-orbit provenance must contain typed inputs")
                 if orbit_inputs != tuple(sorted(orbit_inputs, key=lambda item: item.digest)):
@@ -496,8 +499,14 @@ def _materialize_frontier_operands(
                     raise OperationNativeDataflowError(f"Structural Memory binding {binding!r} value differs from its receipt")
             elif set(operand) == {"kind", "value", "inputs"} and operand["kind"] == "contextual_orbit":
                 raw_inputs = operand["inputs"]
-                if not isinstance(raw_inputs, (list, tuple)) or not raw_inputs:
-                    raise OperationNativeDataflowError(f"ADD frontier lane {index} {side} contextual-orbit provenance is empty or malformed")
+                if (
+                    not isinstance(raw_inputs, (list, tuple))
+                    or not raw_inputs
+                    or len(raw_inputs) > _MAX_CONTEXTUAL_ORBIT_INPUTS
+                ):
+                    raise OperationNativeDataflowError(
+                        f"ADD frontier lane {index} {side} contextual-orbit provenance is empty, malformed, or exceeds {_MAX_CONTEXTUAL_ORBIT_INPUTS} inputs"
+                    )
                 try:
                     predecessors = tuple(
                         ContextualOrbitDataflowInput.from_dict(item)
