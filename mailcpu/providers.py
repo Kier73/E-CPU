@@ -329,16 +329,84 @@ class StructuralMemoryFileProvider:
                 raise ValueError("structural-memory file read exceeds max_read_bytes")
             if self._registry is None:
                 raise RuntimeError("structural-memory file provider has not been rebound to a local registry")
-            values: list[int] = []
-            ids: list[str] = []
+            values_by_relative: dict[int, int] = {}
+            ids_by_relative: dict[int, str] = {}
             cache_hits = 0
+            expected_context_digest = hashlib.sha256(
+                _provider_canonical_json(dict(self.reference.context)).encode("utf-8")
+            ).hexdigest()
             for relative in range(offset, offset + length):
                 coordinate = self.reference.coordinate_start + relative
                 cached = self._value_cache.get(coordinate)
                 if cached is not None:
-                    value, receipt_id, was_cache_hit = cached
+                    value, receipt_id, _was_cache_hit = cached
+                    values_by_relative[relative] = value
+                    ids_by_relative[relative] = receipt_id
                     cache_hits += 1
-                else:
+
+            missing = [
+                relative for relative in range(offset, offset + length)
+                if relative not in values_by_relative
+            ]
+            range_reader = getattr(self._registry, "read_revision_range", None)
+            if callable(range_reader):
+                # Coalesce each contiguous uncached segment into one verified
+                # registry transition. The range receipt commits to the
+                # ordered coordinate receipts and replay-verifies the same
+                # generator interval during HeadlessOS restore.
+                segments: list[tuple[int, int]] = []
+                for relative in missing:
+                    if not segments or relative != segments[-1][0] + segments[-1][1]:
+                        segments.append((relative, 1))
+                    else:
+                        start, count_in_segment = segments[-1]
+                        segments[-1] = (start, count_in_segment + 1)
+                for relative_start, segment_length in segments:
+                    coordinate_start = self.reference.coordinate_start + relative_start
+                    try:
+                        generated, range_receipt, generated_ids = range_reader(
+                            self.reference.memory_id,
+                            self.reference.revision,
+                            coordinate_start,
+                            segment_length,
+                            context=dict(self.reference.context),
+                        )
+                    except Exception as exc:
+                        raise ValueError(
+                            f"structural-memory range {coordinate_start}:{segment_length} could not be read: {exc}"
+                        ) from exc
+                    expected_ids_digest = hashlib.sha256(
+                        _provider_canonical_json({
+                            "coordinate_start": coordinate_start,
+                            "receipt_ids": list(generated_ids),
+                        }).encode("utf-8")
+                    ).hexdigest()
+                    if (
+                        range_receipt.memory_id != self.reference.memory_id
+                        or range_receipt.revision != self.reference.revision
+                        or range_receipt.spec_digest != self.reference.spec_digest
+                        or range_receipt.certificate_digest != self.reference.certificate_digest
+                        or range_receipt.coordinate_start != coordinate_start
+                        or range_receipt.length != segment_length
+                        or range_receipt.context_digest != expected_context_digest
+                        or range_receipt.value_receipt_digest != expected_ids_digest
+                        or len(generated) != segment_length
+                        or len(generated_ids) != segment_length
+                    ):
+                        raise ValueError("structural-memory range receipt does not match the pinned byte-file reference")
+                    for index, (value, receipt_id) in enumerate(zip(generated, generated_ids)):
+                        if type(value) is not int or not 0 <= value <= 255:
+                            raise ValueError("structural-memory range produced a value outside the byte-file ABI")
+                        relative = relative_start + index
+                        coordinate = self.reference.coordinate_start + relative
+                        values_by_relative[relative] = value
+                        ids_by_relative[relative] = receipt_id
+                        self._value_cache[coordinate] = (value, receipt_id, False)
+            else:
+                # Compatibility for local providers that implement only the
+                # original coordinate-read contract.
+                for relative in missing:
+                    coordinate = self.reference.coordinate_start + relative
                     try:
                         receipt = self._registry.read_revision(
                             self.reference.memory_id,
@@ -348,9 +416,6 @@ class StructuralMemoryFileProvider:
                         )
                     except Exception as exc:
                         raise ValueError(f"structural-memory coordinate {coordinate} could not be read: {exc}") from exc
-                    expected_context_digest = hashlib.sha256(
-                        _provider_canonical_json(dict(self.reference.context)).encode("utf-8")
-                    ).hexdigest()
                     if (
                         receipt.memory_id != self.reference.memory_id
                         or receipt.revision != self.reference.revision
@@ -362,16 +427,15 @@ class StructuralMemoryFileProvider:
                         or not 0 <= receipt.value <= 255
                     ):
                         raise ValueError("structural-memory read receipt does not match the pinned byte-file reference")
-                    value = receipt.value
-                    receipt_id = receipt.receipt_id
-                    was_cache_hit = bool(receipt.cache_hit)
-                    self._value_cache[coordinate] = (value, receipt_id, was_cache_hit)
-                    if was_cache_hit:
+                    values_by_relative[relative] = receipt.value
+                    ids_by_relative[relative] = receipt.receipt_id
+                    self._value_cache[coordinate] = (receipt.value, receipt.receipt_id, bool(receipt.cache_hit))
+                    if receipt.cache_hit:
                         cache_hits += 1
-                values.append(value)
-                ids.append(receipt_id)
-            content = bytes(values)
-            receipt_ids = tuple(ids)
+
+            ordered_values = [values_by_relative[relative] for relative in range(offset, offset + length)]
+            content = bytes(ordered_values)
+            receipt_ids = tuple(ids_by_relative[relative] for relative in range(offset, offset + length))
 
         content_digest = hashlib.sha256(content).hexdigest()
         receipt_payload = {
