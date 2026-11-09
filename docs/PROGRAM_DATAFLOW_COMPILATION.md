@@ -40,9 +40,21 @@ The byte identity does not establish program meaning by itself. Meaning comes fr
 
 ## Structural Memory inputs
 
-A caller may supply a StructuralMemoryReadReceipt for an initial register. The compiler checks the typed receipt and the digest relationship between its integer value and value_digest, then binds the full receipt into the initial-state representation and every relevant initial-register operand reference.
+The compiler distinguishes two materially different inputs.
 
-This stage consumes an already obtained receipt. It does not perform the Structural Memory read, grant receiver authority, or claim the receipt is a signature. The existing receiver-side Structural Memory and Virtual Layer boundaries remain responsible for producing and authorizing reads. A register cannot be supplied both inline and by a receipt.
+**Materialized read receipt.** A caller may supply a `StructuralMemoryReadReceipt` for an initial register. The compiler checks its typed form and the digest relationship between its integer value and `value_digest`, then binds the full receipt into the initial-state representation and relevant initial-register operands. The value is already known to the compiler caller.
+
+**Symbolic receiver-resolved reference.** A caller may instead supply a `VirtualStructuralMemoryRef`. The compiler normalizes its binding to the register name and binds the complete reference into the initial-state and dataflow identities:
+
+[
+R=(m,r,c,q,d_s,d_c)
+]
+
+where (m) is the memory identity, (r) its exact revision, (c) the context, (q) the coordinate, (d_s) the Structural Memory specification digest, and (d_c) the certificate digest. The compiler does not read the memory, infer its value, or substitute a placeholder value. The corresponding DAG operand remains symbolic.
+
+A plan containing symbolic references cannot be evaluated by the local `evaluate_dataflow` path, because that evaluator has no receiver-local memory authority. In the current operation-native profile, a symbolic reference may feed an `ADD` operand. The executor carries it as a schema-v2 Virtual Layer memory reference. The selected receiving host resolves it only after its local Hypervisor admission and only when its execution process holds `read` on `/structural-memory/read`. It returns the value and full typed read receipt. The requester checks the receipt against the exact pinned reference, then applies the independent scalar ADD oracle before committing the DAG node.
+
+The reference is not a read grant, capability, generator, or executable closure. It only identifies what must be read. The receiver's registry, current revision, context, certificate and process authority determine whether resolution succeeds. A register cannot be supplied both inline, by a materialized receipt, or by a symbolic reference.
 
 ## Dependency and topology profile
 
