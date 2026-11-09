@@ -121,14 +121,14 @@ class HypervisorOperationChannel:
 
         if not isinstance(response, HypervisorOperationResultChannel):
             raise HypervisorOperationTransportError("operation reply requires a HypervisorOperationResultChannel")
-        # Reconcile reverse-direction ACKs before deciding whether a previous
-        # response frame still owns delivery of this semantic operation.
-        response.channel.process_ack()
         prepared = self._prepare_execution(arbitration, authorize)
         if prepared is None:
             return None
         transport_sequence, authorized, replay = prepared
         if replay is not None:
+            # Reconcile ACKs only for the stale-delivery branch. Fresh request
+            # callers retain ownership of their ordinary response ACK batches.
+            response.channel.process_ack()
             if response.has_pending_result((replay.source, replay.channel, replay.sequence)):
                 # The exact committed result is still in the sender window.
                 # Re-ACK the stale request and leave delivery to that frame.
@@ -160,15 +160,15 @@ class HypervisorOperationChannel:
             raise HypervisorOperationTransportError("operation reply requires a HypervisorOperationResultChannel")
         if not isinstance(handlers, Mapping) or any(not callable(handler) for handler in handlers.values()):
             raise HypervisorOperationTransportError("event handlers must be a mapping of callables")
-        # The reverse reliable channel is independently owned. Drain its
-        # ACK mailbox before selecting between the original pending result
-        # and a fresh transport delivery of the same cached semantic result.
-        response.channel.process_ack()
         prepared = self._prepare_execution(arbitration, authorize)
         if prepared is None:
             return None
         transport_sequence, authorized, replay = prepared
         if replay is not None:
+            # Drain reverse ACKs only when the request is an already-consumed
+            # transport duplicate; normal request transitions do not steal
+            # ACK processing from the caller that owns that channel.
+            response.channel.process_ack()
             if response.has_pending_result((replay.source, replay.channel, replay.sequence)):
                 self._consume_after_execution(transport_sequence)
                 return None
