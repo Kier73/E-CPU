@@ -137,8 +137,8 @@ class OperationTimingProbe:
         ):
             raise OperationTimingError("correlation_id is invalid")
         with self._lock:
-            started = self.context.monotonic_reading()
             causal_start = self.context.emit_causal_stamp()
+            started = self.context.monotonic_reading()
         return OperationTimingToken(phase, correlation_id, started, causal_start)
 
     def finish(self, token: OperationTimingToken) -> OperationTimingSample:
@@ -147,8 +147,8 @@ class OperationTimingProbe:
         if token.started.actor_id != self.actor_id:
             raise OperationTimingError("timing token belongs to another actor")
         with self._lock:
-            causal_end = self.context.emit_causal_stamp()
             ended = self.context.monotonic_reading()
+            causal_end = self.context.emit_causal_stamp()
             sample = OperationTimingSample(
                 phase=token.phase,
                 actor_id=self.actor_id,
