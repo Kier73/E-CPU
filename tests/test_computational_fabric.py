@@ -3854,6 +3854,7 @@ def test_terminal_host_checks_live_claim_before_hypervisor_and_refuses_stale_tic
         SeedCommitMembership,
     )
     from mailcpu.transferable_execution_claim import (
+        TransferableExecutionClaimError,
         TransferableExecutionClaimStore,
     )
 
@@ -4008,6 +4009,22 @@ def test_terminal_host_checks_live_claim_before_hypervisor_and_refuses_stale_tic
         server._execute_terminal(envelope)
     assert calls == ["terminal-claim-sum"]
 
+    class _CurrentClaimStatusClient:
+        """Mathematics: stand in for the already-tested authenticated peer-control client at this terminal boundary."""
+
+        def get_execution_claim_status(self, claim_id: str, *, expected_host_id: str):
+            assert claim_id == ticket.claim.claim_id
+            assert expected_host_id == locus.host_id
+            return store.get(claim_id)
+
+    server.claim_status_clients = {"peer-a": _CurrentClaimStatusClient()}
+    refreshed_execution = server._execute_terminal(envelope)
+    assert refreshed_execution["execution_claim"]["schema"] == "mailcpu.execution-claim-attestation.v2"
+    assert refreshed_execution["execution_claim"]["submitted_ticket_digest"] == ticket.digest
+    assert refreshed_execution["execution_claim"]["admission_ticket_digest"] == store.get(ticket.claim.claim_id).digest
+    assert refreshed_execution["execution_claim"]["state_generation"] == store.high_water[0]
+    assert calls == ["terminal-claim-sum"]
+
 
 def test_b_64_authenticated_claim_status_refresh_is_scoped_to_the_assigned_peer_and_host(tmp_path: Path) -> None:
     """Mathematics: A receiver can refresh a globally expired ticket only while its mTLS identity remains the current assigned Host."""
@@ -4086,7 +4103,7 @@ def test_b_64_authenticated_claim_status_refresh_is_scoped_to_the_assigned_peer_
         owner_host_id="logical-host-c",
         implementation_fingerprint=digest("implementation-c"),
     )
-    with pytest.raises(Exception, match="not current"):
+    with pytest.raises(TransferableExecutionClaimError, match="not current"):
         ticket.verify_current(coordinator)
 
     listener = SocketTransport.listen("127.0.0.1", 0)
