@@ -611,6 +611,49 @@ class TransferableExecutionClaimStore:
         claims = self._claims_from_snapshot(snapshot)
         return generation, manifest.digest, snapshot, claims, manifest, proof
 
+    def _resume_pending_locked(self) -> bool:
+        """Mathematics: Finish the exact persisted next-generation proposal before any different claim transition may consume its slot."""
+        generation, predecessor, _snapshot, _claims, _manifest, _proof = self._load_latest_locked()
+        next_generation = generation + 1
+        target = self._generation_directory(next_generation)
+        if not target.exists():
+            return False
+        try:
+            state_bytes = (target / "claims.json").read_bytes()
+            manifest_bytes = (target / "manifest.json").read_bytes()
+            snapshot = json.loads(state_bytes.decode("utf-8"))
+            manifest = RecoveryStateManifest.from_snapshot(json.loads(manifest_bytes.decode("utf-8")))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, RecoveryLineageError) as exc:
+            raise TransferableExecutionClaimError(
+                f"pending claim generation {next_generation} is unavailable or malformed"
+            ) from exc
+        if (
+            manifest.generation != next_generation
+            or manifest.predecessor_digest != predecessor
+            or manifest.membership_digest != self.coordinator.membership.digest
+            or manifest.capture_cut != _CAPTURE_CUT
+            or manifest_bytes != _canonical_json(manifest.snapshot()) + b"\\n"
+            or state_bytes != _canonical_json(snapshot) + b"\\n"
+        ):
+            raise TransferableExecutionClaimError("pending claim generation does not extend the exact current quorum state")
+        claims = self._claims_from_snapshot(snapshot)
+        try:
+            manifest.verify_payload(state_bytes)
+            proof = self.coordinator.seal(manifest)
+            verified = self.coordinator.verify_state(manifest)
+        except RecoveryLineageError as exc:
+            raise TransferableExecutionClaimError(
+                f"pending claim generation {next_generation} cannot yet reach a quorum: {exc}"
+            ) from exc
+        if proof.snapshot() != verified.snapshot():
+            raise TransferableExecutionClaimError("resumed claim generation returned inconsistent quorum proofs")
+        return True
+
+    def resume_pending(self) -> bool:
+        """Mathematics: Recover one exact fsynced but not yet quorum-anchored next generation, preserving its original proposal."""
+        with self._locked():
+            return self._resume_pending_locked()
+
     def _publish_locked(
         self,
         claims: Mapping[str, TransferableExecutionClaim],
@@ -691,6 +734,7 @@ class TransferableExecutionClaimStore:
             (initial,),
         )
         with self._locked():
+            self._resume_pending_locked()
             generation, predecessor, _snapshot, claims, _manifest, proof = self._load_latest_locked()
             existing = claims.get(candidate.claim_id)
             if existing is not None:
@@ -724,6 +768,7 @@ class TransferableExecutionClaimStore:
         """Mathematics: Return the current claim and full portable quorum proof from the latest anchored state."""
         _digest(claim_id, "claim id")
         with self._locked():
+            self._resume_pending_locked()
             _generation, _predecessor, snapshot, claims, manifest, proof = self._load_latest_locked()
             claim = claims.get(claim_id)
             if claim is None or manifest is None or proof is None:
@@ -748,6 +793,7 @@ class TransferableExecutionClaimStore:
         target_host = _label(owner_host_id, "new assignment host id", 128)
         target_implementation = _digest(implementation_fingerprint, "new implementation fingerprint")
         with self._locked():
+            self._resume_pending_locked()
             generation, predecessor, _snapshot, claims, manifest, proof = self._load_latest_locked()
             current = claims.get(claim_id)
             if current is None or manifest is None or proof is None:
@@ -817,6 +863,7 @@ class TransferableExecutionClaimStore:
         result = _digest(result_digest, "result digest")
         receipt = _digest(child_receipt_digest, "child receipt digest")
         with self._locked():
+            self._resume_pending_locked()
             generation, predecessor, snapshot, claims, manifest, proof = self._load_latest_locked()
             current = claims.get(claim_id)
             if current is None or manifest is None or proof is None:
