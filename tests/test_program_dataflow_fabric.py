@@ -373,6 +373,35 @@ def test_cpu_and_egpu_compare_handlers_share_the_same_sign_semantics() -> None:
     assert dataflow_compare_operator_spec().substrates == ("cpu", "gpu")
 
 
+
+def test_compare_remains_local_when_no_remote_compare_dispatcher_is_supplied() -> None:
+    """Mathematics: adding remote COMPARE is opt-in and does not change the established local execution path."""
+    program = assemble(
+        "set left 9\\n"
+        "set right 4\\n"
+        "compare relation left right\\n"
+        "add answer relation left\\n"
+        "halt"
+    )
+    plan = MailCPUDataflowCompiler().compile_program(program)
+    add_requests = []
+
+    def dispatch_add(request):
+        add_requests.append(request)
+        return _good_receipt(request)
+
+    report = execute_dataflow_operation_native(plan, dispatch_add)
+
+    assert len(add_requests) == 1
+    assert add_requests[0].lanes[0].left == 1
+    assert add_requests[0].lanes[0].right == 9
+    assert report.execution.observation["registers"]["relation"] == 1
+    assert report.execution.observation["registers"]["answer"] == 10
+    restored = NavigableComputationDAG.from_snapshot(report.execution.dag_snapshot)
+    assert "operation_receipt" not in restored.result("pc-000002")
+    assert compare_dataflow_with_reference(plan, report.execution, program).equivalent is True
+
+
 def test_operation_native_executor_refuses_wrong_lane_identity_before_frontier_commit() -> None:
     program = _program()
     plan = MailCPUDataflowCompiler().compile_program(program)
