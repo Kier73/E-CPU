@@ -429,3 +429,91 @@ def test_unrelated_claim_transition_expires_cached_ticket_and_refetch_restores_c
     refreshed.verify_current(coordinator)
     assert refreshed.claim.current_assignment == first.claim.current_assignment
     assert refreshed.manifest.generation == cached.manifest.generation + 1
+
+
+def test_batch_claim_creation_uses_one_quorum_generation_and_batch_refresh(tmp_path: Path) -> None:
+    """Mathematics: every child of one parent frontier receives an inclusion ticket from the same committed Merkle root."""
+    store, coordinator = _store(tmp_path)
+    specifications = tuple(
+        {
+            "parent_request_digest": PARENT,
+            "child_request_digest": H(f"batch-child-{index}"),
+            "address_digest": H(f"batch-address-{index}"),
+            "operator_spec": dataflow_add_operator_spec(),
+            "computational_ground_fingerprint": GROUND,
+            "owner_peer_id": "peer-b" if index % 2 == 0 else "peer-c",
+            "owner_host_id": "logical-cpu-b" if index % 2 == 0 else "logical-egpu-c",
+            "implementation_fingerprint": IMPL_B if index % 2 == 0 else IMPL_C,
+        }
+        for index in range(3)
+    )
+    tickets = store.create_many(specifications)
+
+    assert len(tickets) == 3
+    assert len({ticket.manifest.generation for ticket in tickets}) == 1
+    assert len({ticket.manifest.digest for ticket in tickets}) == 1
+    assert {ticket.state_commitment["claim_count"] for ticket in tickets} == {3}
+    assert {ticket.claim.current_assignment.state_generation for ticket in tickets} == {1}
+    assert store.high_water == (tickets[0].manifest.generation, tickets[0].manifest.digest)
+
+    for ticket in tickets:
+        ticket.verify_for_target(
+            coordinator,
+            parent_request_digest=PARENT,
+            child_request_digest=ticket.claim.child_request_digest,
+            address_digest=ticket.claim.address_digest,
+            operator_spec=dataflow_add_operator_spec(),
+            computational_ground_fingerprint=GROUND,
+            owner_peer_id=ticket.claim.current_assignment.owner_peer_id,
+            owner_host_id=ticket.claim.current_assignment.owner_host_id,
+            implementation_fingerprint=ticket.claim.current_assignment.implementation_fingerprint,
+        )
+
+    refreshed = store.get_many(tuple(ticket.claim.claim_id for ticket in tickets))
+    assert tuple(item.digest for item in refreshed) == tuple(item.digest for item in tickets)
+    assert len({item.manifest.digest for item in refreshed}) == 1
+
+    # An exact batch retry is read-only and returns the same point-in-time proof.
+    assert tuple(item.digest for item in store.create_many(specifications)) == tuple(
+        item.digest for item in tickets
+    )
+    assert store.high_water == (1, tickets[0].manifest.digest)
+
+    # One new sibling advances the shared root once; get_many refreshes old
+    # siblings into that same new generation without publishing per-child roots.
+    fourth = {
+        **dict(specifications[0]),
+        "child_request_digest": H("batch-child-four"),
+        "address_digest": H("batch-address-four"),
+        "owner_peer_id": "peer-d",
+        "owner_host_id": "logical-cpu-d",
+        "implementation_fingerprint": H("cpu-d"),
+    }
+    extended = store.create_many((specifications[0], fourth))
+    assert extended[0].claim.claim_id == tickets[0].claim.claim_id
+    assert extended[0].manifest.generation == 2
+    assert extended[1].manifest.generation == 2
+    assert extended[0].manifest.digest == extended[1].manifest.digest
+    with pytest.raises(TransferableExecutionClaimError, match="not current"):
+        tickets[0].verify_current(coordinator)
+    current = store.get_many(tuple(item.claim.claim_id for item in tickets))
+    assert len({item.manifest.digest for item in current}) == 1
+    assert current[0].manifest.generation == 2
+
+
+def test_batch_claim_creation_rejects_duplicate_semantic_children_without_mutation(tmp_path: Path) -> None:
+    """Mathematics: duplicate claim identities make a batch ambiguous and must not consume a quorum generation."""
+    store, _coordinator_instance = _store(tmp_path)
+    specification = {
+        "parent_request_digest": PARENT,
+        "child_request_digest": CHILD,
+        "address_digest": ADDRESS,
+        "operator_spec": dataflow_add_operator_spec(),
+        "computational_ground_fingerprint": GROUND,
+        "owner_peer_id": "peer-b",
+        "owner_host_id": "logical-cpu-b",
+        "implementation_fingerprint": IMPL_B,
+    }
+    with pytest.raises(TransferableExecutionClaimError, match="duplicate semantic"):
+        store.create_many((specification, specification))
+    assert store.high_water == (0, GENESIS)
