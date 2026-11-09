@@ -653,6 +653,7 @@ def run_benchmark(
         "egpu": gpu_probe,
     }
     remote_run_evidence: dict[str, list[tuple[str, str, Any]]] = {}
+    remote_total_samples: dict[str, list[Any]] = {}
     results: dict[str, Any] = {
         "local_cpu": {
             "correct": True,
@@ -706,6 +707,10 @@ def run_benchmark(
                         measured_count += 1
                 assert last_report is not None
                 remote_run_evidence[mode] = mode_run_evidence
+                remote_total_samples[mode] = [
+                    sample for sample in origin_probe.samples
+                    if sample.phase == "total_completion" and sample.correlation_id == plan.digest
+                ]
                 results[f"remote_{mode}"] = {
                     "correct": True,
                     "execution_digest": last_report.execution.digest,
@@ -775,11 +780,7 @@ def run_benchmark(
             for item in receipts
         ):
             raise AssertionError(f"remote {mode} placement identity changed during the profile window")
-        probe = origin_probe
-        total_samples = [
-            sample for sample in probe.samples
-            if sample.phase == "total_completion" and sample.correlation_id == plan.digest
-        ]
+        total_samples = remote_total_samples[mode]
         key = PlacementProfileKey(
             workload_class_digest=workload_class_digest,
             operator_id=operator_spec.operator_id,
