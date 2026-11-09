@@ -596,3 +596,14 @@ def test_claim_bound_partition_recovery_completes_all_children_together_after_am
     assert store.high_water[0] == 2
     assert checkpoints[-1].complete
     assert all(child.completion_bundle is not None for child in checkpoints[-1].successful_children)
+
+    # Process restart after quorum completion but before the caller consumes
+    # the composite is an exact idempotent completion retry, not a new epoch.
+    committed_high_water = store.high_water
+    completed_checkpoint = type(checkpoint)(request, composite.plan, composite.children)
+    replayed = dispatcher.dispatch(
+        request,
+        checkpoint=type(checkpoint).from_dict(completed_checkpoint.to_dict()),
+    )
+    assert replayed.digest == composite.digest
+    assert store.high_water == committed_high_water
