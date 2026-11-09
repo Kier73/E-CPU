@@ -105,7 +105,7 @@ This first version does not:
 - measure physical latency, energy, or byte movement; or
 - prove universal equivalence beyond the declared instruction subset and terminal observation.
 
-The first operation-native integration is specified in OPERATION_NATIVE_COMPUTATIONAL_FABRIC.md. It dispatches ready ADD frontiers as pure Virtual Layer operations through authenticated fabric paths, admits CPU and E-GPU realizations under one semantic contract, checks each returned lane independently, and commits results to the original DAG node identities. This remains a sequential reference experiment, not a concurrency or speed claim. The next stage should benchmark local, remote CPU, remote E-GPU and fused placements while preserving the distinction between route estimates and observed execution.
+The operation-native integration is specified in OPERATION_NATIVE_COMPUTATIONAL_FABRIC.md. It can dispatch ADD@3 and opt-in COMPARE@1 binary frontiers as pure Virtual Layer operations through authenticated fabric paths, admits CPU and E-GPU realizations under their respective semantic contracts, checks each returned lane independently, and commits the typed operation receipt and contract identity into the original DAG result. COMPARE remains local unless its dispatcher is explicitly supplied. This remains a sequential reference experiment, not a concurrency or speed claim. The next stage should benchmark local, remote CPU, remote E-GPU and fused placements while preserving the distinction between route estimates and observed execution.
 
 ## Run
 
