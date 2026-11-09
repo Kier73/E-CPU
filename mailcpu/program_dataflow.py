@@ -1089,10 +1089,13 @@ def evaluate_dataflow(
     plan: CompiledMailCPUDataflow,
     *,
     max_work_units: int | None = None,
+    timing_probe: Any | None = None,
 ) -> DataflowExecutionReport:
     """Mathematics: evaluate independent ready-frontier nodes and commit exact results to the DAG."""
     if not isinstance(plan, CompiledMailCPUDataflow):
         raise ProgramDataflowError("evaluate_dataflow requires a CompiledMailCPUDataflow")
+    if timing_probe is not None and not callable(getattr(timing_probe, "measure", None)):
+        raise ProgramDataflowError("timing_probe must expose a callable measure context manager")
     if plan.structural_memory_refs:
         raise ProgramDataflowError("local dataflow evaluation cannot resolve symbolic Structural Memory; use receiver-authorized operation-native execution")
     limit = len(plan.nodes) if max_work_units is None else _strict_int(
