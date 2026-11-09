@@ -232,10 +232,21 @@ def contextual_orbit_locate_value_operator_spec() -> OperatorSpec:
 
 def make_contextual_orbit_locate_value_handler(
     registry: StructuralMemoryRegistry,
+    *,
+    max_spec_bytes: int = 65_536,
+    max_recurrence_order: int = 256,
+    max_fgraph_entries: int = 65_536,
 ):
-    """Bind the trusted operator to one receiver-local Structural Memory registry and reusable navigator."""
+    """Bind the trusted operator to one receiver-local registry and reusable, explicitly bounded navigator."""
     if not isinstance(registry, StructuralMemoryRegistry):
         raise ContextualOrbitFabricError("navigation handler requires a receiver-local StructuralMemoryRegistry")
+    for value, label in (
+        (max_spec_bytes, "max_spec_bytes"),
+        (max_recurrence_order, "max_recurrence_order"),
+        (max_fgraph_entries, "max_fgraph_entries"),
+    ):
+        if type(value) is not int or value < 1:
+            raise ContextualOrbitFabricError(f"{label} must be a positive strict integer")
     navigator = ContextualOrbitNavigator(registry)
 
     def execute(value: Mapping[str, Any], workload: VirtualLayerWorkload) -> dict[str, Any]:
@@ -260,6 +271,24 @@ def make_contextual_orbit_locate_value_handler(
         }
         if not isinstance(goal, Mapping) or dict(goal) != expected_goal:
             raise ContextualOrbitFabricError("Virtual Layer goal differs from the typed inverse query")
+        try:
+            version = registry.version_for_revision(
+                request.address.structural_memory.memory_id,
+                request.address.structural_memory.revision,
+            )
+        except Exception as exc:
+            raise ContextualOrbitFabricError(f"receiver Structural Memory revision is unavailable: {exc}") from exc
+        if (
+            len(version.spec.parameters_json.encode("utf-8")) > max_spec_bytes
+            or len(version.spec.context_json.encode("utf-8")) > max_spec_bytes
+        ):
+            raise ContextualOrbitFabricError("pinned Structural Memory spec/context exceeds the navigation descriptor bound")
+        if version.spec.family == "gf2" and version.spec.order > max_recurrence_order:
+            raise ContextualOrbitFabricError("GF(2) inverse exceeds the configured recurrence-order bound")
+        if version.spec.family == "fgraph":
+            orbit = version.spec.parameters.get("orbit")
+            if not isinstance(orbit, list) or len(orbit) > max_fgraph_entries:
+                raise ContextualOrbitFabricError("finite-graph inverse exceeds the configured index-entry bound")
         result = navigator.locate_value(
             request.address,
             request.observer,
