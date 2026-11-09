@@ -1233,14 +1233,11 @@ class StructuralMemoryRegistry:
                 coordinate_start,
                 count,
             )
-            value_receipt_ids = tuple(
-                self._make_read_receipt(
-                    version,
-                    coordinate_start + offset,
-                    context_digest,
-                    value,
-                ).receipt_id
-                for offset, value in enumerate(values)
+            value_receipt_ids = self._make_range_value_receipt_ids(
+                version,
+                coordinate_start,
+                context_digest,
+                values,
             )
             receipt = self._make_range_read_receipt(
                 version,
@@ -1579,6 +1576,51 @@ class StructuralMemoryRegistry:
         )
 
     @staticmethod
+    def _make_range_value_receipt_ids(
+        version: StructuralMemoryVersion,
+        coordinate_start: int,
+        context_digest: str,
+        values: Sequence[int],
+    ) -> tuple[str, ...]:
+        """Mathematics: derive exactly the same H(spec, certificate, context, coordinate, value) point identities using pre-encoded immutable fields and no transient receipt objects."""
+        # _make_read_receipt hashes two canonical JSON objects for each point.
+        # In a range, all provenance fields except coordinate/value are fixed;
+        # encode those once and preserve the exact sorted-key JSON byte schema.
+        quote = lambda value: _canonical_json(value).encode("utf-8")
+        certificate_digest = quote(version.certificate.digest)
+        bound_context_digest = quote(context_digest)
+        memory_id = quote(version.spec.memory_id)
+        revision = str(version.spec.revision).encode("ascii")
+        spec_digest = quote(version.spec.digest)
+        prefix = (
+            b'{"certificate_digest":' + certificate_digest
+            + b',"context_digest":' + bound_context_digest
+            + b',"coordinate":'
+        )
+        middle = (
+            b',"memory_id":' + memory_id
+            + b',"revision":' + revision
+            + b',"spec_digest":' + spec_digest
+            + b',"value_digest":'
+        )
+        result: list[str] = []
+        for offset, value in enumerate(values):
+            if type(value) is not int:
+                raise StructuralMemoryError("range receipt values must be strict integers")
+            value_digest = hashlib.sha256(
+                b'{"type":"integer","value":' + str(value).encode("ascii") + b"}"
+            ).hexdigest()
+            payload = (
+                prefix
+                + str(coordinate_start + offset).encode("ascii")
+                + middle
+                + quote(value_digest)
+                + b"}"
+            )
+            result.append(hashlib.sha256(payload).hexdigest())
+        return tuple(result)
+
+    @staticmethod
     def _make_range_read_receipt(
         version: StructuralMemoryVersion,
         coordinate_start: int,
@@ -1657,14 +1699,11 @@ class StructuralMemoryRegistry:
             receipt.coordinate_start,
             receipt.length,
         )
-        value_receipt_ids = tuple(
-            self._make_read_receipt(
-                version,
-                receipt.coordinate_start + offset,
-                receipt.context_digest,
-                value,
-            ).receipt_id
-            for offset, value in enumerate(values)
+        value_receipt_ids = self._make_range_value_receipt_ids(
+            version,
+            receipt.coordinate_start,
+            receipt.context_digest,
+            values,
         )
         expected = self._make_range_read_receipt(
             version,
