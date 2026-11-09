@@ -36,9 +36,9 @@ from .structural_memory import StructuralMemoryReadReceipt
 from .virtual_layer import VirtualStructuralMemoryRef
 
 
-_SCHEMA = "mailcpu.program-dataflow.v1"
+_SCHEMA = "mailcpu.program-dataflow.v2"
 _COMPILER_ID = "mailcpu.register-dataflow"
-_COMPILER_VERSION = 1
+_COMPILER_VERSION = 2
 _MAX_INSTRUCTIONS = 256
 _MAX_SOURCE_BYTES = 65_536
 _REGISTER = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}\Z")
@@ -73,6 +73,7 @@ _COMPILER_DEFINITION = {
     "supported_opcodes": ["SET", "COPY", "ADD", "COMPARE", "HALT"],
     "unsupported_control_flow": ["BRANCH"],
     "unsupported_effects": ["SEND", "WAIT", "SYSCALL"],
+    "initial_sources": ["inline-integer", "materialized-structural-memory-receipt", "symbolic-virtual-structural-memory-reference"],
 }
 _INVARIANT_DEFINITIONS = (
     {
@@ -510,7 +511,7 @@ class DataflowExecutionReport:
     def to_dict(self) -> dict[str, Any]:
         """Mathematics: serialize the execution report and snapshot identity without embedding mutable state."""
         return {
-            "schema": "mailcpu.program-dataflow-execution.v1",
+            "schema": "mailcpu.program-dataflow-execution.v2",
             "plan_digest": self.plan_digest,
             "status": self.status,
             "pc": self.pc,
@@ -727,7 +728,7 @@ class MailCPUDataflowCompiler:
         program_ref = program_representation_ref(program)
         initial_state_ref = RepresentationRef.from_payload(
             "mailcpu.initial-register-state",
-            1,
+            2,
             initial_state_payload,
         )
         ground_ref = RepresentationRef.from_payload(
