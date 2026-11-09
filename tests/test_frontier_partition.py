@@ -203,6 +203,37 @@ def test_binary_frontier_split_preserves_typed_request_identity_and_covers_lanes
     assert children[0].lanes[0].node_digest == request.lanes[0].node_digest
 
 
+def test_binary_frontier_partition_requires_the_route_to_bind_the_exact_child_address() -> None:
+    """Mathematics: route.address_digest must equal a typed child address whose goal and operands commit the exact child request."""
+    request = _request()
+    first, second = split_binary_frontier_request(
+        request,
+        (("pc-000001", "pc-000002"), ("pc-000003", "pc-000004")),
+    )
+    address_first = _address(first, "peer-b")
+    address_second = _address(second, "peer-b")
+    route_for_first = _route(
+        "peer-b",
+        "logical-host-b",
+        address_first.digest,
+        implementation=IMPLEMENTATION_B,
+    )
+
+    with pytest.raises(FrontierPartitionError, match="does not bind the exact child request"):
+        BinaryFrontierPartition(second, address_first, route_for_first)
+
+    route_for_other_address = _route(
+        "peer-b",
+        "logical-host-b",
+        "8" * 64,
+        implementation=IMPLEMENTATION_B,
+    )
+    with pytest.raises(FrontierPartitionError, match="does not bind the exact child ComputationalAddress"):
+        BinaryFrontierPartition(first, address_first, route_for_other_address)
+
+    assert address_second.digest != address_first.digest
+
+
 def test_binary_frontier_partition_plan_round_trips_full_child_routes_and_lane_evidence() -> None:
     """Mathematics: a multi-host proposal is a digest-bound disjoint cover retaining every typed child request and route."""
     request = _request()
