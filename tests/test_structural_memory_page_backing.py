@@ -102,22 +102,30 @@ def test_structural_memory_page_backing_bounds_host_cache_and_reuses_verified_ra
     assert backing.get_page(first_digest) == first_expected
     assert backing._retention_score(first_digest) >= score_before * 2
 
-    # The fifth distinct page evicts exactly one low-value page/receipt pair.
+    # The fifth candidate may itself be the lowest-value page. The weighted
+    # policy must retain exactly four of the five and evict the minimum score,
+    # not unconditionally displace an older page.
     assert backing.get_page(pages[4][0]) == pages[4][1]
     assert backing.cached_page_count == 4
     assert backing.cached_page_bytes == 4 * 8
     assert backing.cached_receipt_coordinate_count == 4 * 8
     assert backing.cached_provider_coordinate_count == 0
+    original_all = {
+        digest: (expected, receipt)
+        for (digest, expected), receipt in zip(pages[:4], original_receipts.values())
+    }
+    original_all[pages[4][0]] = (pages[4][1], backing.read_receipt(pages[4][0]))
     evicted = [
         (digest, expected, receipt)
-        for (digest, expected), receipt in zip(pages[:4], original_receipts.values())
+        for digest, (expected, receipt) in original_all.items()
         if backing.read_receipt(digest) is None
     ]
     assert len(evicted) == 1
-
-    # Re-faulting the evicted page regenerates the same byte and receipt identities.
     evicted_digest, evicted_expected, old_receipt = evicted[0]
     assert old_receipt is not None
+
+    # Re-faulting whichever candidate lost the retention competition
+    # regenerates identical bytes and the same immutable receipt identity.
     assert backing.get_page(evicted_digest) == evicted_expected
     regenerated = backing.read_receipt(evicted_digest)
     assert regenerated is not None
