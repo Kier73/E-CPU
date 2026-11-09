@@ -64,6 +64,7 @@ Some measurements intentionally contain other measurements:
 
 - `origin_round_trip` contains request send, response wait, request acknowledgement, and all receiver work.
 - `receiver_route_dispatch` contains terminal semantic resolution, witness/host revalidation, Virtual Layer admission, Hypervisor policy/effect execution, backend computation, and receiver verification.
+- `receiver_hypervisor_execution` contains the handler invocation, including provenance validation, backend compute, and receiver backend verification when those probes are enabled.
 - `total_completion` contains route resolution, remote round trip, origin verification, and DAG publication.
 
 Do not sum nested intervals. The report preserves each interval because it answers a different question. For an additive end-to-end decomposition, use only disjoint spans captured on the same actor. In particular, do not subtract receiver monotonic durations from origin monotonic durations and call the remainder one-way network latency.
