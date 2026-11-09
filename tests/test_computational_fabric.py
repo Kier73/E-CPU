@@ -3179,7 +3179,7 @@ def test_compiled_dataflow_frontiers_execute_on_distinct_fabric_hosts_with_egpu(
         assert partitioned_cpu_receipt.implementation_fingerprint == cpu_implementation
         assert cpu_receipt.implementation_fingerprint == cpu_implementation
         assert operator_spec.digest == cpu_locus.operator_spec.digest == egpu_locus.operator_spec.digest
-        assert len(cpu_calls) == 1 and len(egpu_calls) == 1
+        assert len(cpu_calls) == 2 and len(egpu_calls) == 1
         assert len(egpu_receipt.structural_memory_receipts) == 1
         assert len(composite_receipt.structural_memory_receipts) == 1
         memory_binding, memory_receipt = composite_receipt.structural_memory_receipts[0]
