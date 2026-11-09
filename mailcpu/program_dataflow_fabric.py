@@ -469,6 +469,7 @@ def execute_dataflow_operation_native(
     graph = plan.graph()
     node_by_id = {node.node_id: node for node in plan.nodes}
     receipts: list[DataflowAddFrontierReceipt] = []
+    resolved_initial_registers: dict[str, int] = {}
     executed_frontiers: list[tuple[str, ...]] = []
     committed: list[str] = []
 
@@ -500,16 +501,38 @@ def execute_dataflow_operation_native(
             if opcode == Op.ADD.value:
                 if len(operands) != 2:
                     raise OperationNativeDataflowError(f"ADD node {node_id!r} must have two operands")
+                left_value = _operand_value(graph, operands[0], node_id)
+                right_value = _operand_value(graph, operands[1], node_id)
+                left, left_register, left_reference = _lane_operand(
+                    left_value,
+                    node_id=node_id,
+                    side="left",
+                    source_register=operands[0].get("register"),
+                )
+                right, right_register, right_reference = _lane_operand(
+                    right_value,
+                    node_id=node_id,
+                    side="right",
+                    source_register=operands[1].get("register"),
+                )
                 add_lanes.append(DataflowAddLane(
                     node_id=node_id,
                     node_digest=node.digest,
                     destination=destination,
-                    left=_operand_value(graph, operands[0], node_id),
-                    right=_operand_value(graph, operands[1], node_id),
+                    left=left,
+                    right=right,
+                    left_register=left_register,
+                    right_register=right_register,
+                    left_reference=left_reference,
+                    right_reference=right_reference,
                 ))
                 continue
 
             values = [_operand_value(graph, item, node_id) for item in operands]
+            if any(isinstance(item, VirtualStructuralMemoryRef) for item in values):
+                raise OperationNativeDataflowError(
+                    f"symbolic Structural Memory operands are only admitted by ADD in this execution profile (node {node_id!r})"
+                )
             if opcode in {Op.SET.value, Op.COPY.value}:
                 if len(values) != 1:
                     raise OperationNativeDataflowError(f"{opcode} node {node_id!r} must have one operand")
@@ -546,10 +569,51 @@ def execute_dataflow_operation_native(
                 raise OperationNativeDataflowError("remote result lane identities differ from the exact request ordering")
 
             returned = dict(receipt.results)
+            expected_memory_references = {
+                reference.binding: reference
+                for lane in request.lanes
+                for reference in (lane.left_reference, lane.right_reference)
+                if reference is not None
+            }
+            received_memory_receipts = dict(receipt.structural_memory_receipts)
+            if set(received_memory_receipts) != set(expected_memory_references):
+                raise OperationNativeDataflowError(
+                    "receiver Structural Memory receipt bindings differ from the exact frontier request"
+                )
+            for binding, reference in expected_memory_references.items():
+                memory_receipt = received_memory_receipts[binding]
+                _validate_memory_receipt_for_reference(reference, memory_receipt)
+                matching_registers = {
+                    lane.left_register
+                    for lane in request.lanes
+                    if lane.left_reference is not None and lane.left_reference.binding == binding
+                } | {
+                    lane.right_register
+                    for lane in request.lanes
+                    if lane.right_reference is not None and lane.right_reference.binding == binding
+                }
+                if len(matching_registers) != 1:
+                    raise OperationNativeDataflowError("Structural Memory binding does not identify exactly one source register")
+                source_register = next(iter(matching_registers))
+                previous_value = resolved_initial_registers.get(source_register)
+                if previous_value is not None and previous_value != memory_receipt.value:
+                    raise OperationNativeDataflowError("one symbolic Structural Memory register resolved inconsistently across frontiers")
+                resolved_initial_registers[source_register] = memory_receipt.value
+
             for lane in request.lanes:
-                # Independent scalar oracle: it shares neither the E-GPU SIMT
-                # evaluator nor the remote operator's implementation.
-                expected_value = lane.left + lane.right
+                # The independent scalar oracle consumes the receiver receipt
+                # value only after checking its exact pinned memory identity.
+                left_value = lane.left
+                if lane.left_reference is not None:
+                    left_value = received_memory_receipts[lane.left_reference.binding].value
+                right_value = lane.right
+                if lane.right_reference is not None:
+                    right_value = received_memory_receipts[lane.right_reference.binding].value
+                expected_value = _bounded_add_integer(
+                    _bounded_add_integer(left_value, f"left operand for {lane.node_id}")
+                    + _bounded_add_integer(right_value, f"right operand for {lane.node_id}"),
+                    f"ADD result for {lane.node_id}",
+                )
                 if returned[lane.node_id] != expected_value:
                     raise OperationNativeDataflowError(
                         f"remote ADD result for {lane.node_id!r} failed the independent scalar oracle"
@@ -584,6 +648,8 @@ def execute_dataflow_operation_native(
     for source in plan.final_register_sources:
         if source.kind == "initial":
             value = source.value
+        elif source.kind == "structural_memory":
+            value = resolved_initial_registers.get(source.register)
         else:
             value = graph.result(source.node_id or "").get("value")
         registers[source.register] = _strict_integer(value, f"final register {source.register}")
@@ -606,6 +672,7 @@ def execute_dataflow_operation_native(
         committed_node_ids=tuple(committed),
         executed_frontiers=tuple(executed_frontiers),
         _dag_snapshot_json=snapshot_json,
+        resolved_initial_registers=tuple(sorted(resolved_initial_registers.items())),
     )
     return OperationNativeDataflowReport(report, tuple(receipts))
 
