@@ -30,6 +30,7 @@ from .program_dataflow import (
     CompiledMailCPUDataflow,
     DataflowExecutionReport,
 )
+from .orbit_fabric import ContextualOrbitDataflowInput
 from .seed import SystemIdentity
 from .structural_memory import StructuralMemoryReadReceipt
 from .semantic_translation import canonical_value_digest
@@ -110,6 +111,8 @@ class DataflowAddLane:
     right_register: str | None = None
     left_reference: VirtualStructuralMemoryRef | None = None
     right_reference: VirtualStructuralMemoryRef | None = None
+    left_orbit_input: ContextualOrbitDataflowInput | None = None
+    right_orbit_input: ContextualOrbitDataflowInput | None = None
 
     def __post_init__(self) -> None:
         """Mathematics: require each lane side to be exactly one bounded literal value or revision-pinned symbolic memory coordinate."""
@@ -122,12 +125,18 @@ class DataflowAddLane:
             value = getattr(self, side)
             register = getattr(self, f"{side}_register")
             reference = getattr(self, f"{side}_reference")
+            orbit_input = getattr(self, f"{side}_orbit_input")
             if value is not None:
                 _bounded_add_integer(value, f"lane {side} operand")
                 if reference is not None:
                     raise OperationNativeDataflowError(f"lane {side} cannot contain both a value and memory reference")
             elif not isinstance(reference, VirtualStructuralMemoryRef):
                 raise OperationNativeDataflowError(f"lane {side} requires a value or VirtualStructuralMemoryRef")
+            if orbit_input is not None:
+                if not isinstance(orbit_input, ContextualOrbitDataflowInput):
+                    raise OperationNativeDataflowError(f"lane {side} contextual-orbit input must be typed")
+                if reference is not None or value is None or value != orbit_input.value:
+                    raise OperationNativeDataflowError(f"lane {side} contextual-orbit projection differs from its typed predecessor")
             if reference is not None:
                 if not isinstance(register, str) or _REGISTER.fullmatch(register) is None:
                     raise OperationNativeDataflowError(f"lane {side} memory operand requires its source register")
@@ -148,6 +157,8 @@ class DataflowAddLane:
             "right_register": self.right_register,
             "left_reference": None if self.left_reference is None else self.left_reference.to_dict(),
             "right_reference": None if self.right_reference is None else self.right_reference.to_dict(),
+            "left_orbit_input": None if self.left_orbit_input is None else self.left_orbit_input.to_dict(),
+            "right_orbit_input": None if self.right_orbit_input is None else self.right_orbit_input.to_dict(),
         }
 
 
@@ -196,7 +207,7 @@ class DataflowAddFrontierRequest:
     def to_dict(self) -> dict[str, Any]:
         """Mathematics: serialize the exact typed operation identity and its bound fields."""
         return {
-            "schema": "mailcpu.dataflow.add-frontier-request.v2",
+            "schema": "mailcpu.dataflow.add-frontier-request.v3",
             "plan_digest": self.plan_digest,
             "context_digest": self.context_digest,
             "frontier_index": self.frontier_index,
@@ -275,7 +286,7 @@ class DataflowAddFrontierReceipt:
     def to_dict(self) -> dict[str, Any]:
         """Mathematics: serialize the exact typed operation identity and its bound fields."""
         return {
-            "schema": "mailcpu.dataflow.add-frontier-receipt.v2",
+            "schema": "mailcpu.dataflow.add-frontier-receipt.v3",
             "request_digest": self.request_digest,
             "results": [[node_id, value] for node_id, value in self.results],
             "host_id": self.host_id,
@@ -326,6 +337,32 @@ class OperationNativeDataflowReport:
     def to_dict(self) -> dict[str, Any]:
         """Mathematics: serialize the exact typed operation identity and its bound fields."""
         return {**self._payload(), "digest": self.digest}
+
+
+def _contextual_orbit_predecessor(
+    graph: NavigableComputationDAG,
+    operand: Mapping[str, Any],
+    node_id: str,
+) -> ContextualOrbitDataflowInput | None:
+    """Mathematics: recover full typed orbit provenance from its committed DAG predecessor without flattening it."""
+    if operand.get("kind") != "dependency":
+        return None
+    dependency_id = operand.get("node_id")
+    if not isinstance(dependency_id, str):
+        raise OperationNativeDataflowError(f"node {node_id!r} has a malformed dependency operand")
+    result = graph.result(dependency_id)
+    raw = result.get("contextual_orbit_input")
+    if raw is None:
+        return None
+    if not isinstance(raw, Mapping):
+        raise OperationNativeDataflowError(f"node {node_id!r} has malformed contextual-orbit predecessor evidence")
+    try:
+        predecessor = ContextualOrbitDataflowInput.from_dict(raw)
+    except (TypeError, ValueError, KeyError) as exc:
+        raise OperationNativeDataflowError(f"node {node_id!r} contextual-orbit predecessor failed verification: {exc}") from exc
+    if result.get("predecessor_digest") != predecessor.digest or result.get("value") != predecessor.value:
+        raise OperationNativeDataflowError(f"node {node_id!r} contextual-orbit predecessor result was altered")
+    return predecessor
 
 
 def _operand_value(
@@ -442,6 +479,15 @@ def _materialize_frontier_operands(
                 resolved = _bounded_add_integer(entry["value"], f"Structural Memory value {binding}")
                 if receipt.value != resolved:
                     raise OperationNativeDataflowError(f"Structural Memory binding {binding!r} value differs from its receipt")
+            elif set(operand) == {"kind", "input"} and operand["kind"] == "contextual_orbit":
+                raw_predecessor = operand["input"]
+                if not isinstance(raw_predecessor, Mapping):
+                    raise OperationNativeDataflowError(f"ADD frontier lane {index} {side} contextual-orbit input is malformed")
+                try:
+                    predecessor = ContextualOrbitDataflowInput.from_dict(raw_predecessor)
+                except (TypeError, ValueError, KeyError) as exc:
+                    raise OperationNativeDataflowError(f"ADD frontier lane {index} {side} contextual-orbit evidence failed verification: {exc}") from exc
+                resolved = _bounded_add_integer(predecessor.value, f"contextual-orbit value lane {index} {side}")
             else:
                 raise OperationNativeDataflowError(f"ADD frontier lane {index} {side} operand descriptor is unsupported")
             (left_values if side == "left" else right_values).append(resolved)
@@ -490,6 +536,29 @@ def execute_dataflow_operation_native(
             payload = node.payload
             opcode = payload.get("opcode")
             destination = payload.get("destination")
+            if payload.get("kind") == "mailcpu.register-dataflow.contextual-orbit-input":
+                register = payload.get("register")
+                predecessor = dict(plan.contextual_orbit_inputs).get(register)
+                if (
+                    not isinstance(register, str)
+                    or predecessor is None
+                    or payload.get("source_digest") != predecessor.digest
+                    or payload.get("field") != predecessor.field
+                    or payload.get("request_digest") != predecessor.request.digest
+                    or payload.get("receipt_digest") != predecessor.receipt.digest
+                ):
+                    raise OperationNativeDataflowError("contextual-orbit predecessor node differs from the compiled typed input")
+                resolved_initial_registers[register] = predecessor.value
+                pending[node_id] = {
+                    "register": register,
+                    "value": predecessor.value,
+                    "contextual_orbit_input": predecessor.to_dict(),
+                    "predecessor_digest": predecessor.digest,
+                    "selected_coordinate": predecessor.selected_coordinate,
+                    "selected_value": predecessor.selected_value,
+                    "receipt_digest": predecessor.receipt.digest,
+                }
+                continue
             if opcode == Op.HALT.value:
                 pending[node_id] = {
                     "status": RunStatus.HALTED.value,
@@ -508,6 +577,8 @@ def execute_dataflow_operation_native(
                     raise OperationNativeDataflowError(f"ADD node {node_id!r} must have two operands")
                 left_value = _operand_value(graph, operands[0], node_id)
                 right_value = _operand_value(graph, operands[1], node_id)
+                left_orbit_input = _contextual_orbit_predecessor(graph, operands[0], node_id)
+                right_orbit_input = _contextual_orbit_predecessor(graph, operands[1], node_id)
                 left, left_register, left_reference = _lane_operand(
                     left_value,
                     node_id=node_id,
@@ -530,6 +601,8 @@ def execute_dataflow_operation_native(
                     right_register=right_register,
                     left_reference=left_reference,
                     right_reference=right_reference,
+                    left_orbit_input=left_orbit_input,
+                    right_orbit_input=right_orbit_input,
                 ))
                 continue
 
@@ -686,8 +759,8 @@ def dataflow_add_operator_spec() -> OperatorSpec:
     """Mathematics: define one strict integer vector-add contract for CPU and E-GPU realizations."""
     return OperatorSpec(
         operator_id="mailcpu.dataflow.add_frontier",
-        version=2,
-        description="Apply strict integer addition to 1..64 aligned lanes with signed operands and results bounded to 4096 bits; resolve pinned Structural Memory operands at the receiver",
+        version=3,
+        description="Apply strict integer addition to 1..64 aligned lanes with signed operands and results bounded to 4096 bits; resolve pinned Structural Memory operands and verify contextual-orbit predecessor inputs at the receiver",
         input_kind="object",
         output_kind="object",
         substrates=("cpu", "gpu"),
@@ -811,7 +884,7 @@ class ComputationalFabricDataflowAddDispatcher:
             raise OperationNativeDataflowError("dispatcher requires typed System and Virtual Grounds")
         if not isinstance(operator_spec, OperatorSpec) or not operator_spec.replay_safe:
             raise OperationNativeDataflowError("dispatcher requires a deterministic pure OperatorSpec")
-        if operator_spec.operator_id != "mailcpu.dataflow.add_frontier" or operator_spec.version != 2:
+        if operator_spec.operator_id != "mailcpu.dataflow.add_frontier" or operator_spec.version != 3:
             raise OperationNativeDataflowError("dispatcher operator contract is not the dataflow ADD frontier contract")
         _digest(computational_ground_fingerprint, "computational_ground_fingerprint")
         if not isinstance(budget, VirtualBudget):
@@ -871,7 +944,11 @@ class ComputationalFabricDataflowAddDispatcher:
                     structural_references[reference.binding] = reference
                     wire_lane[side] = {"kind": "structural_memory", "binding": reference.binding}
                 else:
-                    wire_lane[side] = {"kind": "inline", "value": _bounded_add_integer(operand_value, f"{lane.node_id} {side} operand")}
+                    orbit_input = getattr(lane, f"{side}_orbit_input")
+                    if orbit_input is not None:
+                        wire_lane[side] = {"kind": "contextual_orbit", "input": orbit_input.to_dict()}
+                    else:
+                        wire_lane[side] = {"kind": "inline", "value": _bounded_add_integer(operand_value, f"{lane.node_id} {side} operand")}
             wire_lanes.append(wire_lane)
         input_value = {"lanes": wire_lanes, "max_steps": self.max_steps}
         operator_reference = VirtualOperatorRef(
