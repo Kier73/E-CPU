@@ -232,6 +232,11 @@ def test_placement_ranking_refuses_to_rank_until_all_candidates_meet_sample_floo
     assert ranking.best_profile_digest is None
     assert ranking.ordered_profile_digests == ()
     assert ranking.insufficient_profiles == ((slower.digest, 1),)
+    assert type(ranking).from_dict(ranking.to_dict()) == ranking
+    tampered = ranking.to_dict()
+    tampered["complete"] = True
+    with pytest.raises(PlacementProfileError, match="completeness"):
+        type(ranking).from_dict(tampered)
 
 
 def test_placement_profiles_must_share_workload_contract_ground_and_origin_environment() -> None:
@@ -284,5 +289,10 @@ def test_profile_deserialization_rejects_tampered_duration_and_summary() -> None
     payload["observations"][0]["timing_sample"]["elapsed_ns"] = 999
 
     with pytest.raises(PlacementProfileError, match="elapsed duration"):
+        PlacementProfile.from_dict(payload)
+
+    payload = profile.to_dict()
+    payload["observations"][0]["timing_sample"]["elapsed_ns"] = False
+    with pytest.raises(PlacementProfileError, match="strict integer"):
         PlacementProfile.from_dict(payload)
 
