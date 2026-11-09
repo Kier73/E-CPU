@@ -517,3 +517,109 @@ def test_batch_claim_creation_rejects_duplicate_semantic_children_without_mutati
     with pytest.raises(TransferableExecutionClaimError, match="duplicate semantic"):
         store.create_many((specification, specification))
     assert store.high_water == (0, GENESIS)
+
+
+def test_batch_completion_publishes_one_winner_generation_for_all_parent_children(tmp_path: Path) -> None:
+    """Mathematics: a parent frontier's verified child results become one all-or-none quorum completion generation."""
+    store, _coordinator_instance = _store(tmp_path)
+    specifications = tuple(
+        {
+            "parent_request_digest": PARENT,
+            "child_request_digest": H(f"complete-child-{index}"),
+            "address_digest": H(f"complete-address-{index}"),
+            "operator_spec": dataflow_add_operator_spec(),
+            "computational_ground_fingerprint": GROUND,
+            "owner_peer_id": "peer-b" if index == 0 else "peer-c",
+            "owner_host_id": "logical-cpu-b" if index == 0 else "logical-egpu-c",
+            "implementation_fingerprint": IMPL_B if index == 0 else IMPL_C,
+        }
+        for index in range(2)
+    )
+    tickets = store.create_many(specifications)
+    completion_specs = tuple(
+        {
+            "claim_id": ticket.claim.claim_id,
+            "expected_epoch": ticket.claim.current_assignment.epoch,
+            "owner_peer_id": ticket.claim.current_assignment.owner_peer_id,
+            "owner_host_id": ticket.claim.current_assignment.owner_host_id,
+            "implementation_fingerprint": ticket.claim.current_assignment.implementation_fingerprint,
+            "result_digest": H(f"complete-result-{index}"),
+            "child_receipt_digest": H(f"complete-receipt-{index}"),
+        }
+        for index, ticket in enumerate(tickets)
+    )
+
+    completed = store.complete_many(completion_specs)
+    assert all(item.claim.status is ExecutionClaimStatus.COMPLETED for item in completed)
+    assert len({item.claim.completion_generation for item in completed}) == 1
+    assert len({item.manifest.generation for item in completed}) == 1
+    assert len({item.manifest.digest for item in completed}) == 1
+    assert completed[0].claim.completion_generation == tickets[0].manifest.generation + 1
+
+    # A complete retry is idempotent, and a conflicting sibling result cannot
+    # replace either of the already-published terminal outcomes.
+    retried = store.complete_many(completion_specs)
+    assert tuple(item.digest for item in retried) == tuple(item.digest for item in completed)
+    conflicting = list(completion_specs)
+    conflicting[1] = {**conflicting[1], "result_digest": H("different-sibling-result")}
+    with pytest.raises(TransferableExecutionClaimError, match="conflicting result"):
+        store.complete_many(conflicting)
+    assert tuple(item.digest for item in store.get_many(tuple(item.claim.claim_id for item in completed))) == tuple(
+        item.digest for item in completed
+    )
+
+
+def test_batch_completion_refuses_stale_sibling_without_completing_any_claim(tmp_path: Path) -> None:
+    """Mathematics: one stale assignment epoch aborts the entire parent completion transition without partially completing siblings."""
+    store, _coordinator_instance = _store(tmp_path)
+    specs = (
+        {
+            "parent_request_digest": PARENT,
+            "child_request_digest": H("atomic-complete-a"),
+            "address_digest": H("atomic-address-a"),
+            "operator_spec": dataflow_add_operator_spec(),
+            "computational_ground_fingerprint": GROUND,
+            "owner_peer_id": "peer-b",
+            "owner_host_id": "logical-cpu-b",
+            "implementation_fingerprint": IMPL_B,
+        },
+        {
+            "parent_request_digest": PARENT,
+            "child_request_digest": H("atomic-complete-b"),
+            "address_digest": H("atomic-address-b"),
+            "operator_spec": dataflow_add_operator_spec(),
+            "computational_ground_fingerprint": GROUND,
+            "owner_peer_id": "peer-c",
+            "owner_host_id": "logical-egpu-c",
+            "implementation_fingerprint": IMPL_C,
+        },
+    )
+    tickets = store.create_many(specs)
+    store.reassign(
+        tickets[1].claim.claim_id,
+        expected_epoch=1,
+        owner_peer_id="peer-d",
+        owner_host_id="logical-cpu-d",
+        implementation_fingerprint=H("cpu-d"),
+        failure_evidence_digest=FAILURE,
+    )
+    before = store.high_water
+    completions = tuple(
+        {
+            "claim_id": ticket.claim.claim_id,
+            "expected_epoch": ticket.claim.current_assignment.epoch,
+            "owner_peer_id": ticket.claim.current_assignment.owner_peer_id,
+            "owner_host_id": ticket.claim.current_assignment.owner_host_id,
+            "implementation_fingerprint": ticket.claim.current_assignment.implementation_fingerprint,
+            "result_digest": H(f"atomic-result-{index}"),
+            "child_receipt_digest": H(f"atomic-receipt-{index}"),
+        }
+        for index, ticket in enumerate(tickets)
+    )
+    stale = list(completions)
+    stale[1] = {**stale[1], "expected_epoch": 1, "owner_peer_id": "peer-c", "owner_host_id": "logical-egpu-c"}
+    with pytest.raises(TransferableExecutionClaimError, match="exact current assignment"):
+        store.complete_many(stale)
+    assert store.high_water == before
+    current = store.get_many(tuple(ticket.claim.claim_id for ticket in tickets))
+    assert all(item.claim.status is ExecutionClaimStatus.ASSIGNED for item in current)
