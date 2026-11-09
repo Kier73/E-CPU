@@ -312,7 +312,7 @@ class HypervisorOperationResultChannel:
                     "pending result sender window contains a foreign frame"
                 )
             result = self._decode_payload(frame.body[2])
-            if result.identity == identity:
+            if (result.source, result.channel, result.sequence) == identity:
                 return True
         return False
 
