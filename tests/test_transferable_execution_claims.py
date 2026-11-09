@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,7 @@ from mailcpu import (
     SeedCommitMembership,
     TransferableExecutionClaimError,
     TransferableExecutionClaimStore,
+    dataflow_add_operator_spec,
 )
 
 H = lambda value: hashlib.sha256(value.encode()).hexdigest()
@@ -50,8 +52,7 @@ def _create(store: TransferableExecutionClaimStore):
         parent_request_digest=PARENT,
         child_request_digest=CHILD,
         address_digest=ADDRESS,
-        operator_id="mailcpu.add",
-        operator_contract_digest=CONTRACT,
+        operator_spec=dataflow_add_operator_spec(),
         computational_ground_fingerprint=GROUND,
         owner_peer_id="peer-b",
         owner_host_id="logical-cpu-b",
@@ -100,8 +101,7 @@ def test_quorum_claim_round_trip_and_exact_target_admission(tmp_path: Path) -> N
             parent_request_digest=PARENT,
             child_request_digest=CHILD,
             address_digest=ADDRESS,
-            operator_id="mailcpu.add",
-            operator_contract_digest=CONTRACT,
+            operator_spec=replace(dataflow_add_operator_spec(), deterministic=False),
             computational_ground_fingerprint=GROUND,
             owner_peer_id="peer-b",
             owner_host_id="logical-cpu-b",
