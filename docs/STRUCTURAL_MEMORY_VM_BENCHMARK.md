@@ -42,6 +42,8 @@ The report keeps these quantities separate:
 
 The restore path deliberately reads one page that was not in the original working set. That confirms that an inert checkpoint reference can be rebound to the trusted local Structural Memory registry and still reconstruct the exact page bytes. The report includes the new resident-page delta and verifies the resulting read receipt.
 
+The host-side `StructuralMemoryPageBacking` cache is a separate tier from guest residency. It retains at most four recently reconstructed structural pages (plus their receipts) using LRU eviction. Once a page has been verified and copied into this cache, the provider's redundant coordinate/value cache is discarded; a later host-cache miss regenerates the same pinned range and validates the same receipt identities. Locally persisted COW pages live in the content-addressed local store and do not consume a second page-cache entry. The report measures retained host page bytes, receipt-coordinate count, and provider coordinate-cache entries separately from guest resident bytes.
+
 ## Run
 
 From the repository root:
