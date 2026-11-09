@@ -172,7 +172,7 @@ class _FakeAuthenticatedBinaryDispatcher:
         self._lock = threading.Lock()
         self.active = 0
         self.max_active = 0
-        self.sequences: list[tuple[str, int]] = []
+        self.sequences: list[tuple[str, str, int]] = []
 
     def prepare_routes(self, request: DataflowAddFrontierRequest, *, max_candidates: int = 128):
         address = _address(request)
@@ -212,7 +212,7 @@ class _FakeAuthenticatedBinaryDispatcher:
         key = request.digest
         with self._lock:
             self.calls[key] = self.calls.get(key, 0) + 1
-            self.sequences.append((route_witness.target_host.peer_id, origin_sequence))
+            self.sequences.append((key, route_witness.target_host.peer_id, origin_sequence))
             self.active += 1
             self.max_active = max(self.max_active, self.active)
         try:
@@ -305,8 +305,11 @@ def test_partitioned_dispatch_recovery_reuses_verified_children_and_replays_ambi
     assert len(composite.children) == 2
     assert sorted(base.semantic_effects.values()) == [1, 1]
     assert sorted(base.calls.values()) == [1, 2]
-    assert len({sequence for _peer, sequence in base.sequences}) == 2
-    assert base.sequences[0][1] == base.sequences[1][1] or len(base.sequences) == 3
+    assert len(base.sequences) == 3
+    identities = {(request_digest, peer_id, sequence) for request_digest, peer_id, sequence in base.sequences}
+    assert len(identities) == 2
+    assert len({sequence for _request, _peer, sequence in base.sequences}) == 2
+    assert base.sequences[0] == base.sequences[1] or base.sequences[0][0] != base.sequences[1][0]
 
 
 def test_partitioned_dispatch_refuses_parent_request_drift_during_recovery() -> None:
@@ -335,3 +338,47 @@ def test_partitioned_dispatch_refuses_parent_request_drift_during_recovery() -> 
     )
     with pytest.raises(ValueError, match="different parent frontier"):
         dispatcher.dispatch(changed, checkpoint=checkpoint)
+
+
+
+def test_operation_native_executor_commits_one_composite_receipt_for_the_original_dag_frontier() -> None:
+    from mailcpu import (
+        MailCPUDataflowCompiler,
+        assemble,
+        compare_dataflow_with_reference,
+    )
+    from mailcpu.program_dataflow_fabric import execute_dataflow_operation_native
+
+    program = assemble(
+        "set a 2\\n"
+        "set b 3\\n"
+        "set c 4\\n"
+        "set d 5\\n"
+        "add x a b\\n"
+        "add y c d\\n"
+        "halt"
+    )
+    plan = MailCPUDataflowCompiler().compile_program(program)
+    base = _FakeAuthenticatedBinaryDispatcher()
+    dispatcher = PartitionedComputationalFabricDataflowBinaryDispatcher(
+        base,
+        partition_count=2,
+        max_concurrency=2,
+    )
+
+    report = execute_dataflow_operation_native(plan, dispatcher)
+    comparison = compare_dataflow_with_reference(plan, report.execution, program)
+
+    assert comparison.equivalent
+    assert report.execution.observation["registers"]["x"] == 5
+    assert report.execution.observation["registers"]["y"] == 9
+    composite_receipts = [
+        item for item in report.frontier_receipts
+        if isinstance(item, BinaryFrontierCompositeReceipt)
+    ]
+    assert len(composite_receipts) == 1
+    assert len(composite_receipts[0].children) == 2
+    assert set(dict(composite_receipts[0].results)) == {
+        lane.node_id
+        for lane in composite_receipts[0].request.lanes
+    }
