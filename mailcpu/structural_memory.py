@@ -1741,6 +1741,7 @@ class StructuralMemoryRegistry:
         proposed_events: dict[str, tuple[int, dict[str, Any]]] = {}
         admitted_events: dict[str, tuple[int, dict[str, Any]]] = {}
         read_receipts: list[tuple[int, StructuralMemoryReadReceipt, bool]] = []
+        range_read_receipts: list[tuple[int, StructuralMemoryRangeReadReceipt]] = []
         for record in self.journal.records():
             if not record.kind.startswith("structural_memory."):
                 continue
@@ -1766,6 +1767,14 @@ class StructuralMemoryRegistry:
                     record.sequence,
                     StructuralMemoryReadReceipt.from_dict(payload["receipt"]),
                     record.kind == "structural_memory.read_revision",
+                ))
+            elif record.kind == "structural_memory.read_revision_range":
+                payload = record.payload
+                if set(payload) != {"receipt"}:
+                    raise StructuralMemoryError("structural-memory range-read event payload is invalid")
+                range_read_receipts.append((
+                    record.sequence,
+                    StructuralMemoryRangeReadReceipt.from_dict(payload["receipt"]),
                 ))
             else:
                 raise StructuralMemoryError(f"unknown structural-memory journal event {record.kind!r}")
@@ -1837,6 +1846,15 @@ class StructuralMemoryRegistry:
                     if sequence >= next_admission_sequence:
                         raise StructuralMemoryError("structural-memory read occurs after a newer revision became active")
             self._verify_read_receipt(receipt, version)
+
+        for sequence, receipt in range_read_receipts:
+            version = self._version_for_spec_digest(receipt.spec_digest)
+            if version is None:
+                raise StructuralMemoryError("structural-memory range journal references an unknown revision")
+            admission_sequence = admission_by_spec[receipt.spec_digest]
+            if sequence <= admission_sequence:
+                raise StructuralMemoryError("structural-memory range read precedes revision admission")
+            self._verify_range_read_receipt(receipt, version)
 
     @staticmethod
     def _normalize_witnesses(witnesses: Mapping[int, int]) -> tuple[tuple[int, int], ...]:
