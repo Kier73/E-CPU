@@ -302,7 +302,7 @@ class CompiledMailCPUDataflow:
                 raise ProgramDataflowError("symbolic Structural Memory references must be typed and bound to their register")
         supplied_names = [name for name, _ in registers] + [name for name, _ in receipts] + [name for name, _ in references]
         if len(supplied_names) != len(set(supplied_names)):
-            raise ProgramDataflowError("inline values, read receipts, and symbolic memory references must have disjoint register names")
+            raise ProgramDataflowError("registers cannot be supplied by both inline state and Structural Memory receipts or symbolic references: " + ", ".join(sorted(set(supplied_names))))
         object.__setattr__(self, "structural_memory_refs", references)
         initial_state_payload = {
             "registers": {
