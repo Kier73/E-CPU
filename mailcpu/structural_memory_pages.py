@@ -83,6 +83,10 @@ class StructuralMemoryPageBacking:
         }
         self._page_cache.clear()
         self._receipts.clear()
+        self._regeneration_cost_ns.clear()
+        self._cache_hits.clear()
+        self._cache_touch_order.clear()
+        self._cache_clock = 0
 
     def register_page_reference(
         self,
@@ -105,6 +109,9 @@ class StructuralMemoryPageBacking:
             )
         self._page_cache.pop(digest, None)
         self._receipts.pop(digest, None)
+        self._regeneration_cost_ns.pop(digest, None)
+        self._cache_hits.pop(digest, None)
+        self._cache_touch_order.pop(digest, None)
         return digest
 
     def page_size_for(self, digest: str) -> int:
@@ -233,7 +240,7 @@ class StructuralMemoryPageBacking:
 
     @property
     def cache_retention_policy(self) -> str:
-        """Return the deterministic host-cache objective used to compare retained pages."""
+        """Mathematics: identify the deterministic retention objective C(h)·(1+hits(h))/|page(h)|."""
         return "measured_regeneration_cost_times_observed_reuse_per_byte"
 
     def put_page(self, data: bytes) -> str:
