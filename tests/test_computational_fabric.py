@@ -3271,7 +3271,7 @@ def test_contextual_orbit_inverse_navigation_executes_on_receiver_over_multihop_
         make_contextual_orbit_locate_value_handler(peer_c_os.structural_memory),
     )
     add_operator_spec = dataflow_add_operator_spec()
-    add_inputs: list[dict[str, Any]] = []
+    add_inputs = []
 
     def cpu_add(value, workload):
         add_inputs.append(value)
@@ -3450,8 +3450,8 @@ def test_contextual_orbit_inverse_navigation_executes_on_receiver_over_multihop_
         # Compose the actual A→B→C inverse receipt into two dependent remote ADD frontiers.
         predecessor = ContextualOrbitDataflowInput(request, receipt, field="coordinate")
         dataflow_program = assemble(
-            "add partial located_coordinate 5\\n"
-            "add answer partial located_coordinate\\n"
+            "add partial located_coordinate 5\n"
+            "add answer partial located_coordinate\n"
             "halt"
         )
         plan = MailCPUDataflowCompiler().compile_program(
