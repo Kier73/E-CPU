@@ -25,7 +25,7 @@ OpenSSL must be installed because the script creates a short-lived CA and peer c
 
 The default workload has 64 independent MUL nodes in one ready frontier. Each lane consumes a typed contextual-orbit predecessor, exercising receiver-side rehydration and provenance validation. A bounded 2048-bit multiplier keeps all products within the shared 4096-bit binary operand/result domain.
 
-The local baseline uses the same compiled plan and local DAG evaluator. Remote CPU and remote E-GPU use the same plan, operation contract, mutual-TLS route and origin-side reference verification. Every run is compared with the MailCPU reference interpreter and every lane is checked against the scalar product.
+The local baseline uses the same compiled plan and local DAG evaluator. Remote CPU and remote E-GPU use the same plan, operation contract, mutual-TLS route and origin-side reference verification. Every run is compared with the MailCPU reference interpreter and every lane is checked against the scalar product. The local evaluator's optional timing probe records each MUL node as `local_compute`; the benchmark wraps the whole local evaluation in `total_completion` using the same origin-local probe.
 
 ## Timing model
 

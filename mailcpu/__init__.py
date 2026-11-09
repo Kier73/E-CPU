@@ -495,6 +495,14 @@ from .operation_timing import (
     OperationTimingSample,
     OperationTimingToken,
 )
+from .placement_profile import (
+    PlacementObservation,
+    PlacementProfile,
+    PlacementProfileError,
+    PlacementProfileKey,
+    PlacementRanking,
+    rank_placement_profiles,
+)
 from .holonomy_engine import (
     IDENTITY_2,
     SIGMA_X,
@@ -931,6 +939,12 @@ __all__ = [
     "OperationTimingProbe",
     "OperationTimingSample",
     "OperationTimingToken",
+    "PlacementObservation",
+    "PlacementProfile",
+    "PlacementProfileError",
+    "PlacementProfileKey",
+    "PlacementRanking",
+    "rank_placement_profiles",
     "CompiledMailCPUDataflow",
     "DataflowExecutionReport",
     "ComputationalFabricDataflowAddDispatcher",

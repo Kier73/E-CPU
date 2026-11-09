@@ -34,6 +34,10 @@ from mailcpu import (
     HeadlessOS,
     OperationTimingProbe,
     OperatorRegistry,
+    PlacementObservation,
+    PlacementProfile,
+    PlacementProfileKey,
+    rank_placement_profiles,
     RouteMetric,
     RouteMetricKey,
     SystemIdentity,
@@ -549,6 +553,45 @@ def _probe_report(probes: dict[str, OperationTimingProbe]) -> dict[str, Any]:
     }
 
 
+def _verification_digest(plan: Any, program: Any, report: Any, expected: int, lanes: int) -> str:
+    comparison = compare_dataflow_with_reference(plan, report, program)
+    registers = report.observation["registers"]
+    products = tuple(registers[f"product_{lane}"] for lane in range(lanes))
+    if not comparison.equivalent or any(value != expected for value in products):
+        raise AssertionError("placement sample failed reference or scalar product verification")
+    return canonical_value_digest({
+        "schema": "mailcpu.placement-sample-verification.v1",
+        "plan_digest": plan.digest,
+        "execution_digest": report.digest,
+        "reference_equivalent": comparison.equivalent,
+        "scalar_product_expected": expected,
+        "verified_products": list(products),
+    })
+
+
+def _build_placement_profile(
+    key: PlacementProfileKey,
+    samples: list[Any],
+    run_evidence: list[tuple[str, str, Any]],
+    *,
+    workload_digest: str,
+) -> PlacementProfile:
+    if len(samples) != len(run_evidence) or not samples:
+        raise RuntimeError("placement timing samples and verified execution evidence are misaligned")
+    observations = []
+    for sample, (execution_digest, verification_digest, route_receipt) in zip(samples, run_evidence):
+        observations.append(PlacementObservation.from_timing_sample(
+            key,
+            sample,
+            workload_digest=workload_digest,
+            execution_digest=execution_digest,
+            verification_digest=verification_digest,
+            verification_method="mailcpu-reference-and-scalar-product-oracle",
+            route_receipt=route_receipt,
+        ))
+    return PlacementProfile(key, tuple(observations))
+
+
 def run_benchmark(
     *,
     warmups: int,
@@ -573,6 +616,7 @@ def run_benchmark(
         raise AssertionError("local reference baseline did not preserve the MailCPU observation")
     local_probe.clear()
     local_report = None
+    local_run_evidence: list[tuple[str, str, Any]] = []
     for index in range(warmups + iterations):
         with local_probe.measure("total_completion", correlation_id=plan.digest):
             measured_report = evaluate_dataflow(
@@ -580,12 +624,16 @@ def run_benchmark(
                 max_work_units=len(plan.nodes),
                 timing_probe=local_probe,
             )
-        if not compare_dataflow_with_reference(plan, measured_report, program).equivalent:
-            raise AssertionError("local CPU timing run changed the result")
-        local_registers = measured_report.observation["registers"]
-        if any(local_registers[f"product_{lane}"] != expected for lane in range(lanes)):
-            raise AssertionError("local CPU output does not match the scalar product oracle")
+        verification_digest = _verification_digest(
+            plan, program, measured_report, expected, lanes
+        )
         local_report = measured_report
+        if index >= warmups:
+            local_run_evidence.append((
+                measured_report.digest,
+                verification_digest,
+                None,
+            ))
         if index == warmups - 1:
             local_probe.clear()
     assert local_report is not None
@@ -602,6 +650,8 @@ def run_benchmark(
         "cpu": cpu_probe,
         "egpu": gpu_probe,
     }
+    remote_run_evidence: dict[str, list[tuple[str, str, Any]]] = {}
+    remote_total_samples: dict[str, list[Any]] = {}
     results: dict[str, Any] = {
         "local_cpu": {
             "correct": True,
@@ -624,6 +674,7 @@ def run_benchmark(
                     probe.clear()
                 last_report = None
                 measured_count = 0
+                mode_run_evidence: list[tuple[str, str, Any]] = []
                 for index in range(warmups + iterations):
                     report = fabric.run(
                         plan,
@@ -639,12 +690,25 @@ def run_benchmark(
                     if any(registers[f"product_{lane}"] != expected for lane in range(lanes)):
                         raise AssertionError(f"remote {mode} returned an incorrect product lane")
                     last_report = report
+                    if index >= warmups:
+                        if len(report.frontier_receipts) != 1:
+                            raise AssertionError("placement profile requires exactly one remote MUL frontier receipt")
+                        mode_run_evidence.append((
+                            report.digest,
+                            _verification_digest(plan, program, report.execution, expected, lanes),
+                            report.frontier_receipts[0],
+                        ))
                     if index == warmups - 1:
                         for probe in probes_for_mode.values():
                             probe.clear()
                     if index >= warmups:
                         measured_count += 1
                 assert last_report is not None
+                remote_run_evidence[mode] = mode_run_evidence
+                remote_total_samples[mode] = [
+                    sample for sample in origin_probe.samples
+                    if sample.phase == "total_completion" and sample.correlation_id == plan.digest
+                ]
                 results[f"remote_{mode}"] = {
                     "correct": True,
                     "execution_digest": last_report.execution.digest,
@@ -656,6 +720,82 @@ def run_benchmark(
                 }
         finally:
             fabric.close()
+
+    operator_spec = dataflow_multiply_operator_spec()
+    workload_class_digest = canonical_value_digest({
+        "profile": "mailcpu.operation-frontier.mul.v1",
+        "compiler_semantics": "mailcpu-dataflow-v4",
+        "operator_id": operator_spec.operator_id,
+        "operator_version": operator_spec.version,
+        "lanes": lanes,
+        "multiplier_bits": multiplier_bits,
+        "predecessor_kind": "contextual-orbit",
+        "computational_ground_fingerprint": _GROUND_FP,
+    })
+    origin_environment_digest = canonical_value_digest({
+        "python": platform.python_version(),
+        "platform": platform.platform(),
+        "machine": platform.machine(),
+        "processor": platform.processor(),
+    })
+    local_implementation_fingerprint = canonical_value_digest({
+        "implementation_id": "mailcpu.program_dataflow.evaluate_dataflow",
+        "implementation_profile": "reference-register-dag",
+        "profile_version": 1,
+        "compiler_semantics": "mailcpu-dataflow-v4",
+    })
+    local_key = PlacementProfileKey(
+        workload_class_digest=workload_class_digest,
+        operator_id=operator_spec.operator_id,
+        operator_version=operator_spec.version,
+        operator_contract_digest=operator_spec.digest,
+        computational_ground_fingerprint=_GROUND_FP,
+        origin_environment_digest=origin_environment_digest,
+        target_host_id="local/origin-cpu",
+        implementation_fingerprint=local_implementation_fingerprint,
+    )
+    local_total_samples = [
+        sample for sample in local_probe.samples
+        if sample.phase == "total_completion" and sample.correlation_id == plan.digest
+    ]
+    profiles = [
+        _build_placement_profile(
+            local_key,
+            local_total_samples,
+            local_run_evidence,
+            workload_digest=plan.digest,
+        )
+    ]
+    for mode in ("cpu", "egpu"):
+        evidence = remote_run_evidence[mode]
+        receipts = [item[2] for item in evidence]
+        first_receipt = receipts[0]
+        if any(
+            item.host_id != first_receipt.host_id
+            or item.implementation_fingerprint != first_receipt.implementation_fingerprint
+            or item.peer_path != first_receipt.peer_path
+            for item in receipts
+        ):
+            raise AssertionError(f"remote {mode} placement identity changed during the profile window")
+        total_samples = remote_total_samples[mode]
+        key = PlacementProfileKey(
+            workload_class_digest=workload_class_digest,
+            operator_id=operator_spec.operator_id,
+            operator_version=operator_spec.version,
+            operator_contract_digest=operator_spec.digest,
+            computational_ground_fingerprint=_GROUND_FP,
+            origin_environment_digest=origin_environment_digest,
+            target_host_id=first_receipt.host_id,
+            implementation_fingerprint=first_receipt.implementation_fingerprint,
+            peer_path=first_receipt.peer_path,
+        )
+        profiles.append(_build_placement_profile(
+            key,
+            total_samples,
+            evidence,
+            workload_digest=plan.digest,
+        ))
+    placement_ranking = rank_placement_profiles(profiles, minimum_observations=3)
 
     return {
         "schema": "mailcpu.operation-frontier-timing-benchmark.v1",
@@ -674,6 +814,17 @@ def run_benchmark(
             "transport": "mutual-TLS over loopback TCP",
         },
         "results": results,
+        "placement_profiles": {
+            "profiles": [profile.to_dict() for profile in profiles],
+            "ranking": placement_ranking.to_dict(),
+            "selection_policy": (
+                "Complete profiles are ranked by origin total_completion median, p95, "
+                "mean, then stable host/implementation/route identity. Every sample "
+                "must retain a typed execution receipt where remote and a separate "
+                "reference-interpreter plus scalar-oracle verification digest."
+            ),
+            "authority": "advisory-only; the fabric resolver, receiver admission and Hypervisor remain authoritative",
+        },
         "phase_semantics": {
             "total_completion": "Origin-local end-to-end duration for the complete DAG execution and verified commit.",
             "fabric_route_resolution": "Origin-local semantic host and route selection.",

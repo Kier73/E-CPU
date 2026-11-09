@@ -332,3 +332,5 @@ python examples/operation_frontier_benchmark.py --warmups 1 --iterations 5 --lan
 ```
 
 The benchmark uses a one-hop mutual-TLS loopback route and requires OpenSSL to create ephemeral test certificates. It checks each placement against the MailCPU reference interpreter. Its timings are endpoint-local observations, not a WAN latency or physical GPU speedup claim. [OPERATION_FRONTIER_TIMING.md](docs/OPERATION_FRONTIER_TIMING.md) explains the measurement phases, nested intervals, clock-domain rules and interpretation boundaries.
+
+The benchmark also emits immutable empirical placement profiles for local CPU, remote CPU and remote E-GPU. Each observation binds the exact compiled workload, origin-local total-completion sample, verification digest, and (for remote runs) the complete typed frontier receipt. Profiles are comparable only when their workload class, operator contract, Computational Ground and origin environment match. A ranking requires at least three observations per placement by default and remains advisory; it does not bypass live fabric resolution or receiver Hypervisor admission. See [PLACEMENT_PROFILES.md](docs/PLACEMENT_PROFILES.md).

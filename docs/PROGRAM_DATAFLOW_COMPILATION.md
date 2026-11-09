@@ -90,6 +90,8 @@ evaluate_dataflow evaluates each ready frontier as independent pure work, then c
 
 compare_dataflow_with_reference independently runs the same Program through ReferenceInterpreter and compares the declared terminal observation using the plan's TranslationContract.
 
+The local evaluator accepts an optional endpoint-local timing probe. When supplied, each local MUL node records a `local_compute` interval correlated to the exact compiled-plan digest. This is side-band observation; it does not alter DAG identity, node results, or the declared terminal observation. The caller owns the probe and may wrap the complete evaluation in its own `total_completion` interval.
+
 The observation intentionally excludes the per-instruction trace. This compiler promises exact terminal status, PC, step count, halted/blocked state, and final register values for the admitted subset. It does not claim to preserve intermediate trace ordering as an execution schedule.
 
 Compilation can be independently re-created with verify_dataflow_compilation. A plan created from source bytes requires those original bytes for re-verification. A plan created from a Program retains the exact typed program identity but makes no claim about the original source encoding.
