@@ -516,20 +516,18 @@ def test_claim_bound_partitioned_dispatch_batches_tickets_and_preserves_receipt_
 
 def test_claim_bound_envelope_round_trip_and_relay_preserve_exact_ticket(tmp_path) -> None:
     """Mathematics: envelope v2 transports the claim and exact parent across each route cursor without changing its ticket."""
+    from mailcpu.frontier_partition import split_binary_frontier_request
+
     request = _request()
     base = _FakeAuthenticatedBinaryDispatcher()
-    partition = __import__(
-        "mailcpu.frontier_partition",
-        fromlist=["split_binary_frontier_request"],
-    ).split_binary_frontier_request(
+    partition = split_binary_frontier_request(
         request,
         (
             (request.lanes[0].node_id,),
             tuple(lane.node_id for lane in request.lanes[1:]),
         ),
     )[0]
-    # Use a two-lane child address that matches the real request's intention and
-    # input representation; it is sufficient for the envelope claim contract.
+    # Use the exact one-lane child address from the real partition plan.
     store = _claim_store(tmp_path)
     spec = {
         "parent_request_digest": request.digest,
