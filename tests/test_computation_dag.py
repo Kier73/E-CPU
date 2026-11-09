@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
@@ -212,4 +213,27 @@ def test_frontier_commit_refuses_mixed_partial_retry() -> None:
 
     assert graph.committed_nodes == ("a",)
     assert tuple(node.node_id for node in graph.ready_nodes()) == ("b",)
+
+def test_concurrent_exact_frontier_retries_publish_once() -> None:
+    """Mathematics: concurrent equivalent frontier submissions linearize to one new commit and exact idempotent replays."""
+    graph = NavigableComputationDAG((
+        _node("a"),
+        _node("b"),
+        _node("join", ("a", "b")),
+    ))
+    frontier = ("a", "b")
+    results = {"a": {"value": 1}, "b": {"value": 2}}
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        outcomes = tuple(
+            executor.map(
+                lambda _index: graph.commit_frontier(results, expected_node_ids=frontier),
+                range(8),
+            )
+        )
+
+    assert outcomes.count(False) == 1
+    assert outcomes.count(True) == 7
+    assert graph.committed_nodes == frontier
+    assert tuple(node.node_id for node in graph.ready_nodes()) == ("join",)
 
