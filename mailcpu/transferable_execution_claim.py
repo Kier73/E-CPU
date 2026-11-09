@@ -710,6 +710,7 @@ class TransferableExecutionClaimStore:
         claims: Mapping[str, TransferableExecutionClaim],
         previous_generation: int,
         predecessor_digest: str,
+        target_claim_id: str,
     ) -> PortableExecutionClaimBundle:
         """Mathematics: Publish one full sorted claim state only after its bytes are durable and a strict majority commits its manifest."""
         generation = previous_generation + 1
@@ -749,7 +750,7 @@ class TransferableExecutionClaimStore:
             ) from exc
         if proof.snapshot() != verified.snapshot():
             raise TransferableExecutionClaimError("claim commit proof differs from the live verified proof")
-        claim = next((item for item in claims.values() if item.claim_id == self._pending_claim_id), None)
+        claim = claims.get(target_claim_id)
         if claim is None:
             raise TransferableExecutionClaimError("published claim transition omitted its target claim")
         return PortableExecutionClaimBundle(claim, manifest, proof, snapshot)
@@ -816,11 +817,7 @@ class TransferableExecutionClaimStore:
                 (ExecutionClaimAssignment(1, owner_peer_id, owner_host_id, implementation_fingerprint, next_generation),),
             )
             claims[claim.claim_id] = claim
-            self._pending_claim_id = claim.claim_id
-            try:
-                return self._publish_locked(claims, generation, predecessor)
-            finally:
-                self._pending_claim_id = None
+            return self._publish_locked(claims, generation, predecessor, claim.claim_id)
 
     def get(self, claim_id: str) -> PortableExecutionClaimBundle:
         """Mathematics: Return the current claim and full portable quorum proof from the latest anchored state."""
@@ -896,11 +893,7 @@ class TransferableExecutionClaimStore:
                 current.assignments + (assignment,),
             )
             claims[claim_id] = updated
-            self._pending_claim_id = claim_id
-            try:
-                return self._publish_locked(claims, generation, predecessor)
-            finally:
-                self._pending_claim_id = None
+            return self._publish_locked(claims, generation, predecessor, claim_id)
 
     def complete(
         self,
@@ -963,11 +956,7 @@ class TransferableExecutionClaimStore:
                 next_generation,
             )
             claims[claim_id] = updated
-            self._pending_claim_id = claim_id
-            try:
-                return self._publish_locked(claims, generation, predecessor)
-            finally:
-                self._pending_claim_id = None
+            return self._publish_locked(claims, generation, predecessor, claim_id)
 
     @property
     def high_water(self) -> tuple[int, str]:
