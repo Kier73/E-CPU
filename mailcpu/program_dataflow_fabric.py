@@ -562,12 +562,11 @@ def execute_dataflow_operation_native(
     operation_dispatchers: Mapping[str, Callable[[Any], Any]] | None = None,
     max_work_units: int | None = None,
 ) -> OperationNativeDataflowReport:
-    """Mathematics: evaluate a DAG while dispatching each ready ADD frontier as one semantic operation.
+    """Mathematics: evaluate a DAG while optionally dispatching typed ADD and COMPARE frontiers.
 
-    SET, COPY, COMPARE, and HALT are evaluated locally in this first profile.
-    ADD nodes in the same frontier are packed into ordered lanes. The returned
-    values are checked against an independent scalar definition before any
-    node in that frontier is committed.
+    SET, COPY, and HALT remain local. COMPARE remains local unless a COMPARE
+    dispatcher is supplied. Remote binary frontiers are packed into ordered
+    lanes and checked against independent scalar definitions before commit.
     """
     if not isinstance(plan, CompiledMailCPUDataflow):
         raise OperationNativeDataflowError("plan must be a CompiledMailCPUDataflow")
@@ -644,7 +643,7 @@ def execute_dataflow_operation_native(
             operands = payload.get("operands")
             if not isinstance(operands, list):
                 raise OperationNativeDataflowError(f"node {node_id!r} has no typed operand list")
-            if opcode in {Op.ADD.value, Op.COMPARE.value}:
+            if opcode == Op.ADD.value or (opcode == Op.COMPARE.value and "COMPARE" in dispatchers):
                 operation = opcode
                 if len(operands) != 2:
                     raise OperationNativeDataflowError(f"{operation} node {node_id!r} must have two operands")
@@ -682,7 +681,7 @@ def execute_dataflow_operation_native(
             values = [_operand_value(graph, item, node_id) for item in operands]
             if any(isinstance(item, VirtualStructuralMemoryRef) for item in values):
                 raise OperationNativeDataflowError(
-                    f"symbolic Structural Memory operands are only admitted by ADD in this execution profile (node {node_id!r})"
+                    f"symbolic Structural Memory operands are only admitted by remote ADD/COMPARE in this execution profile (node {node_id!r})"
                 )
             if opcode in {Op.SET.value, Op.COPY.value}:
                 if len(values) != 1:
