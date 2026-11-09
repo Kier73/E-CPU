@@ -1195,60 +1195,132 @@ class TransferableExecutionClaimStore:
         implementation_fingerprint: str,
         failure_evidence_digest: str,
     ) -> PortableExecutionClaimBundle:
-        """Mathematics: Revoke a prior result-acceptance epoch and assign a new logical host through one quorum transition."""
-        _digest(claim_id, "claim id")
-        _positive(expected_epoch, "expected assignment epoch")
-        _digest(failure_evidence_digest, "reassignment evidence digest")
-        target_peer = _fabric_id(owner_peer_id, "new assignment peer id")
-        target_host = _fabric_id(owner_host_id, "new assignment host id")
-        target_implementation = _digest(implementation_fingerprint, "new implementation fingerprint")
+        """Mathematics: Revoke one prior result-acceptance epoch using the atomic batch reassignment transition."""
+        return self.reassign_many(({
+            "claim_id": claim_id,
+            "expected_epoch": expected_epoch,
+            "owner_peer_id": owner_peer_id,
+            "owner_host_id": owner_host_id,
+            "implementation_fingerprint": implementation_fingerprint,
+            "failure_evidence_digest": failure_evidence_digest,
+        },))[0]
+
+    def reassign_many(
+        self,
+        reassignments: Sequence[Mapping[str, Any]],
+    ) -> tuple[PortableExecutionClaimBundle, ...]:
+        """Mathematics: Atomically revoke and replace a bounded set of failed child assignments in one quorum generation."""
+        if not isinstance(reassignments, (list, tuple)) or not 1 <= len(reassignments) <= 64:
+            raise TransferableExecutionClaimError("claim reassignment batch must contain between one and 64 children")
+        expected_fields = {
+            "claim_id",
+            "expected_epoch",
+            "owner_peer_id",
+            "owner_host_id",
+            "implementation_fingerprint",
+            "failure_evidence_digest",
+        }
+        normalized: list[dict[str, Any]] = []
+        for index, item in enumerate(reassignments):
+            if not isinstance(item, Mapping) or set(item) != expected_fields:
+                raise TransferableExecutionClaimError(
+                    f"claim reassignment item {index} fields do not match the exact reassignment schema"
+                )
+            normalized.append({
+                "claim_id": _digest(item["claim_id"], "claim id"),
+                "expected_epoch": _positive(item["expected_epoch"], "expected assignment epoch"),
+                "owner_peer_id": _fabric_id(item["owner_peer_id"], "new assignment peer id"),
+                "owner_host_id": _fabric_id(item["owner_host_id"], "new assignment host id"),
+                "implementation_fingerprint": _digest(item["implementation_fingerprint"], "new implementation fingerprint"),
+                "failure_evidence_digest": _digest(item["failure_evidence_digest"], "reassignment evidence digest"),
+            })
+        claim_ids = tuple(item["claim_id"] for item in normalized)
+        if len(claim_ids) != len(set(claim_ids)):
+            raise TransferableExecutionClaimError("claim reassignment batch identifiers must be unique")
+        target_hosts = tuple((item["owner_peer_id"], item["owner_host_id"]) for item in normalized)
+        if len(target_hosts) != len(set(target_hosts)):
+            raise TransferableExecutionClaimError("claim reassignment batch cannot assign two children to one logical Host")
+
         with self._locked():
             self._resume_pending_locked()
             generation, predecessor, _snapshot, claims, manifest, proof = self._load_latest_locked()
-            current = claims.get(claim_id)
-            if current is None or manifest is None or proof is None:
-                raise TransferableExecutionClaimError("execution claim does not exist in the quorum ledger")
-            if current.status is ExecutionClaimStatus.COMPLETED:
-                raise TransferableExecutionClaimError("completed execution claim cannot be reassigned")
-            latest = current.current_assignment
-            if latest.epoch == expected_epoch + 1 and (
-                latest.owner_peer_id,
-                latest.owner_host_id,
-                latest.implementation_fingerprint,
-                latest.failure_evidence_digest,
-            ) == (
-                target_peer,
-                target_host,
-                target_implementation,
-                failure_evidence_digest,
-            ):
-                return self._bundle_for_claim(claim_id, claims, manifest, proof)
-            if latest.epoch != expected_epoch:
-                raise TransferableExecutionClaimError("stale assignment epoch cannot reassign the current execution claim")
-            if (latest.owner_peer_id, latest.owner_host_id) == (target_peer, target_host):
-                raise TransferableExecutionClaimError("reassignment must target a different logical host")
+            if manifest is None or proof is None:
+                raise TransferableExecutionClaimError("claim reassignment requires an existing quorum-anchored assignment generation")
+
+            selected: list[TransferableExecutionClaim] = []
+            already_reassigned = 0
+            for item in normalized:
+                current = claims.get(item["claim_id"])
+                if current is None:
+                    raise TransferableExecutionClaimError("claim reassignment batch references an unknown claim")
+                if current.status is ExecutionClaimStatus.COMPLETED:
+                    raise TransferableExecutionClaimError("completed execution claim cannot be reassigned")
+                latest = current.current_assignment
+                target = (
+                    item["owner_peer_id"],
+                    item["owner_host_id"],
+                    item["implementation_fingerprint"],
+                    item["failure_evidence_digest"],
+                )
+                actual_retry = (
+                    latest.owner_peer_id,
+                    latest.owner_host_id,
+                    latest.implementation_fingerprint,
+                    latest.failure_evidence_digest,
+                )
+                if latest.epoch == item["expected_epoch"] + 1 and actual_retry == target:
+                    already_reassigned += 1
+                elif latest.epoch != item["expected_epoch"]:
+                    raise TransferableExecutionClaimError(
+                        "stale assignment epoch cannot reassign the current execution claim"
+                    )
+                elif (latest.owner_peer_id, latest.owner_host_id) == (
+                    item["owner_peer_id"], item["owner_host_id"]
+                ):
+                    raise TransferableExecutionClaimError("reassignment must target a different logical Host")
+                selected.append(current)
+
+            if already_reassigned not in (0, len(selected)):
+                raise TransferableExecutionClaimError(
+                    "claim reassignment retry cannot mix already-reassigned and still-assigned children"
+                )
+            if already_reassigned == len(selected):
+                return tuple(
+                    self._bundle_for_claim(item["claim_id"], claims, manifest, proof)
+                    for item in normalized
+                )
+
             next_generation = generation + 1
-            assignment = ExecutionClaimAssignment(
-                expected_epoch + 1,
-                target_peer,
-                target_host,
-                target_implementation,
-                next_generation,
-                failure_evidence_digest,
+            for item, current in zip(normalized, selected):
+                assignment = ExecutionClaimAssignment(
+                    item["expected_epoch"] + 1,
+                    item["owner_peer_id"],
+                    item["owner_host_id"],
+                    item["implementation_fingerprint"],
+                    next_generation,
+                    item["failure_evidence_digest"],
+                )
+                updated = TransferableExecutionClaim(
+                    current.parent_request_digest,
+                    current.child_request_digest,
+                    current.address_digest,
+                    current.operator_id,
+                    current.operator_contract_digest,
+                    current.operator_spec,
+                    current.computational_ground_fingerprint,
+                    current.replay_policy,
+                    current.assignments + (assignment,),
+                )
+                claims[current.claim_id] = updated
+
+            self._publish_locked(claims, generation, predecessor, claim_ids[0])
+            _generation, _predecessor, _snapshot, claims, manifest, proof = self._load_latest_locked()
+            if manifest is None or proof is None:
+                raise TransferableExecutionClaimError("claim reassignment batch did not retain a quorum-committed state")
+            return tuple(
+                self._bundle_for_claim(identifier, claims, manifest, proof)
+                for identifier in claim_ids
             )
-            updated = TransferableExecutionClaim(
-                current.parent_request_digest,
-                current.child_request_digest,
-                current.address_digest,
-                current.operator_id,
-                current.operator_contract_digest,
-                current.operator_spec,
-                current.computational_ground_fingerprint,
-                current.replay_policy,
-                current.assignments + (assignment,),
-            )
-            claims[claim_id] = updated
-            return self._publish_locked(claims, generation, predecessor, claim_id)
 
     def complete(
         self,
