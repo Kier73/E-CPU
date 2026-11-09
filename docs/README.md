@@ -73,7 +73,7 @@ Index of specification documents. Documents use defined terms from `GLOSSARY.md`
 | 64 | [`BINARY_FRONTIER_PARTITIONING.md`](BINARY_FRONTIER_PARTITIONING.md) | Atomic DAG frontier publication and deterministic, receipt-bound child request partitions across fabric hosts |
 | 65 | [`PARTITIONED_BINARY_FRONTIER_EXECUTION.md`](PARTITIONED_BINARY_FRONTIER_EXECUTION.md) | Authenticated child dispatch, typed composite receipts, checkpoint recovery, stable stream sequencing and bounded cross-host concurrency |
 | 66 | [`TRANSFERABLE_EXECUTION_CLAIMS.md`](TRANSFERABLE_EXECUTION_CLAIMS.md) | Quorum-anchored portable execution claims, assignment-epoch fencing, current-owner verification and safe result acceptance for pure operations |
-| 67 | [`CLAIM_BOUND_FABRIC_ADMISSION.md`](CLAIM_BOUND_FABRIC_ADMISSION.md) | Batched child tickets, claim-bound envelope v2, terminal Hypervisor admission, origin freshness checks and atomic parent-level result completion |
+| 67 | [`CLAIM_BOUND_FABRIC_ADMISSION.md`](CLAIM_BOUND_FABRIC_ADMISSION.md) | Batched child tickets, claim-bound envelope v2, direct mutual-TLS status refresh, terminal Hypervisor admission, origin freshness checks, atomic parent completion and bounded rehome |
 
 ## Document classes
 
