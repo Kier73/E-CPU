@@ -483,7 +483,7 @@ def test_claim_bound_partitioned_dispatch_batches_tickets_and_preserves_receipt_
 
     child_payload = composite.children[0].to_dict()
     child_payload["receipt"]["execution_claim"]["assignment_epoch"] += 1
-    from mailcpu import BinaryFrontierChildReceipt
+    from mailcpu.partitioned_dataflow import BinaryFrontierChildReceipt
     with pytest.raises(ValueError, match="execution claim|claim"):
         BinaryFrontierChildReceipt.from_dict(child_payload)
 
@@ -515,7 +515,10 @@ def test_claim_bound_envelope_round_trip_and_relay_preserve_exact_ticket(tmp_pat
         fromlist=["split_binary_frontier_request"],
     ).split_binary_frontier_request(
         request,
-        ((request.lanes[0].node_id, request.lanes[1].node_id),),
+        (
+            (request.lanes[0].node_id,),
+            tuple(lane.node_id for lane in request.lanes[1:]),
+        ),
     )[0]
     # Use a two-lane child address that matches the real request's intention and
     # input representation; it is sufficient for the envelope claim contract.
