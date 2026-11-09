@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import replace
 from pathlib import Path
 
@@ -82,7 +83,7 @@ def test_quorum_claim_round_trip_and_exact_target_admission(tmp_path: Path) -> N
     wire_bundle = bundle.to_dict()
     assert "state_snapshot" not in wire_bundle
     assert "state_commitment" in wire_bundle and "merkle_proof" in wire_bundle
-    assert len(__import__("json").dumps(wire_bundle, sort_keys=True)) < 16_384
+    assert len(json.dumps(wire_bundle, sort_keys=True)) < 16_384
     restored = PortableExecutionClaimBundle.from_dict(wire_bundle)
     restored.verify_current(coordinator)
     assert restored.digest == bundle.digest
@@ -320,3 +321,71 @@ def test_durable_unquorummed_claim_generation_resumes_exact_same_proposal(tmp_pa
     assert recovered.manifest.generation == 1
     assert recovered.claim.current_assignment.epoch == 1
     assert store.resume_pending() is False
+
+
+def test_compact_merkle_claim_ticket_proves_membership_in_three_claim_state(tmp_path: Path) -> None:
+    """Mathematics: each compact ticket proves one sorted claim leaf, including duplicate-last odd tree branches, against the quorum-anchored root."""
+    store, coordinator = _store(tmp_path)
+    first = _create(store)
+    second = store.create(
+        parent_request_digest=PARENT,
+        child_request_digest=H("child-second"),
+        address_digest=H("address-second"),
+        operator_spec=dataflow_add_operator_spec(),
+        computational_ground_fingerprint=GROUND,
+        owner_peer_id="peer-b",
+        owner_host_id="logical-cpu-b",
+        implementation_fingerprint=IMPL_B,
+    )
+    third = store.create(
+        parent_request_digest=PARENT,
+        child_request_digest=H("child-third"),
+        address_digest=H("address-third"),
+        operator_spec=dataflow_add_operator_spec(),
+        computational_ground_fingerprint=GROUND,
+        owner_peer_id="peer-c",
+        owner_host_id="logical-cpu-c",
+        implementation_fingerprint=IMPL_C,
+    )
+
+    bundles = [
+        store.get(item.claim.claim_id)
+        for item in (first, second, third)
+    ]
+    assert all(item.state_commitment["claim_count"] == 3 for item in bundles)
+    assert all(len(item.merkle_proof) == 2 for item in bundles)
+    last = max(bundles, key=lambda item: item.claim_index)
+    assert last.claim_index == 2
+    assert last.merkle_proof[0].side == "right"
+    assert last.merkle_proof[0].sibling_digest == hashlib.sha256(
+        b"\\x00" + json.dumps(
+            {
+                "claim_id": last.claim.claim_id,
+                "claim_digest": last.claim.digest,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+
+    for bundle in bundles:
+        portable = bundle.to_dict()
+        assert "state_snapshot" not in portable
+        assert len(json.dumps(portable, sort_keys=True)) < 16_384
+        restored = PortableExecutionClaimBundle.from_dict(portable)
+        restored.verify_current(coordinator)
+        assert restored.digest == bundle.digest
+
+    tampered = last.to_dict()
+    tampered["merkle_proof"][0]["sibling_digest"] = H("forged-sibling")
+    tampered["digest"] = hashlib.sha256(json.dumps(
+        {key: value for key, value in tampered.items() if key != "digest"},
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")).hexdigest()
+    with pytest.raises(TransferableExecutionClaimError, match="inclusion path"):
+        PortableExecutionClaimBundle.from_dict(tampered)
