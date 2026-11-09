@@ -133,3 +133,83 @@ def test_node_payload_rejects_values_outside_the_json_algebra(payload) -> None:
 
     with pytest.raises(ComputationDAGError):
         _node("root", payload=payload)
+
+def test_frontier_commit_is_atomic_idempotent_and_snapshot_safe() -> None:
+    """Mathematics: one exact ready frontier changes commit domain from C to C∪F in one transaction."""
+    graph = NavigableComputationDAG((
+        _node("a", payload={"source": "left"}),
+        _node("b", payload={"source": "right"}),
+        _node("join", ("a", "b"), payload={"operation": "join"}),
+    ))
+    frontier = ("a", "b")
+    results = {
+        "a": {"value": 11},
+        "b": {"value": 31},
+    }
+
+    assert graph.commit_frontier(results, expected_node_ids=frontier) is False
+    assert graph.committed_nodes == frontier
+    assert tuple(node.node_id for node in graph.ready_nodes()) == ("join",)
+    assert graph.commit_frontier(results, expected_node_ids=frontier) is True
+
+    restored = NavigableComputationDAG.from_snapshot(graph.snapshot())
+    assert restored.committed_nodes == frontier
+    assert restored.result("a") == {"value": 11}
+    assert restored.result("b") == {"value": 31}
+    assert tuple(node.node_id for node in restored.ready_nodes()) == ("join",)
+
+    with pytest.raises(ComputationDAGError, match="conflicting result"):
+        graph.commit_frontier(
+            {"a": {"value": 12}, "b": {"value": 31}},
+            expected_node_ids=frontier,
+        )
+    assert graph.committed_nodes == frontier
+
+
+def test_frontier_commit_refuses_partial_or_invalid_results_without_mutation() -> None:
+    """Mathematics: failed validation leaves the prior commit map C unchanged for every submitted frontier."""
+    graph = NavigableComputationDAG((
+        _node("a"),
+        _node("b"),
+        _node("join", ("a", "b")),
+    ))
+    frontier = ("a", "b")
+
+    with pytest.raises(ComputationDAGError, match="exact expected node identities"):
+        graph.commit_frontier({"a": {"value": 1}}, expected_node_ids=frontier)
+    assert graph.committed_nodes == ()
+
+    with pytest.raises(ComputationDAGError, match="unsupported computation DAG value type"):
+        graph.commit_frontier(
+            {"a": {"value": 1}, "b": {"value": object()}},
+            expected_node_ids=frontier,
+        )
+    assert graph.committed_nodes == ()
+    assert tuple(node.node_id for node in graph.ready_nodes()) == frontier
+
+    with pytest.raises(ComputationDAGError, match="stable order"):
+        graph.commit_frontier(
+            {"a": {"value": 1}, "b": {"value": 2}},
+            expected_node_ids=("b", "a"),
+        )
+    assert graph.committed_nodes == ()
+
+
+def test_frontier_commit_refuses_mixed_partial_retry() -> None:
+    """Mathematics: a batch with only a strict subset already committed cannot complete a frontier transaction."""
+    graph = NavigableComputationDAG((
+        _node("a"),
+        _node("b"),
+        _node("join", ("a", "b")),
+    ))
+    graph.commit("a", {"value": 1})
+
+    with pytest.raises(ComputationDAGError, match="partially committed frontier"):
+        graph.commit_frontier(
+            {"a": {"value": 1}, "b": {"value": 2}},
+            expected_node_ids=("a", "b"),
+        )
+
+    assert graph.committed_nodes == ("a",)
+    assert tuple(node.node_id for node in graph.ready_nodes()) == ("b",)
+
