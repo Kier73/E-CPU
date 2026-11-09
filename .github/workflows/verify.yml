@@ -58,9 +58,10 @@ jobs:
         if: always() && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.14'
         run: >-
           python scripts/benchmark_vm_fleet.py
-          --vm-counts 1,2,4,8
+          --vm-counts 1,2,4,8,16,32
           --work-units 64
           --working-set-pages 2
+          --max-total-resident-pages 64
           --pretty
           --output vm-fleet-capacity.json
 
