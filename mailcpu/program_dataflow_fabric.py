@@ -100,7 +100,7 @@ def _strict_integer(value: Any, label: str) -> int:
 
 
 @dataclass(frozen=True)
-class DataflowAddLane:
+class DataflowBinaryLane:
     """One stable binary DAG node with two scalar operands and optional typed orbit provenance."""
 
     node_id: str
@@ -170,7 +170,7 @@ class DataflowAddLane:
         }
 
 
-DataflowBinaryLane = DataflowAddLane
+DataflowAddLane = DataflowBinaryLane
 
 
 @dataclass(frozen=True)
