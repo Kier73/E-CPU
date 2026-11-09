@@ -44,6 +44,8 @@ from .transferable_execution_claim import (
 
 _MAX_PARTITIONS = 64
 _MAX_ROUTE_CANDIDATES = 128
+_ASSIGNMENT_EPOCH_SLOTS = 4
+_SEQUENCE_WINDOW_SIZE = _MAX_PARTITIONS * _ASSIGNMENT_EPOCH_SLOTS
 _REQUEST_TYPES = {
     "ADD": DataflowAddFrontierRequest,
     "COMPARE": DataflowCompareFrontierRequest,
@@ -853,12 +855,12 @@ class PartitionedComputationalFabricDataflowBinaryDispatcher:
         if type(max_rehome_rounds) is not int or not 0 <= max_rehome_rounds <= 3:
             raise OperationNativeDataflowError("max_rehome_rounds must be a strict integer in the range 0..3")
         self.dispatcher = dispatcher
-        # Reserve one 64-sequence window per DAG frontier. The wrapped
-        # single-child fallback uses the window base, while partition children
-        # use stable ordinal offsets inside the same window.
+        # Reserve 64 sequence slots for each of four possible assignment
+        # epochs (initial + three rehomes). A rehome therefore never reuses a
+        # relay's previous source/channel/sequence deduplication coordinate.
         current_stride = getattr(dispatcher, "frontier_sequence_stride", 1)
-        if type(current_stride) is not int or current_stride < _MAX_PARTITIONS:
-            dispatcher.frontier_sequence_stride = _MAX_PARTITIONS
+        if type(current_stride) is not int or current_stride < _SEQUENCE_WINDOW_SIZE:
+            dispatcher.frontier_sequence_stride = _SEQUENCE_WINDOW_SIZE
         self.operator_spec = dispatcher.operator_spec
         self.operation = dispatcher.operation
         self.max_concurrency = max_concurrency
@@ -1416,12 +1418,21 @@ class PartitionedComputationalFabricDataflowBinaryDispatcher:
             def dispatch_one(partition: BinaryFrontierPartition) -> BinaryFrontierChildReceipt:
                 """Mathematics: send one child through its fixed route with the stable sequence slot and one current quorum ticket."""
                 partition_index = index_by_child[partition.request.digest]
+                claim_bundle = claim_tickets.get(partition.digest)
+                assignment_epoch = (
+                    1 if claim_bundle is None
+                    else claim_bundle.claim.current_assignment.epoch
+                )
+                if not 1 <= assignment_epoch <= _ASSIGNMENT_EPOCH_SLOTS:
+                    raise OperationNativeDataflowError(
+                        "child assignment epoch exceeds the reserved origin-sequence attempt window"
+                    )
                 sequence = (
                     self.dispatcher.first_sequence
                     + request.frontier_index * self.dispatcher.frontier_sequence_stride
+                    + (assignment_epoch - 1) * _MAX_PARTITIONS
                     + partition_index
                 )
-                claim_bundle = claim_tickets.get(partition.digest)
                 if claim_bundle is None:
                     receipt = self.dispatcher(
                         partition.request,
