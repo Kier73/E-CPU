@@ -141,6 +141,7 @@ class DataflowAddLane:
                     raise OperationNativeDataflowError(f"lane {side} contextual-orbit provenance must be sorted by digest")
                 if len({item.digest for item in orbit_inputs}) != len(orbit_inputs):
                     raise OperationNativeDataflowError(f"lane {side} contextual-orbit provenance must be unique")
+                object.__setattr__(self, f"{side}_orbit_inputs", orbit_inputs)
             if reference is not None:
                 if not isinstance(register, str) or _REGISTER.fullmatch(register) is None:
                     raise OperationNativeDataflowError(f"lane {side} memory operand requires its source register")
