@@ -3117,8 +3117,8 @@ def test_compiled_dataflow_frontiers_execute_on_distinct_fabric_hosts_with_egpu(
 
 
 
-def test_contextual_orbit_inverse_navigation_composes_into_egpu_dataflow_over_multihop_fabric(tmp_path) -> None:
-    """A→B→C routes inverse navigation and then two dependent typed-predecessor ADD frontiers to E-GPU at C."""
+def test_contextual_orbit_inverse_navigation_composes_compare_and_add_over_multihop_fabric(tmp_path) -> None:
+    """A→B→C routes inverse navigation, then COMPARE and ADD frontiers to one E-GPU receiver at C."""
     from mailcpu import (
         ComputationalFabricForwardingClient,
         ComputationalFabricForwardingServer,
@@ -3130,9 +3130,12 @@ def test_contextual_orbit_inverse_navigation_composes_into_egpu_dataflow_over_mu
     from mailcpu.program_dataflow import MailCPUDataflowCompiler
     from mailcpu.program_dataflow_fabric import (
         ComputationalFabricDataflowAddDispatcher,
+        ComputationalFabricDataflowCompareDispatcher,
         dataflow_add_operator_spec,
+        dataflow_compare_operator_spec,
         execute_dataflow_operation_native,
         make_egpu_dataflow_add_handler,
+        make_egpu_dataflow_compare_handler,
     )
     from mailcpu.classifier import HypervisorPolicy
     from mailcpu.computational_fabric_forwarding import (
@@ -3273,7 +3276,9 @@ def test_contextual_orbit_inverse_navigation_composes_into_egpu_dataflow_over_mu
         make_contextual_orbit_locate_value_handler(peer_c_os.structural_memory),
     )
     add_operator_spec = dataflow_add_operator_spec()
+    compare_operator_spec = dataflow_compare_operator_spec()
     add_inputs = []
+    compare_inputs = []
     egpu = EGPUHost(host_id="egpu.peer-c")
     egpu_registry = OperatorRegistry()
 
@@ -3281,11 +3286,17 @@ def test_contextual_orbit_inverse_navigation_composes_into_egpu_dataflow_over_mu
         add_inputs.append(value)
         return make_egpu_dataflow_add_handler(egpu)(value, workload)
 
+    def egpu_compare(value, workload):
+        compare_inputs.append(value)
+        return make_egpu_dataflow_compare_handler(egpu)(value, workload)
+
     egpu_registry.register(add_operator_spec, egpu_add)
+    egpu_registry.register(compare_operator_spec, egpu_compare)
     runtime_gpu_c = VirtualLayerRuntime(egpu_registry, "node-c", frozenset({"gpu"}))
     runtime_c = VirtualLayerRuntime(registry_c, "node-c", frozenset({"cpu"}))
     implementation_fingerprint = "d" * 64
     add_implementation_fingerprint = "e" * 64
+    compare_implementation_fingerprint = "f" * 64
     locus_c = ComputationalHostLocus.from_runtime(
         host_id="logical-host-c-orbit",
         runtime=runtime_c,
@@ -3309,13 +3320,25 @@ def test_contextual_orbit_inverse_navigation_composes_into_egpu_dataflow_over_mu
         costs=_host_costs(3, energy=9, bytes_=256),
         implementation_fingerprint=add_implementation_fingerprint,
     )
-    catalogue_c = ComputationalHostCatalogue((locus_c, add_locus_c))
+    compare_locus_c = ComputationalHostLocus.from_runtime(
+        host_id="logical-host-c-egpu-dataflow-compare",
+        runtime=runtime_gpu_c,
+        authority_pid=peer_c_pid,
+        operator_id=compare_operator_spec.operator_id,
+        version=compare_operator_spec.version,
+        computational_ground_fingerprints=(GROUND_FP,),
+        supports_ground_program_compilation=True,
+        costs=_host_costs(3, energy=10, bytes_=256),
+        implementation_fingerprint=compare_implementation_fingerprint,
+    )
+    catalogue_c = ComputationalHostCatalogue((locus_c, add_locus_c, compare_locus_c))
     advertisement_c = ComputationalHostAdvertisement.from_locus(locus_c, "peer-c")
     add_advertisement_c = ComputationalHostAdvertisement.from_locus(add_locus_c, "peer-c")
+    compare_advertisement_c = ComputationalHostAdvertisement.from_locus(compare_locus_c, "peer-c")
 
     snapshot_a = ComputationalPeerSnapshot(endpoint_a, 1, 60, (), (_link("peer-a", "peer-b", 2),))
     snapshot_b = ComputationalPeerSnapshot(endpoint_b, 1, 60, (), (_link("peer-b", "peer-c", 3),))
-    snapshot_c = ComputationalPeerSnapshot(endpoint_c, 1, 60, (advertisement_c, add_advertisement_c), ())
+    snapshot_c = ComputationalPeerSnapshot(endpoint_c, 1, 60, (advertisement_c, add_advertisement_c, compare_advertisement_c), ())
     directory_a = _directory(snapshot_a, snapshot_b, snapshot_c, local_peer_id="peer-a")
     directory_b = _directory(snapshot_a, snapshot_b, snapshot_c, local_peer_id="peer-b")
     directory_c = _directory(snapshot_b, snapshot_c, local_peer_id="peer-c")
