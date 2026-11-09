@@ -6,7 +6,7 @@ This specification composes the bounded MailCPU dataflow compiler with the exist
 
 The computational object distributed by this profile is not a VM image or a complete process. It is a semantic operation over an explicitly described set of inputs. The algorithm remains a dependency graph. The fabric locates a receiver that advertises a compatible local implementation, and the receiver revalidates and executes the operation under its own Ground and Hypervisor authority.
 
-The initial implementation is deliberately bounded: ready ADD nodes in one dataflow frontier are grouped into one integer vector-add operation. Other admitted instructions (SET, COPY, COMPARE, HALT) are evaluated by the local DAG coordinator. The same versioned operator contract has both a CPU realization and an E-GPU realization.
+The initial operation-native profile is deliberately bounded to two pure binary families: ADD and COMPARE. A ready frontier may contain either family; ADD frontiers are routed when an ADD dispatcher is supplied, while COMPARE remains local unless a COMPARE dispatcher is explicitly supplied. SET, COPY and HALT remain local. Both remote families use the same binary lane, receiver-side Virtual Layer admission, fabric resolver, operation receipt shape and origin-side scalar oracle.
 
 ## The topologies are separate objects
 
@@ -71,14 +71,14 @@ Different realizations may share one semantic operator contract. The CPU impleme
 \operatorname{Obs}(T_o(X_o))
 \]
 
-The first implementation uses strict integer addition and returns the ordered values vector. This contract is deliberately narrow and does not imply that arbitrary CPU, GPU, signal or programmable-network implementations are interchangeable.
+The ADD contract applies strict bounded integer addition and returns the ordered values vector. The second contract, mailcpu.dataflow.compare_frontier@1, applies the MailCPU relation compare_values(a,b)=sgn(a-b), returning exactly -1, 0 or 1. CPU comparison calls the existing scalar compare_values law. E-GPU comparison uses its existing simt.kernel method with LT predicates and structured IF/ENDIF masks, then checks the result against the same scalar law. These are separate versioned operator contracts; a CPU or E-GPU implementation is admissible only when it advertises the matching contract and preserves its declared observation. This does not imply that arbitrary CPU, GPU, signal or programmable-network implementations are interchangeable.
 
 ## Operation context and state-space navigation
 
-The portable object is the semantic operation contract; its meaning is instantiated by a particular Ground, input and observation context. A simple ADD law can be written independently of any one machine:
+The portable object is the semantic operation contract; its meaning is instantiated by a particular Ground, input and observation context. Binary laws can be written independently of any one machine:
 
 [
-o(a,b)=a+b
+o_ADD(a,b)=a+b;  o_COMPARE(a,b)=sgn(a-b)
 ]
 
 But an execution is not identified by that law alone. It also requires the concrete operand sources, the Ground that defines their interpretation, the state/Virtual Ground coordinate, any pinned Structural Memory references, resource limits, and the terminal observation expected by the caller.
@@ -108,14 +108,14 @@ The compiled MailCPU plan supplies immutable ComputationNode identities and dete
 The operation-native executor:
 
 1. Reads the exact operands from immutable initial values or already committed predecessor results. A symbolic Structural Memory operand remains an address at this point; it is not eagerly read by the compiler or coordinator. A contextual-orbit source remains a typed DAG predecessor and is not flattened into an untracked initial integer.
-2. Selects the ADD nodes in the ready frontier and orders them by stable node_id.
-3. Constructs one DataflowAddFrontierRequest binding the plan digest, context digest, frontier index, node digests, destination registers, ordered scalar operands, and any contextual-orbit predecessor evidence recovered from DAG ancestry.
-4. Builds one pure VirtualLayerWorkload for the vector-add contract. Inline values travel as values; symbolic Structural Memory references travel as schema-v2 Virtual Layer addresses containing the memory identity, exact revision, context, coordinate, specification digest and certificate digest. A contextual-orbit operand travels as a typed descriptor containing its scalar projection and complete predecessor input(s). Only the selected query/result evidence is sent; no orbit trajectory or full VM image is shipped.
+2. Selects the remote binary nodes in the ready frontier by registered operation family and orders each family by stable node_id. COMPARE stays local when no COMPARE dispatcher is configured.
+3. Constructs one operation-specific typed frontier request binding the plan digest, context digest, frontier index, node digests, destination registers, ordered scalar operands, and any contextual-orbit predecessor evidence recovered from DAG ancestry. ADD and COMPARE have distinct versioned request schemas while sharing DataflowBinaryLane.
+4. Builds one pure VirtualLayerWorkload for the selected operator contract. Inline values travel as values; symbolic Structural Memory references travel as schema-v2 Virtual Layer addresses containing the memory identity, exact revision, context, coordinate, specification digest and certificate digest. A contextual-orbit operand travels as a typed descriptor containing its scalar projection and complete predecessor input(s). Only the selected query/result evidence is sent; no orbit trajectory or full VM image is shipped.
 5. Uses ComputationalFabricResolver to select an advertised host and directed peer route.
 6. Sends the operation through the existing authenticated per-hop forwarding protocol. Relay peers apply their local forwarding policy; the terminal peer re-resolves the workload and executes its local operator.
 7. Verifies that the typed terminal effect binds the workload, Ground, operator contract, input and implementation route. When symbolic memory is present, it also requires the exact receiver-generated read receipts for every requested binding. The CPU and E-GPU handlers revalidate every contextual-orbit predecessor object in the operation input.
-8. Independently recomputes every returned lane with the scalar integer law z_i=a_i+b_i, using receiver memory values only after checking their pinned receipts. The contextual-orbit receipt remains provenance for the selected input; it does not replace the independent scalar oracle. The executor checks lane cardinality and the exact ordered node-ID map.
-9. Only after all lanes pass does it commit the results to their original ComputationNode IDs.
+8. Independently recomputes every returned lane with the declared scalar law: z_i=a_i+b_i for ADD or z_i=sgn(a_i-b_i) for COMPARE. Receiver memory values are used only after their pinned read receipts are checked. The contextual-orbit receipt remains provenance for the selected input; it does not replace the independent scalar oracle. The executor checks lane cardinality and the exact ordered node-ID map.
+9. Only after all lanes pass does it commit the results to their original ComputationNode IDs. Each remote result commit retains the typed frontier receipt, receipt digest, request digest, operator ID/version and operator-contract digest inside the DAG result, so the navigable snapshot remains execution-evidence-bearing.
 
 The route receipt and scalar oracle establish different properties. The receipt provides path and receiver-local admission provenance; the scalar oracle checks operation meaning. Neither is substituted for the other. A failed identity or value check prevents the affected frontier from being committed.
 
@@ -127,7 +127,7 @@ The compiler's v3 dataflow plan creates one orbit-input source node per supplied
 
 The operation-native ADD request/receipt schemas and the shared CPU/E-GPU operator contract are v3. The receiving handler rehydrates and validates each contextual-orbit input before executing the strict integer operation; the requester still verifies the returned scalar result independently before commit. Only coordinate/value projections are accepted in this slice, the compiled profile remains bounded, and evidence digests are integrity/provenance bindings rather than signatures or hardware attestation.
 
-This first profile dispatches one ADD batch per ready frontier. A frontier is not yet split across several hosts, and the RPCs are sequential. The local DAG coordinator retains the result mapping and sends the next dependent frontier only after its predecessor frontier has committed.
+This profile dispatches at most one homogeneous binary-operator batch per ready frontier for each configured operation family. A frontier is not yet split across several hosts, and the RPCs are sequential. The local DAG coordinator retains the result mapping and sends the next dependent frontier only after its predecessor frontier has committed.
 
 ## Demonstrated topology
 
@@ -150,7 +150,7 @@ This experiment demonstrates operation-level placement across different hosts an
 
 ## Shared arithmetic domain
 
-The CPU and E-GPU implementations of `mailcpu.dataflow.add_frontier@2` implement one explicit shared domain:
+The CPU and E-GPU implementations of `mailcpu.dataflow.add_frontier@3` implement one explicit shared domain:
 
 - 1 to 64 aligned lanes per operation;
 - strict integers (booleans are not integers in this contract);
@@ -158,6 +158,18 @@ The CPU and E-GPU implementations of `mailcpu.dataflow.add_frontier@2` implement
 - deterministic, pure, ordered vector-add output.
 
 The CPU handler enforces those bounds even though Python integers are unbounded. The E-GPU handler is admitted for this contract only when its configured SIMT lane and integer bounds can realize the whole declared domain. A smaller E-GPU profile must not advertise this operator contract as fully compatible. The two implementations retain distinct implementation fingerprints even though their semantic operator contract is identical.
+
+## COMPARE as the second binary operation family
+
+COMPARE reuses the same binary frontier and fabric machinery as ADD rather than creating a separate execution stack. The compiler already emits COMPARE nodes with two typed operands and the reference interpreter already defines the observation as sign(left-right).
+
+The v1 COMPARE frontier request carries the same DataflowBinaryLane shape as ADD, including inline values, revision-pinned Structural Memory references and contextual-orbit predecessor evidence. Its own operator contract is mailcpu.dataflow.compare_frontier@1. The shared ComputationalFabricDataflowBinaryDispatcher is specialized by thin ADD and COMPARE dispatchers; host advertisement and route resolution still match exact operator ID, version, Ground, substrate, and implementation fingerprint.
+
+The CPU handler applies compare_values directly. The E-GPU handler uses the existing bounded TransitSIMTHost custom-kernel method: load both lane arrays, compute less-than predicates in both directions, and use structured IF/ENDIF masks to select -1, 0 or 1. The handler checks every returned lane against compare_values before returning. The origin then independently applies that same law again before committing the DAG node.
+
+A caller opts into remote COMPARE by passing operation_dispatchers={"COMPARE": compare_dispatcher} to execute_dataflow_operation_native. Without that dispatcher, COMPARE remains in the local coordinator as before. When it is remote, its full typed receipt is committed into the DAG result; from_dict rehydrates ADD and COMPARE receipts under their respective schemas. A subsequent operation can inspect the graph snapshot and recover the exact operator and route evidence associated with an earlier remote result.
+
+The end-to-end integration test uses one authenticated A→B→C route: C first performs contextual inverse navigation on its local CPU operator, then the compiled DAG dispatches COMPARE and a dependent ADD to separately advertised E-GPU operator loci at C. The second operation still receives the original orbit predecessor through DAG ancestry; the selected-coordinate Structural Memory read is not repeated.
 
 ## Receiver-resolved Structural Memory
 
@@ -222,9 +234,9 @@ This first implementation does not:
 - split one frontier across multiple target hosts;
 - pipeline intermediate results directly from one terminal host to the next without returning through the origin coordinator;
 - execute concurrently merely because the DAG contains independent nodes;
-- resolve symbolic Structural Memory for operations other than ADD in this first integration profile;
+- resolve symbolic Structural Memory for operations outside the supported ADD and COMPARE binary frontier families;
 - choose a host by an empirically trained adaptive cost model; target eligibility is declared by the caller in the current experiment;
 - perform computation inside passive network links; or
 - demonstrate physical GPU acceleration or lower end-to-end latency.
 
-The next research step is to benchmark this same operation graph under local, remote CPU, remote E-GPU, and fused/partitioned placements. Then extend symbolic memory operands beyond ADD, partition wide frontiers across multiple hosts, and support content-addressed result movement without weakening exact revision and certificate binding.
+The next research step is to benchmark this same operation graph under local, remote CPU, remote E-GPU, and fused/partitioned placements. Then extend the same typed binary-operation contract to additional pure operation families, partition wide frontiers across multiple hosts, and support content-addressed result movement without weakening exact revision and certificate binding.
