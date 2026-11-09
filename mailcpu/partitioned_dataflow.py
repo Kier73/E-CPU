@@ -670,13 +670,20 @@ class PartitionedComputationalFabricDataflowBinaryDispatcher:
                 + partition_index
             )
             claim_bundle = claim_tickets.get(partition.digest)
-            receipt = self.dispatcher(
-                partition.request,
-                route_witness=partition.route_witness,
-                origin_sequence=sequence,
-                parent_request_digest=request.digest if claim_bundle is not None else None,
-                claim_bundle=claim_bundle,
-            )
+            if claim_bundle is None:
+                receipt = self.dispatcher(
+                    partition.request,
+                    route_witness=partition.route_witness,
+                    origin_sequence=sequence,
+                )
+            else:
+                receipt = self.dispatcher(
+                    partition.request,
+                    route_witness=partition.route_witness,
+                    origin_sequence=sequence,
+                    parent_request_digest=request.digest,
+                    claim_bundle=claim_bundle,
+                )
             return BinaryFrontierChildReceipt(partition, receipt, claim_bundle)
 
         by_first_hop: dict[str, list[BinaryFrontierPartition]] = {}
