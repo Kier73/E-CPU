@@ -14,6 +14,7 @@ from mailcpu import (
     ContextualOrbitLocateValueRequest,
     ContextualOrbitNavigator,
     ObserverContract,
+    OperationTimingProbe,
     RepresentationRef,
     SchedulerReading,
     StructuralMemoryRegistry,
@@ -778,3 +779,37 @@ def test_cpu_and_egpu_share_the_declared_bounded_add_domain() -> None:
         make_egpu_dataflow_add_handler(
             EGPUHost(host_id="egpu-small-domain", simt_host=TransitSIMTHost(max_lanes=32))
         )
+
+
+def test_cpu_and_egpu_multiply_handlers_report_provenance_compute_and_verification_phases() -> None:
+    """Receiver phase probes distinguish typed operand admission from arithmetic and backend verification."""
+    from types import SimpleNamespace
+    from mailcpu import EGPUHost
+
+    payload = {
+        "lanes": [
+            {"node_id": f"pc-{index + 1:06d}", "left": {"kind": "inline", "value": index + 2}, "right": {"kind": "inline", "value": 7}}
+            for index in range(4)
+        ],
+        "max_steps": 32,
+    }
+    workload = SimpleNamespace(digest="f" * 64)
+
+    cpu_probe = OperationTimingProbe("peer-b/cpu")
+    cpu_handler = make_cpu_dataflow_multiply_handler(timing_probe=cpu_probe)
+    cpu_result = cpu_handler(payload, workload)
+    assert cpu_result["values"] == [14, 21, 28, 35]
+    assert set(cpu_probe.summary()) == {"receiver_provenance_validation", "backend_compute"}
+
+    egpu_probe = OperationTimingProbe("peer-b/egpu")
+    egpu_handler = make_egpu_dataflow_multiply_handler(
+        EGPUHost(host_id="egpu.timing-test"),
+        timing_probe=egpu_probe,
+    )
+    egpu_result = egpu_handler(payload, workload)
+    assert egpu_result["values"] == cpu_result["values"]
+    assert set(egpu_probe.summary()) == {
+        "receiver_provenance_validation",
+        "backend_compute",
+        "receiver_backend_verification",
+    }
