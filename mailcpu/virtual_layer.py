@@ -484,6 +484,7 @@ class OperatorSpec:
     max_output_bytes: int = 1_048_576
     deterministic: bool = True
     effect_mode: str = "pure"
+    structural_memory_access: str = "read"
 
     def __post_init__(self) -> None:
         _operator_id(self.operator_id)
@@ -513,6 +514,11 @@ class OperatorSpec:
             raise VirtualLayerError("deterministic must be boolean")
         if not isinstance(self.effect_mode, str) or self.effect_mode not in _EFFECT_MODES:
             raise VirtualLayerError("unsupported operator effect_mode")
+        if (
+            not isinstance(self.structural_memory_access, str)
+            or self.structural_memory_access not in {"read", "navigate"}
+        ):
+            raise VirtualLayerError("operator structural_memory_access must be read or navigate")
 
     @property
     def replay_safe(self) -> bool:
@@ -531,13 +537,16 @@ class OperatorSpec:
 
     def to_dict(self) -> dict[str, object]:
         """Mathematics: Serialize the full declarative operator contract."""
-        return {
+        payload: dict[str, object] = {
             "operator_id": self.operator_id, "version": self.version, "description": self.description,
             "input_kind": self.input_kind, "output_kind": self.output_kind, "substrates": list(self.substrates),
             "required_rights": sorted(self.required_rights), "base_energy": self.base_energy,
             "energy_per_byte": self.energy_per_byte, "max_input_bytes": self.max_input_bytes,
             "max_output_bytes": self.max_output_bytes, "deterministic": self.deterministic, "effect_mode": self.effect_mode,
         }
+        if self.structural_memory_access != "read":
+            payload["structural_memory_access"] = self.structural_memory_access
+        return payload
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "OperatorSpec":
@@ -551,6 +560,7 @@ class OperatorSpec:
                 frozenset(payload.get("required_rights", ("compute",))), payload.get("base_energy", 1),
                 payload.get("energy_per_byte", 1), payload.get("max_input_bytes", 1_048_576),
                 payload.get("max_output_bytes", 1_048_576), payload.get("deterministic", True), str(payload.get("effect_mode", "pure")),
+                payload.get("structural_memory_access", "read"),
             )
         except (TypeError, ValueError) as exc:
             if isinstance(exc, VirtualLayerError):
@@ -1055,6 +1065,10 @@ class VirtualLayerRuntime:
         if not isinstance(operator_id, str) or not isinstance(version, int) or isinstance(version, bool):
             raise VirtualLayerError("operation event has an invalid operator reference")
         reference, spec, handler, input_value, input_bytes, energy, ticks = self._resolve_operator(workload, operator_id)
+        if reference.structural_memory_access != spec.structural_memory_access:
+            raise VirtualLayerError(
+                "Structural Memory access mode differs from the receiver's declared operator contract"
+            )
         if payload.get("operator_contract_digest") != spec.digest:
             raise VirtualLayerError("operator contract does not match this execution node")
         validated_admission = None
