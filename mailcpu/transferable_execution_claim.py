@@ -383,12 +383,12 @@ def _claim_leaf_digest(claim: TransferableExecutionClaim) -> str:
         "claim_id": claim.claim_id,
         "claim_digest": claim.digest,
     })
-    return hashlib.sha256(b"\\x00" + payload).hexdigest()
+    return hashlib.sha256(b"\x00" + payload).hexdigest()
 
 
 def _claim_parent_digest(left: str, right: str) -> str:
     """Mathematics: Domain-separate an internal node as H(0x01 || left || right)."""
-    return hashlib.sha256(b"\\x01" + bytes.fromhex(left) + bytes.fromhex(right)).hexdigest()
+    return hashlib.sha256(b"\x01" + bytes.fromhex(left) + bytes.fromhex(right)).hexdigest()
 
 
 def _claim_merkle_paths(
@@ -397,7 +397,7 @@ def _claim_merkle_paths(
     """Mathematics: Build a deterministic sorted binary Merkle root and one O(log n) inclusion path per claim."""
     ordered = tuple(claims[key] for key in sorted(claims))
     if not ordered:
-        return hashlib.sha256(b"\\x02empty-claim-state").hexdigest(), {}
+        return hashlib.sha256(b"\x02empty-claim-state").hexdigest(), {}
     levels: list[list[str]] = [[_claim_leaf_digest(item) for item in ordered]]
     while len(levels[-1]) > 1:
         current = levels[-1]
@@ -503,7 +503,7 @@ def _validate_state_commitment(
     ):
         raise TransferableExecutionClaimError("claim state-root commitment does not match its recovery manifest")
     _digest(payload["claims_root"], "claim Merkle root")
-    root_bytes = _canonical_json(dict(payload)) + b"\\n"
+    root_bytes = _canonical_json(dict(payload)) + b"\n"
     if len(root_bytes) > 64 * 1024 or hashlib.sha256(root_bytes).hexdigest() != manifest.state_digest:
         raise TransferableExecutionClaimError("claim state-root bytes do not match their quorum manifest digest")
     return dict(payload)
