@@ -400,7 +400,7 @@ def test_compilation_verification_binds_initial_state_and_source_bytes() -> None
 
 def test_local_dataflow_records_multiply_compute_phase_with_endpoint_timing_probe() -> None:
     """Mathematics: one profiled MUL node emits exactly one actor-local compute interval correlated to its compiled plan."""
-    program = assemble("set left 6\\nset right 7\\nmul answer left right\\nhalt")
+    program = assemble("set left 6\nset right 7\nmul answer left right\nhalt")
     plan = MailCPUDataflowCompiler().compile_program(program)
     readings = iter((100, 125))
     probe = OperationTimingProbe("local/dataflow", monotonic_ns=lambda: next(readings))
@@ -417,7 +417,7 @@ def test_local_dataflow_records_multiply_compute_phase_with_endpoint_timing_prob
 
 def test_local_dataflow_rejects_a_malformed_timing_probe() -> None:
     """Mathematics: a non-null timing observer must expose a callable measure context manager before DAG execution."""
-    program = assemble("set left 6\\nset right 7\\nmul answer left right\\nhalt")
+    program = assemble("set left 6\nset right 7\nmul answer left right\nhalt")
     plan = MailCPUDataflowCompiler().compile_program(program)
 
     with pytest.raises(ProgramDataflowError, match="measure context manager"):
