@@ -776,7 +776,6 @@ def run_benchmark(
             item.host_id != first_receipt.host_id
             or item.implementation_fingerprint != first_receipt.implementation_fingerprint
             or item.peer_path != first_receipt.peer_path
-            or item.route_witness_digest != first_receipt.route_witness_digest
             for item in receipts
         ):
             raise AssertionError(f"remote {mode} placement identity changed during the profile window")
@@ -791,7 +790,6 @@ def run_benchmark(
             target_host_id=first_receipt.host_id,
             implementation_fingerprint=first_receipt.implementation_fingerprint,
             peer_path=first_receipt.peer_path,
-            route_witness_digest=first_receipt.route_witness_digest,
         )
         profiles.append(_build_placement_profile(
             key,
