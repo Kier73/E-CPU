@@ -1756,7 +1756,6 @@ class ComputationalFabricPlacementSet:
                 item.link_ids,
                 item.target_host.host_id,
                 item.target_host.node_id,
-                item.target_host.peer_id,
             )
 
         if candidates != tuple(sorted(candidates, key=rank_key)):
@@ -2023,13 +2022,14 @@ class ComputationalFabricResolver:
             ):
                 continue
             if expanded >= max_expansions:
-                return ComputationalFabricResolutionResult(
-                    ComputationalFabricStatus.BUDGET_EXHAUSTED,
-                    address_digest,
-                    directory_digest,
-                    topology_digest,
-                    0,
-                    expanded,
+                return ComputationalFabricPlacementSet(
+                    status=ComputationalFabricStatus.BUDGET_EXHAUSTED,
+                    address_digest=address_digest,
+                    directory_digest=directory_digest,
+                    topology_digest=topology_digest,
+                    advertised_host_count=0,
+                    eligible_host_count=0,
+                    expanded_states=expanded,
                     blockers=tuple(blockers),
                 )
             expanded += 1
