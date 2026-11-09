@@ -358,7 +358,7 @@ def test_compact_merkle_claim_ticket_proves_membership_in_three_claim_state(tmp_
     assert last.claim_index == 2
     assert last.merkle_proof[0].side == "right"
     assert last.merkle_proof[0].sibling_digest == hashlib.sha256(
-        b"\\x00" + json.dumps(
+        b"\x00" + json.dumps(
             {
                 "claim_id": last.claim.claim_id,
                 "claim_digest": last.claim.digest,
