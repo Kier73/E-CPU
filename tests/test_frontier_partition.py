@@ -236,20 +236,6 @@ def test_binary_frontier_partition_plan_rejects_gaps_duplicates_and_one_host() -
             origin_peer_id="peer-a",
             directory_digest=DIRECTORY,
             topology_digest=TOPOLOGY,
-            frontier_node_ids=tuple(lane.node_id for lane in request.lanes),
-            partitions=(
-                BinaryFrontierPartition(first, route_b),
-                BinaryFrontierPartition(second, route_c),
-            ),
-        ) if False else BinaryFrontierPartitionPlan(
-            plan_digest=PLAN,
-            context_digest=CONTEXT,
-            frontier_index=3,
-            operation="MUL",
-            computational_ground_fingerprint=GROUND,
-            origin_peer_id="peer-a",
-            directory_digest=DIRECTORY,
-            topology_digest=TOPOLOGY,
             frontier_node_ids=tuple(lane.node_id for lane in request.lanes) + ("pc-000005",),
             partitions=(
                 BinaryFrontierPartition(first, route_b),
