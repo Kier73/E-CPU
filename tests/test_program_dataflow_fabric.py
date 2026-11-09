@@ -337,6 +337,12 @@ def test_operation_native_compare_frontier_preserves_orbit_provenance_and_commit
     assert len(report.frontier_receipts) == 2
     assert report.frontier_receipts[0].to_dict()["schema"] == "mailcpu.dataflow.compare-frontier-receipt.v1"
     assert report.frontier_receipts[1].to_dict()["schema"] == "mailcpu.dataflow.add-frontier-receipt.v3"
+    assert DataflowCompareFrontierReceipt.from_dict(
+        report.frontier_receipts[0].to_dict()
+    ).digest == report.frontier_receipts[0].digest
+    assert DataflowAddFrontierReceipt.from_dict(
+        report.frontier_receipts[1].to_dict()
+    ).digest == report.frontier_receipts[1].digest
 
     restored = NavigableComputationDAG.from_snapshot(report.execution.dag_snapshot)
     compare_node = restored.result("pc-000001")
@@ -345,6 +351,8 @@ def test_operation_native_compare_frontier_preserves_orbit_provenance_and_commit
     assert compare_node["operation_receipt_digest"] == report.frontier_receipts[0].digest
     assert compare_node["frontier_request_digest"] == compare_requests[0].digest
     assert compare_node["operator_id"] == dataflow_compare_operator_spec().operator_id
+    assert compare_node["operator_version"] == dataflow_compare_operator_spec().version
+    assert compare_node["operator_contract_digest"] == dataflow_compare_operator_spec().digest
     assert restored.result("pc-000002")["operation_receipt"]["schema"] == "mailcpu.dataflow.add-frontier-receipt.v3"
     assert compare_dataflow_with_reference(plan, report.execution, program).equivalent is True
 
