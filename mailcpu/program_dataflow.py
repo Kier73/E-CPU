@@ -1180,9 +1180,11 @@ def evaluate_dataflow(
                 }
             pending_results.append((node_id, result))
 
-        for node_id, result in pending_results:
-            graph.commit(node_id, result)
-            committed.append(node_id)
+        graph.commit_frontier(
+            dict(pending_results),
+            expected_node_ids=expected_frontier,
+        )
+        committed.extend(expected_frontier)
         executed_frontiers.append(expected_frontier)
 
     halt = graph.result(plan.nodes[-1].node_id)

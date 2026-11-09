@@ -141,7 +141,7 @@ The compiler's v3 dataflow plan creates one orbit-input source node per supplied
 
 The operation-native ADD request/receipt schemas and shared CPU/E-GPU ADD operator contract are v3; COMPARE and MUL each have their own v1 request/receipt and operator contract. The receiving handler rehydrates and validates each contextual-orbit input before executing the selected binary operation; the requester still verifies the returned scalar result independently before commit. Only coordinate/value projections are accepted in this slice, the compiled profile remains bounded, and evidence digests are integrity/provenance bindings rather than signatures or hardware attestation.
 
-This profile dispatches at most one homogeneous binary-operator batch per ready frontier for each configured operation family. A frontier is not yet split across several hosts, and the RPCs are sequential. The local DAG coordinator retains the result mapping and sends the next dependent frontier only after its predecessor frontier has committed.
+This executor still dispatches at most one homogeneous binary-operator batch per ready frontier for each configured operation family, and its RPCs remain sequential. The new `BinaryFrontierPartitionPlan` describes how a homogeneous batch can be split into child requests with distinct route witnesses, but the operation-native executor does not yet consume that plan or dispatch its children across hosts. See `BINARY_FRONTIER_PARTITIONING.md` for the strict description/coverage contract. The local DAG coordinator retains the result mapping and sends the next dependent frontier only after its predecessor frontier has committed.
 
 ## Demonstrated topology
 

@@ -699,6 +699,13 @@ from .program_dataflow_fabric import (
     make_egpu_dataflow_multiply_handler,
 )
 
+from .frontier_partition import (
+    BinaryFrontierPartition,
+    BinaryFrontierPartitionPlan,
+    FrontierPartitionError,
+    split_binary_frontier_request,
+)
+
 from .evidence_path_resolver import (
     EvidencePathBlocker,
     EvidencePathBlockerCode,
@@ -958,6 +965,10 @@ __all__ = [
     "DataflowCompareFrontierRequest",
     "OperationNativeDataflowError",
     "OperationNativeDataflowReport",
+    "BinaryFrontierPartition",
+    "BinaryFrontierPartitionPlan",
+    "FrontierPartitionError",
+    "split_binary_frontier_request",
     "dataflow_add_operator_spec",
     "dataflow_compare_operator_spec",
     "execute_dataflow_operation_native",
