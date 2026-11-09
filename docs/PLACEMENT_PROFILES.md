@@ -19,9 +19,9 @@ A placement profile joins those existing records. It describes how one exact imp
 - origin-environment digest;
 - target logical host;
 - implementation fingerprint; and
-- for remote execution, the ordered peer path and route-witness digest.
+- for remote execution, the ordered peer path.
 
-The comparison identity deliberately excludes the selected host, implementation, and route. Profiles can therefore be compared only when they share the workload class, operator contract/version, Computational Ground, and origin environment.
+The comparison identity deliberately excludes the selected host, implementation, and route. Profiles can therefore be compared only when they share the workload class, operator contract/version, Computational Ground, and origin environment. Within that comparison group, the profile key distinguishes the selected host, implementation and ordered peer path.
 
 The workload-class digest is explicit because two different input instances may still belong to the same declared workload class. Each observation separately binds the exact compiled workload digest through its timing correlation ID. Callers are responsible for defining a workload class that captures the properties relevant to comparable execution (for example lane count, operand-size range, program/plan shape, state representation, and input-resolution requirements). A vague or over-broad class makes the comparison invalid even if its digest is well formed.
 
@@ -38,7 +38,7 @@ A **PlacementObservation** accepts only an OperationTimingSample with:
 
 An observation also binds an execution digest, a verification-evidence digest, and the declared verification method.
 
-For remote placement, it retains the complete typed ADD/COMPARE/MUL frontier receipt. The profile checks that the receipt matches its declared host, implementation fingerprint, route path and route-witness digest. Local placements have no remote peer path or frontier receipt.
+For remote placement, it retains the complete typed ADD/COMPARE/MUL frontier receipt. The profile checks that the receipt matches its declared host, implementation fingerprint and ordered peer path. The exact route-witness digest remains inside each observation's receipt. This distinction is intentional: the route witness commits the request-specific computational address, so its digest may change between samples even when the selected host and peer path remain the same. Local placements have no remote peer path or frontier receipt.
 
 The caller must create an observation only after its independent result checks have passed. The operation-frontier benchmark does this by checking the terminal execution against the MailCPU reference interpreter and checking every product lane against the scalar product oracle. Its verification digest commits those checks, the exact plan and the execution identity.
 
