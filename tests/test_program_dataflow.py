@@ -402,7 +402,7 @@ def test_local_dataflow_records_multiply_compute_phase_with_endpoint_timing_prob
     """Mathematics: one profiled MUL node emits exactly one actor-local compute interval correlated to its compiled plan."""
     program = assemble("set left 6\nset right 7\nmul answer left right\nhalt")
     plan = MailCPUDataflowCompiler().compile_program(program)
-    readings = iter((100, 125))
+    readings = iter((100, 110, 135))
     probe = OperationTimingProbe("local/dataflow", monotonic_ns=lambda: next(readings))
 
     report = evaluate_dataflow(plan, timing_probe=probe)
