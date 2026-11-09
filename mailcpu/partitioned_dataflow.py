@@ -675,8 +675,6 @@ class BinaryFrontierExecutionCheckpoint:
             latest_epoch = latest_epochs.get(key, 1)
             if intent.expected_epoch != latest_epoch:
                 raise OperationNativeDataflowError("pending reassignment intent does not bind the latest assignment epoch")
-            if intent.claim_id != intent.claim_id:
-                raise OperationNativeDataflowError("pending reassignment intent claim identity is malformed")
         ordered = _ordered_child_receipts(
             self.plan,
             tuple(self.successful_children),
@@ -814,6 +812,7 @@ class PartitionedComputationalFabricDataflowBinaryDispatcher:
         checkpoint_sink: Callable[[BinaryFrontierExecutionCheckpoint], None] | None = None,
         partition_count: int = 2,
         partition_groups_by_frontier: Mapping[int, Sequence[Sequence[str]]] | Callable[[Any], Sequence[Sequence[str]]] | None = None,
+        max_rehome_rounds: int = 1,
     ) -> None:
         if (
             not callable(dispatcher)
@@ -833,6 +832,8 @@ class PartitionedComputationalFabricDataflowBinaryDispatcher:
             callable(partition_groups_by_frontier) or isinstance(partition_groups_by_frontier, Mapping)
         ):
             raise OperationNativeDataflowError("partition_groups_by_frontier must be a mapping or callable")
+        if type(max_rehome_rounds) is not int or not 0 <= max_rehome_rounds <= 3:
+            raise OperationNativeDataflowError("max_rehome_rounds must be a strict integer in the range 0..3")
         self.dispatcher = dispatcher
         # Reserve one 64-sequence window per DAG frontier. The wrapped
         # single-child fallback uses the window base, while partition children
@@ -846,6 +847,7 @@ class PartitionedComputationalFabricDataflowBinaryDispatcher:
         self.checkpoint_sink = checkpoint_sink
         self.partition_count = partition_count
         self.partition_groups_by_frontier = partition_groups_by_frontier
+        self.max_rehome_rounds = max_rehome_rounds
 
     def _groups_for_request(self, request: Any) -> tuple[tuple[str, ...], ...] | None:
         """Mathematics: split a sorted lane sequence into deterministic, bounded, non-empty child groups or use the caller's explicit grouping."""
@@ -1036,6 +1038,225 @@ class PartitionedComputationalFabricDataflowBinaryDispatcher:
             for child in selected
         )
 
+
+    @staticmethod
+    def _is_rehomeable_failure(error: BaseException) -> bool:
+        """Mathematics: classify only transport/path-loss evidence as permission to attempt pure-operation reassignment."""
+        current: BaseException | None = error
+        seen: set[int] = set()
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            if isinstance(current, (TimeoutError, ConnectionError, OSError)):
+                return True
+            current = current.__cause__ or current.__context__
+        detail = str(error).lower()
+        return any(token in detail for token in (
+            "did not return a result before the rpc deadline",
+            "forwarding peer stream failed",
+            "request exhausted reliable retry attempts",
+            "acknowledgement exhausted its retry budget",
+            "without acknowledging the corresponding request frame",
+            "could not enqueue forwarding operation",
+            "no authenticated forwarding client is configured",
+            "no feasible remote host for child",
+        ))
+
+    def _apply_reassignment_intents(
+        self,
+        request: DataflowAddFrontierRequest | DataflowCompareFrontierRequest | DataflowMultiplyFrontierRequest,
+        state: BinaryFrontierExecutionCheckpoint,
+    ) -> BinaryFrontierExecutionCheckpoint:
+        """Mathematics: replay a persisted reassignment intent against the quorum ledger and materialize its exact committed route epoch."""
+        if not state.reassignment_intents:
+            return state
+        store = getattr(self.dispatcher, "execution_claim_store", None)
+        if store is None:
+            raise OperationNativeDataflowError("pending route reassignment requires the original execution-claim authority")
+        try:
+            bundles = store.reassign_many(tuple({
+                "claim_id": item.claim_id,
+                "expected_epoch": item.expected_epoch,
+                "owner_peer_id": item.replacement_partition.route_witness.target_host.peer_id,
+                "owner_host_id": item.replacement_partition.route_witness.target_host.host_id,
+                "implementation_fingerprint": item.replacement_partition.route_witness.target_host.implementation_fingerprint,
+                "failure_evidence_digest": item.failure_evidence_digest,
+            } for item in state.reassignment_intents))
+        except TransferableExecutionClaimError as exc:
+            raise OperationNativeDataflowError(f"cannot resume the quorum-bound route reassignment batch: {exc}") from exc
+        if len(bundles) != len(state.reassignment_intents):
+            raise OperationNativeDataflowError("claim authority returned the wrong number of reassignment tickets")
+        confirmed = tuple(
+            BinaryFrontierPartitionReassignment(
+                intent.previous_partition,
+                intent.replacement_partition,
+                bundle,
+                intent.failure_evidence_digest,
+            )
+            for intent, bundle in zip(state.reassignment_intents, bundles)
+        )
+        updated = BinaryFrontierExecutionCheckpoint(
+            request,
+            state.plan,
+            state.successful_children,
+            tuple(sorted(
+                state.reassignments + confirmed,
+                key=lambda item: (
+                    item.child_request_digest,
+                    item.claim_bundle.claim.current_assignment.epoch,
+                ),
+            )),
+            (),
+        )
+        return updated
+
+    def _rehome_failed_partitions(
+        self,
+        request: DataflowAddFrontierRequest | DataflowCompareFrontierRequest | DataflowMultiplyFrontierRequest,
+        state: BinaryFrontierExecutionCheckpoint,
+        failures: Mapping[str, tuple[BinaryFrontierPartition, BaseException]],
+        claim_tickets: Mapping[str, PortableExecutionClaimBundle],
+    ) -> BinaryFrontierExecutionCheckpoint:
+        """Mathematics: choose distinct compatible alternate hosts, persist a rehome intent, then atomically advance all failed child epochs."""
+        store = getattr(self.dispatcher, "execution_claim_store", None)
+        if store is None:
+            raise OperationNativeDataflowError("automatic child rehome requires a configured quorum execution-claim store")
+        failed = tuple(
+            failures[key]
+            for key in sorted(failures)
+        )
+        if not failed:
+            return state
+        failed_keys = {partition.request.digest for partition, _error in failed}
+        occupied_hosts = {
+            (partition.route_witness.target_host.peer_id, partition.route_witness.target_host.host_id)
+            for partition in state.current_partitions
+            if partition.request.digest not in failed_keys
+        }
+        candidate_sets: list[tuple[BinaryFrontierPartition, ...]] = []
+        directory_digest: str | None = None
+        topology_digest: str | None = None
+        for partition, error in failed:
+            address, placement = self.dispatcher.prepare_routes(
+                partition.request,
+                max_candidates=_MAX_ROUTE_CANDIDATES,
+            )
+            if not isinstance(address, ComputationalAddress) or address.digest != partition.address.digest:
+                raise OperationNativeDataflowError("rehome route resolution changed the exact child ComputationalAddress")
+            if not isinstance(placement, ComputationalFabricPlacementSet):
+                raise OperationNativeDataflowError("rehome route resolution did not return a typed placement set")
+            if placement.status is not ComputationalFabricStatus.FOUND:
+                details = "; ".join(item.detail for item in placement.blockers[:4])
+                raise OperationNativeDataflowError(
+                    f"no replacement route is currently feasible for child {partition.request.digest}: "
+                    f"{placement.status.value}: {details}"
+                )
+            if directory_digest is None:
+                directory_digest = placement.directory_digest
+                topology_digest = placement.topology_digest
+            elif (
+                placement.directory_digest != directory_digest
+                or placement.topology_digest != topology_digest
+            ):
+                raise OperationNativeDataflowError("fabric directory/topology changed while preparing a rehome batch")
+
+            previous_host = (
+                partition.route_witness.target_host.peer_id,
+                partition.route_witness.target_host.host_id,
+            )
+            candidates = tuple(
+                BinaryFrontierPartition(partition.request, address, route)
+                for route in placement.candidates
+                if isinstance(route, ComputationalFabricRouteWitness)
+                and route.address_digest == address.digest
+                and len(route.peer_path) >= 2
+                and route.peer_path[1] in self.dispatcher.forwarding_clients
+                and route.target_host.implementation_fingerprint is not None
+                and (route.target_host.peer_id, route.target_host.host_id) != previous_host
+                and (route.target_host.peer_id, route.target_host.host_id) not in occupied_hosts
+            )
+            if not candidates:
+                raise OperationNativeDataflowError(
+                    f"no alternate authenticated logical Host is available for child {partition.request.digest}"
+                )
+            candidate_sets.append(candidates)
+
+        # Distinct-host matching is performed across the whole failed set so
+        # two children are never rebound to one logical execution locus.
+        owners: dict[tuple[str, str], int] = {}
+        selected: dict[int, BinaryFrontierPartition] = {}
+
+        def place(index: int, visited_children: set[int], visited_hosts: set[tuple[str, str]]) -> bool:
+            if index in visited_children:
+                return False
+            visited_children.add(index)
+            for candidate in candidate_sets[index]:
+                host_key = (
+                    candidate.route_witness.target_host.peer_id,
+                    candidate.route_witness.target_host.host_id,
+                )
+                if host_key in visited_hosts:
+                    continue
+                visited_hosts.add(host_key)
+                previous = owners.get(host_key)
+                if previous is None or place(previous, visited_children, visited_hosts):
+                    owners[host_key] = index
+                    selected[index] = candidate
+                    return True
+            return False
+
+        for index in range(len(candidate_sets)):
+            if not place(index, set(), set()):
+                raise OperationNativeDataflowError(
+                    "available alternate hosts cannot assign every failed child to a distinct logical Host"
+                )
+
+        intents: list[BinaryFrontierReassignmentIntent] = []
+        for index, (previous_partition, error) in enumerate(failed):
+            ticket = claim_tickets.get(previous_partition.digest)
+            if not isinstance(ticket, PortableExecutionClaimBundle):
+                raise OperationNativeDataflowError("failed child has no current assignment ticket for quorum reassignment")
+            assignment = ticket.claim.current_assignment
+            if (
+                ticket.claim.status is not ExecutionClaimStatus.ASSIGNED
+                or assignment.owner_peer_id != previous_partition.route_witness.target_host.peer_id
+                or assignment.owner_host_id != previous_partition.route_witness.target_host.host_id
+                or assignment.implementation_fingerprint != previous_partition.route_witness.target_host.implementation_fingerprint
+            ):
+                raise OperationNativeDataflowError("failed child ticket no longer matches its current route assignment")
+            replacement = selected[index]
+            evidence = canonical_value_digest({
+                "schema": "mailcpu.partitioned-frontier-rehome-evidence.v1",
+                "parent_request_digest": request.digest,
+                "checkpoint_digest": state.digest,
+                "child_request_digest": previous_partition.request.digest,
+                "previous_partition_digest": previous_partition.digest,
+                "previous_route_digest": previous_partition.route_witness.digest,
+                "failure_type": type(error).__name__,
+                "failure_detail": str(error)[:1024],
+            })
+            intents.append(BinaryFrontierReassignmentIntent(
+                previous_partition,
+                replacement,
+                ticket.claim.claim_id,
+                assignment.epoch,
+                evidence,
+            ))
+
+        intent_state = BinaryFrontierExecutionCheckpoint(
+            request,
+            state.plan,
+            state.successful_children,
+            state.reassignments,
+            tuple(sorted(intents, key=lambda item: item.child_request_digest)),
+        )
+        if self.checkpoint_sink is not None:
+            self.checkpoint_sink(intent_state)
+        confirmed_state = self._apply_reassignment_intents(request, intent_state)
+        if self.checkpoint_sink is not None:
+            self.checkpoint_sink(confirmed_state)
+        return confirmed_state
+
+
     def dispatch(
         self,
         request: DataflowAddFrontierRequest | DataflowCompareFrontierRequest | DataflowMultiplyFrontierRequest,
@@ -1043,7 +1264,7 @@ class PartitionedComputationalFabricDataflowBinaryDispatcher:
         *,
         checkpoint: BinaryFrontierExecutionCheckpoint | Mapping[str, Any] | None = None,
     ) -> BinaryFrontierCompositeReceipt:
-        """Mathematics: execute only children absent from the validated checkpoint and construct a parent receipt only when every fixed partition has a typed receipt."""
+        """Mathematics: dispatch bounded pure children, quorum-rehome transport failures and publish one completed parent receipt."""
         operation = _operation_for_request(request)
         if operation != self.operation:
             raise OperationNativeDataflowError("parent request operation differs from the configured binary dispatcher")
@@ -1070,10 +1291,53 @@ class PartitionedComputationalFabricDataflowBinaryDispatcher:
                 if proposed_groups != recovered_groups:
                     raise OperationNativeDataflowError("recovery partition_groups differ from the saved exact partition plan")
 
+        claim_store = getattr(self.dispatcher, "execution_claim_store", None)
+        if claim_store is not None and any(item.claim_bundle is None for item in state.successful_children):
+            raise PartitionedFrontierIncomplete(
+                "recovered child receipts do not carry assignment tickets for the configured claim authority",
+                state,
+                ("execution_claim: checkpoint predates or omitted claim-bound dispatch",),
+            )
+        if claim_store is None and (
+            state.reassignments
+            or state.reassignment_intents
+            or any(item.claim_bundle is not None for item in state.successful_children)
+        ):
+            raise PartitionedFrontierIncomplete(
+                "claim-bound child checkpoint requires the original origin claim authority",
+                state,
+                ("execution_claim: claim authority is not configured",),
+            )
+
+        try:
+            state = self._apply_reassignment_intents(request, state)
+        except Exception as exc:
+            raise PartitionedFrontierIncomplete(
+                f"could not recover the pending quorum reassignment cut: {exc}",
+                state,
+                (f"reassignment_recovery: {type(exc).__name__}: {str(exc)[:512]}",),
+            ) from exc
+
+        if self.checkpoint_sink is not None:
+            try:
+                self.checkpoint_sink(state)
+            except Exception as exc:
+                raise PartitionedFrontierIncomplete(
+                    f"could not persist the parent frontier checkpoint before dispatch: {exc}",
+                    state,
+                    (f"checkpoint_sink: {type(exc).__name__}: {str(exc)[:512]}",),
+                ) from exc
+
         if state.complete:
             try:
                 finalized_children = self._complete_claimed_children(request, state.successful_children)
-                finalized_state = BinaryFrontierExecutionCheckpoint(request, state.plan, finalized_children)
+                finalized_state = BinaryFrontierExecutionCheckpoint(
+                    request,
+                    state.plan,
+                    finalized_children,
+                    state.reassignments,
+                    state.reassignment_intents,
+                )
                 if self.checkpoint_sink is not None:
                     self.checkpoint_sink(finalized_state)
             except Exception as exc:
@@ -1084,164 +1348,173 @@ class PartitionedComputationalFabricDataflowBinaryDispatcher:
                 ) from exc
             return BinaryFrontierCompositeReceipt(request, state.plan, finalized_state.successful_children)
 
-        claim_tickets: dict[str, PortableExecutionClaimBundle] = {}
-        claim_store = getattr(self.dispatcher, "execution_claim_store", None)
-        if claim_store is not None and any(item.claim_bundle is None for item in state.successful_children):
-            raise PartitionedFrontierIncomplete(
-                "recovered child receipts do not carry assignment tickets for the configured claim authority",
-                state,
-                ("execution_claim: checkpoint predates or omitted claim-bound dispatch",),
-            )
-        if claim_store is None and any(item.claim_bundle is not None for item in state.successful_children):
-            raise PartitionedFrontierIncomplete(
-                "claim-bound child checkpoint requires the original origin claim authority",
-                state,
-                ("execution_claim: claim authority is not configured",),
-            )
-        if claim_store is not None:
-            try:
-                claim_tickets = self.dispatcher.prepare_execution_claims(request, state.plan.partitions)
-            except Exception as exc:
-                raise PartitionedFrontierIncomplete(
-                    f"could not establish one current quorum claim generation for the parent frontier: {exc}",
-                    state,
-                    (f"execution_claim: {type(exc).__name__}: {str(exc)[:512]}",),
-                ) from exc
+        completed = {item.partition.request.digest: item for item in state.successful_children}
+        last_failures: list[str] = []
+        rehome_round = 0
+        total_rounds = self.max_rehome_rounds + 1
 
-        if self.checkpoint_sink is not None:
-            try:
-                self.checkpoint_sink(state)
-            except Exception as exc:
-                raise PartitionedFrontierIncomplete(
-                    f"could not persist the partition plan before dispatch: {exc}",
-                    state,
-                    (f"checkpoint_sink: {type(exc).__name__}: {exc}",),
-                ) from exc
+        for _round in range(total_rounds):
+            pending = state.remaining_partitions
+            if not pending:
+                break
 
-        completed = {item.partition.digest: item for item in state.successful_children}
-        failures: list[str] = []
-        pending = state.remaining_partitions
-        index_by_digest = {item.digest: index for index, item in enumerate(state.plan.partitions)}
-
-        def dispatch_one(partition: BinaryFrontierPartition) -> BinaryFrontierChildReceipt:
-            """Mathematics: dispatch one child through the wrapped authenticated fabric using its fixed route and deterministic sequence slot."""
-            partition_index = index_by_digest[partition.digest]
-            # Each frontier reserves one bounded 64-sequence window on this
-            # dispatcher channel; child ordinals are stable across recovery.
-            sequence = (
-                self.dispatcher.first_sequence
-                + request.frontier_index * self.dispatcher.frontier_sequence_stride
-                + partition_index
-            )
-            claim_bundle = claim_tickets.get(partition.digest)
-            if claim_bundle is None:
-                receipt = self.dispatcher(
-                    partition.request,
-                    route_witness=partition.route_witness,
-                    origin_sequence=sequence,
-                )
-            else:
-                receipt = self.dispatcher(
-                    partition.request,
-                    route_witness=partition.route_witness,
-                    origin_sequence=sequence,
-                    parent_request_digest=request.digest,
-                    claim_bundle=claim_bundle,
-                )
-            return BinaryFrontierChildReceipt(partition, receipt, claim_bundle)
-
-        by_first_hop: dict[str, list[BinaryFrontierPartition]] = {}
-        for partition in pending:
-            first_hop = partition.route_witness.peer_path[1]
-            by_first_hop.setdefault(first_hop, []).append(partition)
-        for group in by_first_hop.values():
-            group.sort(key=lambda item: index_by_digest[item.digest])
-
-        def dispatch_group(
-            group: Sequence[BinaryFrontierPartition],
-        ) -> tuple[tuple[BinaryFrontierChildReceipt, ...], tuple[str, ...]]:
-            """Mathematics: serialize one first-hop stream, stopping at the first ambiguous failure so later stream sequence slots remain recoverable."""
-            group_successes: list[BinaryFrontierChildReceipt] = []
-            group_failures: list[str] = []
-            # One authenticated next-hop client is one serialized channel.
-            # Keep its sequence order intact; independent next-hop channels
-            # execute concurrently in the bounded worker pool.
-            for partition in group:
+            claim_tickets: dict[str, PortableExecutionClaimBundle] = {}
+            if claim_store is not None:
                 try:
-                    group_successes.append(dispatch_one(partition))
+                    claim_tickets = self.dispatcher.prepare_execution_claims(request, pending)
                 except Exception as exc:
-                    group_failures.append(
-                        f"{partition.request.digest}: {type(exc).__name__}: {str(exc)[:512]}"
-                    )
-                    # Do not send a later sequence on this channel while an
-                    # earlier child has an ambiguous outcome. Resume replays
-                    # this exact assignment first, then advances the stream.
+                    last_failures = [f"execution_claim: {type(exc).__name__}: {str(exc)[:512]}"]
                     break
-            return tuple(group_successes), tuple(group_failures)
 
-        with ThreadPoolExecutor(
-            max_workers=min(self.max_concurrency, len(by_first_hop)),
-            thread_name_prefix="ecpu-frontier",
-        ) as executor:
-            futures = {
-                executor.submit(dispatch_group, tuple(group)): first_hop
-                for first_hop, group in by_first_hop.items()
+            index_by_child = {
+                item.request.digest: index
+                for index, item in enumerate(state.plan.partitions)
             }
-            for future in as_completed(futures):
-                first_hop = futures[future]
-                try:
-                    group_successes, group_failures = future.result()
-                except Exception as exc:
-                    failures.append(
-                        f"first-hop {first_hop}: {type(exc).__name__}: {str(exc)[:512]}"
-                    )
-                    continue
-                failures.extend(group_failures)
-                for child_receipt in group_successes:
-                    completed[child_receipt.partition.digest] = child_receipt
-                    state = BinaryFrontierExecutionCheckpoint(
-                        request,
-                        state.plan,
-                        tuple(
-                            completed[item.digest]
-                            for item in state.plan.partitions
-                            if item.digest in completed
-                        ),
-                    )
-                    if self.checkpoint_sink is not None:
-                        try:
-                            self.checkpoint_sink(state)
-                        except Exception as exc:
-                            failures.append(f"checkpoint_sink: {type(exc).__name__}: {str(exc)[:512]}")
 
-        final_state = BinaryFrontierExecutionCheckpoint(
-            request,
-            state.plan,
-            tuple(
-                completed[item.digest]
-                for item in state.plan.partitions
-                if item.digest in completed
-            ),
-        )
-        if failures or not final_state.complete:
+            def dispatch_one(partition: BinaryFrontierPartition) -> BinaryFrontierChildReceipt:
+                """Mathematics: send one child through its fixed route with the stable sequence slot and one current quorum ticket."""
+                partition_index = index_by_child[partition.request.digest]
+                sequence = (
+                    self.dispatcher.first_sequence
+                    + request.frontier_index * self.dispatcher.frontier_sequence_stride
+                    + partition_index
+                )
+                claim_bundle = claim_tickets.get(partition.digest)
+                if claim_bundle is None:
+                    receipt = self.dispatcher(
+                        partition.request,
+                        route_witness=partition.route_witness,
+                        origin_sequence=sequence,
+                    )
+                else:
+                    receipt = self.dispatcher(
+                        partition.request,
+                        route_witness=partition.route_witness,
+                        origin_sequence=sequence,
+                        parent_request_digest=request.digest,
+                        claim_bundle=claim_bundle,
+                    )
+                return BinaryFrontierChildReceipt(partition, receipt, claim_bundle)
+
+            by_first_hop: dict[str, list[BinaryFrontierPartition]] = {}
+            for partition in pending:
+                by_first_hop.setdefault(partition.route_witness.peer_path[1], []).append(partition)
+            for group in by_first_hop.values():
+                group.sort(key=lambda item: index_by_child[item.request.digest])
+
+            def dispatch_group(
+                group: Sequence[BinaryFrontierPartition],
+            ) -> tuple[tuple[BinaryFrontierChildReceipt, ...], tuple[tuple[BinaryFrontierPartition, BaseException], ...]]:
+                """Mathematics: serialize one authenticated stream and stop at its first ambiguous failure."""
+                group_successes: list[BinaryFrontierChildReceipt] = []
+                group_failures: list[tuple[BinaryFrontierPartition, BaseException]] = []
+                for partition in group:
+                    try:
+                        group_successes.append(dispatch_one(partition))
+                    except Exception as exc:
+                        group_failures.append((partition, exc))
+                        break
+                return tuple(group_successes), tuple(group_failures)
+
+            failures_by_child: dict[str, tuple[BinaryFrontierPartition, BaseException]] = {}
+            group_failures: list[str] = []
+            with ThreadPoolExecutor(
+                max_workers=min(self.max_concurrency, len(by_first_hop)),
+                thread_name_prefix="ecpu-frontier",
+            ) as executor:
+                futures = {
+                    executor.submit(dispatch_group, tuple(group)): first_hop
+                    for first_hop, group in by_first_hop.items()
+                }
+                for future in as_completed(futures):
+                    first_hop = futures[future]
+                    try:
+                        group_successes, child_failures = future.result()
+                    except Exception as exc:
+                        group_failures.append(f"first-hop {first_hop}: {type(exc).__name__}: {str(exc)[:512]}")
+                        continue
+                    for partition, error in child_failures:
+                        failures_by_child[partition.request.digest] = (partition, error)
+                        group_failures.append(
+                            f"{partition.request.digest}: {type(error).__name__}: {str(error)[:512]}"
+                        )
+                    for child_receipt in group_successes:
+                        completed[child_receipt.partition.request.digest] = child_receipt
+                        state = BinaryFrontierExecutionCheckpoint(
+                            request,
+                            state.plan,
+                            tuple(
+                                completed[item.request.digest]
+                                for item in state.current_partitions
+                                if item.request.digest in completed
+                            ),
+                            state.reassignments,
+                            state.reassignment_intents,
+                        )
+                        if self.checkpoint_sink is not None:
+                            try:
+                                self.checkpoint_sink(state)
+                            except Exception as exc:
+                                group_failures.append(f"checkpoint_sink: {type(exc).__name__}: {str(exc)[:512]}")
+                                break
+
+            if state.complete:
+                break
+            last_failures = group_failures
+            if (
+                claim_store is None
+                or rehome_round >= self.max_rehome_rounds
+                or not failures_by_child
+            ):
+                break
+            rehomeable = {
+                key: value
+                for key, value in failures_by_child.items()
+                if self._is_rehomeable_failure(value[1])
+            }
+            if not rehomeable:
+                break
+            try:
+                state = self._rehome_failed_partitions(
+                    request,
+                    state,
+                    rehomeable,
+                    claim_tickets,
+                )
+            except Exception as exc:
+                last_failures.append(f"rehome: {type(exc).__name__}: {str(exc)[:512]}")
+                break
+            rehome_round += 1
+            # A reassign batch advanced the shared claim root. Every still
+            # pending sibling therefore receives a fresh ticket next round.
+
+        if not state.complete:
             raise PartitionedFrontierIncomplete(
                 f"partitioned {self.operation} frontier is incomplete: "
-                f"{len(final_state.successful_children)}/{len(final_state.plan.partitions)} child receipts verified",
-                final_state,
-                failures,
+                f"{len(state.successful_children)}/{len(state.plan.partitions)} child receipts verified",
+                state,
+                last_failures,
             )
+
         try:
-            finalized_children = self._complete_claimed_children(request, final_state.successful_children)
-            final_state = BinaryFrontierExecutionCheckpoint(request, final_state.plan, finalized_children)
+            finalized_children = self._complete_claimed_children(request, state.successful_children)
+            final_state = BinaryFrontierExecutionCheckpoint(
+                request,
+                state.plan,
+                finalized_children,
+                state.reassignments,
+                state.reassignment_intents,
+            )
             if self.checkpoint_sink is not None:
                 self.checkpoint_sink(final_state)
         except Exception as exc:
             raise PartitionedFrontierIncomplete(
                 f"could not commit and checkpoint the complete parent frontier result set: {exc}",
-                final_state,
+                state,
                 (f"claim_completion: {type(exc).__name__}: {str(exc)[:512]}",),
             ) from exc
         return BinaryFrontierCompositeReceipt(request, final_state.plan, final_state.successful_children)
+
 
     def __call__(
         self,
