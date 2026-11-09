@@ -219,7 +219,7 @@ The bounded transit execution path and deterministic multi-path orbit scheduler 
 mailcpu/     importable runtime package; VM, hypervisor, operator and substrate adapters
 tests/       conformance, differential, protocol, runtime, and surface tests
 scripts/     golden-trace recorder and repository verifiers
-examples/    assembly source fixtures
+examples/    assembly source fixtures and reproducible benchmark scripts
 docs/        specifications, architecture, invariants, glossary
 ```
 
