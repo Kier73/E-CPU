@@ -24,7 +24,7 @@ from .temporal import CausalStamp, MonotonicReading
 
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _LABEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}\Z")
-_PEER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
+_PEER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
 _MAX_OBSERVATIONS = 100_000
 
 
@@ -87,6 +87,8 @@ def _sample_from_dict(payload: Mapping[str, Any]) -> OperationTimingSample:
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise PlacementProfileError("timing sample contains invalid typed clock evidence") from exc
+    if type(payload["elapsed_ns"]) is not int or payload["elapsed_ns"] < 0:
+        raise PlacementProfileError("timing sample elapsed duration must be a non-negative strict integer")
     if sample.elapsed_ns != payload["elapsed_ns"]:
         raise PlacementProfileError("timing sample elapsed duration differs from its monotonic readings")
     return sample
@@ -105,7 +107,6 @@ class PlacementProfileKey:
     target_host_id: str
     implementation_fingerprint: str
     peer_path: tuple[str, ...] = ()
-    route_witness_digest: str | None = None
 
     def __post_init__(self) -> None:
         """Mathematics: validate the comparable semantic domain and one exact placement identity."""
@@ -128,10 +129,6 @@ class PlacementProfileKey:
             raise PlacementProfileError("peer_path must be cycle-free")
         if path and len(path) < 2:
             raise PlacementProfileError("a remote peer_path must contain origin and destination")
-        if self.route_witness_digest is not None:
-            _digest(self.route_witness_digest, "route_witness_digest")
-        if bool(path) != (self.route_witness_digest is not None):
-            raise PlacementProfileError("remote peer_path and route_witness_digest must be supplied together")
         object.__setattr__(self, "peer_path", path)
 
     def comparison_payload(self) -> dict[str, Any]:
@@ -164,7 +161,6 @@ class PlacementProfileKey:
             "target_host_id": self.target_host_id,
             "implementation_fingerprint": self.implementation_fingerprint,
             "peer_path": list(self.peer_path),
-            "route_witness_digest": self.route_witness_digest,
         }
 
     @classmethod
@@ -174,7 +170,7 @@ class PlacementProfileKey:
             "schema", "workload_class_digest", "operator_id", "operator_version",
             "operator_contract_digest", "computational_ground_fingerprint",
             "origin_environment_digest", "target_host_id", "implementation_fingerprint",
-            "peer_path", "route_witness_digest",
+            "peer_path",
         }
         if not isinstance(payload, Mapping) or set(payload) != expected:
             raise PlacementProfileError("placement profile key fields are malformed")
@@ -191,7 +187,6 @@ class PlacementProfileKey:
                 target_host_id=payload["target_host_id"],
                 implementation_fingerprint=payload["implementation_fingerprint"],
                 peer_path=tuple(payload["peer_path"]),
-                route_witness_digest=payload["route_witness_digest"],
             )
         except (KeyError, TypeError, ValueError) as exc:
             if isinstance(exc, PlacementProfileError):
@@ -256,7 +251,6 @@ class PlacementObservation:
                 route_receipt.host_id != key.target_host_id
                 or route_receipt.implementation_fingerprint != key.implementation_fingerprint
                 or route_receipt.peer_path != key.peer_path
-                or route_receipt.route_witness_digest != key.route_witness_digest
             ):
                 raise PlacementProfileError("frontier receipt does not match the profiled host, implementation, or route")
             if route_receipt.peer_id != key.peer_path[-1]:
@@ -362,7 +356,6 @@ class PlacementProfile:
                     receipt.host_id != self.key.target_host_id
                     or receipt.implementation_fingerprint != self.key.implementation_fingerprint
                     or receipt.peer_path != self.key.peer_path
-                    or receipt.route_witness_digest != self.key.route_witness_digest
                     or receipt.peer_id != self.key.peer_path[-1]
                 ):
                     raise PlacementProfileError("profile route receipt differs from its exact placement key")
@@ -476,8 +469,12 @@ class PlacementRanking:
                 raise PlacementProfileError("insufficient profile count must be a non-negative strict integer")
         if len(set(ranked)) != len(ranked) or len({item[0] for item in insufficient}) != len(insufficient):
             raise PlacementProfileError("placement ranking contains duplicate profile identities")
+        if bool(ranked) == bool(insufficient):
+            raise PlacementProfileError("placement ranking must contain either a complete order or insufficient evidence")
         if ranked and insufficient:
             raise PlacementProfileError("incomplete evidence cannot produce a partial placement ranking")
+        if any(count >= self.minimum_observations for _, count in insufficient):
+            raise PlacementProfileError("insufficient profile entry meets the minimum observation count")
         object.__setattr__(self, "ordered_profile_digests", ranked)
         object.__setattr__(self, "insufficient_profiles", insufficient)
 
@@ -511,6 +508,47 @@ class PlacementRanking:
             "best_profile_digest": self.best_profile_digest,
             "recommendation_authoritative": False,
         }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "PlacementRanking":
+        """Mathematics: restore a ranking only when completeness, ordering choice and advisory authority recompute exactly."""
+        expected = {
+            "schema", "comparison_digest", "minimum_observations",
+            "ordered_profile_digests", "insufficient_profiles", "complete",
+            "best_profile_digest", "recommendation_authoritative",
+        }
+        if not isinstance(payload, Mapping) or set(payload) != expected:
+            raise PlacementProfileError("placement ranking fields are malformed")
+        if (
+            payload["schema"] != "mailcpu.placement-ranking.v1"
+            or payload["recommendation_authoritative"] is not False
+            or type(payload["complete"]) is not bool
+            or not isinstance(payload["ordered_profile_digests"], list)
+            or not isinstance(payload["insufficient_profiles"], list)
+        ):
+            raise PlacementProfileError("placement ranking schema, authority or nested values are invalid")
+        insufficient = []
+        for item in payload["insufficient_profiles"]:
+            if not isinstance(item, Mapping) or set(item) != {"profile_digest", "observation_count"}:
+                raise PlacementProfileError("placement ranking insufficient-profile entry is malformed")
+            insufficient.append((item["profile_digest"], item["observation_count"]))
+        try:
+            ranking = cls(
+                comparison_digest=payload["comparison_digest"],
+                minimum_observations=payload["minimum_observations"],
+                ordered_profile_digests=tuple(payload["ordered_profile_digests"]),
+                insufficient_profiles=tuple(insufficient),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            if isinstance(exc, PlacementProfileError):
+                raise
+            raise PlacementProfileError("placement ranking contains invalid values") from exc
+        if (
+            payload["complete"] is not ranking.complete
+            or payload["best_profile_digest"] != ranking.best_profile_digest
+        ):
+            raise PlacementProfileError("placement ranking completeness or selected profile differs from its evidence")
+        return ranking
 
 
 def rank_placement_profiles(
