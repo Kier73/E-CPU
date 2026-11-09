@@ -51,7 +51,12 @@ def test_structural_memory_vm_pair_holds_virtual_geometry_and_working_set_consta
     assert structural["host_backing_cache_probe_hit_delta"] == 2
     assert structural["host_backing_cached_page_count_after_probe"] == 2
     assert structural["host_backing_cached_page_bytes_after_probe"] == 2 * 256
+    assert structural["host_backing_cached_page_bytes_after_reclaim"] == 2 * 256
+    assert structural["host_backing_shared_resident_cache_bytes_after_reclaim"] == 256
+    assert structural["host_backing_only_retained_page_bytes_after_reclaim"] == 256
+    assert structural["host_backing_shared_resident_cache_bytes_after_refault"] == 2 * 256
     assert structural["host_backing_cached_provider_coordinate_count_after_probe"] == 0
+    assert materialized["host_backing_only_retained_page_bytes_after_reclaim"] == 0
     assert structural["host_backing_cache_retention_policy"] == "measured_regeneration_cost_times_observed_reuse_per_byte"
     assert materialized["host_backing_cached_reuse_count_after_probe"] == 0
     assert structural["structural_registry_bytes"] > materialized["structural_registry_bytes"]
