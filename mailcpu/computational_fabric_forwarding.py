@@ -723,7 +723,7 @@ class ComputationalFabricForwardingClient:
             request,
         )
         try:
-            self.request.send_or_retransmit(event)
+            request_sequence = self.request.send_or_retransmit(event)
         except Exception as exc:
             raise ComputationalFabricForwardingError(f"could not enqueue forwarding operation: {exc}") from exc
 
@@ -797,6 +797,39 @@ class ComputationalFabricForwardingClient:
             or receipt.decision_receipt != result.decision_receipt
         ):
             raise ComputationalFabricForwardingError("next peer receipt does not bind this exact authenticated forwarding hop")
+
+        # A semantic result may have been cached from an earlier delivery of
+        # this operation. Do not report this RPC as complete while the exact
+        # request frame just sent/retried is still pending: the receiver may
+        # not yet have consumed this delivery or advanced its receive cursor.
+        ack_deadline = time.monotonic() + self.timeout
+        last_ack_tick = time.monotonic()
+        while request_sequence in self.request.channel.pending_sequences():
+            try:
+                acknowledged = self.request.channel.process_ack()
+            except Exception as exc:
+                raise ComputationalFabricForwardingError(
+                    f"could not confirm forwarding request acknowledgement: {exc}"
+                ) from exc
+            if request_sequence not in self.request.channel.pending_sequences():
+                break
+            now = time.monotonic()
+            if request_sequence in self.request.channel.failed_sequences:
+                raise ComputationalFabricForwardingError(
+                    "forwarding request acknowledgement exhausted its retry budget"
+                )
+            if now >= ack_deadline:
+                raise ComputationalFabricForwardingError(
+                    "next peer returned a result without acknowledging the corresponding request frame"
+                )
+            if now - last_ack_tick >= 0.03:
+                failed = self.request.channel.tick()
+                if request_sequence in failed:
+                    raise ComputationalFabricForwardingError(
+                        "forwarding request acknowledgement exhausted its retry budget"
+                    )
+                last_ack_tick = now
+            time.sleep(0.002)
         return receipt
 
     def snapshot(self) -> dict[str, Any]:
