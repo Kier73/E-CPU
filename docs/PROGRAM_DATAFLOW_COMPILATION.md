@@ -8,11 +8,12 @@ The input is an exact UTF-8 assembly byte sequence (or an already validated Prog
 
 ## Supported program domain
 
-The first version admits only:
+The current bounded compiler admits only:
 
 - SET
 - COPY
 - ADD
+- MUL
 - COMPARE
 - one final HALT
 
@@ -52,7 +53,7 @@ R=(m,r,c,q,d_s,d_c)
 
 where (m) is the memory identity, (r) its exact revision, (c) the context, (q) the coordinate, (d_s) the Structural Memory specification digest, and (d_c) the certificate digest. The compiler does not read the memory, infer its value, or substitute a placeholder value. The corresponding DAG operand remains symbolic.
 
-A plan containing symbolic references cannot be evaluated by the local `evaluate_dataflow` path, because that evaluator has no receiver-local memory authority. In the current operation-native profile, a symbolic reference may feed an `ADD` operand. The executor carries it as a schema-v2 Virtual Layer memory reference. The selected receiving host resolves it only after its local Hypervisor admission and only when its execution process holds `read` on `/structural-memory/read`. It returns the value and full typed read receipt. The requester checks the receipt against the exact pinned reference, then applies the independent scalar ADD oracle before committing the DAG node.
+A plan containing symbolic references cannot be evaluated by the local `evaluate_dataflow` path, because that evaluator has no receiver-local memory authority. In the current operation-native profile, a symbolic reference may feed an `ADD`, `COMPARE`, or `MUL` operand. The executor carries it as a schema-v2 Virtual Layer memory reference. The selected receiving host resolves it only after its local Hypervisor admission and only when its execution process holds `read` on `/structural-memory/read`. It returns the value and full typed read receipt. The requester checks the receipt against the exact pinned reference, then applies the independent scalar ADD oracle before committing the DAG node.
 
 The reference is not a read grant, capability, generator, or executable closure. It only identifies what must be read. The receiver's registry, current revision, context, certificate and process authority determine whether resolution succeeds.
 
@@ -105,7 +106,7 @@ This first version does not:
 - measure physical latency, energy, or byte movement; or
 - prove universal equivalence beyond the declared instruction subset and terminal observation.
 
-The operation-native integration is specified in OPERATION_NATIVE_COMPUTATIONAL_FABRIC.md. It can dispatch ADD@3 and opt-in COMPARE@1 binary frontiers as pure Virtual Layer operations through authenticated fabric paths, admits CPU and E-GPU realizations under their respective semantic contracts, checks each returned lane independently, and commits the typed operation receipt and contract identity into the original DAG result. COMPARE remains local unless its dispatcher is explicitly supplied. This remains a sequential reference experiment, not a concurrency or speed claim. The next stage should benchmark local, remote CPU, remote E-GPU and fused placements while preserving the distinction between route estimates and observed execution.
+The operation-native integration is specified in OPERATION_NATIVE_COMPUTATIONAL_FABRIC.md. It can dispatch ADD@3, opt-in COMPARE@1, and opt-in MUL@1 binary frontiers as pure Virtual Layer operations through authenticated fabric paths, admits CPU and E-GPU realizations under their respective semantic contracts, checks each returned lane independently, and commits the typed operation receipt and contract identity into the original DAG result. COMPARE and MUL remain local unless their respective dispatchers are explicitly supplied. This remains a sequential reference experiment, not a concurrency or speed claim. The next stage should benchmark local, remote CPU, remote E-GPU and fused placements while preserving the distinction between route estimates and observed execution.
 
 ## Run
 
