@@ -123,7 +123,7 @@ class VGIFabricSessionOperator:
         except VGISessionError as exc:
             raise VGIFabricOperatorError(f"VGI transfer admission failed: {exc}") from exc
         bundle_decode_ms = (time.perf_counter() - decode_started) * 1000.0
-        if transfer.descriptor != self.session.descriptor.to_dict():
+        if _canonical_bytes(transfer.descriptor) != _canonical_bytes(self.session.descriptor.to_dict()):
             raise VGIFabricOperatorError("transferred VGI descriptor differs from the receiver's admitted interpretation")
         try:
             base = ComputationalSessionCheckpoint.from_dict(
