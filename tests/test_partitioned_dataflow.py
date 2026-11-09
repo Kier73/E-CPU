@@ -468,8 +468,16 @@ def test_claim_bound_partitioned_dispatch_batches_tickets_and_preserves_receipt_
     assert len(composite.children) == 2
     assert all(child.claim_bundle is not None for child in composite.children)
     assert all(child.receipt.execution_claim is not None for child in composite.children)
+    assert all(child.completion_bundle is not None for child in composite.children)
+    assert all(child.completion_bundle.claim.status.value == "completed" for child in composite.children)
     assert len({child.claim_bundle.manifest.generation for child in composite.children}) == 1
     assert len({child.claim_bundle.manifest.digest for child in composite.children}) == 1
+    assert len({child.completion_bundle.manifest.generation for child in composite.children}) == 1
+    assert len({child.completion_bundle.manifest.digest for child in composite.children}) == 1
+    assert all(
+        child.completion_bundle.claim.child_receipt_digest == child.receipt.digest
+        for child in composite.children
+    )
     assert all(
         child.claim_bundle.claim.parent_request_digest == request.digest
         and child.claim_bundle.claim.child_request_digest == child.partition.request.digest
@@ -551,3 +559,40 @@ def test_claim_bound_envelope_round_trip_and_relay_preserve_exact_ticket(tmp_pat
     assert advanced.claim_bundle.digest == ticket.digest
     assert advanced.parent_request_digest == request.digest
     assert advanced.to_dict()["claim_bundle"] == encoded["claim_bundle"]
+
+
+def test_claim_bound_partition_recovery_completes_all_children_together_after_ambiguous_reply(tmp_path) -> None:
+    """Mathematics: checkpoint resume reuses an ambiguous child receipt and commits all child claims in one completion generation."""
+    request = _request()
+    store = _claim_store(tmp_path)
+    base = _FakeAuthenticatedBinaryDispatcher(
+        ambiguous_node="pc-000003",
+        execution_claim_store=store,
+    )
+    checkpoints = []
+    dispatcher = PartitionedComputationalFabricDataflowBinaryDispatcher(
+        base,
+        partition_count=2,
+        max_concurrency=2,
+        checkpoint_sink=checkpoints.append,
+    )
+
+    with pytest.raises(PartitionedFrontierIncomplete) as caught:
+        dispatcher.dispatch(request)
+    checkpoint = caught.value.checkpoint
+    assert len(checkpoint.successful_children) == 1
+    assert all(child.claim_bundle is not None for child in checkpoint.successful_children)
+    assert all(child.completion_bundle is None for child in checkpoint.successful_children)
+    assert store.high_water[0] == 1
+
+    composite = dispatcher.dispatch(
+        request,
+        checkpoint=type(checkpoint).from_dict(checkpoint.to_dict()),
+    )
+    assert len(composite.children) == 2
+    assert all(child.completion_bundle is not None for child in composite.children)
+    assert len({child.completion_bundle.manifest.digest for child in composite.children}) == 1
+    assert sorted(base.semantic_effects.values()) == [1, 1]
+    assert store.high_water[0] == 2
+    assert checkpoints[-1].complete
+    assert all(child.completion_bundle is not None for child in checkpoints[-1].successful_children)
