@@ -135,6 +135,7 @@ class TransitComputeWorker:
             response,
             encode_effect,
             fault_hook=fault_hook,
+            defer_stale_duplicate_until_response_ack=True,
         )
 
     @staticmethod
