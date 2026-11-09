@@ -733,9 +733,17 @@ class ComputationalFabricForwardingClient:
         while time.monotonic() < deadline:
             try:
                 self.request.channel.process_ack()
-                result = self.response.receive()
+                result, _response_transport_sequence, stale_response_frame = (
+                    self.response.receive_with_transport()
+                )
             except Exception as exc:
                 raise ComputationalFabricForwardingError(f"forwarding peer stream failed: {exc}") from exc
+            if result is not None and stale_response_frame and result.replayed:
+                # This RPC invocation must not be satisfied by an old reliable
+                # frame whose semantic result the client already observed.
+                # The frame has been ACKed; keep waiting for a fresh response
+                # transport sequence associated with the new request delivery.
+                continue
             if (
                 result is not None
                 and result.source == self.local_peer_id
