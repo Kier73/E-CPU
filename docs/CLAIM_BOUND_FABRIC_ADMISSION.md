@@ -58,7 +58,11 @@ Partition checkpoints preserve child assignment tickets, verified child receipts
 
 A rehome that races a result is fenced in two places: the origin's post-response refresh rejects a changed assignment, and the final parent `complete_many()` rejects any child whose epoch/Host/implementation no longer matches the live claim. The protocol does not claim to stop a physically isolated old Host from finishing a deterministic pure calculation. Its guarantee is single-winner semantic result acceptance.
 
-Automatic reassignment and route re-resolution are intentionally not included in this increment. When a claim is reassigned, the old terminal result is not accepted; the next orchestration layer must obtain failure observations, commit a new assignment epoch with `reassign()`, resolve a compatible route and retry the same child identity. The failure-evidence digest is an observation commitment, not proof that the prior Host has physically stopped.
+Automatic pure-child rehome is now implemented in the partitioned frontier dispatcher. It is bounded by `max_rehome_rounds` (default 1; 0 disables it) and requires the origin's claim store. Only recognized transport/path-loss outcomes trigger the path. The origin resolves the unchanged child address against the current directory, finds distinct replacement Hosts, persists a typed intent, and commits every failed child's new epoch in one `reassign_many()` generation. It then refreshes pending sibling tickets under the new shared root and retries the same semantic child with the stable origin-sequence slot reserved for its new assignment epoch. Exact retries within that epoch reuse the slot; each rehome epoch advances to the next 64-slot sub-window within the reserved 256-sequence frontier range.
+
+Checkpoint v2 preserves confirmed route changes; v3 includes the intent written before quorum reassignment. A restart after quorum commit but before route confirmation can replay the identical batch idempotently. Existing verified siblings remain intact and the original parent frontier still completes atomically.
+
+The guarantee remains single-winner semantic result acceptance for deterministic pure operations, not physical exactly-once. A disconnected previous Host may finish its pure computation, but the old epoch cannot complete the claim. Arbitrary side effects, stateful sessions and semantic/policy refusals are not automatically rehomed. The failure-evidence digest is an observation commitment, not proof that a prior Host has physically stopped.
 
 ## Parallel work orders
 
