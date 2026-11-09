@@ -612,6 +612,7 @@ class ComputationalFabricForwardingClient:
         handshake_timeout: float = 5.0,
         max_payload_bytes: int = _DEFAULT_MAX_PAYLOAD_BYTES,
         policy: ReliabilityPolicy | None = None,
+        timing_probe: Any | None = None,
     ) -> "ComputationalFabricForwardingClient":
         """Mathematics: Open a direct peer stream only after CA-chain and exact DNS SAN validation."""
         if not isinstance(remote_endpoint, ComputationalPeerEndpoint):
@@ -636,6 +637,7 @@ class ComputationalFabricForwardingClient:
                 timeout=timeout,
                 max_payload_bytes=max_payload_bytes,
                 policy=policy,
+                timing_probe=timing_probe,
             )
         except Exception:
             transport.close()
@@ -1055,6 +1057,7 @@ class ComputationalFabricForwardingServer:
         timeout: float = 5.0,
         max_payload_bytes: int = _DEFAULT_MAX_PAYLOAD_BYTES,
         policy: ReliabilityPolicy | None = None,
+        timing_probe: Any | None = None,
     ) -> "ComputationalFabricForwardingServer":
         """Mathematics: Accept one client only when its CA-verified certificate presents the directory's exact trusted DNS SAN."""
         previous = _peer(previous_peer_id, "previous_peer_id")
@@ -1084,6 +1087,7 @@ class ComputationalFabricForwardingServer:
                 timeout=timeout,
                 max_payload_bytes=max_payload_bytes,
                 policy=policy,
+                timing_probe=timing_probe,
             )
         except Exception:
             transport.close()
