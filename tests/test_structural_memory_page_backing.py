@@ -91,8 +91,10 @@ def test_structural_memory_page_backing_bounds_host_cache_and_reuses_verified_ra
     for digest, expected in pages[:4]:
         assert backing.get_page(digest) == expected
     first_receipt = backing.read_receipt(pages[0][0])
-    assert first_receipt is not None
+    second_receipt = backing.read_receipt(pages[1][0])
+    assert first_receipt is not None and second_receipt is not None
     first_receipt_id = first_receipt.receipt_id
+    second_receipt_id = second_receipt.receipt_id
 
     # A cache hit changes recency without generating another range event.
     assert backing.get_page(pages[0][0]) == pages[0][1]
@@ -111,18 +113,7 @@ def test_structural_memory_page_backing_bounds_host_cache_and_reuses_verified_ra
     assert backing.get_page(pages[1][0]) == pages[1][1]
     regenerated = backing.read_receipt(pages[1][0])
     assert regenerated is not None
-    assert regenerated.receipt_id == next(
-        receipt.receipt_id
-        for receipt in (
-            first_receipt,
-            *(
-                backing.read_receipt(digest)
-                for digest, _expected in pages[2:]
-                if backing.read_receipt(digest) is not None
-            ),
-        )
-        if receipt is not None and receipt.content_digest == pages[1][0]
-    ) if False else regenerated.receipt_id
+    assert regenerated.receipt_id == second_receipt_id
     assert len(regenerated.value_receipt_ids) == 8
     assert backing.cached_page_count == 4
     assert backing.cached_provider_coordinate_count == 0
