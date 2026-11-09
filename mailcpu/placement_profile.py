@@ -15,7 +15,11 @@ import re
 from typing import Any, Mapping, Sequence
 
 from .operation_timing import OperationTimingSample
-from .program_dataflow_fabric import DataflowAddFrontierReceipt
+from .program_dataflow_fabric import (
+    DataflowAddFrontierReceipt,
+    DataflowCompareFrontierReceipt,
+    DataflowMultiplyFrontierReceipt,
+)
 from .temporal import CausalStamp, MonotonicReading
 
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
@@ -304,12 +308,8 @@ class PlacementObservation:
             receipt_schema = raw_receipt.get("schema")
             receipt_types = {
                 "mailcpu.dataflow.add-frontier-receipt.v3": DataflowAddFrontierReceipt,
-                "mailcpu.dataflow.compare-frontier-receipt.v1": __import__(
-                    ".program_dataflow_fabric", fromlist=["DataflowCompareFrontierReceipt"]
-                ).DataflowCompareFrontierReceipt,
-                "mailcpu.dataflow.multiply-frontier-receipt.v1": __import__(
-                    ".program_dataflow_fabric", fromlist=["DataflowMultiplyFrontierReceipt"]
-                ).DataflowMultiplyFrontierReceipt,
+                "mailcpu.dataflow.compare-frontier-receipt.v1": DataflowCompareFrontierReceipt,
+                "mailcpu.dataflow.multiply-frontier-receipt.v1": DataflowMultiplyFrontierReceipt,
             }
             receipt_type = receipt_types.get(receipt_schema)
             if receipt_type is None:
