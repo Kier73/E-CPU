@@ -206,6 +206,7 @@ def _make_case(
     cache_probe_ns = perf_counter_ns() - cache_probe_started
     cache_probe_content_valid = cache_probe_bytes == _page_bytes(0, page_size)
     cache_probe_after_hits = int(getattr(page_backing, "cached_reuse_count", 0))
+    cache_probe_hit_delta = cache_probe_after_hits - cache_probe_before_hits
     if not cache_probe_content_valid:
         raise StructuralMemoryBenchmarkError("page cache probe changed the declared bytes")
     if mode == "structural" and cache_probe_after_hits - cache_probe_before_hits < 2:
@@ -331,6 +332,7 @@ def _make_case(
         "host_backing_cached_receipt_coordinate_count_after_probe": backing_cached_receipt_coordinate_count_after_probe,
         "host_backing_cached_provider_coordinate_count_after_probe": backing_cached_provider_coordinate_count_after_probe,
         "host_backing_cached_reuse_count_after_probe": cache_probe_after_hits,
+        "host_backing_cache_probe_hit_delta": cache_probe_hit_delta,
         "host_backing_cached_regeneration_cost_ns_after_probe": backing_cached_regeneration_cost_ns_after_probe,
         "host_backing_cache_retention_policy": backing_cache_retention_policy,
         "cold_page_access_ns": cold_access_ns,
