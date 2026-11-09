@@ -1339,7 +1339,16 @@ class ComputationalFabricForwardingServer:
                 operation="execute" if envelope.hop_index == len(envelope.route.peer_path) - 1 else "forward",
             )
             if event.request.intent_projection is not None and event.request.intent_projection != expected_projection:
-                raise ComputationalFabricForwardingError("forwarding intent projection does not match the receiver-decoded route envelope")
+                supplied_projection = dict(event.request.intent_projection)
+                mismatched_fields = sorted(
+                    key
+                    for key in set(supplied_projection) | set(expected_projection)
+                    if supplied_projection.get(key) != expected_projection.get(key)
+                )
+                raise ComputationalFabricForwardingError(
+                    "forwarding intent projection does not match the receiver-decoded route envelope; "
+                    f"mismatched_fields={mismatched_fields!r}"
+                )
             projected_request = HypervisorRequest(
                 operation=event.request.operation,
                 resource=event.request.resource,
