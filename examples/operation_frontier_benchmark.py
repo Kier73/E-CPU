@@ -686,7 +686,7 @@ def run_benchmark(
             "receiver_peer_admission": "Receiver-local per-hop envelope/path and Hypervisor network authority preparation.",
             "receiver_route_dispatch": "Receiver-local inclusive dispatch interval; includes terminal semantic execution and therefore nests other receiver phases.",
             "receiver_semantic_resolution": "Receiver-local fresh semantic resolution of the exact advertised host locus.",
-            "receiver_admission": "Receiver-local Virtual Layer contract, Ground, input and Hypervisor admission preparation.",
+            "receiver_admission": "Receiver-local Virtual Layer contract, Ground, and input validation/preparation before Hypervisor policy arbitration.",
             "receiver_hypervisor_execution": "Receiver-local Hypervisor policy arbitration and effect/execution commit after Virtual Layer preparation.",
             "receiver_provenance_validation": "Receiver-local typed operand, contextual-orbit evidence and bounded integer input validation.",
             "backend_compute": "Receiver-local scalar CPU multiplication or E-GPU vector.multiply invocation.",
