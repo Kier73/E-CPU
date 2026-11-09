@@ -195,7 +195,7 @@ class DataflowAddFrontierRequest:
     def to_dict(self) -> dict[str, Any]:
         """Mathematics: serialize the exact typed operation identity and its bound fields."""
         return {
-            "schema": "mailcpu.dataflow.add-frontier-request.v1",
+            "schema": "mailcpu.dataflow.add-frontier-request.v2",
             "plan_digest": self.plan_digest,
             "context_digest": self.context_digest,
             "frontier_index": self.frontier_index,
@@ -274,7 +274,7 @@ class DataflowAddFrontierReceipt:
     def to_dict(self) -> dict[str, Any]:
         """Mathematics: serialize the exact typed operation identity and its bound fields."""
         return {
-            "schema": "mailcpu.dataflow.add-frontier-receipt.v1",
+            "schema": "mailcpu.dataflow.add-frontier-receipt.v2",
             "request_digest": self.request_digest,
             "results": [[node_id, value] for node_id, value in self.results],
             "host_id": self.host_id,
@@ -312,7 +312,7 @@ class OperationNativeDataflowReport:
     def _payload(self) -> dict[str, Any]:
         """Mathematics: project the report fields that participate in its content digest."""
         return {
-            "schema": "mailcpu.operation-native-dataflow-execution.v1",
+            "schema": "mailcpu.operation-native-dataflow-execution.v2",
             "execution": self.execution.to_dict(),
             "frontier_receipts": [item.to_dict() for item in self.frontier_receipts],
         }
@@ -685,7 +685,7 @@ def dataflow_add_operator_spec() -> OperatorSpec:
     """Mathematics: define one strict integer vector-add contract for CPU and E-GPU realizations."""
     return OperatorSpec(
         operator_id="mailcpu.dataflow.add_frontier",
-        version=1,
+        version=2,
         description="Apply strict integer addition to 1..64 aligned lanes with signed operands and results bounded to 4096 bits; resolve pinned Structural Memory operands at the receiver",
         input_kind="object",
         output_kind="object",
@@ -810,7 +810,7 @@ class ComputationalFabricDataflowAddDispatcher:
             raise OperationNativeDataflowError("dispatcher requires typed System and Virtual Grounds")
         if not isinstance(operator_spec, OperatorSpec) or not operator_spec.replay_safe:
             raise OperationNativeDataflowError("dispatcher requires a deterministic pure OperatorSpec")
-        if operator_spec.operator_id != "mailcpu.dataflow.add_frontier" or operator_spec.version != 1:
+        if operator_spec.operator_id != "mailcpu.dataflow.add_frontier" or operator_spec.version != 2:
             raise OperationNativeDataflowError("dispatcher operator contract is not the dataflow ADD frontier contract")
         _digest(computational_ground_fingerprint, "computational_ground_fingerprint")
         if not isinstance(budget, VirtualBudget):
