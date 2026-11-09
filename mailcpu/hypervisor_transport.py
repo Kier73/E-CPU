@@ -328,12 +328,19 @@ class HypervisorOperationResultChannel:
         return False
 
     def receive(self) -> HypervisorExecutionResult | None:
-        """Mathematics: apply semantic result law `S[I]` before consuming and acknowledging the reliable response frame."""
+        """Mathematics: preserve the established semantic replay API while acknowledging each reliable response frame."""
+        result, _transport_sequence, _stale_transport_duplicate = self.receive_with_transport()
+        return result
 
+    def receive_with_transport(
+        self,
+    ) -> tuple[HypervisorExecutionResult | None, int | None, bool]:
+        """Mathematics: return semantic result, reliable sequence, and predicate (s<r) without conflating transport and operation identity."""
         peeked = self.channel.peek()
         if peeked is None:
-            return None
+            return None, None, False
         transport_sequence, payload = peeked
+        stale_transport_duplicate = transport_sequence < self.channel.next_receive_sequence
         incoming = self._decode_payload(payload)
         identity = (incoming.source, incoming.channel, incoming.sequence)
         previous = self._seen.get(identity)
@@ -371,15 +378,8 @@ class HypervisorOperationResultChannel:
         received = self.channel.receive()
         if received is not None and received[0] != transport_sequence:
             raise HypervisorOperationTransportError("operation result sequence changed during validation")
-        if received is None and previous is not None:
-            # A stale retransmission of an already-observed response is only
-            # transport housekeeping. It must not satisfy a later request
-            # invocation that happens to share the same semantic identity.
-            # A fresh transport sequence carrying that cached result remains
-            # a valid semantic replay and is returned below.
-            return None
         self._seen.setdefault(identity, (incoming.fingerprint, result if not result.replayed else stored))
-        return result
+        return result, transport_sequence, stale_transport_duplicate
 
     def snapshot(self) -> dict[str, object]:
         """Mathematics: serialize result transport `R`, operation binding, and semantic ledger `S` for response replay."""
