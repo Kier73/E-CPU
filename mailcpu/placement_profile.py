@@ -122,6 +122,8 @@ class PlacementProfileKey:
         _label(self.target_host_id, "target_host_id")
         if type(self.operator_version) is not int or self.operator_version < 1:
             raise PlacementProfileError("operator_version must be a positive strict integer")
+        if not isinstance(self.peer_path, (tuple, list)):
+            raise PlacementProfileError("peer_path must be a tuple or list of peer identities")
         path = tuple(self.peer_path)
         if any(not isinstance(item, str) or _PEER.fullmatch(item) is None for item in path):
             raise PlacementProfileError("peer_path contains an invalid peer identity")
@@ -308,7 +310,10 @@ class PlacementObservation:
             receipt_type = receipt_types.get(receipt_schema)
             if receipt_type is None:
                 raise PlacementProfileError("placement observation route receipt schema is unsupported")
-            route_receipt = receipt_type.from_dict(raw_receipt)
+            try:
+                route_receipt = receipt_type.from_dict(raw_receipt)
+            except (KeyError, TypeError, ValueError) as exc:
+                raise PlacementProfileError("placement observation route receipt failed typed validation") from exc
         try:
             return cls(
                 profile_key_digest=payload["profile_key_digest"],
