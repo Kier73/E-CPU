@@ -19,7 +19,7 @@ Each case constructs one `HeadlessOS`, one `MailCPUVirtualMachine`, one schedule
 
 The materialized case reserves the full virtual interval and writes every page, forcing each page into a resident mapping.
 
-The Structural Memory case admits one modulo-256 integer-orbit byte-stream per page, pins each page through a `StructuralMemoryFileRef`, and reserves the same virtual interval against those content hashes. It then reads the same working set. First access passes through `StructuralMemoryPageBacking`, which resolves the pinned provider, validates the byte-range receipt and SHA-256 page identity, and only then materializes the page into VM memory.
+The Structural Memory case admits one modulo-256 integer-orbit byte-stream per page, pins each page through a `StructuralMemoryFileRef`, and reserves the same virtual interval against those content hashes. It then reads the same working set. First access passes through `StructuralMemoryPageBacking`, which resolves the pinned provider, validates the range receipt and SHA-256 page identity, and only then materializes the page into VM memory. The provider returns the ordered per-byte receipt IDs, but the registry commits them to the shared journal as one range receipt that binds the admitted revision, exact context, coordinate interval, ordered generated-value digest, and ordered receipt-ID digest. Restore re-evaluates the range and verifies both commitments.
 
 ## Measurements
 
@@ -33,7 +33,9 @@ The report keeps these quantities separate:
 | Cold page access | First read of each working-set page; includes the fault and any Structural Memory evaluation |
 | Hot access | Repeated reads after the page is mapped |
 | Backing descriptor bytes | Serialized page-reference and local-page descriptor state |
-| Structural registry bytes | Serialized admitted generators, certificates, and coordinate-level read receipts |
+| Structural registry bytes | Serialized admitted generators and certificates; range-read commitments are in the shared kernel journal |
+| Range events | Durable range-level journal records |
+| Coordinate commitments | Number of per-coordinate value receipt identities committed by those range events |
 | Checkpoint bytes | Full `HeadlessOS.snapshot()` serialization after the working set has been touched |
 | Restore time | Normal `HeadlessOS.from_snapshot()` reconstruction, including trusted registry rebinding |
 | Post-restore fault | First read of a previously untouched page after restore |
@@ -61,6 +63,25 @@ The CI scheduler/state workflow runs the smoke tests and the default 4 KiB-page 
 
 A reserved page is not a resident page, but neither is it free storage. A Structural Memory reference carries a revision-pinned generator identity and certificate; resolving it requires local authority, generator evaluation, receipt validation, content hashing, and VM materialization. Once faulted, its bytes are resident just like any other mapped page. Copy-on-write or reclaim operations may also convert a generated page into locally backed private content.
 
-The current byte-stream provider evaluates and journals coordinates individually. That evidence is intentionally included in the Structural Memory registry and checkpoint-size measurements. A large page or working set may therefore have substantial cold-fault and provenance costs even when its generator description is compact. The experiment does not assume that a short formula implies low read latency, low journal volume, or low checkpoint size.
+### First 4 KiB measurement (CI)
 
-This is a single-process, single-VM comparison using the admitted integer-orbit family. It is not an operating-system swap benchmark, an RSS reservation measurement, an adversarial multi-tenant isolation proof, or evidence of physical-host VM capacity. Host RSS is not used to derive savings because this first paired experiment focuses on exact guest mapping state and the provenance/state cost of reconstructing pages. Follow-up work can add host RSS and larger working-set scale sweeps once these state and evidence relationships are stable.
+The first paired CI run used four virtual pages and touched two pages in each case. Both VMs represented the same 16 KiB address space and returned identical page bytes.
+
+| Measurement | Materialized | Structural Memory |
+|---|---:|---:|
+| Resident pages after cold working-set access | 4 | 2 |
+| Resident guest bytes | 16 KiB | 8 KiB |
+| Reserved pages after cold working-set access | 0 | 2 |
+| Reserved guest bytes | 0 | 8 KiB |
+| Mean cold page access | 5.4 µs | 293.9 ms |
+| Mean hot access | 4.5 µs | 2.9 µs |
+| Full checkpoint size | 65,763 B | 86,539 B |
+| Checkpoint restore | 0.78 ms | 581.2 ms |
+| Durable range-read journal events | 0 | 2 |
+| Per-coordinate receipt IDs committed by the range events | 0 | 8,192 |
+
+The resident-page reduction is 50%, but the untouched pages are not free: the Structural Memory case carries four admitted descriptions/certificates, page references, and range evidence. At this four-page size the complete checkpoint is about 20.8 KiB larger than the materialized case. The optimization's major gain is avoiding the previous 8,192 individual journal/cache entries: before range commitments the same profile produced a 41.3 MB checkpoint and took about 5.03 s to restore. After range commitments, those fell to 86.5 KiB and 0.58 s respectively.
+
+Cold generation remains expensive—roughly 294 ms per page versus 5.4 µs for an already-materialized page. This profile therefore demonstrates a viable compact representation and an exact 50% guest resident-page reduction, not a general-purpose swap replacement or an overall faster memory tier. A realistic system would need workload-aware choice of materialization versus regeneration, larger amortization windows, and additional caching/optimization while retaining the same receipt and hash checks.
+
+This is a single-process, single-VM comparison using the admitted integer-orbit family. It is not an operating-system swap benchmark, an RSS reservation measurement, an adversarial multi-tenant isolation proof, or evidence of physical-host VM capacity. Host RSS is not used to derive savings because this paired experiment focuses on exact guest mapping state and the provenance/state cost of reconstructing pages. Larger working-set and fleet-scale tests remain future work.
