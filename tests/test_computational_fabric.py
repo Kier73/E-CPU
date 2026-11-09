@@ -3122,7 +3122,15 @@ def test_contextual_orbit_inverse_navigation_executes_on_receiver_over_multihop_
     from mailcpu import (
         ComputationalFabricForwardingClient,
         ComputationalFabricForwardingServer,
+        ContextualOrbitDataflowInput,
         RepresentationRef,
+    )
+    from mailcpu.program_dataflow import MailCPUDataflowCompiler
+    from mailcpu.program_dataflow_fabric import (
+        ComputationalFabricDataflowAddDispatcher,
+        dataflow_add_operator_spec,
+        execute_dataflow_operation_native,
+        make_cpu_dataflow_add_handler,
     )
     from mailcpu.classifier import HypervisorPolicy
     from mailcpu.computational_fabric_forwarding import (
@@ -3262,8 +3270,17 @@ def test_contextual_orbit_inverse_navigation_executes_on_receiver_over_multihop_
         operator_spec,
         make_contextual_orbit_locate_value_handler(peer_c_os.structural_memory),
     )
+    add_operator_spec = dataflow_add_operator_spec()
+    add_inputs: list[dict[str, Any]] = []
+
+    def cpu_add(value, workload):
+        add_inputs.append(value)
+        return make_cpu_dataflow_add_handler()(value, workload)
+
+    registry_c.register(add_operator_spec, cpu_add)
     runtime_c = VirtualLayerRuntime(registry_c, "node-c", frozenset({"cpu"}))
     implementation_fingerprint = "d" * 64
+    add_implementation_fingerprint = "e" * 64
     locus_c = ComputationalHostLocus.from_runtime(
         host_id="logical-host-c-orbit",
         runtime=runtime_c,
@@ -3276,12 +3293,24 @@ def test_contextual_orbit_inverse_navigation_executes_on_receiver_over_multihop_
         costs=_host_costs(3, energy=12, bytes_=256),
         implementation_fingerprint=implementation_fingerprint,
     )
-    catalogue_c = ComputationalHostCatalogue((locus_c,))
+    add_locus_c = ComputationalHostLocus.from_runtime(
+        host_id="logical-host-c-dataflow-add",
+        runtime=runtime_c,
+        authority_pid=peer_c_pid,
+        operator_id=add_operator_spec.operator_id,
+        version=add_operator_spec.version,
+        computational_ground_fingerprints=(GROUND_FP,),
+        supports_ground_program_compilation=True,
+        costs=_host_costs(3, energy=9, bytes_=256),
+        implementation_fingerprint=add_implementation_fingerprint,
+    )
+    catalogue_c = ComputationalHostCatalogue((locus_c, add_locus_c))
     advertisement_c = ComputationalHostAdvertisement.from_locus(locus_c, "peer-c")
+    add_advertisement_c = ComputationalHostAdvertisement.from_locus(add_locus_c, "peer-c")
 
     snapshot_a = ComputationalPeerSnapshot(endpoint_a, 1, 60, (), (_link("peer-a", "peer-b", 2),))
     snapshot_b = ComputationalPeerSnapshot(endpoint_b, 1, 60, (), (_link("peer-b", "peer-c", 3),))
-    snapshot_c = ComputationalPeerSnapshot(endpoint_c, 1, 60, (advertisement_c,), ())
+    snapshot_c = ComputationalPeerSnapshot(endpoint_c, 1, 60, (advertisement_c, add_advertisement_c), ())
     directory_a = _directory(snapshot_a, snapshot_b, snapshot_c, local_peer_id="peer-a")
     directory_b = _directory(snapshot_a, snapshot_b, snapshot_c, local_peer_id="peer-b")
     directory_c = _directory(snapshot_b, snapshot_c, local_peer_id="peer-c")
@@ -3417,6 +3446,52 @@ def test_contextual_orbit_inverse_navigation_executes_on_receiver_over_multihop_
             metric_order=METRICS,
         )
         receipt = dispatcher(request)
+
+        # Compose the actual A→B→C inverse receipt into two dependent remote ADD frontiers.
+        predecessor = ContextualOrbitDataflowInput(request, receipt, field="coordinate")
+        dataflow_program = assemble(
+            "add partial located_coordinate 5\\n"
+            "add answer partial located_coordinate\\n"
+            "halt"
+        )
+        plan = MailCPUDataflowCompiler().compile_program(
+            dataflow_program,
+            contextual_orbit_inputs={"located_coordinate": predecessor},
+        )
+        add_dispatcher = ComputationalFabricDataflowAddDispatcher(
+            origin_peer_id="peer-a",
+            directory=directory_a,
+            forwarding_clients={"peer-b": client_ab},
+            system=system_identity,
+            ground=system_ground,
+            operator_spec=add_operator_spec,
+            computational_ground_fingerprint=GROUND_FP,
+            budget=VirtualBudget(100_000, 262_144, 10_000),
+            eligible_nodes_by_frontier={
+                1: ("node-c",),
+                2: ("node-c",),
+            },
+            origin_channel=origin_channel,
+            first_sequence=10,
+            logical_time=50,
+            max_hops=2,
+            metric_order=METRICS,
+        )
+        dataflow_report = execute_dataflow_operation_native(plan, add_dispatcher)
+
+        assert dataflow_report.execution.observation["registers"]["partial"] == target_coordinate + 5
+        assert dataflow_report.execution.observation["registers"]["answer"] == (target_coordinate * 2) + 5
+        assert len(dataflow_report.frontier_receipts) == 2
+        assert all(item.peer_path == ("peer-a", "peer-b", "peer-c") for item in dataflow_report.frontier_receipts)
+        assert all(item.host_id == "logical-host-c-dataflow-add" for item in dataflow_report.frontier_receipts)
+        assert len(add_inputs) == 2
+        first_left = add_inputs[0]["lanes"][0]["left"]
+        second_left = add_inputs[1]["lanes"][0]["left"]
+        assert first_left["kind"] == "contextual_orbit"
+        assert first_left["inputs"][0]["receipt"]["request_digest"] == request.digest
+        assert second_left["kind"] == "contextual_orbit"
+        assert second_left["inputs"][0]["receipt"]["operator_effect_digest"] == receipt.operator_effect_digest
+        assert dataflow_report.frontier_receipts[0].request_digest != dataflow_report.frontier_receipts[1].request_digest
 
         assert receipt.peer_path == ("peer-a", "peer-b", "peer-c")
         assert receipt.peer_id == "peer-c"
