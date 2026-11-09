@@ -236,6 +236,8 @@ where the dimensions may include end-to-end latency L, energy E, bytes moved B, 
 
 This integration does not claim that E-CPU is faster than a physical CPU or GPU. E-GPU in this profile is a bounded Python SIMT reference implementation, not a physical GPU driver, ISA, occupancy model or measured accelerator. A meaningful speed claim requires paired benchmarks of local execution, remote CPU operation and remote E-GPU operation using the same inputs and observation contract, reporting transport, queue, compute and verification costs separately.
 
+The first correctness-checked phase benchmark now exists in `examples/operation_frontier_benchmark.py`. It compares the same compiled MUL frontier under local CPU, remote CPU and remote E-GPU placement and records route resolution, origin round-trip, transport send/response/ack, receiver peer and semantic admission, witness/host revalidation, Virtual Layer admission, provenance validation, backend compute, origin verification, and total completion. The report is endpoint-local and marks inclusive/nested spans explicitly; it does not infer one-way network delay from unsynchronized clocks. See [OPERATION_FRONTIER_TIMING.md](OPERATION_FRONTIER_TIMING.md) for commands, phase definitions, and interpretation limits.
+
 ## Boundaries and next work
 
 This bounded binary-operation profile does not yet:
