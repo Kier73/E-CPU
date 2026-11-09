@@ -190,9 +190,11 @@ def _run_once(page_size: int, repeat_index: int) -> dict[str, Any]:
         raise AssertionError("VM page materialization did not commit exactly one range event")
     direct_range_record = direct_journal.records()[direct_start]
     page_range_record = page_journal.records()[page_start]
+    direct_coordinate_commitment_count = direct_range_record.payload["receipt"]["length"]
+    page_coordinate_commitment_count = page_range_record.payload["receipt"]["length"]
     if (
-        direct_range_record.payload["receipt"]["length"] != page_size
-        or page_range_record.payload["receipt"]["length"] != page_size
+        direct_coordinate_commitment_count != page_size
+        or page_coordinate_commitment_count != page_size
     ):
         raise AssertionError("range event does not commit the complete page coordinate interval")
     if direct_hot_journal["events"] or page_hot_journal["events"]:
@@ -213,6 +215,7 @@ def _run_once(page_size: int, repeat_index: int) -> dict[str, Any]:
             "random_single_byte_total_ns": direct_random_ns,
             "random_single_byte_reads": len(positions),
             "cold_range_journal": direct_cold_journal,
+            "cold_coordinate_commitment_count": direct_coordinate_commitment_count,
             "hot_range_journal": direct_hot_journal,
             "random_read_journal": direct_random_journal,
             "cold_receipt_coordinates": len(direct_cold_receipt.value_receipt_ids),
@@ -224,6 +227,7 @@ def _run_once(page_size: int, repeat_index: int) -> dict[str, Any]:
             "random_resident_reads_total_ns": vm_random_ns,
             "random_single_byte_reads": len(positions),
             "cold_fault_journal": page_cold_journal,
+            "cold_coordinate_commitment_count": page_coordinate_commitment_count,
             "hot_read_journal": page_hot_journal,
             "page_digest": expected_digest,
             "reserved_vm_snapshot_bytes": reserved_snapshot_bytes,
