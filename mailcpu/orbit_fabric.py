@@ -229,7 +229,7 @@ class ContextualOrbitDataflowInput:
             raise ContextualOrbitFabricError("dataflow predecessor requires a typed routed navigation receipt")
         if self.receipt.request_digest != self.request.digest:
             raise ContextualOrbitFabricError("dataflow predecessor receipt belongs to a different orbit request")
-        if self.field not in {"value", "coordinate"}:
+        if not isinstance(self.field, str) or self.field not in {"value", "coordinate"}:
             raise ContextualOrbitFabricError("dataflow predecessor field must be value or coordinate")
         _validate_navigation_result(self.request, self.receipt.result)
         expected_effect_digest = canonical_value_digest({
