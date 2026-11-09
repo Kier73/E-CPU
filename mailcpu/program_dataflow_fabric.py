@@ -487,15 +487,23 @@ def _materialize_frontier_operands(
                 resolved = _bounded_add_integer(entry["value"], f"Structural Memory value {binding}")
                 if receipt.value != resolved:
                     raise OperationNativeDataflowError(f"Structural Memory binding {binding!r} value differs from its receipt")
-            elif set(operand) == {"kind", "input"} and operand["kind"] == "contextual_orbit":
-                raw_predecessor = operand["input"]
-                if not isinstance(raw_predecessor, Mapping):
-                    raise OperationNativeDataflowError(f"ADD frontier lane {index} {side} contextual-orbit input is malformed")
+            elif set(operand) == {"kind", "value", "inputs"} and operand["kind"] == "contextual_orbit":
+                raw_inputs = operand["inputs"]
+                if not isinstance(raw_inputs, (list, tuple)) or not raw_inputs:
+                    raise OperationNativeDataflowError(f"ADD frontier lane {index} {side} contextual-orbit provenance is empty or malformed")
                 try:
-                    predecessor = ContextualOrbitDataflowInput.from_dict(raw_predecessor)
+                    predecessors = tuple(
+                        ContextualOrbitDataflowInput.from_dict(item)
+                        for item in raw_inputs
+                        if isinstance(item, Mapping)
+                    )
                 except (TypeError, ValueError, KeyError) as exc:
                     raise OperationNativeDataflowError(f"ADD frontier lane {index} {side} contextual-orbit evidence failed verification: {exc}") from exc
-                resolved = _bounded_add_integer(predecessor.value, f"contextual-orbit value lane {index} {side}")
+                if len(predecessors) != len(raw_inputs) or predecessors != tuple(sorted(predecessors, key=lambda item: item.digest)):
+                    raise OperationNativeDataflowError(f"ADD frontier lane {index} {side} contextual-orbit provenance ordering or shape is invalid")
+                if len({item.digest for item in predecessors}) != len(predecessors):
+                    raise OperationNativeDataflowError(f"ADD frontier lane {index} {side} contextual-orbit provenance is duplicated")
+                resolved = _bounded_add_integer(operand["value"], f"contextual-orbit-derived value lane {index} {side}")
             else:
                 raise OperationNativeDataflowError(f"ADD frontier lane {index} {side} operand descriptor is unsupported")
             (left_values if side == "left" else right_values).append(resolved)
@@ -952,9 +960,13 @@ class ComputationalFabricDataflowAddDispatcher:
                     structural_references[reference.binding] = reference
                     wire_lane[side] = {"kind": "structural_memory", "binding": reference.binding}
                 else:
-                    orbit_input = getattr(lane, f"{side}_orbit_input")
-                    if orbit_input is not None:
-                        wire_lane[side] = {"kind": "contextual_orbit", "input": orbit_input.to_dict()}
+                    orbit_inputs = getattr(lane, f"{side}_orbit_inputs")
+                    if orbit_inputs:
+                        wire_lane[side] = {
+                            "kind": "contextual_orbit",
+                            "value": _bounded_add_integer(operand_value, f"{lane.node_id} {side} operand"),
+                            "inputs": [item.to_dict() for item in orbit_inputs],
+                        }
                     else:
                         wire_lane[side] = {"kind": "inline", "value": _bounded_add_integer(operand_value, f"{lane.node_id} {side} operand")}
             wire_lanes.append(wire_lane)
