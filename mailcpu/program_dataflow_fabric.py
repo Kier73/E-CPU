@@ -8,6 +8,7 @@ its typed result lanes back to the original DAG node identities.
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Sequence
@@ -30,6 +31,7 @@ from .program_dataflow import (
     DataflowExecutionReport,
 )
 from .seed import SystemIdentity
+from .structural_memory import StructuralMemoryReadReceipt
 from .semantic_translation import canonical_value_digest
 from .virtual_layer import (
     OperatorSpec,
@@ -37,6 +39,7 @@ from .virtual_layer import (
     VirtualGroundRef,
     VirtualLayerWorkload,
     VirtualOperatorRef,
+    VirtualStructuralMemoryRef,
 )
 
 
@@ -49,6 +52,34 @@ _NODE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
 _HOST_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
 _PEER_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
 _REGISTER = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}\Z")
+_MAX_ADD_LANES = 64
+_MAX_ADD_INTEGER_BITS = 4096
+
+
+def _bounded_add_integer(value: Any, label: str) -> int:
+    """Mathematics: enforce the shared CPU/E-GPU ADD domain of strict integers with at most 4096 bits."""
+    result = _strict_integer(value, label)
+    if result.bit_length() > _MAX_ADD_INTEGER_BITS:
+        raise OperationNativeDataflowError(f"{label} exceeds the common {_MAX_ADD_INTEGER_BITS}-bit ADD domain")
+    return result
+
+
+def _memory_reference_with_binding(
+    reference: VirtualStructuralMemoryRef,
+    binding: str,
+) -> VirtualStructuralMemoryRef:
+    """Mathematics: rebind one immutable revision-pinned memory address to a unique lane-side name."""
+    return VirtualStructuralMemoryRef(
+        binding=binding,
+        memory_id=reference.memory_id,
+        revision=reference.revision,
+        context=reference.context,
+        coordinate=reference.coordinate,
+        spec_digest=reference.spec_digest,
+        certificate_digest=reference.certificate_digest,
+    )
+
+
 
 
 def _digest(value: Any, label: str) -> str:
@@ -67,31 +98,55 @@ def _strict_integer(value: Any, label: str) -> int:
 
 @dataclass(frozen=True)
 class DataflowAddLane:
-    """One stable correspondence between a DAG ADD node and its vector lane."""
+    """One stable correspondence between a DAG ADD node and two typed operands."""
 
     node_id: str
     node_digest: str
     destination: str
-    left: int
-    right: int
+    left: int | None
+    right: int | None
+    left_register: str | None = None
+    right_register: str | None = None
+    left_reference: VirtualStructuralMemoryRef | None = None
+    right_reference: VirtualStructuralMemoryRef | None = None
 
     def __post_init__(self) -> None:
+        """Mathematics: require each lane side to be exactly one bounded literal value or revision-pinned symbolic memory coordinate."""
         if not isinstance(self.node_id, str) or _NODE_ID.fullmatch(self.node_id) is None:
             raise OperationNativeDataflowError("lane node_id is invalid")
         _digest(self.node_digest, "lane node_digest")
         if not isinstance(self.destination, str) or _REGISTER.fullmatch(self.destination) is None:
             raise OperationNativeDataflowError("lane destination register is invalid")
-        _strict_integer(self.left, "lane left operand")
-        _strict_integer(self.right, "lane right operand")
+        for side in ("left", "right"):
+            value = getattr(self, side)
+            register = getattr(self, f"{side}_register")
+            reference = getattr(self, f"{side}_reference")
+            if value is not None:
+                _bounded_add_integer(value, f"lane {side} operand")
+                if reference is not None:
+                    raise OperationNativeDataflowError(f"lane {side} cannot contain both a value and memory reference")
+            elif not isinstance(reference, VirtualStructuralMemoryRef):
+                raise OperationNativeDataflowError(f"lane {side} requires a value or VirtualStructuralMemoryRef")
+            if reference is not None:
+                if not isinstance(register, str) or _REGISTER.fullmatch(register) is None:
+                    raise OperationNativeDataflowError(f"lane {side} memory operand requires its source register")
+                if reference.binding != f"{self.node_id}.{side}":
+                    raise OperationNativeDataflowError(f"lane {side} memory binding must be unique to its DAG node side")
+            elif register is not None and (not isinstance(register, str) or _REGISTER.fullmatch(register) is None):
+                raise OperationNativeDataflowError(f"lane {side} source register is invalid")
 
     def to_dict(self) -> dict[str, Any]:
-        """Mathematics: serialize the exact typed operation identity and its bound fields."""
+        """Mathematics: serialize the exact typed operation identity and its inline or symbolic operand sides."""
         return {
             "node_id": self.node_id,
             "node_digest": self.node_digest,
             "destination": self.destination,
             "left": self.left,
             "right": self.right,
+            "left_register": self.left_register,
+            "right_register": self.right_register,
+            "left_reference": None if self.left_reference is None else self.left_reference.to_dict(),
+            "right_reference": None if self.right_reference is None else self.right_reference.to_dict(),
         }
 
 
@@ -110,8 +165,8 @@ class DataflowAddFrontierRequest:
         if type(self.frontier_index) is not int or self.frontier_index < 0:
             raise OperationNativeDataflowError("frontier_index must be a non-negative strict integer")
         lanes = tuple(self.lanes)
-        if not lanes or any(not isinstance(item, DataflowAddLane) for item in lanes):
-            raise OperationNativeDataflowError("ADD frontier request requires typed lanes")
+        if not lanes or len(lanes) > _MAX_ADD_LANES or any(not isinstance(item, DataflowAddLane) for item in lanes):
+            raise OperationNativeDataflowError(f"ADD frontier request requires 1..{_MAX_ADD_LANES} typed lanes")
         if lanes != tuple(sorted(lanes, key=lambda item: item.node_id)):
             raise OperationNativeDataflowError("ADD frontier lanes must be sorted by stable node identity")
         if len({item.node_id for item in lanes}) != len(lanes):
@@ -125,13 +180,17 @@ class DataflowAddFrontierRequest:
 
     @property
     def left_values(self) -> tuple[int, ...]:
-        """Mathematics: project the aligned left-operand vector in canonical lane order."""
-        return tuple(item.left for item in self.lanes)
+        """Mathematics: project aligned inline left values; refuse unresolved receiver-side references."""
+        if any(item.left is None for item in self.lanes):
+            raise OperationNativeDataflowError("left operand vector contains receiver-resolved Structural Memory references")
+        return tuple(item.left for item in self.lanes if item.left is not None)
 
     @property
     def right_values(self) -> tuple[int, ...]:
-        """Mathematics: project the aligned right-operand vector in canonical lane order."""
-        return tuple(item.right for item in self.lanes)
+        """Mathematics: project aligned inline right values; refuse unresolved receiver-side references."""
+        if any(item.right is None for item in self.lanes):
+            raise OperationNativeDataflowError("right operand vector contains receiver-resolved Structural Memory references")
+        return tuple(item.right for item in self.lanes if item.right is not None)
 
     def to_dict(self) -> dict[str, Any]:
         """Mathematics: serialize the exact typed operation identity and its bound fields."""
