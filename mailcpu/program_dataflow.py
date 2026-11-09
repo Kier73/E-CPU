@@ -33,13 +33,15 @@ from .semantic_translation import (
     program_representation_ref,
 )
 from .structural_memory import StructuralMemoryReadReceipt
+from .orbit_fabric import ContextualOrbitDataflowInput
 from .virtual_layer import VirtualStructuralMemoryRef
 
 
-_SCHEMA = "mailcpu.program-dataflow.v2"
+_SCHEMA = "mailcpu.program-dataflow.v3"
 _COMPILER_ID = "mailcpu.register-dataflow"
-_COMPILER_VERSION = 2
+_COMPILER_VERSION = 3
 _MAX_INSTRUCTIONS = 256
+_MAX_CONTEXTUAL_ORBIT_INPUTS = 64
 _MAX_SOURCE_BYTES = 65_536
 _REGISTER = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}\Z")
 _SUPPORTED = frozenset({Op.SET, Op.COPY, Op.ADD, Op.COMPARE})
@@ -73,7 +75,8 @@ _COMPILER_DEFINITION = {
     "supported_opcodes": ["SET", "COPY", "ADD", "COMPARE", "HALT"],
     "unsupported_control_flow": ["BRANCH"],
     "unsupported_effects": ["SEND", "WAIT", "SYSCALL"],
-    "initial_sources": ["inline-integer", "materialized-structural-memory-receipt", "symbolic-virtual-structural-memory-reference"],
+    "initial_sources": ["inline-integer", "materialized-structural-memory-receipt", "symbolic-virtual-structural-memory-reference", "verified-contextual-orbit-predecessor"],
+    "contextual_orbit_input_bound": _MAX_CONTEXTUAL_ORBIT_INPUTS,
 }
 _INVARIANT_DEFINITIONS = (
     {
@@ -95,6 +98,10 @@ _INVARIANT_DEFINITIONS = (
     {
         "id": "terminal-observation",
         "statement": "The declared observable is the final register state and terminal HALT boundary, not the instruction trace.",
+    },
+    {
+        "id": "contextual-orbit-predecessor",
+        "statement": "A contextual-orbit input is a typed predecessor node whose selected coordinate/value and complete routed observer/read evidence are bound into the plan; no trajectory is copied or replayed.",
     },
 )
 
@@ -257,6 +264,7 @@ class CompiledMailCPUDataflow:
     final_register_sources: tuple[RegisterSource, ...]
     frontiers: tuple[tuple[str, ...], ...]
     metrics: ProgramDataflowMetrics
+    contextual_orbit_inputs: tuple[tuple[str, ContextualOrbitDataflowInput], ...] = ()
 
     def __post_init__(self) -> None:
         """Mathematics: revalidate atlas identities, immutable inputs, graph topology, and translation bindings."""
@@ -300,10 +308,20 @@ class CompiledMailCPUDataflow:
             _register(name, "symbolic Structural Memory register")
             if not isinstance(reference, VirtualStructuralMemoryRef) or reference.binding != name:
                 raise ProgramDataflowError("symbolic Structural Memory references must be typed and bound to their register")
-        supplied_names = [name for name, _ in registers] + [name for name, _ in receipts] + [name for name, _ in references]
+        orbit_inputs = tuple(self.contextual_orbit_inputs)
+        if orbit_inputs != tuple(sorted(orbit_inputs, key=lambda item: item[0])):
+            raise ProgramDataflowError("contextual-orbit inputs must be sorted by register")
+        if len(orbit_inputs) > _MAX_CONTEXTUAL_ORBIT_INPUTS:
+            raise ProgramDataflowError("contextual-orbit inputs exceed the compiler bound")
+        for name, predecessor in orbit_inputs:
+            _register(name, "contextual-orbit register")
+            if not isinstance(predecessor, ContextualOrbitDataflowInput):
+                raise ProgramDataflowError("contextual-orbit inputs must be typed verified predecessors")
+        supplied_names = [name for name, _ in registers] + [name for name, _ in receipts] + [name for name, _ in references] + [name for name, _ in orbit_inputs]
         if len(supplied_names) != len(set(supplied_names)):
-            raise ProgramDataflowError("registers cannot be supplied by both inline state and Structural Memory receipts or symbolic references: " + ", ".join(sorted(set(supplied_names))))
+            raise ProgramDataflowError("registers cannot be supplied by multiple inline, Structural Memory, or contextual-orbit sources: " + ", ".join(sorted(set(supplied_names))))
         object.__setattr__(self, "structural_memory_refs", references)
+        object.__setattr__(self, "contextual_orbit_inputs", orbit_inputs)
         initial_state_payload = {
             "registers": {
                 **dict(registers),
@@ -315,9 +333,12 @@ class CompiledMailCPUDataflow:
             "structural_memory_refs": {
                 name: reference.to_dict() for name, reference in references
             },
+            "contextual_orbit_inputs": {
+                name: predecessor.to_dict() for name, predecessor in orbit_inputs
+            },
         }
         if canonical_value_digest(initial_state_payload) != self.initial_state_ref.content_digest:
-            raise ProgramDataflowError("initial-state representation does not identify its inline, receipt, and symbolic inputs")
+            raise ProgramDataflowError("initial-state representation does not identify its inline, receipt, symbolic, and contextual-orbit inputs")
         nodes = tuple(self.nodes)
         if not nodes or any(not isinstance(item, ComputationNode) for item in nodes):
             raise ProgramDataflowError("dataflow plan requires typed computation nodes")
@@ -338,12 +359,13 @@ class CompiledMailCPUDataflow:
             raise ProgramDataflowError("metrics must be ProgramDataflowMetrics")
         graph = self.graph()
         target_payload = {
-            "schema": "mailcpu.program-dataflow-graph.v2",
+            "schema": "mailcpu.program-dataflow-graph.v3",
             "program": self.program_ref.to_dict(),
             "initial_state": self.initial_state_ref.to_dict(),
             "computational_ground": self.computational_ground.to_dict(),
             "context_digest": self.context_digest,
             "structural_memory_refs": [[name, reference.to_dict()] for name, reference in self.structural_memory_refs],
+            "contextual_orbit_inputs": [[name, predecessor.to_dict()] for name, predecessor in self.contextual_orbit_inputs],
             "nodes": [node.to_dict() for node in self.nodes],
             "final_register_sources": [item.to_dict() for item in self.final_register_sources],
             "frontiers": [list(item) for item in self.frontiers],
@@ -365,6 +387,11 @@ class CompiledMailCPUDataflow:
             raise ProgramDataflowError(
                 "symbolic Structural Memory inputs are not materialized; receiver resolution is required for: " + names
             )
+        if self.contextual_orbit_inputs:
+            names = ", ".join(name for name, _ in self.contextual_orbit_inputs)
+            raise ProgramDataflowError(
+                "contextual-orbit inputs must remain typed predecessor nodes; use dataflow evaluation to consume: " + names
+            )
         values = dict(self.initial_registers)
         for register, receipt in self.structural_memory_reads:
             if register in values:
@@ -380,12 +407,18 @@ class CompiledMailCPUDataflow:
         values.update({name: receipt.value for name, receipt in self.structural_memory_reads})
         if not isinstance(resolved, Mapping):
             raise ProgramDataflowError("resolved symbolic initial values must be a mapping")
-        supplied = {name for name, _ in self.structural_memory_refs}
+        memory_names = {name for name, _ in self.structural_memory_refs}
+        orbit_inputs = dict(self.contextual_orbit_inputs)
+        supplied = memory_names | set(orbit_inputs)
         if set(resolved) != supplied:
-            raise ProgramDataflowError("receiver-resolved Structural Memory register set differs from the compiled references")
+            raise ProgramDataflowError("resolved predecessor register set differs from the compiled Structural Memory and contextual-orbit inputs")
         for name, value in resolved.items():
-            _register(name, "resolved Structural Memory register")
-            values[name] = _strict_int(value, f"resolved Structural Memory value for {name}")
+            _register(name, "resolved predecessor register")
+            resolved_value = _strict_int(value, f"resolved predecessor value for {name}")
+            predecessor = orbit_inputs.get(name)
+            if predecessor is not None and resolved_value != predecessor.value:
+                raise ProgramDataflowError("resolved contextual-orbit register differs from its typed predecessor projection")
+            values[name] = resolved_value
         return values
 
     @property
@@ -426,6 +459,10 @@ class CompiledMailCPUDataflow:
             "structural_memory_refs": [
                 [name, reference.to_dict()]
                 for name, reference in self.structural_memory_refs
+            ],
+            "contextual_orbit_inputs": [
+                [name, predecessor.to_dict()]
+                for name, predecessor in self.contextual_orbit_inputs
             ],
             "nodes": [node.to_dict() for node in self.nodes],
             "final_register_sources": [item.to_dict() for item in self.final_register_sources],
@@ -585,6 +622,7 @@ class MailCPUDataflowCompiler:
         initial_registers: Mapping[str, int] | None = None,
         structural_memory_reads: Mapping[str, StructuralMemoryReadReceipt] | None = None,
         structural_memory_refs: Mapping[str, VirtualStructuralMemoryRef] | None = None,
+        contextual_orbit_inputs: Mapping[str, ContextualOrbitDataflowInput] | None = None,
     ) -> CompiledMailCPUDataflow:
         """Mathematics: compile exact UTF-8 bytes with materialized receipts or symbolic receiver-resolved memory inputs."""
         if not isinstance(source, bytes):
@@ -606,6 +644,7 @@ class MailCPUDataflowCompiler:
             initial_registers=initial_registers,
             structural_memory_reads=structural_memory_reads,
             structural_memory_refs=structural_memory_refs,
+            contextual_orbit_inputs=contextual_orbit_inputs,
             source_bytes_ref=source_ref,
             source_size_bytes=len(source),
         )
@@ -617,6 +656,7 @@ class MailCPUDataflowCompiler:
         initial_registers: Mapping[str, int] | None = None,
         structural_memory_reads: Mapping[str, StructuralMemoryReadReceipt] | None = None,
         structural_memory_refs: Mapping[str, VirtualStructuralMemoryRef] | None = None,
+        contextual_orbit_inputs: Mapping[str, ContextualOrbitDataflowInput] | None = None,
     ) -> CompiledMailCPUDataflow:
         """Mathematics: compile a validated Program with inline, receipt-backed, or symbolic initial register state."""
         if not isinstance(program, Program):
@@ -626,6 +666,7 @@ class MailCPUDataflowCompiler:
             initial_registers=initial_registers,
             structural_memory_reads=structural_memory_reads,
             structural_memory_refs=structural_memory_refs,
+            contextual_orbit_inputs=contextual_orbit_inputs,
             source_bytes_ref=None,
             source_size_bytes=None,
         )
@@ -637,6 +678,7 @@ class MailCPUDataflowCompiler:
         initial_registers: Mapping[str, int] | None,
         structural_memory_reads: Mapping[str, StructuralMemoryReadReceipt] | None,
         structural_memory_refs: Mapping[str, VirtualStructuralMemoryRef] | None,
+        contextual_orbit_inputs: Mapping[str, ContextualOrbitDataflowInput] | None,
         source_bytes_ref: RepresentationRef | None,
         source_size_bytes: int | None,
     ) -> CompiledMailCPUDataflow:
@@ -702,8 +744,19 @@ class MailCPUDataflowCompiler:
                     spec_digest=reference.spec_digest,
                     certificate_digest=reference.certificate_digest,
                 )
-        supplied_sets = [set(supplied), set(receipts), set(references)]
-        overlap = supplied_sets[0] & supplied_sets[1] | supplied_sets[0] & supplied_sets[2] | supplied_sets[1] & supplied_sets[2]
+        orbit_inputs: dict[str, ContextualOrbitDataflowInput] = {}
+        if contextual_orbit_inputs is not None:
+            if not isinstance(contextual_orbit_inputs, Mapping):
+                raise ProgramDataflowError("contextual_orbit_inputs must be a mapping")
+            if len(contextual_orbit_inputs) > _MAX_CONTEXTUAL_ORBIT_INPUTS:
+                raise ProgramDataflowError("contextual-orbit inputs exceed the compiler bound")
+            for name, predecessor in contextual_orbit_inputs.items():
+                register = _register(name, "contextual-orbit register")
+                if not isinstance(predecessor, ContextualOrbitDataflowInput):
+                    raise ProgramDataflowError(f"contextual-orbit input {register!r} must be a typed verified predecessor")
+                orbit_inputs[register] = predecessor
+        supplied_sets = [set(supplied), set(receipts), set(references), set(orbit_inputs)]
+        overlap = set().union(*(left & right for index, left in enumerate(supplied_sets) for right in supplied_sets[index + 1:]))
         if overlap:
             raise ProgramDataflowError(
                 "registers cannot be supplied by both inline state and Structural Memory receipts or symbolic references: "
@@ -720,15 +773,20 @@ class MailCPUDataflowCompiler:
             name: reference.to_dict()
             for name, reference in sorted(references.items())
         }
+        initial_orbit_input_dicts = {
+            name: predecessor.to_dict()
+            for name, predecessor in sorted(orbit_inputs.items())
+        }
         initial_state_payload = {
             "registers": dict(sorted(initial_values.items())),
             "structural_memory_receipts": initial_receipt_dicts,
             "structural_memory_refs": initial_reference_dicts,
+            "contextual_orbit_inputs": initial_orbit_input_dicts,
         }
         program_ref = program_representation_ref(program)
         initial_state_ref = RepresentationRef.from_payload(
             "mailcpu.initial-register-state",
-            2,
+            3,
             initial_state_payload,
         )
         ground_ref = RepresentationRef.from_payload(
@@ -767,10 +825,34 @@ class MailCPUDataflowCompiler:
             for name, reference in references.items()
         }
         definitions: dict[str, str] = {}
-        touched: set[str] = set(initial_values) | set(references)
+        contextual_orbit_source_ids = {
+            register: f"orbit-input-{register}" for register in orbit_inputs
+        }
+        touched: set[str] = set(initial_values) | set(references) | set(orbit_inputs)
         consumed_references: set[str] = set()
+        consumed_contextual_orbit_inputs: set[str] = set()
         nodes: list[ComputationNode] = []
         instruction_nodes: list[str] = []
+        for register, predecessor in sorted(orbit_inputs.items()):
+            source_node_id = contextual_orbit_source_ids[register]
+            source_node = ComputationNode(
+                node_id=source_node_id,
+                revision=1,
+                operation="mailcpu.dataflow.contextual_orbit_input",
+                resource="/mailcpu/program/dataflow",
+                context_digest=context_digest,
+                dependencies=(),
+                payload={
+                    "kind": "mailcpu.register-dataflow.contextual-orbit-input",
+                    "register": register,
+                    "field": predecessor.field,
+                    "source_digest": predecessor.digest,
+                    "request_digest": predecessor.request.digest,
+                    "receipt_digest": predecessor.receipt.digest,
+                },
+            )
+            nodes.append(source_node)
+            definitions[register] = source_node_id
 
         def initial_operand(register: str) -> dict[str, Any]:
             """Mathematics: bind one read to an exact inline value, materialized receipt, or symbolic receiver-local memory address."""
@@ -801,6 +883,8 @@ class MailCPUDataflowCompiler:
             producer = definitions.get(register)
             if producer is None:
                 return initial_operand(register), None
+            if contextual_orbit_source_ids.get(register) == producer:
+                consumed_contextual_orbit_inputs.add(register)
             return {
                 "kind": "dependency",
                 "register": register,
@@ -855,6 +939,12 @@ class MailCPUDataflowCompiler:
             raise ProgramDataflowError(
                 "symbolic Structural Memory references must be consumed by an admitted instruction: "
                 + ", ".join(sorted(unused_references))
+            )
+        unused_orbit_inputs = set(orbit_inputs) - consumed_contextual_orbit_inputs
+        if unused_orbit_inputs:
+            raise ProgramDataflowError(
+                "contextual-orbit predecessor inputs must be consumed by an admitted instruction: "
+                + ", ".join(sorted(unused_orbit_inputs))
             )
 
         halt_pc = len(instructions) - 1
@@ -914,19 +1004,20 @@ class MailCPUDataflowCompiler:
             raise ProgramDataflowError("compiled graph identity ordering is inconsistent")
 
         target_payload = {
-            "schema": "mailcpu.program-dataflow-graph.v2",
+            "schema": "mailcpu.program-dataflow-graph.v3",
             "program": program_ref.to_dict(),
             "initial_state": initial_state_ref.to_dict(),
             "computational_ground": ground_ref.to_dict(),
             "context_digest": context_digest,
             "structural_memory_refs": [[name, reference.to_dict()] for name, reference in sorted(references.items())],
+            "contextual_orbit_inputs": [[name, predecessor.to_dict()] for name, predecessor in sorted(orbit_inputs.items())],
             "nodes": [node.to_dict() for node in nodes],
             "final_register_sources": [item.to_dict() for item in final_sources],
             "frontiers": [list(item) for item in frontiers],
         }
         dataflow_ref = RepresentationRef.from_payload(
             "mailcpu.program.dataflow-graph",
-            2,
+            3,
             target_payload,
         )
         invariant_refs = tuple(
@@ -989,6 +1080,7 @@ class MailCPUDataflowCompiler:
             final_register_sources=tuple(final_sources),
             frontiers=frontiers,
             metrics=metrics,
+            contextual_orbit_inputs=tuple(sorted(orbit_inputs.items())),
         )
 
 
@@ -1011,6 +1103,8 @@ def evaluate_dataflow(
     node_by_id = {node.node_id: node for node in plan.nodes}
     executed_frontiers: list[tuple[str, ...]] = []
     committed: list[str] = []
+    orbit_inputs = dict(plan.contextual_orbit_inputs)
+    resolved_initial_registers = {name: predecessor.value for name, predecessor in orbit_inputs.items()}
 
     for expected_frontier in plan.frontiers:
         ready = tuple(node.node_id for node in graph.ready_nodes())
@@ -1022,7 +1116,26 @@ def evaluate_dataflow(
         for node_id in expected_frontier:
             node = node_by_id[node_id]
             payload = node.payload
-            if payload["opcode"] == Op.HALT.value:
+            if payload.get("kind") == "mailcpu.register-dataflow.contextual-orbit-input":
+                register = payload.get("register")
+                predecessor = orbit_inputs.get(register)
+                if (
+                    not isinstance(register, str)
+                    or predecessor is None
+                    or payload.get("source_digest") != predecessor.digest
+                    or payload.get("field") != predecessor.field
+                ):
+                    raise ProgramDataflowError("contextual-orbit predecessor node differs from the compiled typed input")
+                result = {
+                    "register": register,
+                    "value": predecessor.value,
+                    "contextual_orbit_input": predecessor.to_dict(),
+                    "predecessor_digest": predecessor.digest,
+                    "selected_coordinate": predecessor.selected_coordinate,
+                    "selected_value": predecessor.selected_value,
+                    "receipt_digest": predecessor.receipt.digest,
+                }
+            elif payload.get("opcode") == Op.HALT.value:
                 result = {
                     "status": RunStatus.HALTED.value,
                     "pc": payload["pc"],
@@ -1090,6 +1203,7 @@ def evaluate_dataflow(
         committed_node_ids=tuple(committed),
         executed_frontiers=tuple(executed_frontiers),
         _dag_snapshot_json=snapshot_json,
+        resolved_initial_registers=tuple(sorted(resolved_initial_registers.items())),
     )
 
 
@@ -1110,7 +1224,7 @@ def compare_dataflow_with_reference(
     if restored.digest != expected_graph.digest or not restored.is_complete:
         raise ProgramDataflowError("execution DAG snapshot is incomplete or belongs to another plan")
 
-    if plan.structural_memory_refs:
+    if plan.structural_memory_refs or plan.contextual_orbit_inputs:
         resolved = dict(report.resolved_initial_registers)
         initial_values = plan.resolved_initial_values(resolved)
     else:
@@ -1165,6 +1279,7 @@ def verify_dataflow_compilation(
             initial_registers=dict(plan.initial_registers),
             structural_memory_reads=dict(plan.structural_memory_reads),
             structural_memory_refs=dict(plan.structural_memory_refs),
+            contextual_orbit_inputs=dict(plan.contextual_orbit_inputs),
         )
     else:
         if not isinstance(source_bytes, bytes):
@@ -1174,6 +1289,7 @@ def verify_dataflow_compilation(
             initial_registers=dict(plan.initial_registers),
             structural_memory_reads=dict(plan.structural_memory_reads),
             structural_memory_refs=dict(plan.structural_memory_refs),
+            contextual_orbit_inputs=dict(plan.contextual_orbit_inputs),
         )
     return candidate.digest == plan.digest
 
