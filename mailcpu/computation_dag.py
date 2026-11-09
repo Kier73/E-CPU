@@ -11,14 +11,11 @@ import threading
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping
 
-
 _HEX_DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 _NODE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z")
 
-
 class ComputationDAGError(ValueError):
     """A computation graph is malformed, cyclic, over budget, or inconsistently committed."""
-
 
 def _validate_json_value(value: Any) -> None:
     """Mathematics: admit only JSON algebra J={null,bool,int,finite-float,string,list,object[string→J]}."""
@@ -41,7 +38,6 @@ def _validate_json_value(value: Any) -> None:
         return
     raise ComputationDAGError(f"unsupported computation DAG value type: {type(value).__name__}")
 
-
 def _canonical(value: Any) -> bytes:
     """Mathematics: define canonical encoding J(x)=UTF8(JSON_sort_keys(x)) for stable digest identity."""
 
@@ -57,12 +53,10 @@ def _canonical(value: Any) -> bytes:
     except (TypeError, ValueError) as exc:
         raise ComputationDAGError("computation DAG values must be canonical JSON") from exc
 
-
 def _digest(value: Any) -> str:
     """Mathematics: map canonical state x to its content identity H(x)=SHA256(J(x))."""
 
     return hashlib.sha256(_canonical(value)).hexdigest()
-
 
 def _label(value: Any, name: str) -> str:
     """Mathematics: admit label ℓ iff ℓ is non-empty text of at most 256 UTF-8 bytes."""
@@ -70,7 +64,6 @@ def _label(value: Any, name: str) -> str:
     if not isinstance(value, str) or not value or len(value.encode("utf-8")) > 256:
         raise ComputationDAGError(f"{name} must be non-empty text of at most 256 UTF-8 bytes")
     return value
-
 
 @dataclass(frozen=True, init=False)
 class ComputationNode:
@@ -183,7 +176,6 @@ class ComputationNode:
             raise ComputationDAGError("computation node digest mismatch")
         return node
 
-
 @dataclass(frozen=True)
 class CommittedComputationResult:
     """Immutable semantic result bound to one exact computation node revision."""
@@ -208,7 +200,6 @@ class CommittedComputationResult:
             "result_digest": self.result_digest,
             "result": self.result,
         }
-
 
 class NavigableComputationDAG:
     """Bounded dependency graph with readiness, exact result commits, and checkpoint reconstruction."""
@@ -258,16 +249,12 @@ class NavigableComputationDAG:
                 "nodes": [self._nodes[node_id].to_dict() for node_id in sorted(self._nodes)],
             })
 
-
-
     @property
     def nodes(self) -> tuple[ComputationNode, ...]:
         """Mathematics: expose immutable node sequence sorted by stable identity id."""
 
         with self._lock:
             return tuple(self._nodes[node_id] for node_id in sorted(self._nodes))
-
-
 
     @property
     def committed_nodes(self) -> tuple[str, ...]:
@@ -276,16 +263,12 @@ class NavigableComputationDAG:
         with self._lock:
             return tuple(sorted(self._committed))
 
-
-
     @property
     def is_complete(self) -> bool:
         """Mathematics: report true exactly when dom(C)=V."""
 
         with self._lock:
             return len(self._committed) == len(self._nodes)
-
-
 
     def ready_nodes(self) -> tuple[ComputationNode, ...]:
         """Mathematics: return frontier F={v∈V\dom(C): pred(v)⊆dom(C)} in stable node-id order."""
@@ -297,8 +280,6 @@ class NavigableComputationDAG:
                 if node_id not in self._committed
                 and all(dep in self._committed for dep in self._nodes[node_id].dependencies)
             )
-
-
 
     def revise_node(self, node: ComputationNode) -> str:
         """Mathematics: replace uncommitted v by revision v' iff id(v')=id(v), rev(v')>rev(v), and G remains acyclic."""
@@ -335,8 +316,6 @@ class NavigableComputationDAG:
                 raise
             return node.digest
 
-
-
     def commit(self, node_id: str, result: Mapping[str, Any]) -> bool:
         """Mathematics: commit R_v once when pred(v)⊆dom(C); return replay=true only for exact H(R_v) repetition."""
 
@@ -362,8 +341,6 @@ class NavigableComputationDAG:
                 result_json,
             )
             return False
-
-
 
     def commit_frontier(
         self,
@@ -442,8 +419,6 @@ class NavigableComputationDAG:
             self._committed.update(prepared)
             return False
 
-
-
     def result(self, node_id: str) -> dict[str, Any]:
         """Mathematics: retrieve R_v only for v∈dom(C), returning a detached JSON projection."""
 
@@ -452,8 +427,6 @@ class NavigableComputationDAG:
             if commit is None:
                 raise ComputationDAGError("computation node has no committed result")
             return commit.result
-
-
 
     def lineage(self, node_id: str) -> tuple[str, ...]:
         """Mathematics: return transitive ancestor closure pred*(v) in topological order, excluding v."""
@@ -470,8 +443,6 @@ class NavigableComputationDAG:
                 ancestors.add(current)
                 pending.extend(self._nodes[current].dependencies)
             return tuple(item for item in self._topological if item in ancestors)
-
-
 
     def snapshot(self) -> dict[str, Any]:
         """Mathematics: serialize graph G and committed prefix C in deterministic topological order under digest H(state)."""
@@ -492,8 +463,6 @@ class NavigableComputationDAG:
                 "digest": _digest(state),
                 "state": state,
             }
-
-
 
     @classmethod
     def from_snapshot(cls, payload: Mapping[str, Any]) -> "NavigableComputationDAG":
