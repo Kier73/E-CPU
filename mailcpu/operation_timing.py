@@ -186,10 +186,11 @@ class OperationTimingProbe:
         with self._lock:
             return tuple(self._samples)
 
-    def summary(self) -> dict[str, dict[str, int]]:
-        """Summarize repeated same-actor phase durations without mixing endpoints."""
+    @staticmethod
+    def _summarize(samples: tuple[OperationTimingSample, ...]) -> dict[str, dict[str, int]]:
+        """Summarize one immutable sample snapshot without mixing endpoints."""
         grouped: dict[str, list[int]] = {}
-        for sample in self.samples:
+        for sample in samples:
             grouped.setdefault(sample.phase, []).append(sample.elapsed_ns)
         output: dict[str, dict[str, int]] = {}
         for phase, values in sorted(grouped.items()):
@@ -213,6 +214,10 @@ class OperationTimingProbe:
             }
         return output
 
+    def summary(self) -> dict[str, dict[str, int]]:
+        """Summarize repeated same-actor phase durations without mixing endpoints."""
+        return self._summarize(self.samples)
+
     def to_dict(self) -> dict[str, Any]:
         with self._lock:
             samples = tuple(self._samples)
@@ -222,7 +227,7 @@ class OperationTimingProbe:
             "clock_domain": "process-local-monotonic-nanoseconds",
             "causal_domain": "actor-local-lamport-vector",
             "samples": [sample.to_dict() for sample in samples],
-            "summary": self.summary(),
+            "summary": self._summarize(samples),
             "comparison_rule": (
                 "Durations are endpoint-local observations. Do not subtract monotonic "
                 "readings across actors or infer one-way delay from unsynchronized clocks."
