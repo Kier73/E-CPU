@@ -183,6 +183,130 @@ def test_operation_event_round_trips_over_real_tcp_and_receiver_rebuilds_authori
                 transport.close()
 
 
+def test_old_acknowledged_transport_duplicate_is_acked_without_hypervisor_replay() -> None:
+    """An old frame whose ACK was lost must not re-enter semantic execution after receiver restore."""
+    from mailcpu.transport import InMemoryTransport
+
+    transport = InMemoryTransport()
+    policy = ReliabilityPolicy(lease_ticks=1, max_attempts=3, window_size=4)
+    sender = HypervisorOperationChannel(
+        ReliableChannel(transport, "origin", "replica", "ops", policy)
+    )
+    receiver = HypervisorOperationChannel(
+        ReliableChannel(transport, "replica", "replica", "ops", policy, peer="origin")
+    )
+    operating_system = HeadlessOS()
+    operating_system.install_source("/bin/child.mca", "HALT\n")
+    calls = {"count": 0}
+
+    def launch_handler() -> int:
+        calls["count"] += 1
+        return operating_system.launch_file(
+            "/bin/child.mca",
+            parent_pid=operating_system.environment.init_pid,
+            loader_pid=operating_system.environment.init_pid,
+        )
+
+    def authorize(event: HypervisorArbitrationEvent) -> HypervisorArbitrationEvent:
+        return operating_system.hypervisor_authorize_event(
+            operating_system.environment.init_pid,
+            event,
+        )
+
+    event = _event(1)
+    assert sender.send(event) == 1
+    first = receiver.receive_and_execute(
+        operating_system.hypervisor_arbitration,
+        authorize,
+        {HypervisorDomain.PROCESS: launch_handler},
+    )
+    assert first is not None and first.executed is True
+    assert calls["count"] == 1
+    assert receiver.channel.next_receive_sequence == 2
+
+    # Simulate losing the ACK at the sender. Retransmit the exact old
+    # transport sequence after the receiver has already committed it.
+    assert sender.channel.pending_sequences() == (1,)
+    assert sender.channel.retransmit(1) is True
+    duplicate = receiver.receive_and_execute(
+        operating_system.hypervisor_arbitration,
+        authorize,
+        {HypervisorDomain.PROCESS: launch_handler},
+    )
+    assert duplicate is not None and duplicate.replayed is True
+    assert duplicate.effect == first.effect
+    assert calls["count"] == 1
+    assert receiver.channel.next_receive_sequence == 2
+    assert sender.channel.process_ack() == (1,)
+    assert sender.channel.pending_sequences() == ()
+
+
+def test_stale_result_transport_duplicate_does_not_satisfy_new_semantic_retry() -> None:
+    """A previously observed stale result is ACKed silently; a fresh frame carrying its cached effect is returned."""
+    from mailcpu.classifier import HypervisorAction, HypervisorExecutionResult
+    from mailcpu.hypervisor_transport import HypervisorOperationResultChannel
+    from mailcpu.transport import InMemoryTransport
+
+    transport = InMemoryTransport()
+    policy = ReliabilityPolicy(lease_ticks=1, max_attempts=3, window_size=4)
+    sender = HypervisorOperationResultChannel(
+        ReliableChannel(transport, "replica", "origin", "ops.result", policy),
+        "origin",
+        "ops",
+    )
+    receiver = HypervisorOperationResultChannel(
+        ReliableChannel(
+            transport,
+            "origin",
+            "origin",
+            "ops.result",
+            policy,
+            peer="replica",
+        ),
+        "origin",
+        "ops",
+    )
+    result = HypervisorExecutionResult(
+        "origin",
+        "ops",
+        1,
+        101,
+        "a" * 64,
+        "b" * 64,
+        HypervisorAction.ALLOW,
+        HypervisorDomain.PROCESS,
+        {"pid": 2},
+        False,
+        True,
+    )
+
+    assert sender.send(result) == 1
+    first = receiver.receive()
+    assert first is not None and first.replayed is False
+    assert first.effect == {"pid": 2}
+    assert receiver.channel.next_receive_sequence == 2
+
+    # The sender did not observe the first ACK, so it retransmits the exact
+    # already-consumed frame while retaining the original transport sequence.
+    assert sender.channel.pending_sequences() == (1,)
+    assert sender.channel.retransmit(1) is True
+    duplicate, duplicate_sequence, duplicate_transport = receiver.receive_with_transport()
+    assert duplicate is not None and duplicate.replayed is True
+    assert duplicate_sequence == 1 and duplicate_transport is True
+    assert duplicate.effect == first.effect
+    assert receiver.channel.next_receive_sequence == 2
+    assert sender.channel.process_ack() == (1,)
+
+    # A later invocation of the same semantic operation gets a new transport
+    # sequence; this legitimate cached replay remains visible to its caller.
+    assert sender.send(result) == 2
+    replay, replay_sequence, replay_transport = receiver.receive_with_transport()
+    assert replay is not None and replay.replayed is True
+    assert replay_sequence == 2 and replay_transport is False
+    assert replay.effect == first.effect
+    assert receiver.channel.next_receive_sequence == 3
+
+
 def test_send_or_retransmit_reuses_pending_sequence_and_refuses_identity_conflict() -> None:
     """A reconnecting sender reuses the exact pending event frame and refuses a changed payload under its identity."""
     origin_transport, replica_transport = _tcp_pair()

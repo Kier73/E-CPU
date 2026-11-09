@@ -5,7 +5,12 @@ import pytest
 from mailcpu._codec import message_to_record
 from mailcpu.faults import FaultInjectingTransport, FaultProfile
 from mailcpu.model import Message
-from mailcpu.reliability import ReliabilityPolicy, ReliableChannel, ReliableChannelWouldBlock
+from mailcpu.reliability import (
+    ReliabilityPolicy,
+    ReliableChannel,
+    ReliableChannelError,
+    ReliableChannelWouldBlock,
+)
 from mailcpu.transport import InMemoryTransport
 
 
@@ -178,6 +183,8 @@ def test_reliable_channel_reads_legacy_pending_frame_snapshots(version: int) -> 
     snapshot["pending"]["1"]["frame"] = message_to_record(sender._pending[1].frame)
     if version < 3:
         snapshot.pop("next_receive_sequence")
+    if version < 5:
+        snapshot.pop("received_digests", None)
     if version == 1:
         snapshot.pop("peer")
         snapshot["policy"].pop("window_size")
@@ -188,6 +195,65 @@ def test_reliable_channel_reads_legacy_pending_frame_snapshots(version: int) -> 
     assert restored.pending_sequences() == (1,)
     receiver = ReliableChannel(transport, "receiver", "receiver", "legacy", peer="sender")
     assert receiver.receive() == (1, {"blob": b"legacy"})
+
+
+def test_legacy_delivered_sequences_migrate_to_v5_without_fabricated_digests() -> None:
+    """Older receive ledgers retain their delivered cursor while marking unavailable payload digests as unknown."""
+    transport = InMemoryTransport()
+    sender = ReliableChannel(transport, "sender", "receiver", "legacy-delivered")
+    receiver = ReliableChannel(
+        transport,
+        "receiver",
+        "receiver",
+        "legacy-delivered",
+        peer="sender",
+    )
+    assert sender.send({"value": "delivered"}) == 1
+    assert receiver.receive() == (1, {"value": "delivered"})
+
+    legacy = receiver.snapshot()
+    legacy["version"] = 4
+    legacy.pop("received_digests", None)
+    restored = ReliableChannel.from_snapshot(legacy, transport)
+    migrated = restored.snapshot()
+
+    assert migrated["version"] == 5
+    assert migrated["delivered"] == [1]
+    assert migrated["received_digests"] == {"1": None}
+    assert ReliableChannel.from_snapshot(migrated, transport).next_receive_sequence == 2
+
+
+def test_reliable_channel_rejects_changed_payload_under_delivered_sequence_after_restore() -> None:
+    """A replayed transport sequence must retain its originally delivered payload identity across restore."""
+
+    transport = InMemoryTransport()
+    sender = ReliableChannel(transport, "sender", "receiver", "conflict")
+    receiver = ReliableChannel(transport, "receiver", "receiver", "conflict", peer="sender")
+    assert sender.send({"value": "original"}) == 1
+    assert receiver.receive() == (1, {"value": "original"})
+    snapshot = receiver.snapshot()
+    assert snapshot["version"] == 5
+    assert snapshot["received_digests"]["1"]
+
+    incomplete = dict(snapshot)
+    incomplete["received_digests"] = {}
+    with pytest.raises(ValueError, match="cover every delivered sequence"):
+        ReliableChannel.from_snapshot(incomplete, transport)
+
+    restored = ReliableChannel.from_snapshot(snapshot, transport)
+    transport.send(
+        "receiver",
+        Message(
+            sender="sender",
+            recipient="receiver",
+            op="RDATA",
+            addr="receiver",
+            body=("conflict", 1, {"value": "changed"}),
+        ),
+    )
+    with pytest.raises(ReliableChannelError, match="conflicting payload"):
+        restored.receive()
+    assert transport.pending("receiver") == 1
 
 
 def test_reliable_channel_recovery_acknowledges_stale_duplicate_after_delivery() -> None:

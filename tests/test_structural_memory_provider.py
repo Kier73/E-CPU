@@ -37,6 +37,13 @@ def _reference(version, *, start: int = 0, size: int = 8) -> StructuralMemoryFil
     return StructuralMemoryFileRef.from_version(version, coordinate_start=start, size=size)
 
 
+def _read_range_events(operating_system: HeadlessOS):
+    return [
+        record for record in operating_system.environment.kernel.journal.records()
+        if record.kind == "structural_memory.read_revision_range"
+    ]
+
+
 def _read_revision_events(operating_system: HeadlessOS):
     return [
         record for record in operating_system.environment.kernel.journal.records()
@@ -66,7 +73,12 @@ def test_structural_memory_file_reads_bounded_byte_slices_with_provenance() -> N
 
     assert operating_system.environment.kernel.fs.read_file(path, 2, 4) == b"CDEF"
     assert operating_system.environment.kernel.fs.read_file(path, 6, 20) == b"GH"
-    assert len(_read_revision_events(operating_system)) == 6
+    assert len(_read_revision_events(operating_system)) == 0
+    range_events = _read_range_events(operating_system)
+    assert len(range_events) == 2
+    range_receipts = [event.payload["receipt"] for event in range_events]
+    assert sorted(receipt["length"] for receipt in range_receipts) == [2, 4]
+    assert all(len(receipt["value_receipt_digest"]) == 64 for receipt in range_receipts)
     assert operating_system.environment.kernel.journal.verify()
 
 

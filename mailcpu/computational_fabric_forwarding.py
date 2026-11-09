@@ -723,7 +723,7 @@ class ComputationalFabricForwardingClient:
             request,
         )
         try:
-            self.request.send_or_retransmit(event)
+            request_sequence = self.request.send_or_retransmit(event)
         except Exception as exc:
             raise ComputationalFabricForwardingError(f"could not enqueue forwarding operation: {exc}") from exc
 
@@ -733,9 +733,17 @@ class ComputationalFabricForwardingClient:
         while time.monotonic() < deadline:
             try:
                 self.request.channel.process_ack()
-                result = self.response.receive()
+                result, _response_transport_sequence, stale_response_frame = (
+                    self.response.receive_with_transport()
+                )
             except Exception as exc:
                 raise ComputationalFabricForwardingError(f"forwarding peer stream failed: {exc}") from exc
+            if result is not None and stale_response_frame and result.replayed:
+                # This RPC invocation must not be satisfied by an old reliable
+                # frame whose semantic result the client already observed.
+                # The frame has been ACKed; keep waiting for a fresh response
+                # transport sequence associated with the new request delivery.
+                continue
             if (
                 result is not None
                 and result.source == self.local_peer_id
@@ -749,6 +757,17 @@ class ComputationalFabricForwardingClient:
                 # consume/ACK it and keep waiting for this operation's result.
                 continue
             if result is not None:
+                # The peer publishes the request ACK and the operation result
+                # on the same reliable stream. The ACK can arrive after the
+                # loop's pre-receive poll, so drain it at the result boundary
+                # before a later semantic retry decides whether to retransmit
+                # the still-pending frame or allocate a fresh transport sequence.
+                try:
+                    self.request.channel.process_ack()
+                except Exception as exc:
+                    raise ComputationalFabricForwardingError(
+                        f"cannot reconcile forwarding request acknowledgement: {exc}"
+                    ) from exc
                 break
             now = time.monotonic()
             if now - last_tick >= 0.03:
@@ -786,6 +805,39 @@ class ComputationalFabricForwardingClient:
             or receipt.decision_receipt != result.decision_receipt
         ):
             raise ComputationalFabricForwardingError("next peer receipt does not bind this exact authenticated forwarding hop")
+
+        # A semantic result may have been cached from an earlier delivery of
+        # this operation. Do not report this RPC as complete while the exact
+        # request frame just sent/retried is still pending: the receiver may
+        # not yet have consumed this delivery or advanced its receive cursor.
+        ack_deadline = time.monotonic() + self.timeout
+        last_ack_tick = time.monotonic()
+        while request_sequence in self.request.channel.pending_sequences():
+            try:
+                self.request.channel.process_ack()
+            except Exception as exc:
+                raise ComputationalFabricForwardingError(
+                    f"could not confirm forwarding request acknowledgement: {exc}"
+                ) from exc
+            if request_sequence not in self.request.channel.pending_sequences():
+                break
+            now = time.monotonic()
+            if request_sequence in self.request.channel.failed_sequences:
+                raise ComputationalFabricForwardingError(
+                    "forwarding request acknowledgement exhausted its retry budget"
+                )
+            if now >= ack_deadline:
+                raise ComputationalFabricForwardingError(
+                    "next peer returned a result without acknowledging the corresponding request frame"
+                )
+            if now - last_ack_tick >= 0.03:
+                failed = self.request.channel.tick()
+                if request_sequence in failed:
+                    raise ComputationalFabricForwardingError(
+                        "forwarding request acknowledgement exhausted its retry budget"
+                    )
+                last_ack_tick = now
+            time.sleep(0.002)
         return receipt
 
     def snapshot(self) -> dict[str, Any]:
@@ -1340,6 +1392,28 @@ class ComputationalFabricForwardingServer:
         """Mathematics: Hold the peer transition lock across capture, durable publication, and quorum anchoring."""
         with self._transition_lock:
             yield
+
+    def rebind_transport(self, transport: SocketTransport) -> SocketTransport:
+        """Mathematics: preserve both reliable ledgers while replacing only the authenticated adjacent stream S, with bindings (local,previous) unchanged."""
+        if not isinstance(transport, SocketTransport):
+            raise ComputationalFabricForwardingError("server transport rebind requires a SocketTransport")
+        snapshots = _active_snapshot_map(self.directory)
+        _authenticated_neighbor(
+            self.directory,
+            snapshots,
+            transport,
+            self.local_peer_id,
+            self.previous_peer_id,
+        )
+        with self._transition_lock:
+            if transport is self.transport:
+                return transport
+            previous_transport = self.transport
+            self.transport = transport
+            self.inbound.channel.transport = transport
+            self.outbound.channel.transport = transport
+            previous_transport.close()
+            return transport
 
     def rebind_next_hop_transport(
         self,

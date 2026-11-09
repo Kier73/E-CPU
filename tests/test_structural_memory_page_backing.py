@@ -73,6 +73,108 @@ def test_structural_memory_page_fault_materializes_exact_hash_and_keeps_receipt(
     assert len(receipt.value_receipt_ids) == 8
 
 
+def test_structural_memory_page_backing_bounds_host_cache_and_reuses_verified_ranges() -> None:
+    operating_system = _operating_system()
+    version = _admit_byte_memory(operating_system)
+    backing = StructuralMemoryPageBacking(operating_system.structural_memory)
+    pages: list[tuple[str, bytes]] = []
+    for page_index in range(5):
+        coordinate_start = page_index * 8
+        expected = bytes((65 + coordinate_start + offset) & 0xFF for offset in range(8))
+        digest = hashlib.sha256(expected).hexdigest()
+        backing.register_page_reference(
+            digest,
+            _page_reference(version, start=coordinate_start, size=8),
+        )
+        pages.append((digest, expected))
+
+    for digest, expected in pages[:4]:
+        assert backing.get_page(digest) == expected
+    original_receipts = {
+        digest: backing.read_receipt(digest)
+        for digest, _expected in pages[:4]
+    }
+    assert all(receipt is not None for receipt in original_receipts.values())
+
+    # A cache hit increases the observed reuse score without changing bytes.
+    first_digest, first_expected = pages[0]
+    score_before = backing._retention_score(first_digest)
+    assert backing.get_page(first_digest) == first_expected
+    assert backing._retention_score(first_digest) >= score_before * 2
+
+    # Give one original page a deliberately low measured regeneration
+    # cost. The policy must evict it even though it is not the oldest page;
+    # this makes the adaptive decision deterministic without wall-clock tests.
+    forced_victim = pages[3][0]
+    backing._regeneration_cost_ns[forced_victim] = 1
+    backing._cache_hits[forced_victim] = 0
+    assert backing._retention_score(forced_victim) == 0
+
+    # The fifth candidate competes for the bounded page-cache slots.
+    assert backing.get_page(pages[4][0]) == pages[4][1]
+    assert backing.cached_page_count == 4
+    assert backing.cached_page_bytes == 4 * 8
+    assert backing.cached_receipt_coordinate_count == 4 * 8
+    assert backing.cached_provider_coordinate_count == 0
+    original_all = {
+        digest: (expected, receipt)
+        for (digest, expected), receipt in zip(pages[:4], original_receipts.values())
+    }
+    original_all[pages[4][0]] = (pages[4][1], backing.read_receipt(pages[4][0]))
+    evicted = [
+        (digest, expected, receipt)
+        for digest, (expected, receipt) in original_all.items()
+        if backing.read_receipt(digest) is None
+    ]
+    assert len(evicted) == 1
+    evicted_digest, evicted_expected, old_receipt = evicted[0]
+    assert evicted_digest == forced_victim
+    assert old_receipt is not None
+
+    # Re-faulting whichever candidate lost the retention competition
+    # regenerates identical bytes. Read its new provider receipt directly:
+    # the weighted policy may immediately evict the page again, in which case
+    # the backing correctly drops the attached full receipt object as well.
+    assert backing.get_page(evicted_digest) == evicted_expected
+    regenerated_bytes, regenerated = backing._providers[evicted_digest].read_with_receipt(0, 8)
+    assert regenerated_bytes == evicted_expected
+    assert regenerated.receipt_id == old_receipt.receipt_id
+    assert regenerated.value_receipt_ids == old_receipt.value_receipt_ids
+    backing._providers[evicted_digest]._discard_value_cache()
+    assert backing.cached_page_count == 4
+    assert backing.cached_provider_coordinate_count == 0
+    assert operating_system.environment.kernel.journal.verify()
+
+
+def test_structural_backing_cache_shares_immutable_page_object_across_reclaim_and_refault() -> None:
+    operating_system = _operating_system()
+    version = _admit_byte_memory(operating_system)
+    expected = b"ABCDEFGH"
+    digest = hashlib.sha256(expected).hexdigest()
+    backing = StructuralMemoryPageBacking(operating_system.structural_memory)
+    backing.register_page_reference(digest, _page_reference(version))
+    memory = VirtualMemory(page_size=8, page_backing=backing)
+    memory.reserve(0, 8, backing_blob_ids=(digest,))
+
+    assert memory.read(0, 8) == expected
+    assert memory._blobs[digest] is backing._page_cache[digest]
+    assert backing.shared_resident_cache_bytes(memory._blobs) == 8
+    assert backing.cached_page_bytes == 8
+
+    # Reclaim removes the VM's mapping/blob reference, but the page backing
+    # retains the same immutable bytes object for a cheap refault.
+    assert memory.reclaim(page_numbers=(0,)) == (0,)
+    assert digest not in memory._blobs
+    assert backing.cached_page_bytes == 8
+    assert backing.shared_resident_cache_bytes(memory._blobs) == 0
+
+    assert memory.read(0, 8) == expected
+    assert memory._blobs[digest] is backing._page_cache[digest]
+    assert backing.shared_resident_cache_bytes(memory._blobs) == 8
+    assert backing.cached_provider_coordinate_count == 0
+    assert operating_system.environment.kernel.journal.verify()
+
+
 def test_structural_memory_page_fault_preserves_copy_on_write_identity() -> None:
     operating_system = _operating_system()
     version = _admit_byte_memory(operating_system)

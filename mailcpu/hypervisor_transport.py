@@ -104,8 +104,8 @@ class HypervisorOperationChannel:
         prepared = self._prepare_execution(arbitration, authorize)
         if prepared is None:
             return None
-        transport_sequence, authorized = prepared
-        result = arbitration.execute(authorized, handlers, effect_encoder)
+        transport_sequence, authorized, replay = prepared
+        result = replay or arbitration.execute(authorized, handlers, effect_encoder)
         self._consume_after_execution(transport_sequence)
         return result
 
@@ -119,13 +119,28 @@ class HypervisorOperationChannel:
     ) -> HypervisorExecutionResult | None:
         """Mathematics: commit `result` to the reverse channel before request `ACK`, preserving retryability when response delivery fails."""
 
+        if not isinstance(response, HypervisorOperationResultChannel):
+            raise HypervisorOperationTransportError("operation reply requires a HypervisorOperationResultChannel")
         prepared = self._prepare_execution(arbitration, authorize)
         if prepared is None:
             return None
-        transport_sequence, authorized = prepared
+        transport_sequence, authorized, replay = prepared
+        if replay is not None:
+            # Reconcile ACKs only for the stale-delivery branch. Fresh request
+            # callers retain ownership of their ordinary response ACK batches.
+            response.channel.process_ack()
+            if response.has_pending_result((replay.source, replay.channel, replay.sequence)):
+                # The exact committed result is still in the sender window.
+                # Re-ACK the stale request and leave delivery to that frame.
+                self._consume_after_execution(transport_sequence)
+                return None
+            # The previous result was already acknowledged. Re-publish the
+            # cached semantic result under a new transport sequence, without
+            # entering the handler or mutating guest state again.
+            response.send(replay)
+            self._consume_after_execution(transport_sequence)
+            return replay
         result = arbitration.execute(authorized, handlers, effect_encoder)
-        if not isinstance(response, HypervisorOperationResultChannel):
-            raise HypervisorOperationTransportError("operation reply requires a HypervisorOperationResultChannel")
         response.send(result)
         self._consume_after_execution(transport_sequence)
         return result
@@ -138,6 +153,7 @@ class HypervisorOperationChannel:
         response: "HypervisorOperationResultChannel",
         effect_encoder: Callable[[Any], Any] | None = None,
         fault_hook: Callable[[str], None] | None = None,
+        defer_stale_duplicate_until_response_ack: bool = False,
     ) -> HypervisorExecutionResult | None:
         """Mathematics: order authorize(e)→commit(E[e])→publish(R[e])→ACK(q), exposing hooks at each recovery cut."""
 
@@ -145,10 +161,31 @@ class HypervisorOperationChannel:
             raise HypervisorOperationTransportError("operation reply requires a HypervisorOperationResultChannel")
         if not isinstance(handlers, Mapping) or any(not callable(handler) for handler in handlers.values()):
             raise HypervisorOperationTransportError("event handlers must be a mapping of callables")
+        if not isinstance(defer_stale_duplicate_until_response_ack, bool):
+            raise HypervisorOperationTransportError(
+                "defer_stale_duplicate_until_response_ack must be boolean"
+            )
         prepared = self._prepare_execution(arbitration, authorize)
         if prepared is None:
             return None
-        transport_sequence, authorized = prepared
+        transport_sequence, authorized, replay = prepared
+        if replay is not None:
+            # Drain reverse ACKs only when the request is an already-consumed
+            # transport duplicate; normal request transitions do not steal
+            # ACK processing from the caller that owns that channel.
+            response.channel.process_ack()
+            if response.has_pending_result((replay.source, replay.channel, replay.sequence)):
+                if defer_stale_duplicate_until_response_ack:
+                    # A Transit receiver may keep this duplicate at the head
+                    # until the original response is acknowledged, then
+                    # publish the cached semantic result under a fresh frame.
+                    # The handler remains bypassed throughout.
+                    return None
+                self._consume_after_execution(transport_sequence)
+                return None
+            response.send(replay)
+            self._consume_after_execution(transport_sequence)
+            return replay
         if fault_hook is not None:
             if not callable(fault_hook):
                 raise HypervisorOperationTransportError("fault hook must be callable")
@@ -172,8 +209,8 @@ class HypervisorOperationChannel:
         self,
         arbitration: HypervisorArbitrationLoop,
         authorize: Callable[[HypervisorArbitrationEvent], HypervisorArbitrationEvent],
-    ) -> tuple[int, HypervisorArbitrationEvent] | None:
-        """Mathematics: project `peek(Q)` to authorized event `e'` while preserving `I(e')=I(e)` before any effect transition."""
+    ) -> tuple[int, HypervisorArbitrationEvent, HypervisorExecutionResult | None] | None:
+        """Mathematics: authorize a fresh delivery or resolve an old transport duplicate from the committed execution ledger."""
 
         if not isinstance(arbitration, HypervisorArbitrationLoop):
             raise HypervisorOperationTransportError("operation transport requires a HypervisorArbitrationLoop")
@@ -183,6 +220,7 @@ class HypervisorOperationChannel:
         if peeked is None:
             return None
         transport_sequence, payload = peeked
+        stale_transport_duplicate = transport_sequence < self.channel.next_receive_sequence
         event = self._decode_payload(payload)
         try:
             authorized = authorize(event)
@@ -190,7 +228,19 @@ class HypervisorOperationChannel:
             raise HypervisorOperationTransportError(f"receiver authority rejected operation: {exc}") from exc
         if not isinstance(authorized, HypervisorArbitrationEvent) or authorized.identity != event.identity:
             raise HypervisorOperationTransportError("receiver authority changed operation identity")
-        return transport_sequence, authorized
+        replay = None
+        if stale_transport_duplicate:
+            # The reliable channel validates the old sequence's persisted
+            # payload digest when it is consumed. Resolve its semantic result
+            # first, without invoking any handler. Callers with a reverse
+            # response channel only re-ACK the stale request; synchronous
+            # receive_and_execute callers may return the cached result.
+            replay = arbitration.replay_execution(authorized)
+            if replay is None:
+                raise HypervisorOperationTransportError(
+                    "stale transport duplicate has no committed execution result"
+                )
+        return transport_sequence, authorized, replay
 
     def _consume_after_execution(self, transport_sequence: int) -> None:
         """Mathematics: consume `F_s` and emit `ACK(s)` only after effect or response commit reaches a typed result."""
@@ -243,13 +293,54 @@ class HypervisorOperationResultChannel:
         self._validate_result(result)
         return self.channel.send({"kind": OPERATION_RESULT_KIND, "result": result.to_dict()})
 
-    def receive(self) -> HypervisorExecutionResult | None:
-        """Mathematics: apply semantic result law `S[I]` before consuming and acknowledging the reliable response frame."""
+    def has_pending_result(
+        self,
+        identity: tuple[str, str, int],
+    ) -> bool:
+        """Mathematics: test whether the reliable sender window still owns a result for semantic identity I."""
+        if (
+            not isinstance(identity, tuple)
+            or len(identity) != 3
+            or not isinstance(identity[0], str)
+            or not identity[0]
+            or not isinstance(identity[1], str)
+            or not identity[1]
+            or type(identity[2]) is not int
+            or identity[2] <= 0
+        ):
+            raise HypervisorOperationTransportError(
+                "pending result lookup requires a valid semantic operation identity"
+            )
+        for sequence, pending in sorted(self.channel._pending.items()):
+            frame = pending.frame
+            if (
+                frame.op != "RDATA"
+                or len(frame.body) != 3
+                or frame.body[0] != self.channel.channel
+                or frame.body[1] != sequence
+            ):
+                raise HypervisorOperationTransportError(
+                    "pending result sender window contains a foreign frame"
+                )
+            result = self._decode_payload(frame.body[2])
+            if (result.source, result.channel, result.sequence) == identity:
+                return True
+        return False
 
+    def receive(self) -> HypervisorExecutionResult | None:
+        """Mathematics: preserve the established semantic replay API while acknowledging each reliable response frame."""
+        result, _transport_sequence, _stale_transport_duplicate = self.receive_with_transport()
+        return result
+
+    def receive_with_transport(
+        self,
+    ) -> tuple[HypervisorExecutionResult | None, int | None, bool]:
+        """Mathematics: return semantic result, reliable sequence, and predicate (s<r) without conflating transport and operation identity."""
         peeked = self.channel.peek()
         if peeked is None:
-            return None
+            return None, None, False
         transport_sequence, payload = peeked
+        stale_transport_duplicate = transport_sequence < self.channel.next_receive_sequence
         incoming = self._decode_payload(payload)
         identity = (incoming.source, incoming.channel, incoming.sequence)
         previous = self._seen.get(identity)
@@ -288,7 +379,7 @@ class HypervisorOperationResultChannel:
         if received is not None and received[0] != transport_sequence:
             raise HypervisorOperationTransportError("operation result sequence changed during validation")
         self._seen.setdefault(identity, (incoming.fingerprint, result if not result.replayed else stored))
-        return result
+        return result, transport_sequence, stale_transport_duplicate
 
     def snapshot(self) -> dict[str, object]:
         """Mathematics: serialize result transport `R`, operation binding, and semantic ledger `S` for response replay."""

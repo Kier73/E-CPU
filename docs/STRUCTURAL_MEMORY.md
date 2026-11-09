@@ -131,12 +131,15 @@ The registry snapshot contains:
 - canonical read-cache receipts;
 - a journal anchor (sequence, terminal_digest) identifying the exact event-chain cut.
 
-The shared kernel event journal records three event kinds:
+The shared kernel event journal records these event kinds:
 
 - structural_memory.propose;
 - structural_memory.admit;
 - structural_memory.read;
-- structural_memory.read_revision for explicitly pinned historical reads (E0.3).
+- structural_memory.read_revision for explicitly pinned historical reads (E0.3);
+- structural_memory.read_revision_range for bounded, ordered, explicitly pinned range reads.
+
+Point reads retain their original one-coordinate receipt and event contract. A range read evaluates its coordinates under one reconstructed law instance, returns the ordered per-coordinate receipt IDs to its caller, and appends one compact range receipt. The range receipt binds the immutable revision, exact context, coordinate start and length, a digest of the ordered generated values, and a digest of the ordered value-receipt IDs. Restore re-evaluates the range against the admitted generator and verifies both digests. It compresses the durable journal representation without removing per-coordinate identity from the returned file-read receipt or relaxing generator/certificate validation.
 
 A repeated exact proposal returns its original staged proposal and does not create another proposal event. Exact admission replay returns the original version and does not create another admission event. Reads produce a journal receipt even when the value is served from the structural read cache.
 
@@ -229,7 +232,7 @@ See `docs/VIRTUAL_LAYER_WORKLOAD.md` for the workload schema, operator input env
 
 A structural-memory revision can be explicitly exposed as a bounded, read-only virtual file. `StructuralMemoryFileRef` binds the memory identity, immutable revision, exact context, coordinate start, byte length, specification digest, and certificate digest. Byte offset `o` maps to generator coordinate `coordinate_start + o`.
 
-The first provider contract uses one unsigned integer value per byte. The receiver refuses any value outside `0..255`; it never truncates, wraps, or silently converts a wider integer. File size is bounded to 1 MiB and each read is bounded by a configurable maximum (4 KiB by default). Reads are lazy: only coordinates in the requested byte range are resolved. Every coordinate read uses the registry's existing `read_revision` contract, and the provider checks the complete read receipt against the pinned reference before exposing the byte.
+The first provider contract uses one unsigned integer value per byte. The receiver refuses any value outside `0..255`; it never truncates, wraps, or silently converts a wider integer. File size is bounded to 1 MiB and each read is bounded by a configurable maximum (4 KiB by default). Reads are lazy: only coordinates in the requested byte range are resolved. The provider uses the registry's bounded `read_revision_range` operation when available; the registry evaluates the ordered coordinates with one reconstructed law instance and returns the per-coordinate receipt IDs plus a compact range receipt. Older local registry adapters that expose only `read_revision` continue to use the coordinate-read fallback. The provider checks the range receipt's identity and both aggregate digests before exposing any byte.
 
 The VFS inode is registered as a read-only provider-backed file. Normal VFS path/mode and process-open authorization remain the file-access boundary. Host-side callers can use `VirtualFileSystem.read_file_with_receipt` to receive the bytes and aggregate range receipt together; ordinary read calls continue to return bytes only. The range receipt binds the returned byte digest, context, specification, certificate, and ordered coordinate receipt IDs. Provider cache entries contain only values already verified against those receipts.
 
@@ -259,7 +262,7 @@ memory.reserve(
 )
 ```
 
-Each page reference is a complete pinned byte interval. On first access, the backing reads that interval through the existing structural-memory file provider, checks its revision/context/specification/certificate receipt, then verifies `SHA256(page_bytes) == page_digest`. A successful materialization moves the same digest from `PageReservation.backing_blob_id` to `PageMapping.blob_id`. The structural reference is not replaced by a newly generated page identity.
+Each page reference is a complete pinned byte interval. On first access, the backing reads that interval through the existing structural-memory file provider. The provider resolves the interval using one bounded range operation when supported, checks the range receipt's revision/context/specification/certificate identity and aggregate value/receipt commitments, and verifies `SHA256(page_bytes) == page_digest`. The caller still receives the ordered per-coordinate receipt IDs; the shared journal stores one replay-verifiable range event rather than one event per byte. A successful materialization moves the same digest from `PageReservation.backing_blob_id` to `PageMapping.blob_id`. The structural reference is not replaced by a newly generated page identity.
 
 The memory manager resolves every externally backed page touched by one access before consuming any reservation. If a later page cannot be read or fails its hash check, no reservation in that access is materialized. Resident admission and the existing per-process page quota are checked before resolution; ordinary page read/write protections remain in force.
 

@@ -15,13 +15,41 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install test dependencies
-        run: python -m pip install -e ".[dev]"
+        run: python -m pip install -e ".[dev,vgi]"
       - name: Run state relation and transit transport tests
         run: python -m pytest -q tests/test_scheduler_relation_unit.py tests/test_scheduler_relation.py tests/test_headless_relation.py tests/test_headless_relation_operations.py tests/test_public_surface.py::test_every_public_callable_carries_a_docstring tests/test_transit_compute.py tests/test_mtls_transport.py
+      - name: Verify federated forwarding, VGI transfer, and acknowledged-request recovery
+        run: >-
+          python -m pytest -q
+          tests/test_computational_fabric.py::test_federated_workload_forwards_over_two_authenticated_hops_and_replays_once
+          tests/test_computational_fabric.py::test_persistent_vgi_session_transfers_through_fabric_and_replays_once
+          'tests/test_process_crash_boundaries.py::test_requester_and_receiver_processes_recover_at_each_transit_crash_cut[after_request_ack]'
+          tests/test_hypervisor_transport.py
+          tests/test_duplex_operation_recovery.py::test_duplex_recovery_rebinds_both_loss_paths_and_trains_from_live_operations
+          tests/test_cross_transport_duplex_migration.py::test_duplex_socket_state_migrates_into_one_memory_host_without_replaying_effect
+          tests/test_operation_response.py::test_operation_response_returns_effect_and_deduplicates_after_lost_response_ack
+          tests/test_receiver_only_process_recovery.py::test_receiver_restart_after_response_publish_before_request_ack
+          'tests/test_federated_forwarding_process_recovery.py::test_terminal_peer_c_hard_process_kill_recovers_while_relay_b_survives[after_request_ack]'
+
       - name: Run repository conformance checks
         run: python scripts/verify_repo.py
       - name: Run invariant registry
         run: python scripts/verify_invariants.py
+      - name: Evaluate predictive page-access descriptions on held-out observer ticks
+        run: python -m pytest -q tests/test_predictive_selection.py
+      - name: Compare resident and Structural Memory-backed VM pages
+        run: |
+          python -m pytest -q tests/test_structural_memory.py tests/test_structural_memory_provider.py tests/test_structural_memory_page_backing.py tests/test_structural_memory_benchmark.py tests/test_structural_memory_vm_benchmark.py
+          python scripts/benchmark_structural_memory_vm.py --pretty --output structural-memory-vm-comparison.json
+
+      - name: Upload Structural Memory VM comparison report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: structural-memory-vm-comparison
+          path: structural-memory-vm-comparison.json
+          if-no-files-found: ignore
+
       - name: Run two-process scheduler benchmark
         run: python examples/scheduler_relation_benchmark.py --cycles 12
       - name: Compare Python, direct MailCPU, and remote MailCPU compute

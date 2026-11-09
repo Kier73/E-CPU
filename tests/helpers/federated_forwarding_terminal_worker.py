@@ -39,7 +39,7 @@ from mailcpu import (  # noqa: E402
 )
 from mailcpu.computational_fabric_forwarding import COMPUTATIONAL_FABRIC_EXECUTE_RESOURCE  # noqa: E402
 from mailcpu.mtls_transport import accept_mutual_tls  # noqa: E402
-from mailcpu.socket_transport import SocketTransport  # noqa: E402
+from mailcpu.socket_transport import SocketTransport, SocketTransportClosed  # noqa: E402
 
 
 GENESIS = hashlib.sha256(b"mailcpu-federated-terminal-peer-c-process-recovery-v1").hexdigest()
@@ -337,7 +337,22 @@ def main(arguments: list[str]) -> int:
         deadline = time.monotonic() + 90.0
         post_recovery_checkpointed = False
         while time.monotonic() < deadline:
-            server.serve_once()
+            try:
+                server.serve_once()
+            except SocketTransportClosed:
+                # The authenticated peer stream is replaceable; the terminal
+                # operation and response ledger are not. Accept a fresh
+                # mutual-TLS adjacency and rebind the same reliable state.
+                transport = accept_mutual_tls(
+                    listener,
+                    "peer-c",
+                    "peer-b",
+                    _server_context(config),
+                    expected_peer_dns=directory.trusted_peers["peer-b"],
+                    handshake_timeout=8.0,
+                )
+                server.rebind_transport(transport)
+                continue
             if (
                 mode == "restore"
                 and config.get("checkpoint_after_first_recovery") is True

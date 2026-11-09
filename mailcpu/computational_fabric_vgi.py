@@ -123,11 +123,16 @@ class VGIFabricSessionOperator:
         except VGISessionError as exc:
             raise VGIFabricOperatorError(f"VGI transfer admission failed: {exc}") from exc
         bundle_decode_ms = (time.perf_counter() - decode_started) * 1000.0
-        if transfer.descriptor != self.session.descriptor.to_dict():
+        if _canonical_bytes(transfer.descriptor) != _canonical_bytes(self.session.descriptor.to_dict()):
             raise VGIFabricOperatorError("transferred VGI descriptor differs from the receiver's admitted interpretation")
         try:
+            # A VirtualLayerWorkload freezes nested JSON arrays as tuples.
+            # Re-project the untrusted transfer export through its canonical
+            # wire bytes before passing it to strict schema decoders that
+            # intentionally require JSON arrays.
+            session_export = json.loads(_canonical_bytes(transfer.session_export))
             base = ComputationalSessionCheckpoint.from_dict(
-                transfer.session_export["checkpoint"],
+                session_export["checkpoint"],
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise VGIFabricOperatorError("VGI transfer does not contain a valid M3 checkpoint base") from exc

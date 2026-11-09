@@ -150,6 +150,19 @@ For every sample and candidate, the evaluator requests one direct composed proje
 
 If a general path is not algebraically navigable, a separately verified path index or explicitly budgeted path-discovery experiment can be evaluated in a later extension. This selector does not pretend arbitrary non-injective transitions have a general inverse.
 
+## 9.1 Dogfooding experiment: page-access traces and cache reuse
+
+The first operational dogfood uses a cache's requested-page sequence as a one-component composed Virtual Ground. The component is `cache.requested_page`; its scheduler coordinate is the observation tick. Candidate descriptions are already-admitted finite functional graphs with an identical composed component context:
+
+- the baseline is a four-page round-robin sweep `[0,1,2,3]`;
+- the alternative is a previously admitted six-request reuse motif `[0,1,0,2,0,3]`.
+
+Both descriptions are admitted before the later observer stream is captured. Their certificate witness coordinates are 100–107, disjoint from the observed scheduler offsets 0–11. The independent observer then supplies twelve page requests by repeating the six-request motif twice. The evaluator uses offsets 0–3 as development, 4–7 as validation, and 8–11 as the held-out test window.
+
+The existing `PredictiveCandidatePoolBuilder` discovers the alternative as a bounded one-factor revision with the same component context. The existing `PredictiveDescriptionSelector` compares both descriptions at each direct scheduler coordinate and ranks only against validation outcomes; test outcomes are reported after selection. In this controlled fixture, the alternative achieves 1.0 predictive yield on validation and test, while the round-robin baseline scores below 1.0 on both. The selected candidate remains a recommendation: the alternative uses a separate Structural Memory identity, the baseline's active version is asserted unchanged, and `recommendation_authoritative` remains false.
+
+This establishes that the repository's existing observer, composed-ground, bounded-pool and chronological-selection components can represent a memory access trace without adding a second prediction framework. It does **not** show that the system learned the motif from raw accesses, that this synthetic trace generalizes to production workloads, or that the selected candidate should change cache residency. A future policy may consume the advisory prediction as one input to the measured-cost retention score, but only after independent live traces, repeated holdouts, and miss-cost measurement establish incremental value. Until then, observed regeneration cost and actual cache reuse remain the only inputs that govern the host cache.
+
 ## 9. Research direction
 
 The immediate experiment is to compare alternative admitted generator bases over the same observed multi-component trajectory, then inspect where residual changes concentrate. Those residuals identify which state variables need new interpretations or component generators.

@@ -80,6 +80,46 @@ def test_read_receipt_binds_spec_certificate_context_and_value():
     assert repeated.cache_hit is True
 
 
+def test_range_value_receipt_ids_match_existing_point_read_receipt_identity() -> None:
+    registry = _registry(lambda proposal: True)
+    law = _integer_law()
+    proposal = registry.propose(
+        "range-receipt-identity",
+        law,
+        {coordinate: coordinate for coordinate in range(8)},
+        domain="integer-orbit",
+        context={"source": "range-equivalence"},
+    )
+    version = registry.admit(proposal.proposal_id, expected_revision=0)
+    coordinates = tuple(range(11, 23))
+    point_receipts = tuple(
+        registry._make_read_receipt(
+            version,
+            coordinate,
+            version.spec.context_digest,
+            registry.generators.navigate_guarded(version.spec, coordinate),
+        )
+        for coordinate in coordinates
+    )
+
+    values, range_receipt, range_value_receipt_ids = registry.read_revision_range(
+        "range-receipt-identity",
+        version.spec.revision,
+        coordinates[0],
+        len(coordinates),
+        context=version.spec.context,
+    )
+
+    assert values == tuple(receipt.value for receipt in point_receipts)
+    assert range_value_receipt_ids == tuple(
+        receipt.receipt_id for receipt in point_receipts
+    )
+    assert range_receipt.coordinate_start == coordinates[0]
+    assert range_receipt.length == len(coordinates)
+    assert len(range_receipt.value_range_digest) == 64
+    assert len(range_receipt.value_receipt_digest) == 64
+
+
 def test_cache_hit_does_not_reinvoke_the_generator(monkeypatch):
     registry = _registry(lambda proposal: True)
     proposal = registry.propose(

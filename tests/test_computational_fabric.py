@@ -1558,6 +1558,11 @@ def test_federated_workload_forwards_over_two_authenticated_hops_and_replays_onc
                 if result is None:
                     time.sleep(0.001)
             except BaseException as exc:
+                # The test closes both TLS peers after the protocol assertions.
+                # A read interrupted by that deliberate shutdown is not a
+                # serving failure; errors observed before stop remain fatal.
+                if stop.is_set():
+                    return
                 failures.append(exc)
                 stop.set()
                 return

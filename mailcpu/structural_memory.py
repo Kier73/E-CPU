@@ -593,6 +593,98 @@ class StructuralMemoryReadReceipt:
         )
 
 
+@dataclass(frozen=True)
+class StructuralMemoryRangeReadReceipt:
+    """Compact commitment to one ordered, revision-pinned range of generated integer values."""
+
+    receipt_id: str
+    memory_id: str
+    revision: int
+    spec_digest: str
+    certificate_digest: str
+    coordinate_start: int
+    length: int
+    context_digest: str
+    value_range_digest: str
+    value_receipt_digest: str
+    verification_class: VerificationClass
+    witness_digest: str
+
+    def __post_init__(self) -> None:
+        """Mathematics: bind an exact integer interval to its generator, certificate, context, value commitment and ordered per-coordinate receipt commitment."""
+        _require_hash(self.receipt_id, "range receipt_id")
+        _require_nonempty_string(self.memory_id, "range memory_id")
+        _require_int(self.revision, "range revision", minimum=1)
+        _require_int(self.coordinate_start, "range coordinate_start", minimum=0)
+        _require_int(self.length, "range length", minimum=1)
+        for name in (
+            "spec_digest",
+            "certificate_digest",
+            "context_digest",
+            "value_range_digest",
+            "value_receipt_digest",
+            "witness_digest",
+        ):
+            _require_hash(getattr(self, name), f"range {name}")
+        if not isinstance(self.verification_class, VerificationClass):
+            raise StructuralMemoryError("range receipt verification class is invalid")
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize the compact range commitment. Mathematics: project the complete range identity and both aggregate digests."""
+        return {
+            "receipt_id": self.receipt_id,
+            "memory_id": self.memory_id,
+            "revision": self.revision,
+            "spec_digest": self.spec_digest,
+            "certificate_digest": self.certificate_digest,
+            "coordinate_start": self.coordinate_start,
+            "length": self.length,
+            "context_digest": self.context_digest,
+            "value_range_digest": self.value_range_digest,
+            "value_receipt_digest": self.value_receipt_digest,
+            "verification_class": self.verification_class.value,
+            "witness_digest": self.witness_digest,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "StructuralMemoryRangeReadReceipt":
+        """Reconstruct one typed aggregate range receipt. Mathematics: invert the exact range receipt schema without dropping either aggregate commitment."""
+        expected = {
+            "receipt_id",
+            "memory_id",
+            "revision",
+            "spec_digest",
+            "certificate_digest",
+            "coordinate_start",
+            "length",
+            "context_digest",
+            "value_range_digest",
+            "value_receipt_digest",
+            "verification_class",
+            "witness_digest",
+        }
+        if not isinstance(payload, Mapping) or set(payload) != expected:
+            raise StructuralMemoryError("structural memory range receipt fields are invalid")
+        try:
+            verification_class = VerificationClass(payload["verification_class"])
+        except (TypeError, ValueError) as exc:
+            raise StructuralMemoryError("structural memory range verification class is invalid") from exc
+        return cls(
+            receipt_id=payload["receipt_id"],
+            memory_id=payload["memory_id"],
+            revision=payload["revision"],
+            spec_digest=payload["spec_digest"],
+            certificate_digest=payload["certificate_digest"],
+            coordinate_start=payload["coordinate_start"],
+            length=payload["length"],
+            context_digest=payload["context_digest"],
+            value_range_digest=payload["value_range_digest"],
+            value_receipt_digest=payload["value_receipt_digest"],
+            verification_class=verification_class,
+            witness_digest=payload["witness_digest"],
+        )
+
+
 class ContextMapper:
     """Canonicalize and bind an explicit context object without changing its law.
 
@@ -652,6 +744,29 @@ class GeneratorRegistry:
         if type(value) is not int:
             raise StructuralMemoryRefused("generator returned a non-integer value outside the E0 value ABI")
         return value
+
+    def navigate_guarded_range(
+        self,
+        spec: StructuralMemorySpec,
+        coordinate_start: int,
+        count: int,
+    ) -> tuple[int, ...]:
+        """Evaluate a bounded ordered range under one reconstructed law. Mathematics: return (G(a),...,G(a+n-1)) using one admitted generator instance and the same per-coordinate horizon guard."""
+        _require_int(coordinate_start, "coordinate_start", minimum=0)
+        _require_int(count, "count", minimum=1)
+        if count > 65_536:
+            raise StructuralMemoryRefused("one structural range read cannot exceed 65536 coordinates")
+        law = self.build_law(spec)
+        values: list[int] = []
+        for coordinate in range(coordinate_start, coordinate_start + count):
+            try:
+                value = navigate_guarded(law, coordinate)
+            except (HorizonExceeded, Refused) as exc:
+                raise StructuralMemoryRefused(str(exc)) from exc
+            if type(value) is not int:
+                raise StructuralMemoryRefused("generator returned a non-integer value outside the E0 value ABI")
+            values.append(value)
+        return tuple(values)
 
     def predict_prefix_boundary(self, spec: StructuralMemorySpec, coordinate: int) -> int:
         """Evaluate exactly first_bad for witness adjudication, never for runtime reads. Mathematics: evaluates G(first_bad) only to adjudicate the observed escape witness. """
@@ -1076,6 +1191,67 @@ class StructuralMemoryRegistry:
                 event_kind="structural_memory.read_revision",
             )
 
+    def read_revision_range(
+        self,
+        memory_id: str,
+        revision: int,
+        coordinate_start: int,
+        count: int,
+        *,
+        context: Mapping[str, Any] | None = None,
+    ) -> tuple[tuple[int, ...], StructuralMemoryRangeReadReceipt, tuple[str, ...]]:
+        """Read one bounded revision-pinned range with one journal transition. Mathematics: evaluate G[a:a+n], emit H(values), H(ordered value-receipt IDs), and bind both to the exact spec/certificate/context."""
+        _require_nonempty_string(memory_id, "memory_id")
+        _require_int(revision, "revision", minimum=1)
+        _require_int(coordinate_start, "coordinate_start", minimum=0)
+        _require_int(count, "count", minimum=1)
+        if count > 65_536:
+            raise StructuralMemoryRefused("one structural range read cannot exceed 65536 coordinates")
+        with self._lock:
+            version = self._version_for_revision(memory_id, revision)
+            if version is None:
+                raise StructuralMemoryRefused(
+                    f"memory {memory_id!r} has no admitted revision {revision}"
+                )
+            context_digest = self.navigator.validate(
+                version.spec,
+                version.certificate,
+                coordinate_start,
+                context=context,
+            )
+            # Prefix admissibility is monotone in the coordinate, so validating
+            # the last coordinate proves that the entire ascending interval
+            # remains strictly inside the same exclusive horizon.
+            self.navigator.validate(
+                version.spec,
+                version.certificate,
+                coordinate_start + count - 1,
+                context=context,
+            )
+            values = self.generators.navigate_guarded_range(
+                version.spec,
+                coordinate_start,
+                count,
+            )
+            value_receipt_ids = self._make_range_value_receipt_ids(
+                version,
+                coordinate_start,
+                context_digest,
+                values,
+            )
+            receipt = self._make_range_read_receipt(
+                version,
+                coordinate_start,
+                context_digest,
+                values,
+                value_receipt_ids,
+            )
+            self._append_journal(
+                "structural_memory.read_revision_range",
+                {"receipt": receipt.to_dict()},
+            )
+            return values, receipt, value_receipt_ids
+
     def _read_version(
         self,
         version: StructuralMemoryVersion,
@@ -1399,6 +1575,146 @@ class StructuralMemoryRegistry:
             cache_hit=cache_hit,
         )
 
+    @staticmethod
+    def _make_range_value_receipt_ids(
+        version: StructuralMemoryVersion,
+        coordinate_start: int,
+        context_digest: str,
+        values: Sequence[int],
+    ) -> tuple[str, ...]:
+        """Mathematics: derive exactly the same H(spec, certificate, context, coordinate, value) point identities using pre-encoded immutable fields and no transient receipt objects."""
+        # _make_read_receipt hashes two canonical JSON objects for each point.
+        # In a range, all provenance fields except coordinate/value are fixed;
+        # encode those once and preserve the exact sorted-key JSON byte schema.
+        quote = lambda value: _canonical_json(value).encode("utf-8")
+        certificate_digest = quote(version.certificate.digest)
+        bound_context_digest = quote(context_digest)
+        memory_id = quote(version.spec.memory_id)
+        revision = str(version.spec.revision).encode("ascii")
+        spec_digest = quote(version.spec.digest)
+        prefix = (
+            b'{"certificate_digest":' + certificate_digest
+            + b',"context_digest":' + bound_context_digest
+            + b',"coordinate":'
+        )
+        middle = (
+            b',"memory_id":' + memory_id
+            + b',"revision":' + revision
+            + b',"spec_digest":' + spec_digest
+            + b',"value_digest":'
+        )
+        result: list[str] = []
+        for offset, value in enumerate(values):
+            if type(value) is not int:
+                raise StructuralMemoryError("range receipt values must be strict integers")
+            value_digest = hashlib.sha256(
+                b'{"type":"integer","value":' + str(value).encode("ascii") + b"}"
+            ).hexdigest()
+            payload = (
+                prefix
+                + str(coordinate_start + offset).encode("ascii")
+                + middle
+                + quote(value_digest)
+                + b"}"
+            )
+            result.append(hashlib.sha256(payload).hexdigest())
+        return tuple(result)
+
+    @staticmethod
+    def _make_range_read_receipt(
+        version: StructuralMemoryVersion,
+        coordinate_start: int,
+        context_digest: str,
+        values: Sequence[int],
+        value_receipt_ids: Sequence[str],
+    ) -> StructuralMemoryRangeReadReceipt:
+        """Mathematics: commit ordered values and per-coordinate receipt identities as one range digest without one journal record per value."""
+        value_range_digest = _digest({
+            "type": "integer-range",
+            "coordinate_start": coordinate_start,
+            "values": list(values),
+        })
+        value_receipt_digest = _digest({
+            "coordinate_start": coordinate_start,
+            "receipt_ids": list(value_receipt_ids),
+        })
+        receipt_payload = {
+            "memory_id": version.spec.memory_id,
+            "revision": version.spec.revision,
+            "spec_digest": version.spec.digest,
+            "certificate_digest": version.certificate.digest,
+            "coordinate_start": coordinate_start,
+            "length": len(values),
+            "context_digest": context_digest,
+            "value_range_digest": value_range_digest,
+            "value_receipt_digest": value_receipt_digest,
+            "verification_class": version.certificate.verification_class.value,
+            "witness_digest": version.certificate.witness_digest,
+        }
+        return StructuralMemoryRangeReadReceipt(
+            receipt_id=_digest(receipt_payload),
+            memory_id=version.spec.memory_id,
+            revision=version.spec.revision,
+            spec_digest=version.spec.digest,
+            certificate_digest=version.certificate.digest,
+            coordinate_start=coordinate_start,
+            length=len(values),
+            context_digest=context_digest,
+            value_range_digest=value_range_digest,
+            value_receipt_digest=value_receipt_digest,
+            verification_class=version.certificate.verification_class,
+            witness_digest=version.certificate.witness_digest,
+        )
+
+    def _verify_range_read_receipt(
+        self,
+        receipt: StructuralMemoryRangeReadReceipt,
+        version: StructuralMemoryVersion,
+    ) -> None:
+        """Replay a compact range commitment against its admitted generator. Mathematics: regenerate every coordinate and require exact equality of the ordered value and per-coordinate receipt commitments."""
+        if (
+            receipt.memory_id != version.spec.memory_id
+            or receipt.revision != version.spec.revision
+            or receipt.spec_digest != version.spec.digest
+            or receipt.certificate_digest != version.certificate.digest
+            or receipt.context_digest != version.spec.context_digest
+            or receipt.verification_class is not version.certificate.verification_class
+            or receipt.witness_digest != version.certificate.witness_digest
+        ):
+            raise StructuralMemoryError("structural range receipt provenance does not match its admitted version")
+        self.navigator.validate(
+            version.spec,
+            version.certificate,
+            receipt.coordinate_start,
+            context=version.spec.context,
+        )
+        self.navigator.validate(
+            version.spec,
+            version.certificate,
+            receipt.coordinate_start + receipt.length - 1,
+            context=version.spec.context,
+        )
+        values = self.generators.navigate_guarded_range(
+            version.spec,
+            receipt.coordinate_start,
+            receipt.length,
+        )
+        value_receipt_ids = self._make_range_value_receipt_ids(
+            version,
+            receipt.coordinate_start,
+            receipt.context_digest,
+            values,
+        )
+        expected = self._make_range_read_receipt(
+            version,
+            receipt.coordinate_start,
+            receipt.context_digest,
+            values,
+            value_receipt_ids,
+        )
+        if expected.to_dict() != receipt.to_dict():
+            raise StructuralMemoryError("structural range receipt does not reproduce from its generator")
+
     def _version_for_revision(self, memory_id: str, revision: int) -> StructuralMemoryVersion | None:
         """Resolve one exact historical revision. Mathematics: find the unique admitted v with (v.memory_id,v.revision)=(m,r)."""
         matches = [
@@ -1464,6 +1780,7 @@ class StructuralMemoryRegistry:
         proposed_events: dict[str, tuple[int, dict[str, Any]]] = {}
         admitted_events: dict[str, tuple[int, dict[str, Any]]] = {}
         read_receipts: list[tuple[int, StructuralMemoryReadReceipt, bool]] = []
+        range_read_receipts: list[tuple[int, StructuralMemoryRangeReadReceipt]] = []
         for record in self.journal.records():
             if not record.kind.startswith("structural_memory."):
                 continue
@@ -1489,6 +1806,14 @@ class StructuralMemoryRegistry:
                     record.sequence,
                     StructuralMemoryReadReceipt.from_dict(payload["receipt"]),
                     record.kind == "structural_memory.read_revision",
+                ))
+            elif record.kind == "structural_memory.read_revision_range":
+                payload = record.payload
+                if set(payload) != {"receipt"}:
+                    raise StructuralMemoryError("structural-memory range-read event payload is invalid")
+                range_read_receipts.append((
+                    record.sequence,
+                    StructuralMemoryRangeReadReceipt.from_dict(payload["receipt"]),
                 ))
             else:
                 raise StructuralMemoryError(f"unknown structural-memory journal event {record.kind!r}")
@@ -1560,6 +1885,15 @@ class StructuralMemoryRegistry:
                     if sequence >= next_admission_sequence:
                         raise StructuralMemoryError("structural-memory read occurs after a newer revision became active")
             self._verify_read_receipt(receipt, version)
+
+        for sequence, receipt in range_read_receipts:
+            version = self._version_for_spec_digest(receipt.spec_digest)
+            if version is None:
+                raise StructuralMemoryError("structural-memory range journal references an unknown revision")
+            admission_sequence = admission_by_spec[receipt.spec_digest]
+            if sequence <= admission_sequence:
+                raise StructuralMemoryError("structural-memory range read precedes revision admission")
+            self._verify_range_read_receipt(receipt, version)
 
     @staticmethod
     def _normalize_witnesses(witnesses: Mapping[int, int]) -> tuple[tuple[int, int], ...]:

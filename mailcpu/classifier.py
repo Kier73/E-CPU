@@ -1456,6 +1456,56 @@ class HypervisorArbitrationLoop:
         result = item[1]
         return result.source, result.channel, result.sequence
 
+    def replay_execution(
+        self,
+        event: HypervisorArbitrationEvent,
+    ) -> HypervisorExecutionResult | None:
+        """Mathematics: Return the committed result for exact identity and fingerprint without entering its effect handler."""
+        if not isinstance(event, HypervisorArbitrationEvent):
+            raise ClassifierError("execution replay requires a HypervisorArbitrationEvent")
+        identity = event.identity
+        fingerprint = self._fingerprint(event)
+        previous = self._execution_seen.get(identity)
+        if previous is None:
+            return None
+        previous_fingerprint, stored = previous
+        if previous_fingerprint != fingerprint:
+            self.hypervisor.journal.append(
+                "hypervisor.execution.conflict",
+                {
+                    "source": event.source,
+                    "channel": event.channel,
+                    "sequence": event.sequence,
+                    "fingerprint": fingerprint,
+                    "previous_fingerprint": previous_fingerprint,
+                },
+            )
+            raise HypervisorError("conflicting execution retransmission")
+        self.hypervisor.journal.append(
+            "hypervisor.execution.replay",
+            {
+                "source": event.source,
+                "channel": event.channel,
+                "sequence": event.sequence,
+                "fingerprint": fingerprint,
+                "decision_receipt": stored.decision_receipt,
+                "executed": stored.executed,
+            },
+        )
+        return HypervisorExecutionResult(
+            stored.source,
+            stored.channel,
+            stored.sequence,
+            stored.logical_time,
+            stored.fingerprint,
+            stored.decision_receipt,
+            stored.action,
+            stored.domain,
+            stored.effect,
+            True,
+            stored.executed,
+        )
+
     def execute(
         self,
         event: HypervisorArbitrationEvent,
@@ -1470,45 +1520,9 @@ class HypervisorArbitrationLoop:
             raise ClassifierError("execution handlers must be a mapping")
         identity = event.identity
         fingerprint = self._fingerprint(event)
-        previous = self._execution_seen.get(identity)
-        if previous is not None:
-            previous_fingerprint, stored = previous
-            if previous_fingerprint != fingerprint:
-                self.hypervisor.journal.append(
-                    "hypervisor.execution.conflict",
-                    {
-                        "source": event.source,
-                        "channel": event.channel,
-                        "sequence": event.sequence,
-                        "fingerprint": fingerprint,
-                        "previous_fingerprint": previous_fingerprint,
-                    },
-                )
-                raise HypervisorError("conflicting execution retransmission")
-            self.hypervisor.journal.append(
-                "hypervisor.execution.replay",
-                {
-                    "source": event.source,
-                    "channel": event.channel,
-                    "sequence": event.sequence,
-                    "fingerprint": fingerprint,
-                    "decision_receipt": stored.decision_receipt,
-                    "executed": stored.executed,
-                },
-            )
-            return HypervisorExecutionResult(
-                stored.source,
-                stored.channel,
-                stored.sequence,
-                stored.logical_time,
-                stored.fingerprint,
-                stored.decision_receipt,
-                stored.action,
-                stored.domain,
-                stored.effect,
-                True,
-                stored.executed,
-            )
+        replay = self.replay_execution(event)
+        if replay is not None:
+            return replay
 
         decision_entry = self._decision_seen.get(identity)
         if decision_entry is None:
