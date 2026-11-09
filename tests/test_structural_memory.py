@@ -81,7 +81,7 @@ def test_read_receipt_binds_spec_certificate_context_and_value():
 
 
 def test_range_value_receipt_ids_match_existing_point_read_receipt_identity() -> None:
-    registry = _registry()
+    registry = _registry(lambda proposal: True)
     law = _integer_law()
     proposal = registry.propose(
         "range-receipt-identity",
