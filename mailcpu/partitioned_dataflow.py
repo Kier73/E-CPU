@@ -431,6 +431,7 @@ def _ordered_child_receipts(
     *,
     allow_partial: bool,
     current_partitions: Sequence[BinaryFrontierPartition] | None = None,
+    parent_request_digest: str | None = None,
 ) -> tuple[BinaryFrontierChildReceipt, ...]:
     """Mathematics: require one receipt per exact semantic child while permitting only claim-proven route epochs."""
     strict_current_routes = current_partitions is not None
@@ -473,7 +474,12 @@ def _ordered_child_receipts(
                 len(claim.assignments) < 2
                 or claim.child_request_digest != child.partition.request.digest
                 or claim.address_digest != child.partition.address.digest
-                or claim.parent_request_digest == ""
+                or not isinstance(claim.parent_request_digest, str)
+                or not claim.parent_request_digest
+                or (
+                    parent_request_digest is not None
+                    and claim.parent_request_digest != parent_request_digest
+                )
                 or original_assignment.owner_peer_id != original.route_witness.target_host.peer_id
                 or original_assignment.owner_host_id != original.route_witness.target_host.host_id
                 or assignment.owner_peer_id != route.target_host.peer_id
@@ -502,7 +508,12 @@ class BinaryFrontierCompositeReceipt:
         if not isinstance(self.plan, BinaryFrontierPartitionPlan):
             raise OperationNativeDataflowError("composite receipt requires a typed partition plan")
         _validate_parent_plan(self.request, self.plan)
-        ordered = _ordered_child_receipts(self.plan, tuple(self.children), allow_partial=False)
+        ordered = _ordered_child_receipts(
+            self.plan,
+            tuple(self.children),
+            allow_partial=False,
+            parent_request_digest=self.request.digest,
+        )
         claim_children = tuple(child for child in ordered if child.claim_bundle is not None)
         if claim_children and len(claim_children) != len(ordered):
             raise OperationNativeDataflowError("composite receipt cannot mix claimed and unclaimed child operations")
@@ -679,6 +690,7 @@ class BinaryFrontierExecutionCheckpoint:
             tuple(self.successful_children),
             allow_partial=True,
             current_partitions=tuple(current[item.request.digest] for item in self.plan.partitions),
+            parent_request_digest=self.request.digest,
         )
         if any(
             child.claim_bundle is not None
