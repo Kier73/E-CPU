@@ -20,7 +20,7 @@ from mailcpu import (
 H = lambda value: hashlib.sha256(value.encode()).hexdigest()
 GENESIS = "0" * 64
 PARENT, CHILD, ADDRESS = H("parent"), H("child"), H("address")
-CONTRACT, GROUND = dataflow_add_operator_spec().digest, H("ground")
+GROUND = H("ground")
 IMPL_B, IMPL_C = H("cpu-b"), H("egpu-c")
 RESULT, RECEIPT, FAILURE = H("result"), H("receipt"), H("failure")
 
@@ -244,8 +244,7 @@ def test_quorum_claim_state_survives_coordinator_restart(tmp_path: Path) -> None
         parent_request_digest=PARENT,
         child_request_digest=CHILD,
         address_digest=ADDRESS,
-        operator_id="mailcpu.add",
-        operator_contract_digest=CONTRACT,
+        operator_spec=dataflow_add_operator_spec(),
         computational_ground_fingerprint=GROUND,
         owner_peer_id="peer-c",
         owner_host_id="logical-egpu-c",
