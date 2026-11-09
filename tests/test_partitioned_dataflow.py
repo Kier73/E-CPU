@@ -139,17 +139,35 @@ def _route(peer_id: str, address: ComputationalAddress) -> ComputationalFabricRo
         max_bytes=1_000_000,
         max_virtual_ticks=100_000,
     )
+    if peer_id == "peer-d":
+        # Route the alternate Host through the same first hop used by the
+        # failed peer-c assignment. Rehome must therefore allocate a fresh
+        # transport sequence for the new claim epoch.
+        peer_path = ("peer-a", "peer-c", "peer-d")
+        endpoints = (
+            ComputationalPeerEndpoint("peer-a", "peer-a.fabric.test", "127.0.0.1", 44001),
+            ComputationalPeerEndpoint("peer-c", "peer-c.fabric.test", "127.0.0.1", 44002),
+            ComputationalPeerEndpoint("peer-d", "peer-d.fabric.test", "127.0.0.1", 44003),
+        )
+        link_ids = (
+            hashlib.sha256(b"link-peer-c-relay").hexdigest(),
+            hashlib.sha256(b"link-peer-d-terminal").hexdigest(),
+        )
+    else:
+        peer_path = ("peer-a", peer_id)
+        endpoints = (
+            ComputationalPeerEndpoint("peer-a", "peer-a.fabric.test", "127.0.0.1", 44001),
+            ComputationalPeerEndpoint(peer_id, f"{peer_id}.fabric.test", "127.0.0.1", 44002),
+        )
+        link_ids = (hashlib.sha256(f"link-{peer_id}".encode()).hexdigest(),)
     return ComputationalFabricRouteWitness(
         address_digest=address.digest,
         directory_digest=DIRECTORY,
         topology_digest=TOPOLOGY,
         origin_peer_id="peer-a",
-        peer_path=("peer-a", peer_id),
-        link_ids=(hashlib.sha256(f"link-{peer_id}".encode()).hexdigest(),),
-        peer_endpoints=(
-            ComputationalPeerEndpoint("peer-a", "peer-a.fabric.test", "127.0.0.1", 44001),
-            ComputationalPeerEndpoint(peer_id, f"{peer_id}.fabric.test", "127.0.0.1", 44002),
-        ),
+        peer_path=peer_path,
+        link_ids=link_ids,
+        peer_endpoints=endpoints,
         target_host=advertisement,
         network_costs=network,
         host_costs=host,
