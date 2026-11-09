@@ -806,7 +806,7 @@ class ComputationalFabricForwardingClient:
         last_ack_tick = time.monotonic()
         while request_sequence in self.request.channel.pending_sequences():
             try:
-                acknowledged = self.request.channel.process_ack()
+                self.request.channel.process_ack()
             except Exception as exc:
                 raise ComputationalFabricForwardingError(
                     f"could not confirm forwarding request acknowledgement: {exc}"
