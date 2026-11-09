@@ -120,5 +120,6 @@ The tracks still share one TransferableExecutionClaimStore and the existing fixe
 
 - B-59 binds each portable claim to its exact semantic child identity, typed deterministic-pure operator contract, full assignment history, quorum-anchored state-root envelope and Merkle membership proof. The owner-side snapshot is recomputed against the root at restore; the portable ticket is compact and carries no registry snapshot. A ticket is valid only at its exact shared-ledger high-water; any later claim-state transition requires a fresh ticket.
 - B-60 fences old assignment epochs at the live quorum high-water and admits completion only from the current assigned Host/implementation, with one terminal result/receipt commitment.
+- B-64 limits ticket refresh to the current authenticated peer/Host assignment; the execution Host verifies the fresh owner-issued ticket against its own live quorum coordinator before admission.
 
 See [INVARIANTS.md](INVARIANTS.md) for the executable registry.
