@@ -39,20 +39,21 @@ from .virtual_layer import VirtualStructuralMemoryRef
 
 _SCHEMA = "mailcpu.program-dataflow.v3"
 _COMPILER_ID = "mailcpu.register-dataflow"
-_COMPILER_VERSION = 3
+_COMPILER_VERSION = 4
 _MAX_INSTRUCTIONS = 256
 _MAX_CONTEXTUAL_ORBIT_INPUTS = 64
 _MAX_SOURCE_BYTES = 65_536
 _REGISTER = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}\Z")
-_SUPPORTED = frozenset({Op.SET, Op.COPY, Op.ADD, Op.COMPARE})
+_SUPPORTED = frozenset({Op.SET, Op.COPY, Op.ADD, Op.MUL, Op.COMPARE})
 _GROUND_DEFINITION = {
     "identity": "mailcpu.computational-ground.register-dataflow",
-    "version": 1,
+    "version": 2,
     "register_domain": "strict-integers",
     "instruction_semantics": {
         "SET": "R[d] := immediate",
         "COPY": "R[d] := R[s]",
         "ADD": "R[d] := R[l] + R[r]",
+        "MUL": "R[d] := R[l] * R[r]",
         "COMPARE": "R[d] := sign(R[l] - R[r])",
         "HALT": "stop at the declared terminal instruction",
     },
@@ -72,7 +73,7 @@ _COMPILER_DEFINITION = {
     "algorithm": "instruction-order register-definition graph",
     "node_bound": _MAX_INSTRUCTIONS,
     "edge_bound": NavigableComputationDAG.MAX_EDGES,
-    "supported_opcodes": ["SET", "COPY", "ADD", "COMPARE", "HALT"],
+    "supported_opcodes": ["SET", "COPY", "ADD", "MUL", "COMPARE", "HALT"],
     "unsupported_control_flow": ["BRANCH"],
     "unsupported_effects": ["SEND", "WAIT", "SYSCALL"],
     "initial_sources": ["inline-integer", "materialized-structural-memory-receipt", "symbolic-virtual-structural-memory-reference", "verified-contextual-orbit-predecessor"],
@@ -81,7 +82,7 @@ _COMPILER_DEFINITION = {
 _INVARIANT_DEFINITIONS = (
     {
         "id": "pure-opcode-subset",
-        "statement": "Only SET, COPY, ADD, COMPARE, and terminal HALT are admitted.",
+        "statement": "Only SET, COPY, ADD, MUL, COMPARE, and terminal HALT are admitted.",
     },
     {
         "id": "straight-line-control",
@@ -571,7 +572,7 @@ def _instruction_registers(instruction: Any) -> tuple[str, ...]:
         return (args[0],)
     if op is Op.COPY:
         return (args[0], args[1])
-    if op in {Op.ADD, Op.COMPARE}:
+    if op in {Op.ADD, Op.MUL, Op.COMPARE}:
         return (args[0], args[1], args[2])
     if op is Op.HALT:
         return ()
@@ -901,7 +902,7 @@ class MailCPUDataflowCompiler:
                 source_register = _register(args[1], f"COPY source at pc {pc}")
                 operand, _ = register_operand(source_register, pc)
                 operands = [operand]
-            elif op in {Op.ADD, Op.COMPARE}:
+            elif op in {Op.ADD, Op.MUL, Op.COMPARE}:
                 left, left_dependency = register_operand(_register(args[1], f"left operand at pc {pc}"), pc)
                 right, right_dependency = register_operand(_register(args[2], f"right operand at pc {pc}"), pc)
                 operands = [left, right]
@@ -1160,6 +1161,8 @@ def evaluate_dataflow(
                     value = operands[0]
                 elif opcode == Op.ADD.value:
                     value = operands[0] + operands[1]
+                elif opcode == Op.MUL.value:
+                    value = operands[0] * operands[1]
                 elif opcode == Op.COMPARE.value:
                     value = compare_values(operands[0], operands[1])
                 else:
