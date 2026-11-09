@@ -363,7 +363,7 @@ def test_compiler_rejects_ambiguous_structural_memory_register_sources() -> None
     )
     compiler = MailCPUDataflowCompiler()
     program = assemble("add answer input 1\nhalt")
-    with pytest.raises(ProgramDataflowError, match="both inline state and Structural Memory"):
+    with pytest.raises(ProgramDataflowError, match="more than one inline, Structural Memory receipt/reference, or contextual-orbit source"):
         compiler.compile_program(
             program,
             initial_registers={"input": 8},
@@ -431,7 +431,7 @@ def test_symbolic_structural_memory_is_compiled_as_a_pinned_initial_operand_with
         structural_memory_refs={"memory_value": reference},
     )
 
-    assert plan.to_dict()["schema"] == "mailcpu.program-dataflow.v2"
+    assert plan.to_dict()["schema"] == "mailcpu.program-dataflow.v3"
     assert plan.structural_memory_refs[0][0] == "memory_value"
     assert plan.structural_memory_refs[0][1].binding == "memory_value"
     assert plan.nodes[1].payload["operands"][0]["kind"] == "structural_memory"
