@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 from collections import OrderedDict
 from collections.abc import Mapping
+from time import perf_counter_ns
 from typing import Any
 
 from .providers import (
@@ -35,6 +36,10 @@ class StructuralMemoryPageBacking:
         self._local_pages: dict[str, bytes] = {}
         self._page_cache: OrderedDict[str, bytes] = OrderedDict()
         self._receipts: OrderedDict[str, StructuralMemoryFileReadReceipt] = OrderedDict()
+        self._regeneration_cost_ns: dict[str, int] = {}
+        self._cache_hits: dict[str, int] = {}
+        self._cache_touch_order: dict[str, int] = {}
+        self._cache_clock = 0
         if registry is not None:
             self.bind_registry(registry)
 
@@ -123,6 +128,9 @@ class StructuralMemoryPageBacking:
         if cached is not None:
             self._page_cache.move_to_end(digest)
             self._receipts.move_to_end(digest)
+            self._cache_hits[digest] = self._cache_hits.get(digest, 0) + 1
+            self._cache_clock += 1
+            self._cache_touch_order[digest] = self._cache_clock
             return cached
         provider = self._providers.get(digest)
         reference = self._references.get(digest)
@@ -130,7 +138,9 @@ class StructuralMemoryPageBacking:
             if self._registry is None and reference is not None:
                 raise RuntimeError("structural-memory page backing has not been rebound to a local registry")
             raise KeyError(f"page backing has no registered page: {digest}")
+        regeneration_started = perf_counter_ns()
         content, receipt = provider.read_with_receipt(0, reference.size)
+        regeneration_cost_ns = max(1, perf_counter_ns() - regeneration_started)
         if (
             not isinstance(content, bytes)
             or len(content) != reference.size
@@ -144,23 +154,52 @@ class StructuralMemoryPageBacking:
         # future hot access uses _page_cache, and an evicted page can regenerate
         # the same receipt identities from the pinned revision.
         provider._discard_value_cache()
-        self._cache_structural_page(digest, content, receipt)
+        self._cache_structural_page(
+            digest,
+            content,
+            receipt,
+            regeneration_cost_ns=regeneration_cost_ns,
+        )
         return content
+
+    def _retention_score(self, digest: str) -> int:
+        """Mathematics: estimate avoided regeneration cost per cache byte as C(h)·(1+hits(h))/|page(h)|."""
+        page_size = self.page_size_for(digest)
+        regeneration_cost = self._regeneration_cost_ns.get(digest, 1)
+        reuse_count = self._cache_hits.get(digest, 0)
+        return (regeneration_cost * (reuse_count + 1)) // max(1, page_size)
 
     def _cache_structural_page(
         self,
         digest: str,
         content: bytes,
         receipt: StructuralMemoryFileReadReceipt,
+        *,
+        regeneration_cost_ns: int,
     ) -> None:
-        """Mathematics: retain the most-recent min(4,|P|) verified structural pages and their receipts; evict the least-recent pair together."""
+        """Mathematics: retain the four pages with greatest measured regeneration-cost avoided per byte; evict the minimum score, then the oldest tie."""
         self._page_cache[digest] = content
         self._page_cache.move_to_end(digest)
         self._receipts[digest] = receipt
         self._receipts.move_to_end(digest)
+        self._regeneration_cost_ns[digest] = max(1, regeneration_cost_ns)
+        self._cache_hits.setdefault(digest, 0)
+        self._cache_clock += 1
+        self._cache_touch_order[digest] = self._cache_clock
         while len(self._page_cache) > self.MAX_CACHED_PAGES:
-            evicted_digest, _evicted_content = self._page_cache.popitem(last=False)
+            evicted_digest = min(
+                self._page_cache,
+                key=lambda item: (
+                    self._retention_score(item),
+                    self._cache_touch_order.get(item, 0),
+                    item,
+                ),
+            )
+            self._page_cache.pop(evicted_digest, None)
             self._receipts.pop(evicted_digest, None)
+            self._regeneration_cost_ns.pop(evicted_digest, None)
+            self._cache_hits.pop(evicted_digest, None)
+            self._cache_touch_order.pop(evicted_digest, None)
 
     @property
     def cached_page_count(self) -> int:
@@ -181,6 +220,21 @@ class StructuralMemoryPageBacking:
     def cached_provider_coordinate_count(self) -> int:
         """Mathematics: expose Σ_p |V_cache(p)| across bound providers after page faults."""
         return sum(provider.cached_coordinate_count for provider in self._providers.values())
+
+    @property
+    def cached_regeneration_cost_ns(self) -> int:
+        """Mathematics: expose Σ_h C(h) for the currently retained structural pages."""
+        return sum(self._regeneration_cost_ns.values())
+
+    @property
+    def cached_reuse_count(self) -> int:
+        """Mathematics: expose Σ_h hits(h) over the currently retained structural pages."""
+        return sum(self._cache_hits.values())
+
+    @property
+    def cache_retention_policy(self) -> str:
+        """Return the deterministic host-cache objective used to compare retained pages."""
+        return "measured_regeneration_cost_times_observed_reuse_per_byte"
 
     def put_page(self, data: bytes) -> str:
         """Mathematics: map private page bytes `b` to immutable identity `h=SHA256(b)`, preserving any structural owner of `h`."""
