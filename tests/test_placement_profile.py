@@ -32,7 +32,6 @@ def _key(
     implementation: str,
     *,
     peer_path: tuple[str, ...] = (),
-    route_witness_digest: str | None = None,
     origin_environment_digest: str = ORIGIN_ENVIRONMENT,
 ) -> PlacementProfileKey:
     return PlacementProfileKey(
@@ -45,7 +44,6 @@ def _key(
         target_host_id=host,
         implementation_fingerprint=implementation,
         peer_path=peer_path,
-        route_witness_digest=route_witness_digest,
     )
 
 
@@ -121,7 +119,6 @@ def test_profile_round_trip_preserves_timing_and_verification_evidence() -> None
         "remote-egpu",
         IMPLEMENTATION_B,
         peer_path=("peer-a", "peer-b"),
-        route_witness_digest=ROUTE,
     )
     receipt = _remote_receipt()
     profile = PlacementProfile(
@@ -142,7 +139,6 @@ def test_remote_observation_requires_exact_host_implementation_and_route_receipt
         "remote-egpu",
         IMPLEMENTATION_B,
         peer_path=("peer-a", "peer-b"),
-        route_witness_digest=ROUTE,
     )
 
     with pytest.raises(PlacementProfileError, match="typed binary frontier receipt"):
@@ -151,9 +147,18 @@ def test_remote_observation_requires_exact_host_implementation_and_route_receipt
     with pytest.raises(PlacementProfileError, match="does not match"):
         _observation(key, 250, receipt=_remote_receipt(host="other-host"))
 
-    observation = _observation(key, 250, receipt=_remote_receipt())
+    with pytest.raises(PlacementProfileError, match="does not match"):
+        _observation(key, 250, receipt=_remote_receipt(peer_path=("peer-a", "peer-c")))
+
+    # The route witness is request-specific; a new workload event may produce
+    # a new witness digest while remaining on the same profiled placement path.
+    observation = _observation(
+        key,
+        250,
+        receipt=_remote_receipt(route_witness_digest="8" * 64),
+    )
     assert observation.route_receipt is not None
-    assert observation.route_receipt.digest == _remote_receipt().digest
+    assert observation.route_receipt.route_witness_digest == "8" * 64
 
 
 def test_profile_rejects_duplicate_samples_and_mismatched_profile_keys() -> None:
@@ -174,7 +179,6 @@ def test_placement_ranking_uses_repeated_measurements_and_remains_advisory() -> 
         "remote-egpu",
         IMPLEMENTATION_B,
         peer_path=("peer-a", "peer-b"),
-        route_witness_digest=ROUTE,
     )
     faster = PlacementProfile(
         faster_key,
@@ -199,6 +203,11 @@ def test_placement_ranking_uses_repeated_measurements_and_remains_advisory() -> 
     assert ranking.ordered_profile_digests == (faster.digest, slower.digest)
     assert ranking.recommendation_authoritative is False
     assert ranking.to_dict()["recommendation_authoritative"] is False
+    assert type(ranking).from_dict(ranking.to_dict()) == ranking
+    tampered = ranking.to_dict()
+    tampered["recommendation_authoritative"] = True
+    with pytest.raises(PlacementProfileError, match="authority"):
+        type(ranking).from_dict(tampered)
 
 
 def test_placement_ranking_refuses_to_rank_until_all_candidates_meet_sample_floor() -> None:
@@ -207,7 +216,6 @@ def test_placement_ranking_refuses_to_rank_until_all_candidates_meet_sample_floo
         "remote-egpu",
         IMPLEMENTATION_B,
         peer_path=("peer-a", "peer-b"),
-        route_witness_digest=ROUTE,
     )
     faster = PlacementProfile(
         faster_key,
