@@ -312,7 +312,7 @@ def test_partitioned_dispatch_builds_composite_receipt_and_executes_independent_
     assert {child.receipt.peer_id for child in composite.children} == {"peer-b", "peer-c"}
     assert len({child.partition.address.digest for child in composite.children}) == 2
     assert base.max_active == 2
-    assert base.frontier_sequence_stride == 64
+    assert base.frontier_sequence_stride == 256
     assert checkpoints and checkpoints[0].successful_children == ()
     assert checkpoints[-1].complete
 
@@ -649,6 +649,13 @@ def test_claim_bound_frontier_automatically_rehomes_ambiguous_child_with_one_new
     assert child.receipt.peer_id == "peer-d"
     assert child.receipt.execution_claim["assignment_epoch"] == 2
     assert child.completion_bundle.claim.current_assignment.epoch == 2
+    attempt_sequences = {
+        sequence
+        for request_digest, _peer_id, sequence in base.sequences
+        if request_digest == child.partition.request.digest
+    }
+    assert len(attempt_sequences) == 2
+    assert max(attempt_sequences) - min(attempt_sequences) == 64
     assert child.completion_bundle.claim.status.value == "completed"
     assert child.completion_bundle.claim.child_receipt_digest == child.receipt.digest
 
@@ -726,3 +733,9 @@ def test_claim_bound_frontier_resumes_quorum_committed_rehome_from_persisted_int
     assert len({child.completion_bundle.manifest.digest for child in composite.children}) == 1
     rehomed = [child for child in composite.children if len(child.claim_bundle.claim.assignments) == 2]
     assert len(rehomed) == 1 and rehomed[0].receipt.peer_id == "peer-d"
+    attempts = {
+        sequence
+        for request_digest, _peer_id, sequence in base.sequences
+        if request_digest == rehomed[0].partition.request.digest
+    }
+    assert len(attempts) == 2 and max(attempts) - min(attempts) == 64
