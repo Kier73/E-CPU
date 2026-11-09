@@ -403,7 +403,9 @@ class ReliableChannel:
             raise ValueError("reliable delivered and failed sequences must be unique")
         channel._delivered = set(raw_delivered)
         channel._received_payload_digests = {}
-        raw_received_digests = payload.get("received_digests", {})
+        raw_received_digests = (
+            payload.get("received_digests", {}) if version >= 5 else {}
+        )
         if not isinstance(raw_received_digests, dict):
             raise ValueError("reliable received payload digests must be a mapping")
         for raw_sequence, raw_digest in raw_received_digests.items():
