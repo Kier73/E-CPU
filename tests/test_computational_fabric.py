@@ -2932,7 +2932,8 @@ def test_compiled_dataflow_frontiers_execute_on_distinct_fabric_hosts_with_egpu(
             except BaseException as exc:
                 if stop.is_set():
                     return
-                failures.append(exc)
+                server.last_error = f"{type(exc).__name__}: {exc}"
+                failures.append(RuntimeError(f"{server.local_peer_id}: {type(exc).__name__}: {exc}"))
                 stop.set()
                 return
 
