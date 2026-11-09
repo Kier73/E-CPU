@@ -77,10 +77,8 @@ from mailcpu.semantic_translation import (
 from mailcpu.socket_transport import SocketTransport
 from mailcpu.structural_memory import StructuralMemoryRegistry
 from mailcpu.temporal import SchedulerReading
-from mailcpu.virtual_layer import (
-    OperatorSpec,
-    VirtualStructuralMemoryRef,
-)
+from mailcpu.virtual_layer import VirtualStructuralMemoryRef
+
 
 _GROUND_FP = "a" * 64
 _METRICS = (
