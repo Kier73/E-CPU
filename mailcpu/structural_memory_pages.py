@@ -228,6 +228,19 @@ class StructuralMemoryPageBacking:
         """Mathematics: expose Σ_p |V_cache(p)| across bound providers after page faults."""
         return sum(provider.cached_coordinate_count for provider in self._providers.values())
 
+    def shared_resident_cache_bytes(
+        self,
+        resident_blobs: Mapping[str, bytes],
+    ) -> int:
+        """Mathematics: sum |b_h| where the VM resident blob and backing cache are the same immutable bytes object by identity."""
+        if not isinstance(resident_blobs, Mapping):
+            raise ValueError("resident_blobs must be a mapping from content digest to bytes")
+        return sum(
+            len(content)
+            for digest, content in self._page_cache.items()
+            if resident_blobs.get(digest) is content
+        )
+
     @property
     def cached_regeneration_cost_ns(self) -> int:
         """Mathematics: expose Σ_h C(h) for the currently retained structural pages."""
