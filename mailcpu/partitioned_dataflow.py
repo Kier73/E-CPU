@@ -606,7 +606,7 @@ class PartitionedComputationalFabricDataflowBinaryDispatcher:
             # dispatcher channel; child ordinals are stable across recovery.
             sequence = (
                 self.dispatcher.first_sequence
-                + request.frontier_index * _MAX_PARTITIONS
+                + request.frontier_index * self.dispatcher.frontier_sequence_stride
                 + partition_index
             )
             receipt = self.dispatcher(
