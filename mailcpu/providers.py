@@ -381,6 +381,13 @@ class StructuralMemoryFileProvider:
                             "receipt_ids": list(generated_ids),
                         }).encode("utf-8")
                     ).hexdigest()
+                    expected_values_digest = hashlib.sha256(
+                        _provider_canonical_json({
+                            "type": "integer-range",
+                            "coordinate_start": coordinate_start,
+                            "values": list(generated),
+                        }).encode("utf-8")
+                    ).hexdigest()
                     if (
                         range_receipt.memory_id != self.reference.memory_id
                         or range_receipt.revision != self.reference.revision
@@ -390,6 +397,7 @@ class StructuralMemoryFileProvider:
                         or range_receipt.length != segment_length
                         or range_receipt.context_digest != expected_context_digest
                         or range_receipt.value_receipt_digest != expected_ids_digest
+                        or range_receipt.value_range_digest != expected_values_digest
                         or len(generated) != segment_length
                         or len(generated_ids) != segment_length
                     ):
