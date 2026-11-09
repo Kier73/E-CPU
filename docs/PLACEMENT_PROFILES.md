@@ -61,6 +61,8 @@ For a complete comparison, candidates are ordered by:
 
 This is an empirical ordering for the declared sample window, not a universal cost law. It intentionally does not blend the fabric's advertised additive cost vectors with observed nanoseconds. Those have different meanings and units. A future policy may combine calibrated quantities only through a separately specified model.
 
+The ranking serializes its exact comparison identity, ordered profile digests, insufficient-evidence set, completeness and best-profile digest under its own canonical digest. Deserialization recomputes those fields and refuses altered ordering, winner or authority markers. This is content-integrity checking, not a digital signature.
+
 The ranking is advisory (recommendation_authoritative = false). It cannot dispatch an operation, reserve capacity, alter host advertisements, or bypass a receiver's fresh route resolution, provenance validation, local capability checks, or Hypervisor admission.
 
 ## Benchmark integration
