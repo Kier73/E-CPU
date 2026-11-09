@@ -191,7 +191,28 @@ def _make_case(
     structural_registry_state = snapshot.get("structural_memory", {})
     page_backing_descriptor_bytes = len(_canonical_bytes(page_backing_state))
     structural_registry_bytes = len(_canonical_bytes(structural_registry_state))
-    structural_receipt_count = len(structural_registry_state.get("read_cache", ()))
+    structural_range_events = [
+        record
+        for record in snapshot["vm"]["environment"]["kernel"]["journal"]
+        if record.get("kind") == "structural_memory.read_revision_range"
+    ]
+    structural_range_event_count = len(structural_range_events)
+    structural_coordinate_commitment_count = sum(
+        int(record["payload"]["receipt"]["length"])
+        for record in structural_range_events
+    )
+    if mode == "structural":
+        backing = operating_system.vm.page_backing
+        provider_coordinate_receipt_count = sum(
+            len(backing.read_receipt(digests[page_index]).value_receipt_ids)
+            for page_index in range(working_set_pages)
+        )
+        if provider_coordinate_receipt_count != structural_coordinate_commitment_count:
+            raise StructuralMemoryBenchmarkError(
+                "provider value receipts do not match the durable range commitments"
+            )
+    else:
+        provider_coordinate_receipt_count = 0
 
     restore_started = perf_counter_ns()
     restored = HeadlessOS.from_snapshot(
@@ -264,7 +285,12 @@ def _make_case(
         "checkpoint_bytes": checkpoint_bytes,
         "page_backing_descriptor_bytes": page_backing_descriptor_bytes,
         "structural_registry_bytes": structural_registry_bytes,
-        "structural_read_receipt_count": structural_receipt_count,
+        "structural_registry_point_cache_entry_count": len(
+            structural_registry_state.get("read_cache", ())
+        ),
+        "structural_range_read_event_count": structural_range_event_count,
+        "structural_coordinate_commitment_count": structural_coordinate_commitment_count,
+        "provider_coordinate_receipt_count": provider_coordinate_receipt_count,
         "post_restore_fault_page": restore_fault_page,
         "post_restore_fault_wall_ns": restore_fault_ns,
         "post_restore_fault_resident_delta": (
