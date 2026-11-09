@@ -779,7 +779,7 @@ def test_fabric_resolver_returns_bounded_ranked_placement_candidates_without_cha
         _snapshot("peer-c", hosts=(advertisement_c,)),
     )
     resolver = ComputationalFabricResolver()
-    address = _address()
+    address = address
 
     ranked = resolver.resolve_candidates(
         address,
@@ -805,7 +805,7 @@ def test_fabric_resolver_returns_bounded_ranked_placement_candidates_without_cha
     assert restored.to_dict()["authoritative"] is False
 
     bounded = resolver.resolve_candidates(
-        _address(),
+        address,
         directory,
         origin_peer_id="peer-a",
         max_candidates=1,
@@ -815,7 +815,7 @@ def test_fabric_resolver_returns_bounded_ranked_placement_candidates_without_cha
     assert bounded.truncated is True
 
     exhausted = resolver.resolve_candidates(
-        _address(),
+        address,
         directory,
         origin_peer_id="peer-a",
         max_expansions=1,
@@ -827,7 +827,7 @@ def test_fabric_resolver_returns_bounded_ranked_placement_candidates_without_cha
     assert ComputationalFabricPlacementSet.from_dict(exhausted.to_dict()) == exhausted
 
     legacy = resolver.resolve(
-        _address(),
+        address,
         directory,
         origin_peer_id="peer-a",
     )
