@@ -549,12 +549,31 @@ def main(arguments: list[str]) -> int:
                         fault_hook=stop_at_live_cut if live_cut is not None else None
                     )
                 except Exception as exc:
-                    # A downstream process may be absent during its restart
-                    # window. Preserve B's unacknowledged inbound operation and
-                    # its pending downstream frame; the supervisor can rebind
-                    # the transport and this loop will retry the same identity.
+                    # Preserve B's operation and downstream reliable ledgers.
+                    # When the current stream has reached a terminal state,
+                    # reconnect directly to C and rebind those same ledgers;
+                    # the next serve_once retries the original semantic identity.
                     server.last_error = f"{type(exc).__name__}: {exc}"
-                    time.sleep(0.01)
+                    downstream_client = server.next_hop_clients["peer-c"]
+                    if downstream_client.transport.closed:
+                        try:
+                            replacement_transport = _connect_c(
+                                config,
+                                client_context,
+                                directory,
+                            )
+                            server.rebind_next_hop_transport(
+                                "peer-c",
+                                replacement_transport,
+                            )
+                            server.last_error = None
+                        except Exception as reconnect_error:
+                            server.last_error = (
+                                f"{type(reconnect_error).__name__}: {reconnect_error}"
+                            )
+                            time.sleep(0.01)
+                    else:
+                        time.sleep(0.01)
                     continue
                 if result is not None:
                     completed.append({
