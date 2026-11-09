@@ -584,7 +584,7 @@ def test_predictive_selector_advises_page_access_trace_from_independent_held_out
     baseline_proposal = registry.propose(
         memory_id,
         baseline_law,
-        {coordinate: baseline_law.navigate(coordinate) for coordinate in range(8)},
+        {coordinate: baseline_law.navigate(coordinate) for coordinate in range(100, 108)},
         domain="page-access-trace",
         context=component_context,
     )
@@ -623,22 +623,26 @@ def test_predictive_selector_advises_page_access_trace_from_independent_held_out
         extensions={"experiment": "predictive-page-reuse-v1"},
     )
 
-    observed_access_trace = (0, 1, 0, 2, 0, 3, 0, 1, 0, 2, 0, 3)
+    # This six-request cycle represents a previously observed, admitted
+    # workload motif. The later twelve scheduler requests are independent
+    # held-out observations; they are not used to construct this candidate.
+    forecast_cycle = (0, 1, 0, 2, 0, 3)
+    observed_access_trace = forecast_cycle * 2
     observed_law = Law(
         "fgraph",
         {
-            "orbit": list(observed_access_trace),
+            "orbit": list(forecast_cycle),
             "mu": 0,
-            "lam": len(observed_access_trace),
+            "lam": len(forecast_cycle),
         },
-        len(observed_access_trace),
+        len(forecast_cycle),
         "GROUND",
     )
     alternative_memory_id = "page-access-description-forecast"
     observed_proposal = registry.propose(
         alternative_memory_id,
         observed_law,
-        {coordinate: observed_law.navigate(coordinate) for coordinate in range(8)},
+        {coordinate: observed_law.navigate(coordinate) for coordinate in range(100, 108)},
         domain="page-access-trace",
         context=component_context,
     )
