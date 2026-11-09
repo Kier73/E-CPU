@@ -60,7 +60,7 @@ _MAX_ADD_INTEGER_BITS = 4096
 
 
 def _bounded_add_integer(value: Any, label: str) -> int:
-    """Mathematics: enforce the shared CPU/E-GPU ADD domain of strict integers with at most 4096 bits."""
+    """Mathematics: enforce the shared CPU/E-GPU binary integer domain of strict integers with at most 4096 bits."""
     result = _strict_integer(value, label)
     if result.bit_length() > _MAX_ADD_INTEGER_BITS:
         raise OperationNativeDataflowError(f"{label} exceeds the common {_MAX_ADD_INTEGER_BITS}-bit ADD domain")
@@ -240,6 +240,20 @@ class DataflowCompareFrontierRequest(DataflowAddFrontierRequest):
         }
 
 
+class DataflowMultiplyFrontierRequest(DataflowAddFrontierRequest):
+    """A content-bound batch of independent MUL nodes from one exact DAG frontier."""
+
+    def to_dict(self) -> dict[str, Any]:
+        """Mathematics: serialize the exact typed multiplication frontier and its bound operands."""
+        return {
+            "schema": "mailcpu.dataflow.multiply-frontier-request.v1",
+            "plan_digest": self.plan_digest,
+            "context_digest": self.context_digest,
+            "frontier_index": self.frontier_index,
+            "lanes": [item.to_dict() for item in self.lanes],
+        }
+
+
 @dataclass(frozen=True)
 class DataflowAddFrontierReceipt:
     """Verified transport result retaining lane-to-node and route identities."""
@@ -331,11 +345,13 @@ class DataflowAddFrontierReceipt:
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "DataflowAddFrontierReceipt":
         """Mathematics: rehydrate a versioned binary operation receipt and revalidate every route/read field."""
-        expected_schema = (
-            "mailcpu.dataflow.compare-frontier-receipt.v1"
-            if cls.__name__ == "DataflowCompareFrontierReceipt"
-            else "mailcpu.dataflow.add-frontier-receipt.v3"
-        )
+        expected_schema = {
+            "DataflowAddFrontierReceipt": "mailcpu.dataflow.add-frontier-receipt.v3",
+            "DataflowCompareFrontierReceipt": "mailcpu.dataflow.compare-frontier-receipt.v1",
+            "DataflowMultiplyFrontierReceipt": "mailcpu.dataflow.multiply-frontier-receipt.v1",
+        }.get(cls.__name__)
+        if expected_schema is None:
+            raise OperationNativeDataflowError("unsupported typed binary frontier receipt class")
         expected = {
             "schema", "request_digest", "results", "host_id", "peer_id", "peer_path",
             "route_witness_digest", "forwarding_receipt_digest", "operator_effect_digest",
@@ -383,6 +399,16 @@ class DataflowCompareFrontierReceipt(DataflowAddFrontierReceipt):
         """Mathematics: serialize comparison execution evidence under its distinct operation schema."""
         payload = super().to_dict()
         payload["schema"] = "mailcpu.dataflow.compare-frontier-receipt.v1"
+        return payload
+
+
+class DataflowMultiplyFrontierReceipt(DataflowAddFrontierReceipt):
+    """Verified transport result for a MUL frontier, retaining lane and route identities."""
+
+    def to_dict(self) -> dict[str, Any]:
+        """Mathematics: serialize multiplication execution evidence under its distinct operation schema."""
+        payload = super().to_dict()
+        payload["schema"] = "mailcpu.dataflow.multiply-frontier-receipt.v1"
         return payload
 
 
@@ -609,11 +635,12 @@ def execute_dataflow_operation_native(
     operation_dispatchers: Mapping[str, Callable[[Any], Any]] | None = None,
     max_work_units: int | None = None,
 ) -> OperationNativeDataflowReport:
-    """Mathematics: evaluate a DAG while optionally dispatching typed ADD and COMPARE frontiers.
+    """Mathematics: evaluate a DAG while optionally dispatching typed ADD, COMPARE, and MUL frontiers.
 
-    SET, COPY, and HALT remain local. COMPARE remains local unless a COMPARE
-    dispatcher is supplied. Remote binary frontiers are packed into ordered
-    lanes and checked against independent scalar definitions before commit.
+    SET, COPY, and HALT remain local. COMPARE and MUL remain local unless
+    their operation-specific dispatchers are supplied. Remote binary frontiers
+    are packed into ordered lanes and checked against independent scalar
+    definitions before commit.
     """
     if not isinstance(plan, CompiledMailCPUDataflow):
         raise OperationNativeDataflowError("plan must be a CompiledMailCPUDataflow")
@@ -626,8 +653,8 @@ def execute_dataflow_operation_native(
         if not isinstance(operation_dispatchers, Mapping):
             raise OperationNativeDataflowError("operation_dispatchers must be a mapping")
         for operation, operation_dispatcher in operation_dispatchers.items():
-            if operation not in {"ADD", "COMPARE"} or not callable(operation_dispatcher):
-                raise OperationNativeDataflowError("operation_dispatchers keys must be ADD or COMPARE with callable dispatchers")
+            if operation not in {"ADD", "COMPARE", "MUL"} or not callable(operation_dispatcher):
+                raise OperationNativeDataflowError("operation_dispatchers keys must be ADD, COMPARE, or MUL with callable dispatchers")
             dispatchers[operation] = operation_dispatcher
     if not dispatchers:
         raise OperationNativeDataflowError("at least one operation-native dispatcher is required")
@@ -648,7 +675,7 @@ def execute_dataflow_operation_native(
             raise OperationNativeDataflowError("live DAG readiness differs from the compiled frontier")
 
         pending: dict[str, dict[str, Any]] = {}
-        operation_lanes: dict[str, list[DataflowAddLane]] = {"ADD": [], "COMPARE": []}
+        operation_lanes: dict[str, list[DataflowAddLane]] = {"ADD": [], "COMPARE": [], "MUL": []}
         for node_id in expected_frontier:
             node = node_by_id[node_id]
             payload = node.payload
@@ -690,7 +717,7 @@ def execute_dataflow_operation_native(
             operands = payload.get("operands")
             if not isinstance(operands, list):
                 raise OperationNativeDataflowError(f"node {node_id!r} has no typed operand list")
-            if opcode == Op.ADD.value or (opcode == Op.COMPARE.value and "COMPARE" in dispatchers):
+            if opcode == Op.ADD.value or (opcode in {Op.COMPARE.value, Op.MUL.value} and opcode in dispatchers):
                 operation = opcode
                 if len(operands) != 2:
                     raise OperationNativeDataflowError(f"{operation} node {node_id!r} must have two operands")
@@ -728,12 +755,16 @@ def execute_dataflow_operation_native(
             values = [_operand_value(graph, item, node_id) for item in operands]
             if any(isinstance(item, VirtualStructuralMemoryRef) for item in values):
                 raise OperationNativeDataflowError(
-                    f"symbolic Structural Memory operands are only admitted by remote ADD/COMPARE in this execution profile (node {node_id!r})"
+                    f"symbolic Structural Memory operands are only admitted by remote ADD/COMPARE/MUL in this execution profile (node {node_id!r})"
                 )
             if opcode in {Op.SET.value, Op.COPY.value}:
                 if len(values) != 1:
                     raise OperationNativeDataflowError(f"{opcode} node {node_id!r} must have one operand")
                 result_value = values[0]
+            elif opcode == Op.MUL.value:
+                if len(values) != 2:
+                    raise OperationNativeDataflowError("MUL node must have two operands")
+                result_value = values[0] * values[1]
             elif opcode == Op.COMPARE.value:
                 if len(values) != 2:
                     raise OperationNativeDataflowError("COMPARE node must have two operands")
@@ -748,25 +779,33 @@ def execute_dataflow_operation_native(
                 "value": _strict_integer(result_value, f"result for node {node_id}"),
             }
 
-        for operation in ("ADD", "COMPARE"):
+        for operation in ("ADD", "COMPARE", "MUL"):
             lanes = operation_lanes[operation]
             if not lanes:
                 continue
             operation_dispatcher = dispatchers.get(operation)
             if operation_dispatcher is None:
                 raise OperationNativeDataflowError(f"no operation-native dispatcher is configured for {operation}")
-            expected_operator_spec = (
-                dataflow_add_operator_spec()
-                if operation == "ADD"
-                else dataflow_compare_operator_spec()
-            )
+            expected_operator_spec = {
+                "ADD": dataflow_add_operator_spec,
+                "COMPARE": dataflow_compare_operator_spec,
+                "MUL": dataflow_multiply_operator_spec,
+            }[operation]()
             operator_spec = getattr(operation_dispatcher, "operator_spec", expected_operator_spec)
             if not isinstance(operator_spec, OperatorSpec) or operator_spec.digest != expected_operator_spec.digest:
                 raise OperationNativeDataflowError(
                     f"{operation} dispatcher does not advertise the canonical {expected_operator_spec.operator_id}@{expected_operator_spec.version} contract"
                 )
-            request_type = DataflowAddFrontierRequest if operation == "ADD" else DataflowCompareFrontierRequest
-            receipt_type = DataflowAddFrontierReceipt if operation == "ADD" else DataflowCompareFrontierReceipt
+            request_type = {
+                "ADD": DataflowAddFrontierRequest,
+                "COMPARE": DataflowCompareFrontierRequest,
+                "MUL": DataflowMultiplyFrontierRequest,
+            }[operation]
+            receipt_type = {
+                "ADD": DataflowAddFrontierReceipt,
+                "COMPARE": DataflowCompareFrontierReceipt,
+                "MUL": DataflowMultiplyFrontierReceipt,
+            }[operation]
             request = request_type(
                 plan_digest=plan.digest,
                 context_digest=plan.context_digest,
@@ -826,11 +865,16 @@ def execute_dataflow_operation_native(
                     right_value = received_memory_receipts[lane.right_reference.binding].value
                 left_integer = _bounded_add_integer(left_value, f"left operand for {lane.node_id}")
                 right_integer = _bounded_add_integer(right_value, f"right operand for {lane.node_id}")
-                expected_value = (
-                    _bounded_add_integer(left_integer + right_integer, f"ADD result for {lane.node_id}")
-                    if operation == "ADD"
-                    else compare_values(left_integer, right_integer)
-                )
+                if operation == "ADD":
+                    expected_value = _bounded_add_integer(
+                        left_integer + right_integer, f"ADD result for {lane.node_id}"
+                    )
+                elif operation == "MUL":
+                    expected_value = _bounded_add_integer(
+                        left_integer * right_integer, f"MUL result for {lane.node_id}"
+                    )
+                else:
+                    expected_value = compare_values(left_integer, right_integer)
                 if returned[lane.node_id] != expected_value:
                     raise OperationNativeDataflowError(
                         f"remote {operation} result for {lane.node_id!r} failed the independent scalar oracle"
@@ -899,6 +943,94 @@ def execute_dataflow_operation_native(
         resolved_initial_registers=tuple(sorted(resolved_initial_registers.items())),
     )
     return OperationNativeDataflowReport(report, tuple(receipts))
+
+
+def dataflow_multiply_operator_spec() -> OperatorSpec:
+    """Mathematics: define a strict integer product contract for CPU and E-GPU realizations."""
+    return OperatorSpec(
+        operator_id="mailcpu.dataflow.multiply_frontier",
+        version=1,
+        description="Apply integer multiplication to 1..64 aligned strict-integer lanes; operands and results are bounded to 4096 bits and contextual-orbit predecessors are verified at the receiver",
+        input_kind="object",
+        output_kind="object",
+        substrates=("cpu", "gpu"),
+        required_rights=frozenset({"compute"}),
+        base_energy=16,
+        energy_per_byte=2,
+        max_input_bytes=262_144,
+        max_output_bytes=262_144,
+        deterministic=True,
+        effect_mode="pure",
+    )
+
+
+def make_cpu_dataflow_multiply_handler() -> Callable[[Mapping[str, Any], VirtualLayerWorkload], dict[str, Any]]:
+    """Mathematics: construct the CPU realization of the common bounded integer-product Ground."""
+    def execute(value: Mapping[str, Any], _workload: VirtualLayerWorkload) -> dict[str, Any]:
+        """Mathematics: map aligned strict integer pairs through the product law."""
+        left, right, _max_steps = _materialize_frontier_operands(value)
+        outputs = [
+            _bounded_add_integer(a * b, f"CPU MUL result[{index}]")
+            for index, (a, b) in enumerate(zip(left, right))
+        ]
+        backend = {
+            "implementation": "mailcpu.cpu.strict-integer-vector-multiply.v1",
+            "values": outputs,
+        }
+        return {
+            "values": outputs,
+            "backend_method": "cpu.vector.multiply",
+            "backend_receipt_digest": canonical_value_digest(backend),
+        }
+    return execute
+
+
+def make_egpu_dataflow_multiply_handler(egpu_host: Any) -> Callable[[Mapping[str, Any], VirtualLayerWorkload], dict[str, Any]]:
+    """Mathematics: bind the common product Ground to the existing receiver-local E-GPU vector.multiply method."""
+    from .egpu import EGPUHost
+
+    if not isinstance(egpu_host, EGPUHost):
+        raise OperationNativeDataflowError("E-GPU MUL handler requires an EGPUHost instance")
+    if (
+        egpu_host.simt_host.max_lanes < _MAX_ADD_LANES
+        or egpu_host.simt_host.max_integer_bits < _MAX_ADD_INTEGER_BITS
+    ):
+        raise OperationNativeDataflowError(
+            "E-GPU host does not implement the full shared 64-lane/4096-bit MUL domain"
+        )
+
+    def execute(value: Mapping[str, Any], _workload: VirtualLayerWorkload) -> dict[str, Any]:
+        """Mathematics: compute lane-wise products through the existing bounded E-GPU SIMT method and verify them."""
+        left, right, max_steps = _materialize_frontier_operands(value)
+        result = egpu_host.execute_authorized_method(
+            "vector.multiply",
+            {
+                "method": "vector.multiply",
+                "left": left,
+                "right": right,
+                "max_steps": max_steps,
+            },
+        )
+        raw_values = result["result"]["outputs"]["result"]
+        if not isinstance(raw_values, list) or len(raw_values) != len(left):
+            raise OperationNativeDataflowError("E-GPU MUL returned a result vector outside the shared lane shape")
+        values = [
+            _bounded_add_integer(item, f"E-GPU MUL result[{index}]")
+            for index, item in enumerate(raw_values)
+        ]
+        expected = [
+            _bounded_add_integer(a * b, f"MUL reference result[{index}]")
+            for index, (a, b) in enumerate(zip(left, right))
+        ]
+        if values != expected:
+            raise OperationNativeDataflowError("E-GPU MUL failed its independent scalar reference check")
+        return {
+            "values": values,
+            "backend_method": "egpu.vector.multiply",
+            "backend_receipt_digest": result["receipt_digest"],
+            "backend_host_id": result["host_id"],
+        }
+    return execute
 
 
 def dataflow_compare_operator_spec() -> OperatorSpec:
@@ -1141,6 +1273,7 @@ class ComputationalFabricDataflowBinaryDispatcher:
         expected_operator = {
             "ADD": ("mailcpu.dataflow.add_frontier", 3),
             "COMPARE": ("mailcpu.dataflow.compare_frontier", 1),
+            "MUL": ("mailcpu.dataflow.multiply_frontier", 1),
         }.get(operation)
         if expected_operator is None or (operator_spec.operator_id, operator_spec.version) != expected_operator:
             raise OperationNativeDataflowError("dispatcher operator contract does not match its binary operation")
@@ -1177,11 +1310,15 @@ class ComputationalFabricDataflowBinaryDispatcher:
         self.metric_order = metrics
         self.max_steps = max_steps
 
-    def __call__(self, request: DataflowAddFrontierRequest | DataflowCompareFrontierRequest) -> DataflowAddFrontierReceipt:
+    def __call__(self, request: DataflowAddFrontierRequest | DataflowCompareFrontierRequest | DataflowMultiplyFrontierRequest) -> DataflowAddFrontierReceipt:
         from .computational_fabric import ComputationalFabricStatus
         from .virtual_layer import VirtualOperatorRef
 
-        expected_request_type = DataflowAddFrontierRequest if self.operation == "ADD" else DataflowCompareFrontierRequest
+        expected_request_type = {
+            "ADD": DataflowAddFrontierRequest,
+            "COMPARE": DataflowCompareFrontierRequest,
+            "MUL": DataflowMultiplyFrontierRequest,
+        }[self.operation]
         if type(request) is not expected_request_type:
             raise OperationNativeDataflowError(f"dispatcher requires a typed {self.operation} frontier request")
         if callable(self.eligible_nodes_by_frontier):
@@ -1341,7 +1478,11 @@ class ComputationalFabricDataflowBinaryDispatcher:
             _validate_memory_receipt_for_reference(structural_references[binding], memory_receipt)
             memory_receipts.append((binding, memory_receipt))
 
-        receipt_type = DataflowAddFrontierReceipt if self.operation == "ADD" else DataflowCompareFrontierReceipt
+        receipt_type = {
+            "ADD": DataflowAddFrontierReceipt,
+            "COMPARE": DataflowCompareFrontierReceipt,
+            "MUL": DataflowMultiplyFrontierReceipt,
+        }[self.operation]
         return receipt_type(
             request_digest=request.digest,
             results=results,
@@ -1373,24 +1514,37 @@ class ComputationalFabricDataflowCompareDispatcher(ComputationalFabricDataflowBi
         super().__init__(operation="COMPARE", **kwargs)
 
 
+class ComputationalFabricDataflowMultiplyDispatcher(ComputationalFabricDataflowBinaryDispatcher):
+    """Dispatch strict integer MUL frontiers through the shared binary-operation fabric adapter."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        """Mathematics: bind the multiply@1 contract to the shared binary dispatcher."""
+        super().__init__(operation="MUL", **kwargs)
+
 
 __all__ = [
     "ComputationalFabricDataflowAddDispatcher",
     "ComputationalFabricDataflowBinaryDispatcher",
     "ComputationalFabricDataflowCompareDispatcher",
+    "ComputationalFabricDataflowMultiplyDispatcher",
     "DataflowAddFrontierReceipt",
     "DataflowAddFrontierRequest",
     "DataflowAddLane",
     "DataflowBinaryLane",
     "DataflowCompareFrontierReceipt",
     "DataflowCompareFrontierRequest",
+    "DataflowMultiplyFrontierReceipt",
+    "DataflowMultiplyFrontierRequest",
     "OperationNativeDataflowError",
     "OperationNativeDataflowReport",
     "dataflow_add_operator_spec",
     "dataflow_compare_operator_spec",
+    "dataflow_multiply_operator_spec",
     "execute_dataflow_operation_native",
     "make_cpu_dataflow_add_handler",
     "make_cpu_dataflow_compare_handler",
+    "make_cpu_dataflow_multiply_handler",
     "make_egpu_dataflow_add_handler",
     "make_egpu_dataflow_compare_handler",
+    "make_egpu_dataflow_multiply_handler",
 ]
