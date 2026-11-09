@@ -792,7 +792,7 @@ class MailCPUDataflowCompiler:
         )
         ground_ref = RepresentationRef.from_payload(
             "mailcpu.computational-ground.register-dataflow",
-            1,
+            2,
             _GROUND_DEFINITION,
         )
         observation = ObservationContract.from_definition(
