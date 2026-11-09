@@ -1259,10 +1259,31 @@ class PartitionedComputationalFabricDataflowBinaryDispatcher:
             tuple(sorted(intents, key=lambda item: item.child_request_digest)),
         )
         if self.checkpoint_sink is not None:
-            self.checkpoint_sink(intent_state)
-        confirmed_state = self._apply_reassignment_intents(request, intent_state)
+            try:
+                self.checkpoint_sink(intent_state)
+            except Exception as exc:
+                raise PartitionedFrontierIncomplete(
+                    f"could not durably persist the child-rehome intent before quorum reassignment: {exc}",
+                    intent_state,
+                    (f"reassignment_intent_checkpoint: {type(exc).__name__}: {str(exc)[:512]}",),
+                ) from exc
+        try:
+            confirmed_state = self._apply_reassignment_intents(request, intent_state)
+        except Exception as exc:
+            raise PartitionedFrontierIncomplete(
+                f"child-rehome quorum transition is incomplete; the persisted intent is safe to replay: {exc}",
+                intent_state,
+                (f"reassignment_quorum: {type(exc).__name__}: {str(exc)[:512]}",),
+            ) from exc
         if self.checkpoint_sink is not None:
-            self.checkpoint_sink(confirmed_state)
+            try:
+                self.checkpoint_sink(confirmed_state)
+            except Exception as exc:
+                raise PartitionedFrontierIncomplete(
+                    f"quorum reassignment committed but route-confirmation checkpoint was not published: {exc}",
+                    intent_state,
+                    (f"reassignment_confirmed_checkpoint: {type(exc).__name__}: {str(exc)[:512]}",),
+                ) from exc
         return confirmed_state
 
 
