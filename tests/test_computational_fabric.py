@@ -2721,3 +2721,326 @@ def test_persistent_vgi_session_transfers_through_fabric_and_replays_once(tmp_pa
         listener_c.close()
         for thread in threads:
             thread.join(timeout=5.0)
+
+
+def test_compiled_dataflow_frontiers_execute_on_distinct_fabric_hosts_with_egpu(tmp_path) -> None:
+    """One compiled algorithm sends an independent ADD frontier to E-GPU at C, then a dependent ADD to CPU at B."""
+    from mailcpu import (
+        ComputationalFabricForwardingClient,
+        ComputationalFabricForwardingEnvelope,
+        ComputationalFabricForwardingServer,
+        EGPUHost,
+        MailCPUDataflowCompiler,
+        OperatorSpec,
+        RouteMetricKey,
+        VirtualLayerWorkload,
+        assemble,
+        compare_dataflow_with_reference,
+    )
+    from mailcpu.classifier import HypervisorPolicy
+    from mailcpu.computational_fabric_forwarding import (
+        COMPUTATIONAL_FABRIC_EXECUTE_RESOURCE,
+        COMPUTATIONAL_FABRIC_FORWARD_RESOURCE,
+    )
+    from mailcpu.program_dataflow_fabric import (
+        ComputationalFabricDataflowAddDispatcher,
+        dataflow_add_operator_spec,
+        execute_dataflow_operation_native,
+        make_cpu_dataflow_add_handler,
+        make_egpu_dataflow_add_handler,
+    )
+
+    certificates = _make_test_certificates(tmp_path)
+    listener_b = SocketTransport.listen("127.0.0.1", 0)
+    listener_c = SocketTransport.listen("127.0.0.1", 0)
+    port_b = listener_b.getsockname()[1]
+    port_c = listener_c.getsockname()[1]
+    endpoint_a = _endpoint("peer-a", port=44001)
+    endpoint_b = _endpoint("peer-b", port=port_b)
+    endpoint_c = _endpoint("peer-c", port=port_c)
+
+    # Admit one identical System Ground on both possible execution peers.
+    # The local operator registrations and Hypervisor processes remain peer-local.
+    seed_source = HeadlessOS()
+    system_identity = SystemIdentity("operation-native-dataflow-system", 1)
+    seed_envelope = SystemSeedEnvelope(
+        system_identity,
+        "operation-native-dataflow",
+        "operation-native-dataflow",
+        SystemSeed.from_system(seed_source),
+    )
+    peer_b_os = HeadlessOS()
+    peer_c_os = HeadlessOS()
+    assert peer_b_os.seed_admission.admit(seed_envelope).accepted
+    assert peer_c_os.seed_admission.admit(seed_envelope).accepted
+    system_ground = VirtualGroundRef.from_envelope(seed_envelope)
+
+    allow_policy = HypervisorPolicy(
+        review_confidence=0.0,
+        automatic_confidence=0.0,
+        destructive_confidence=0.0,
+        danger_review_probability=1.0,
+    )
+    peer_b_os.hypervisor.policy = allow_policy
+    peer_c_os.hypervisor.policy = allow_policy
+
+    peer_b_pid = peer_b_os.environment.kernel.spawn(
+        "operation-native-peer-b",
+        capabilities=(
+            Capability(COMPUTATIONAL_FABRIC_FORWARD_RESOURCE, frozenset({"forward"})),
+            Capability(COMPUTATIONAL_FABRIC_EXECUTE_RESOURCE, frozenset({"execute"})),
+            Capability("/virtual-layer/operators", frozenset({"compute"})),
+        ),
+        parent_pid=peer_b_os.environment.init_pid,
+    )
+    peer_c_pid = peer_c_os.environment.kernel.spawn(
+        "operation-native-peer-c",
+        capabilities=(
+            Capability(COMPUTATIONAL_FABRIC_EXECUTE_RESOURCE, frozenset({"execute"})),
+            Capability("/virtual-layer/operators", frozenset({"compute"})),
+        ),
+        parent_pid=peer_c_os.environment.init_pid,
+    )
+
+    operator_spec = dataflow_add_operator_spec()
+    assert isinstance(operator_spec, OperatorSpec)
+    cpu_calls: list[str] = []
+    egpu_calls: list[str] = []
+    cpu_registry = OperatorRegistry()
+
+    def cpu_add(value, workload):
+        cpu_calls.append(workload.workload_id)
+        return make_cpu_dataflow_add_handler()(value, workload)
+
+    cpu_registry.register(operator_spec, cpu_add)
+    cpu_runtime = VirtualLayerRuntime(cpu_registry, "node-b", frozenset({"cpu"}))
+    egpu = EGPUHost(host_id="egpu.peer-c")
+    egpu_registry = OperatorRegistry()
+
+    def egpu_add(value, workload):
+        egpu_calls.append(workload.workload_id)
+        return make_egpu_dataflow_add_handler(egpu)(value, workload)
+
+    egpu_registry.register(operator_spec, egpu_add)
+    egpu_runtime = VirtualLayerRuntime(egpu_registry, "node-c", frozenset({"gpu"}))
+
+    cpu_implementation = hashlib.sha256(b"mailcpu.cpu.vector-add.v1").hexdigest()
+    egpu_implementation = hashlib.sha256(b"mailcpu.egpu.vector-add.v1").hexdigest()
+    cpu_locus = ComputationalHostLocus.from_runtime(
+        host_id="logical-host-b-cpu",
+        runtime=cpu_runtime,
+        authority_pid=peer_b_pid,
+        operator_id=operator_spec.operator_id,
+        computational_ground_fingerprints=(GROUND_FP,),
+        supports_ground_program_compilation=True,
+        costs=_host_costs(2, energy=8, bytes_=64),
+        implementation_fingerprint=cpu_implementation,
+    )
+    egpu_locus = ComputationalHostLocus.from_runtime(
+        host_id="logical-host-c-egpu",
+        runtime=egpu_runtime,
+        authority_pid=peer_c_pid,
+        operator_id=operator_spec.operator_id,
+        computational_ground_fingerprints=(GROUND_FP,),
+        supports_ground_program_compilation=True,
+        costs=_host_costs(3, energy=7, bytes_=64),
+        implementation_fingerprint=egpu_implementation,
+    )
+    cpu_catalogue = ComputationalHostCatalogue((cpu_locus,))
+    egpu_catalogue = ComputationalHostCatalogue((egpu_locus,))
+    cpu_advertisement = ComputationalHostAdvertisement.from_locus(cpu_locus, "peer-b")
+    egpu_advertisement = ComputationalHostAdvertisement.from_locus(egpu_locus, "peer-c")
+
+    link_ab = _link("peer-a", "peer-b", 2)
+    link_bc = _link("peer-b", "peer-c", 3)
+    snapshot_a = ComputationalPeerSnapshot(endpoint_a, 1, 60, (), (link_ab,))
+    snapshot_b = ComputationalPeerSnapshot(endpoint_b, 1, 60, (cpu_advertisement,), (link_bc,))
+    snapshot_c = ComputationalPeerSnapshot(endpoint_c, 1, 60, (egpu_advertisement,), ())
+    directory_a = _directory(snapshot_a, snapshot_b, snapshot_c, local_peer_id="peer-a")
+    directory_b = _directory(snapshot_a, snapshot_b, snapshot_c, local_peer_id="peer-b")
+    directory_c = _directory(snapshot_b, snapshot_c, local_peer_id="peer-c")
+
+    origin_channel = "application.operation-native-dataflow"
+    stop_b = threading.Event()
+    stop_c = threading.Event()
+    failures: list[BaseException] = []
+    server_b_holder: dict[str, ComputationalFabricForwardingServer] = {}
+    server_c_holder: dict[str, ComputationalFabricForwardingServer] = {}
+    client_ab: ComputationalFabricForwardingClient | None = None
+    client_bc: ComputationalFabricForwardingClient | None = None
+    thread_accept_b: threading.Thread | None = None
+    thread_accept_c: threading.Thread | None = None
+    thread_b: threading.Thread | None = None
+    thread_c: threading.Thread | None = None
+
+    client_context_a = _client_context(certificates)
+    client_context_b = ssl.create_default_context(
+        ssl.Purpose.SERVER_AUTH,
+        cafile=str(certificates["ca"]),
+    )
+    client_context_b.minimum_version = ssl.TLSVersion.TLSv1_2
+    client_context_b.load_cert_chain(
+        str(certificates["server_cert"]),
+        str(certificates["server_key"]),
+    )
+
+    def accept_c() -> None:
+        try:
+            server_c_holder["server"] = ComputationalFabricForwardingServer.accept_mutual_tls(
+                listener_c,
+                "peer-c",
+                "peer-b",
+                _server_context_c(certificates),
+                directory_c,
+                peer_c_os,
+                peer_c_pid,
+                origin_peer_id="peer-a",
+                origin_channel=origin_channel,
+                catalogue=egpu_catalogue,
+                timeout=5.0,
+            )
+        except BaseException as exc:
+            failures.append(exc)
+
+    def accept_b() -> None:
+        try:
+            server_b_holder["server"] = ComputationalFabricForwardingServer.accept_mutual_tls(
+                listener_b,
+                "peer-b",
+                "peer-a",
+                _server_context(certificates),
+                directory_b,
+                peer_b_os,
+                peer_b_pid,
+                origin_peer_id="peer-a",
+                origin_channel=origin_channel,
+                catalogue=cpu_catalogue,
+                next_hop_clients={"peer-c": client_bc},
+                timeout=5.0,
+            )
+        except BaseException as exc:
+            failures.append(exc)
+
+    def serve(server: ComputationalFabricForwardingServer, stop: threading.Event) -> None:
+        while not stop.is_set():
+            try:
+                result = server.serve_once()
+                if result is None:
+                    time.sleep(0.001)
+            except BaseException as exc:
+                if stop.is_set():
+                    return
+                failures.append(exc)
+                stop.set()
+                return
+
+    try:
+        thread_accept_c = threading.Thread(target=accept_c, daemon=True)
+        thread_accept_c.start()
+        client_bc = ComputationalFabricForwardingClient.connect_mutual_tls(
+            "peer-b",
+            endpoint_c,
+            client_context_b,
+            origin_peer_id="peer-a",
+            origin_channel=origin_channel,
+            timeout=5.0,
+        )
+        thread_accept_c.join(timeout=5.0)
+        assert not thread_accept_c.is_alive()
+        assert "server" in server_c_holder
+
+        thread_accept_b = threading.Thread(target=accept_b, daemon=True)
+        thread_accept_b.start()
+        client_ab = ComputationalFabricForwardingClient.connect_mutual_tls(
+            "peer-a",
+            endpoint_b,
+            client_context_a,
+            origin_peer_id="peer-a",
+            origin_channel=origin_channel,
+            timeout=5.0,
+        )
+        thread_accept_b.join(timeout=5.0)
+        assert not thread_accept_b.is_alive()
+        assert "server" in server_b_holder
+
+        thread_c = threading.Thread(target=serve, args=(server_c_holder["server"], stop_c), daemon=True)
+        thread_b = threading.Thread(target=serve, args=(server_b_holder["server"], stop_b), daemon=True)
+        thread_c.start()
+        thread_b.start()
+
+        program = assemble(
+            "set a 3\n"
+            "set b 5\n"
+            "add x a b\n"
+            "set c 7\n"
+            "set d 11\n"
+            "add y c d\n"
+            "add z x y\n"
+            "halt"
+        )
+        plan = MailCPUDataflowCompiler().compile_program(program)
+        assert plan.frontiers == (
+            ("pc-000000", "pc-000001", "pc-000003", "pc-000004"),
+            ("pc-000002", "pc-000005"),
+            ("pc-000006",),
+            ("pc-000007",),
+        )
+
+        dispatcher = ComputationalFabricDataflowAddDispatcher(
+            origin_peer_id="peer-a",
+            directory=directory_a,
+            forwarding_clients={"peer-b": client_ab},
+            system=system_identity,
+            ground=system_ground,
+            operator_spec=operator_spec,
+            computational_ground_fingerprint=GROUND_FP,
+            budget=VirtualBudget(100_000, 100_000, 100_000),
+            eligible_nodes_by_frontier={
+                1: ("node-c",),
+                2: ("node-b",),
+            },
+            origin_channel=origin_channel,
+            first_sequence=70,
+            logical_time=400,
+            max_hops=2,
+            metric_order=METRICS,
+        )
+        execution = execute_dataflow_operation_native(plan, dispatcher)
+        comparison = compare_dataflow_with_reference(plan, execution.execution, program)
+
+        assert comparison.equivalent
+        assert execution.execution.observation["registers"] == {
+            "a": 3,
+            "b": 5,
+            "c": 7,
+            "d": 11,
+            "x": 8,
+            "y": 18,
+            "z": 26,
+        }
+        assert len(execution.frontier_receipts) == 2
+        egpu_receipt, cpu_receipt = execution.frontier_receipts
+        assert egpu_receipt.peer_id == "peer-c"
+        assert egpu_receipt.host_id == "logical-host-c-egpu"
+        assert egpu_receipt.peer_path == ("peer-a", "peer-b", "peer-c")
+        assert cpu_receipt.peer_id == "peer-b"
+        assert cpu_receipt.host_id == "logical-host-b-cpu"
+        assert cpu_receipt.peer_path == ("peer-a", "peer-b")
+        assert egpu_receipt.implementation_fingerprint == egpu_implementation
+        assert cpu_receipt.implementation_fingerprint == cpu_implementation
+        assert operator_spec.digest == cpu_locus.operator_spec.digest == egpu_locus.operator_spec.digest
+        assert len(cpu_calls) == 1 and len(egpu_calls) == 1
+        assert not failures, failures
+    finally:
+        stop_b.set()
+        stop_c.set()
+        for client in (client_ab, client_bc):
+            if client is not None:
+                client.close()
+        for server in (*server_b_holder.values(), *server_c_holder.values()):
+            server.close()
+        for thread in (thread_b, thread_c, thread_accept_b, thread_accept_c):
+            if thread is not None:
+                thread.join(timeout=5.0)
+        listener_b.close()
+        listener_c.close()
