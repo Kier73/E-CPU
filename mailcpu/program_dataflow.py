@@ -613,7 +613,7 @@ class MailCPUDataflowCompiler:
         overlap = set(supplied) & set(receipts)
         if overlap:
             raise ProgramDataflowError(
-                "registers cannot be supplied inline and by Structural Memory: "
+                "registers cannot be supplied by both inline state and Structural Memory: "
                 + ", ".join(sorted(overlap))
             )
 
@@ -994,13 +994,13 @@ def compare_dataflow_with_reference(
     }
     return compare_projected_observations(
         plan.translation,
-        expected_observation,
-        report.observation,
         case_payload={
             "plan_digest": plan.digest,
             "program": plan.program_ref.to_dict(),
             "initial_state": plan.initial_state_ref.to_dict(),
         },
+        source_observation=expected_observation,
+        target_observation=report.observation,
     )
 
 
