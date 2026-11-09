@@ -404,7 +404,7 @@ class StructuralMemoryFileProvider:
                         raise ValueError("structural-memory range receipt does not match the pinned byte-file reference")
                     for index, (value, receipt_id) in enumerate(zip(generated, generated_ids)):
                         if type(value) is not int or not 0 <= value <= 255:
-                            raise ValueError("structural-memory range produced a value outside the byte-file ABI")
+                            raise ValueError("structural-memory read receipt does not match the pinned byte-file reference")
                         relative = relative_start + index
                         coordinate = self.reference.coordinate_start + relative
                         values_by_relative[relative] = value
