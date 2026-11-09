@@ -245,12 +245,21 @@ def benchmark_case(
             _working_set_page(worker["index"], page_number)
             for page_number in range(working_set_pages)
         )
+        restore_objects_distinct = (
+            restored is not machine
+            and restored.vm is not machine.vm
+            and restored.vm.scheduler is not machine.vm.scheduler
+            and restored.environment.kernel is not machine.environment.kernel
+            and restored.environment.kernel.journal is not machine.environment.kernel.journal
+            and restored_memory is not machine.vm.memories[worker["pid"]]
+        )
         memory_restored = (
             restored_memory is not None
             and restored_memory.read(0, len(expected_memory)) == expected_memory
         )
         checkpoint_valid = (
-            restored_task is not None
+            restore_objects_distinct
+            and restored_task is not None
             and restored_task.state.halted
             and restored_task.state.steps == expected_steps
             and restored_task.backend.read_register("acc") == worker["expected_sum"]
@@ -264,12 +273,6 @@ def benchmark_case(
             {
                 "worker_index": worker["index"],
                 "pid": worker["pid"],
-                "headless_os_identity": id(machine),
-                "vm_identity": id(machine.vm),
-                "scheduler_identity": id(machine.vm.scheduler),
-                "kernel_identity": id(machine.environment.kernel),
-                "journal_identity": id(machine.environment.kernel.journal),
-                "guest_memory_identity": id(machine.vm.memories[worker["pid"]]),
                 "resident_pages": resident_pages,
                 "resident_guest_bytes": resident_pages * PAGE_SIZE,
                 "retired_instructions": worker["events"],
@@ -282,6 +285,7 @@ def benchmark_case(
                 "snapshot_wall_ns": snapshot_elapsed_ns,
                 "checkpoint_restore_ns": restore_ns,
                 "checkpoint_restored_correctly": bool(checkpoint_valid),
+                "checkpoint_restored_as_independent_instances": bool(restore_objects_distinct),
                 "checkpoint_memory_bytes_verified": len(expected_memory) if memory_restored else 0,
                 "worker_wall_ns": worker["elapsed_ns"],
                 "quantum_p50_ns": _percentile(worker["quantum_ns"], 0.50),
@@ -290,12 +294,14 @@ def benchmark_case(
         )
     snapshot_ns = total_snapshot_ns
 
-    distinct_os_ids = len({item["headless_os_identity"] for item in worker_reports})
-    distinct_vm_ids = len({item["vm_identity"] for item in worker_reports})
-    distinct_scheduler_ids = len({item["scheduler_identity"] for item in worker_reports})
-    distinct_kernel_ids = len({item["kernel_identity"] for item in worker_reports})
-    distinct_journal_ids = len({item["journal_identity"] for item in worker_reports})
-    distinct_memory_ids = len({item["guest_memory_identity"] for item in worker_reports})
+    distinct_os_ids = len({id(worker["os"]) for worker in workers})
+    distinct_vm_ids = len({id(worker["os"].vm) for worker in workers})
+    distinct_scheduler_ids = len({id(worker["os"].vm.scheduler) for worker in workers})
+    distinct_kernel_ids = len({id(worker["os"].environment.kernel) for worker in workers})
+    distinct_journal_ids = len({id(worker["os"].environment.kernel.journal) for worker in workers})
+    distinct_memory_ids = len({
+        id(worker["os"].vm.memories[worker["pid"]]) for worker in workers
+    })
     observed_sum = sum(item["partial_sum"] for item in worker_reports)
     total_work_units = admitted_count * work_units
     expected_total_sum = _expected_interval_sum(0, total_work_units)
