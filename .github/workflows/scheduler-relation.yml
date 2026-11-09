@@ -37,7 +37,7 @@ jobs:
         run: python scripts/verify_invariants.py
       - name: Compare resident and Structural Memory-backed VM pages
         run: |
-          python -m pytest -q tests/test_structural_memory_vm_benchmark.py
+          python -m pytest -q tests/test_structural_memory.py tests/test_structural_memory_provider.py tests/test_structural_memory_page_backing.py tests/test_structural_memory_vm_benchmark.py
           python scripts/benchmark_structural_memory_vm.py --pretty --output structural-memory-vm-comparison.json
 
       - name: Upload Structural Memory VM comparison report
