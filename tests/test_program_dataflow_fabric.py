@@ -5,6 +5,7 @@ from dataclasses import replace
 import pytest
 
 from mailcpu.assembler import assemble
+from mailcpu.computation_dag import NavigableComputationDAG
 from mailcpu.program_dataflow import MailCPUDataflowCompiler, compare_dataflow_with_reference
 from mailcpu import (
     ContextualOrbitAddress,
