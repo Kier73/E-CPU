@@ -50,6 +50,28 @@ jobs:
       - name: Test suite
         run: python -m pytest -q
 
+      - name: Focused VM fleet verification
+        if: always() && steps.install.conclusion == 'success'
+        run: python -m pytest -q tests/test_vm_fleet_capacity.py
+
+      - name: Measure independent VM fleet capacity
+        if: always() && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.14'
+        run: >-
+          python scripts/benchmark_vm_fleet.py
+          --vm-counts 1,2,4,8
+          --work-units 64
+          --working-set-pages 2
+          --pretty
+          --output vm-fleet-capacity.json
+
+      - name: Upload VM fleet capacity report
+        if: always() && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.14'
+        uses: actions/upload-artifact@v4
+        with:
+          name: vm-fleet-capacity-report
+          path: vm-fleet-capacity.json
+          if-no-files-found: warn
+
       - name: Measure persistent VGI fabric transfer
         if: success() && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.14'
         run: python -m pytest -q -s tests/test_computational_fabric.py::test_persistent_vgi_session_transfers_through_fabric_and_replays_once
