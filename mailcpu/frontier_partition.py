@@ -14,6 +14,7 @@ import re
 from typing import Any, Mapping, Sequence
 
 from .computational_fabric import ComputationalFabricRouteWitness
+from .computational_resolver import ComputationalAddress
 from .orbit_fabric import ContextualOrbitDataflowInput
 from .program_dataflow_fabric import (
     DataflowAddFrontierRequest,
@@ -170,11 +171,74 @@ class BinaryFrontierPartition:
         )
         if operation is None:
             raise FrontierPartitionError("partition request must be an exact typed ADD, COMPARE, or MUL request")
+        if not isinstance(self.address, ComputationalAddress):
+            raise FrontierPartitionError("partition requires the exact typed child ComputationalAddress")
         if not isinstance(self.route_witness, ComputationalFabricRouteWitness):
             raise FrontierPartitionError("partition requires a typed ComputationalFabricRouteWitness")
+        if self.address.digest != self.route_witness.address_digest:
+            raise FrontierPartitionError("partition route witness does not bind the exact child ComputationalAddress")
+        if self.address.operator_id != self.request_operator_id(operation):
+            raise FrontierPartitionError("child ComputationalAddress names a different operation")
+        if self.address.computational_ground_fingerprint not in self.address.workload.ground_fingerprints if hasattr(self.address.workload, "ground_fingerprints") else False:
+            raise FrontierPartitionError("child ComputationalAddress has inconsistent Ground identity")
+        goal = self.address.workload.to_dict()["intention"].get("goal")
+        expected_goal = {
+            "kind": self.address.operator_id,
+            "plan_digest": self.request.plan_digest,
+            "context_digest": self.request.context_digest,
+            "request_digest": self.request.digest,
+            "frontier_index": self.request.frontier_index,
+            "lanes": [item.to_dict() for item in self.request.lanes],
+        }
+        if goal != expected_goal:
+            raise FrontierPartitionError("child ComputationalAddress intention does not bind the exact child request")
+        expected_wire_lanes = []
+        expected_memory: dict[str, VirtualStructuralMemoryRef] = {}
+        for lane in self.request.lanes:
+            wire_lane: dict[str, Any] = {"node_id": lane.node_id}
+            for side in ("left", "right"):
+                reference = getattr(lane, f"{side}_reference")
+                value = getattr(lane, side)
+                if reference is not None:
+                    expected_memory[reference.binding] = reference
+                    wire_lane[side] = {"kind": "structural_memory", "binding": reference.binding}
+                else:
+                    orbit_inputs = getattr(lane, f"{side}_orbit_inputs")
+                    if orbit_inputs:
+                        wire_lane[side] = {
+                            "kind": "contextual_orbit",
+                            "value": value,
+                            "inputs": [item.to_dict() for item in orbit_inputs],
+                        }
+                    else:
+                        wire_lane[side] = {"kind": "inline", "value": value}
+            expected_wire_lanes.append(wire_lane)
+        workload = self.address.workload.to_dict()
+        if workload.get("input_value") != {"lanes": expected_wire_lanes, "max_steps": workload.get("input_value", {}).get("max_steps") if isinstance(workload.get("input_value"), Mapping) else None}:
+            raise FrontierPartitionError("child ComputationalAddress input does not preserve the exact child lane operands")
+        if not isinstance(workload.get("input_value"), Mapping) or (
+            type(workload["input_value"].get("max_steps")) is not int
+            or not 1 <= workload["input_value"]["max_steps"] <= 10_000
+        ):
+            raise FrontierPartitionError("child ComputationalAddress max_steps is malformed")
+        operator_refs = workload.get("operators")
+        if not isinstance(operator_refs, list) or len(operator_refs) != 1 or not isinstance(operator_refs[0], Mapping):
+            raise FrontierPartitionError("child ComputationalAddress must contain exactly one operator reference")
+        operator_reference = operator_refs[0]
+        if (
+            operator_reference.get("operator_id") != expected_spec.operator_id
+            or operator_reference.get("version") != expected_spec.version
+        ):
+            raise FrontierPartitionError("child ComputationalAddress operator reference differs from the exact operation")
+        raw_memory = operator_reference.get("structural_memory", [])
+        expected_memory_payload = [expected_memory[key].to_dict() for key in sorted(expected_memory)]
+        if raw_memory != expected_memory_payload:
+            raise FrontierPartitionError("child ComputationalAddress Structural Memory bindings differ from its exact lanes")
         if len(self.route_witness.peer_path) < 2:
             raise FrontierPartitionError("partition route must identify a remote execution path")
         expected_spec = _OPERATOR_SPECS[operation]()
+        if self.address.operator_contract_digest != expected_spec.digest:
+            raise FrontierPartitionError("child ComputationalAddress does not bind the exact operator contract")
         host = self.route_witness.target_host
         if host.operator_spec.digest != expected_spec.digest:
             raise FrontierPartitionError("partition route host does not advertise the exact operation contract")
@@ -182,6 +246,11 @@ class BinaryFrontierPartition:
             raise FrontierPartitionError("partition route host has no pinned implementation fingerprint")
         if not host.computational_ground_fingerprints:
             raise FrontierPartitionError("partition route host has no declared Computational Ground support")
+
+    @staticmethod
+    def request_operator_id(operation: str) -> str:
+        """Mathematics: map one exact operation family to its canonical semantic operator identity."""
+        return _OPERATOR_SPECS[operation]().operator_id
 
     @property
     def operation(self) -> str:
@@ -206,6 +275,7 @@ class BinaryFrontierPartition:
             "schema": "mailcpu.binary-frontier-partition.v1",
             "operation": self.operation,
             "request": self.request.to_dict(),
+            "address": self.address.to_dict(),
             "route_witness": self.route_witness.to_dict(),
         }
 
@@ -221,18 +291,20 @@ class BinaryFrontierPartition:
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "BinaryFrontierPartition":
         """Mathematics: restore a child partition only when its typed request, route and enclosing digest agree."""
-        expected = {"schema", "operation", "request", "route_witness", "digest"}
+        expected = {"schema", "operation", "request", "address", "route_witness", "digest"}
         if not isinstance(payload, Mapping) or set(payload) != expected:
             raise FrontierPartitionError("binary frontier partition fields are malformed")
         if (
             payload["schema"] != "mailcpu.binary-frontier-partition.v1"
             or not isinstance(payload["request"], Mapping)
+            or not isinstance(payload["address"], Mapping)
             or not isinstance(payload["route_witness"], Mapping)
         ):
             raise FrontierPartitionError("binary frontier partition schema or nested values are invalid")
         try:
             partition = cls(
                 request=_request_from_dict(payload["request"]),
+                address=ComputationalAddress.from_dict(payload["address"]),
                 route_witness=ComputationalFabricRouteWitness.from_dict(payload["route_witness"]),
             )
         except (KeyError, TypeError, ValueError) as exc:
@@ -313,8 +385,11 @@ class BinaryFrontierPartitionPlan:
                 or route.topology_digest != self.topology_digest
             ):
                 raise FrontierPartitionError("partition route differs from the plan's origin/directory/topology view")
-            if self.computational_ground_fingerprint not in route.target_host.computational_ground_fingerprints:
-                raise FrontierPartitionError("partition host does not advertise the plan's Computational Ground")
+            if (
+                partition.address.computational_ground_fingerprint != self.computational_ground_fingerprint
+                or self.computational_ground_fingerprint not in route.target_host.computational_ground_fingerprints
+            ):
+                raise FrontierPartitionError("partition address or host does not bind the plan's Computational Ground")
             if route.address_digest in address_digests:
                 raise FrontierPartitionError("each child partition requires its own exact computational-address digest")
             address_digests.add(route.address_digest)
