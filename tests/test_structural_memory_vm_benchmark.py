@@ -46,6 +46,13 @@ def test_structural_memory_vm_pair_holds_virtual_geometry_and_working_set_consta
     assert structural["host_backing_cached_page_bytes_after_cold_access"] == 2 * 256
     assert structural["host_backing_cached_receipt_coordinate_count_after_cold_access"] == 2 * 256
     assert structural["host_backing_cached_provider_coordinate_count_after_cold_access"] == 0
+    assert structural["cache_probe_page_content_valid"] is True
+    assert structural["host_backing_cached_reuse_count_after_probe"] >= 2
+    assert structural["host_backing_cached_page_count_after_probe"] == 2
+    assert structural["host_backing_cached_page_bytes_after_probe"] == 2 * 256
+    assert structural["host_backing_cached_provider_coordinate_count_after_probe"] == 0
+    assert structural["host_backing_cache_retention_policy"] == "measured_regeneration_cost_times_observed_reuse_per_byte"
+    assert materialized["host_backing_cached_reuse_count_after_probe"] == 0
     assert structural["structural_registry_bytes"] > materialized["structural_registry_bytes"]
     # Compact range commitments reduce journal growth, but the generator,
     # certificate, structural registry, and inert page descriptors still have
