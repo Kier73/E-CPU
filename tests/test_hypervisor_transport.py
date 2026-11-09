@@ -290,15 +290,19 @@ def test_stale_result_transport_duplicate_does_not_satisfy_new_semantic_retry() 
     # already-consumed frame while retaining the original transport sequence.
     assert sender.channel.pending_sequences() == (1,)
     assert sender.channel.retransmit(1) is True
-    assert receiver.receive() is None
+    duplicate, duplicate_sequence, duplicate_transport = receiver.receive_with_transport()
+    assert duplicate is not None and duplicate.replayed is True
+    assert duplicate_sequence == 1 and duplicate_transport is True
+    assert duplicate.effect == first.effect
     assert receiver.channel.next_receive_sequence == 2
     assert sender.channel.process_ack() == (1,)
 
     # A later invocation of the same semantic operation gets a new transport
-    # sequence; this legitimate cached replay must reach its caller.
+    # sequence; this legitimate cached replay remains visible to its caller.
     assert sender.send(result) == 2
-    replay = receiver.receive()
+    replay, replay_sequence, replay_transport = receiver.receive_with_transport()
     assert replay is not None and replay.replayed is True
+    assert replay_sequence == 2 and replay_transport is False
     assert replay.effect == first.effect
     assert receiver.channel.next_receive_sequence == 3
 
