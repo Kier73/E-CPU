@@ -24,7 +24,7 @@ def test_process_fleet_runs_one_independent_vm_per_supervised_child() -> None:
     assert all(item["checkpoint_restored_correctly"] for item in report["worker_receipts"])
     assert all(item["checkpoint_restored_as_independent_instances"] for item in report["worker_receipts"])
     assert all(item["checkpoint_memory_bytes_verified"] == 2 * 4096 for item in report["worker_receipts"])
-    assert report["profile_does_not_treat_same_user_processes_as_security_sandbox"] is True
+    assert report["profile"]["process_isolation_is_hardened_sandbox"] is False
 
 
 def test_process_fleet_enforces_guest_page_budget_before_starting_children() -> None:
