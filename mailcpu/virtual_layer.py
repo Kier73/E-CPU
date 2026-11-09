@@ -763,6 +763,7 @@ class VirtualLayerRuntime:
     max_energy: int = 10_000_000
     max_bytes: int = 4_194_304
     max_virtual_ticks: int = 100_000
+    timing_probe: Any | None = field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         if not isinstance(self.registry, OperatorRegistry):
@@ -776,6 +777,8 @@ class VirtualLayerRuntime:
         _positive_int(self.max_energy, "local max_energy")
         _positive_int(self.max_bytes, "local max_bytes")
         _positive_int(self.max_virtual_ticks, "local max_virtual_ticks")
+        if self.timing_probe is not None and not callable(getattr(self.timing_probe, "measure", None)):
+            raise VirtualLayerError("timing_probe must expose a measure context manager")
 
     def _resolve_operator(self, workload: VirtualLayerWorkload, operator_id: str, *, enforce_placement: bool = True, require_handler: bool = True) -> tuple[VirtualOperatorRef, OperatorSpec, OperatorHandler | None, Any, int, int, int]:
         """Mathematics: Validate the workload-to-operator binding and calculate deterministic virtual cost."""
@@ -1202,7 +1205,12 @@ class VirtualLayerRuntime:
             operator_id,
             computational_admission=computational_admission,
         )
-        authorized, invoke = self._prepare_event(operating_system, pid, event)
+        if self.timing_probe is None:
+            authorized, invoke = self._prepare_event(operating_system, pid, event)
+        else:
+            correlation_id = str(event.request.payload.get("workload_digest", event.sequence))
+            with self.timing_probe.measure("receiver_admission", correlation_id=correlation_id):
+                authorized, invoke = self._prepare_event(operating_system, pid, event)
         return operating_system.hypervisor_arbitration.execute(authorized, {HypervisorDomain.CPU: invoke})
 
     def receive_and_execute(self, operation_channel: HypervisorOperationChannel, operating_system: Any, pid: int) -> HypervisorExecutionResult | None:
@@ -1213,7 +1221,12 @@ class VirtualLayerRuntime:
 
         def authorize(event: HypervisorArbitrationEvent) -> HypervisorArbitrationEvent:
             """Mathematics: Validate the workload and rebuild receiver-local capability grants before policy evaluation."""
-            authorized, invoke = self._prepare_event(operating_system, pid, event)
+            if self.timing_probe is None:
+                authorized, invoke = self._prepare_event(operating_system, pid, event)
+            else:
+                correlation_id = str(event.request.payload.get("workload_digest", event.sequence))
+                with self.timing_probe.measure("receiver_admission", correlation_id=correlation_id):
+                    authorized, invoke = self._prepare_event(operating_system, pid, event)
             prepared["invoke"] = invoke
             return authorized
 
