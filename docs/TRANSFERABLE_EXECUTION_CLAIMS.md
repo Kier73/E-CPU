@@ -19,7 +19,7 @@ A coordinator cannot prove that an isolated host has stopped computing merely be
 The implemented guarantee is narrower and useful:
 
 1. Each claim embeds the complete typed `OperatorSpec` and is restricted to `pure-replay-safe/v1`. The claim constructor verifies that the spec's operator ID and digest match the claim and that E-CPU's existing `OperatorSpec.replay_safe` predicate holds (`deterministic=True` and `effect_mode="pure"`). A caller-supplied label or detached digest alone cannot make an effectful operator transferable.
-2. The current assignment is recorded in a full state snapshot and committed through the existing fixed-membership `RecoveryLineageCoordinator`.
+2. The current assignment is recorded in a full owner-side claim-state snapshot and committed through the existing fixed-membership `RecoveryLineageCoordinator`.
 3. A receiver or result coordinator must verify that the bundle's manifest is still the live quorum high-water and that its own peer, logical Host, implementation and workload identities match the current assignment.
 4. Reassignment increments the assignment epoch and commits the new owner through the same quorum state chain.
 5. Completion succeeds only when the expected epoch and producer exactly match the current assignment.
@@ -33,18 +33,19 @@ The protocol must not be used for external side effects, payments, device action
 
 `TransferableExecutionClaimStore` reuses `RecoveryLineageCoordinator` and its existing `SeedCommitMembership`, durable prepare votes, commit certificates and authority journals. It does not add a second consensus protocol.
 
-Each transition writes a canonical state snapshot containing the complete sorted set of current claims, plus a `RecoveryStateManifest`. The snapshot and manifest are fsynced into an immutable generation directory before the coordinator seals the manifest. The manifest binds the membership, machine/owner term, generation, predecessor root, snapshot state digest and capture-cut identity.
+Each transition writes the complete sorted claim set as the owner-side `claims.json` artifact, computes a domain-separated binary Merkle tree over the current claim IDs and claim digests, and creates a compact state-root envelope containing the generation, predecessor, claim count and Merkle root. The full claim artifact, root envelope and `RecoveryStateManifest` are fsynced into an immutable generation directory before the coordinator seals the manifest. The manifest's state digest commits to the canonical root envelope; when the owner store restores a generation, it recomputes the tree from the full claim artifact and requires the root/count to match before exposing any claim.
 
-The portable bundle carries:
+The portable bundle carries only:
 
 - the typed current claim;
-- the full state snapshot needed to recompute the manifest's state digest;
+- the compact state-root envelope;
+- the claim's sorted-tree index and logarithmic Merkle inclusion path;
 - the typed `RecoveryStateManifest`; and
 - the `RecoveryLineageProof` containing the matching proposal, fixed-membership prepare certificate and durable commit decisions.
 
-A receiving Host verifies the snapshot bytes and the quorum proof, then calls `verify_state` against the live coordinator. Target admission also requires the receiving Host's actual registered typed `OperatorSpec`, and compares the complete canonical operator contract—not just a caller-provided ID/digest—to the claim. A well-formed but older bundle is refused as stale. The proof is not a signature detached from the state: it anchors one exact state manifest, and the bundle includes the state bytes needed to verify that anchor.
+A receiving Host first verifies the Merkle inclusion path against the root envelope, then calls `verify_state` against the live coordinator to require that root manifest to remain the current quorum high-water. Target admission also requires the receiving Host's actual registered typed `OperatorSpec`, and compares the complete canonical operator contract—not just a caller-provided ID/digest—to the claim. A well-formed but older bundle is refused as stale. The proof is not a signature detached from the state: the quorum commits to the root envelope, and the Merkle path proves that the exact typed claim is a member of the committed set. The portable ticket is O(log n) in claim count; the full set remains local to the owner store.
 
-The first implementation bounds the ledger to 16,384 claims, 64 assignments per claim and a 16 MiB serialized state snapshot. Each transition writes the full sorted claim set, so transition cost is O(number of retained claims); this is an auditable baseline rather than the final high-volume design. Claim compaction and deterministic sharding by parent/frontier are follow-on optimization tracks and must preserve the same single-winner claim semantics.
+The first implementation bounds the ledger to 16,384 claims, 64 assignments per claim and a 16 MiB serialized owner-side state snapshot. Each transition writes the full sorted claim set and rebuilds the Merkle tree, so owner-side transition cost remains O(number of retained claims); the portable ticket itself contains only one claim and O(log n) sibling hashes. Claim compaction and deterministic sharding by parent/frontier are follow-on optimization tracks and must preserve the same single-winner claim semantics.
 
 The claim store serializes local writers with a cross-process lock. The existing fixed-membership quorum serializes distributed state generations and refuses conflicting values at an occupied generation. If a coordinator fails after writing the next immutable generation or after a minority prepare/commit, `resume_pending()` reloads and validates the exact persisted snapshot/manifest, then retries that same proposal. A different transition at the occupied slot is not silently substituted.
 
@@ -88,7 +89,7 @@ Track B can develop the transport/admission adapter while Track D defines the ch
 
 ## Invariants
 
-- B-59 binds each portable claim to its exact semantic child identity, pure replay policy, full assignment history, and a quorum-anchored complete state snapshot.
+- B-59 binds each portable claim to its exact semantic child identity, typed deterministic-pure operator contract, full assignment history, quorum-anchored state-root envelope and Merkle membership proof.
 - B-60 fences old assignment epochs at the live quorum high-water and admits completion only from the current assigned Host/implementation, with one terminal result/receipt commitment.
 
 See [INVARIANTS.md](INVARIANTS.md) for the executable registry.
