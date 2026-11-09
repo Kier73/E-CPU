@@ -3118,7 +3118,7 @@ def test_compiled_dataflow_frontiers_execute_on_distinct_fabric_hosts_with_egpu(
 
 
 def test_contextual_orbit_inverse_navigation_composes_compare_and_add_over_multihop_fabric(tmp_path) -> None:
-    """A→B→C routes inverse navigation, then COMPARE and ADD frontiers to one E-GPU receiver at C."""
+    """A→B→C routes inverse navigation, then COMPARE, MUL and ADD frontiers to one E-GPU receiver at C."""
     from mailcpu import (
         ComputationalFabricForwardingClient,
         ComputationalFabricForwardingServer,
