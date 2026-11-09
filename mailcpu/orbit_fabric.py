@@ -35,7 +35,7 @@ from .observer_orbit import (
 )
 from .seed import SystemIdentity
 from .semantic_translation import canonical_value_digest
-from .structural_memory import StructuralMemoryRegistry
+from .structural_memory import StructuralMemoryError, StructuralMemoryRegistry
 from .temporal import SchedulerReading
 from .virtual_layer import (
     OperatorSpec,
@@ -276,7 +276,7 @@ def make_contextual_orbit_locate_value_handler(
                 request.address.structural_memory.memory_id,
                 request.address.structural_memory.revision,
             )
-        except Exception as exc:
+        except StructuralMemoryError as exc:
             raise ContextualOrbitFabricError(f"receiver Structural Memory revision is unavailable: {exc}") from exc
         if (
             len(version.spec.parameters_json.encode("utf-8")) > max_spec_bytes
