@@ -21,6 +21,7 @@ from .classifier import (
 from .computational_execution import ComputationalExecutionAdmissionCoordinator
 from .computational_fabric import (
     ComputationalFabricDirectory,
+    ComputationalFabricPeerClient,
     ComputationalFabricRouteWitness,
     ComputationalPeerEndpoint,
     _certificate_has_dns,
@@ -1024,6 +1025,7 @@ class ComputationalFabricForwardingServer:
         policy: ReliabilityPolicy | None = None,
         timing_probe: Any | None = None,
         claim_coordinator: RecoveryLineageCoordinator | None = None,
+        claim_status_clients: Mapping[str, ComputationalFabricPeerClient] | None = None,
     ) -> None:
         """Mathematics: Bind one adjacent authenticated stream, receiver execution authority, local capability identity and catalogue."""
         local = _peer(local_peer_id, "local_peer_id")
@@ -1063,6 +1065,16 @@ class ComputationalFabricForwardingServer:
         self.channel_id = computational_fabric_forward_channel_id(origin_peer_id, origin_channel)
         self.catalogue = catalogue
         self.claim_coordinator = claim_coordinator
+        self.claim_status_clients = dict(claim_status_clients or {})
+        if any(
+            not isinstance(client, ComputationalFabricPeerClient)
+            or peer_id != client.remote_endpoint.peer_id
+            or client.local_peer_id != local
+            for peer_id, client in self.claim_status_clients.items()
+        ):
+            raise ComputationalFabricForwardingError(
+                "claim-status client map must bind each owner peer to a direct authenticated peer client"
+            )
         self.timing_probe = timing_probe
         if timing_probe is not None and not callable(getattr(timing_probe, "measure", None)):
             raise ComputationalFabricForwardingError("server timing_probe must expose a measure context manager")
@@ -1295,8 +1307,29 @@ class ComputationalFabricForwardingServer:
             goal = envelope.address.workload.intention.get("goal")
             if not isinstance(goal, Mapping) or not isinstance(goal.get("request_digest"), str):
                 raise ComputationalFabricForwardingError("claim-bound terminal address is missing its exact child request identity")
+            submitted_bundle = envelope.claim_bundle
+            admission_bundle = submitted_bundle
+            status_client = getattr(self, "claim_status_clients", {}).get(envelope.origin_peer_id)
+            status_refreshed = status_client is not None
+            if status_client is not None:
+                try:
+                    admission_bundle = status_client.get_execution_claim_status(
+                        submitted_bundle.claim.claim_id,
+                        expected_host_id=locus.host_id,
+                    )
+                except Exception as exc:
+                    raise ComputationalFabricForwardingError(
+                        f"authenticated execution claim status could not be refreshed: {exc}"
+                    ) from exc
+                if (
+                    admission_bundle.claim.claim_id != submitted_bundle.claim.claim_id
+                    or admission_bundle.claim.current_assignment != submitted_bundle.claim.current_assignment
+                ):
+                    raise ComputationalFabricForwardingError(
+                        "authenticated claim status changed the submitted assignment epoch or target"
+                    )
             try:
-                envelope.claim_bundle.verify_for_target(
+                admission_bundle.verify_for_target(
                     self.claim_coordinator,
                     parent_request_digest=envelope.parent_request_digest,
                     child_request_digest=goal["request_digest"],
@@ -1309,15 +1342,26 @@ class ComputationalFabricForwardingServer:
                 )
             except TransferableExecutionClaimError as exc:
                 raise ComputationalFabricForwardingError(f"terminal execution claim was not admitted: {exc}") from exc
-            claim = envelope.claim_bundle.claim
-            claim_attestation = {
-                "schema": "mailcpu.execution-claim-attestation.v1",
-                "claim_id": claim.claim_id,
-                "assignment_epoch": claim.current_assignment.epoch,
-                "ticket_digest": envelope.claim_bundle.digest,
-                "state_generation": envelope.claim_bundle.manifest.generation,
-                "state_manifest_digest": envelope.claim_bundle.manifest.digest,
-            }
+            claim = admission_bundle.claim
+            if status_refreshed:
+                claim_attestation = {
+                    "schema": "mailcpu.execution-claim-attestation.v2",
+                    "claim_id": claim.claim_id,
+                    "assignment_epoch": claim.current_assignment.epoch,
+                    "submitted_ticket_digest": submitted_bundle.digest,
+                    "admission_ticket_digest": admission_bundle.digest,
+                    "state_generation": admission_bundle.manifest.generation,
+                    "state_manifest_digest": admission_bundle.manifest.digest,
+                }
+            else:
+                claim_attestation = {
+                    "schema": "mailcpu.execution-claim-attestation.v1",
+                    "claim_id": claim.claim_id,
+                    "assignment_epoch": claim.current_assignment.epoch,
+                    "ticket_digest": submitted_bundle.digest,
+                    "state_generation": submitted_bundle.manifest.generation,
+                    "state_manifest_digest": submitted_bundle.manifest.digest,
+                }
         if self.timing_probe is None:
             resolution = ComputationalAddressResolver().resolve(
                 envelope.address,
