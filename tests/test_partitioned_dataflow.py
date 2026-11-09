@@ -309,7 +309,10 @@ def test_partitioned_dispatch_recovery_reuses_verified_children_and_replays_ambi
     identities = {(request_digest, peer_id, sequence) for request_digest, peer_id, sequence in base.sequences}
     assert len(identities) == 2
     assert len({sequence for _request, _peer, sequence in base.sequences}) == 2
-    assert base.sequences[0] == base.sequences[1] or base.sequences[0][0] != base.sequences[1][0]
+    replay_identity: dict[str, set[tuple[str, int]]] = {}
+    for request_digest, peer_id, sequence in base.sequences:
+        replay_identity.setdefault(request_digest, set()).add((peer_id, sequence))
+    assert all(len(values) == 1 for values in replay_identity.values())
 
 
 def test_partitioned_dispatch_refuses_parent_request_drift_during_recovery() -> None:
@@ -350,12 +353,12 @@ def test_operation_native_executor_commits_one_composite_receipt_for_the_origina
     from mailcpu.program_dataflow_fabric import execute_dataflow_operation_native
 
     program = assemble(
-        "set a 2\\n"
-        "set b 3\\n"
-        "set c 4\\n"
-        "set d 5\\n"
-        "add x a b\\n"
-        "add y c d\\n"
+        "set a 2\n"
+        "set b 3\n"
+        "set c 4\n"
+        "set d 5\n"
+        "add x a b\n"
+        "add y c d\n"
         "halt"
     )
     plan = MailCPUDataflowCompiler().compile_program(program)
