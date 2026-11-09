@@ -227,7 +227,7 @@ class DataflowAddFrontierReceipt:
         for node_id, value in results:
             if not isinstance(node_id, str) or _NODE_ID.fullmatch(node_id) is None:
                 raise OperationNativeDataflowError("frontier result node identity is invalid")
-            _strict_integer(value, "frontier result value")
+            _bounded_add_integer(value, "frontier result value")
         if results != tuple(sorted(results, key=lambda item: item[0])):
             raise OperationNativeDataflowError("frontier result lanes must be sorted by node identity")
         if len({item[0] for item in results}) != len(results):
@@ -414,6 +414,7 @@ def _materialize_frontier_operands(
 
     left_values: list[int] = []
     right_values: list[int] = []
+    used_memory_bindings: set[str] = set()
     for index, lane in enumerate(lanes):
         if not isinstance(lane, Mapping) or set(lane) != {"node_id", "left", "right"}:
             raise OperationNativeDataflowError(f"ADD frontier lane {index} has invalid fields")
@@ -429,6 +430,7 @@ def _materialize_frontier_operands(
                 binding = operand["binding"]
                 if not isinstance(binding, str) or not binding:
                     raise OperationNativeDataflowError(f"ADD frontier lane {index} {side} memory binding is invalid")
+                used_memory_bindings.add(binding)
                 entry = memory.get(binding)
                 if not isinstance(entry, Mapping) or set(entry) != {"value", "receipt"}:
                     raise OperationNativeDataflowError(f"receiver did not resolve Structural Memory binding {binding!r}")
@@ -442,6 +444,8 @@ def _materialize_frontier_operands(
             else:
                 raise OperationNativeDataflowError(f"ADD frontier lane {index} {side} operand descriptor is unsupported")
             (left_values if side == "left" else right_values).append(resolved)
+    if used_memory_bindings != set(memory):
+        raise OperationNativeDataflowError("resolved Structural Memory bindings differ from the lane operand descriptors")
     return left_values, right_values, max_steps
 
 
