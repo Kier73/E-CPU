@@ -262,6 +262,65 @@ def test_structural_memory_receipt_becomes_a_pinned_initial_register_input() -> 
     )
 
 
+
+def test_contextual_orbit_receipts_compile_as_typed_predecessor_nodes_without_trajectory_expansion() -> None:
+    """Mathematics: selected coordinate/value become DAG sources while the intervening orbit is never serialized."""
+    coordinate_input = _contextual_orbit_dataflow_input(field="coordinate")
+    value_input = _contextual_orbit_dataflow_input(field="value")
+    program = assemble("add answer orbit_coordinate orbit_value\\nhalt")
+    compiler = MailCPUDataflowCompiler()
+    plan = compiler.compile_program(
+        program,
+        contextual_orbit_inputs={
+            "orbit_coordinate": coordinate_input,
+            "orbit_value": value_input,
+        },
+    )
+
+    source_nodes = {
+        node.payload["register"]: node
+        for node in plan.nodes
+        if node.payload.get("kind") == "mailcpu.register-dataflow.contextual-orbit-input"
+    }
+    add_node = next(node for node in plan.nodes if node.payload.get("opcode") == "ADD")
+    assert set(source_nodes) == {"orbit_coordinate", "orbit_value"}
+    assert set(add_node.dependencies) == {item.node_id for item in source_nodes.values()}
+    assert coordinate_input.digest in str(plan.to_dict())
+    assert value_input.receipt.result.navigation.projection.read_receipt.receipt_id in str(plan.to_dict())
+    assert "trajectory" not in str(plan.to_dict()).lower()
+    with pytest.raises(ProgramDataflowError, match="typed predecessor nodes"):
+        _ = plan.initial_values
+
+    report = evaluate_dataflow(plan)
+    restored = NavigableComputationDAG.from_snapshot(report.dag_snapshot)
+    assert restored.is_complete
+    assert restored.result(source_nodes["orbit_coordinate"].node_id)["selected_coordinate"] == 37
+    assert restored.result(source_nodes["orbit_value"].node_id)["selected_value"] == value_input.selected_value
+    assert restored.result(source_nodes["orbit_value"].node_id)["receipt_digest"] == value_input.receipt.digest
+    assert report.resolved_initial_registers == (
+        ("orbit_coordinate", 37),
+        ("orbit_value", value_input.value),
+    )
+    assert report.observation["registers"]["answer"] == coordinate_input.value + value_input.value
+    assert compare_dataflow_with_reference(plan, report, program).equivalent is True
+    assert verify_dataflow_compilation(compiler, program, plan)
+
+
+def test_contextual_orbit_dataflow_input_refuses_request_or_receipt_identity_drift() -> None:
+    """Mathematics: a typed predecessor cannot detach a routed result from its exact query."""
+    from mailcpu import ContextualOrbitFabricError
+
+    predecessor = _contextual_orbit_dataflow_input(field="value")
+    changed_request = replace(predecessor.request, target_value=predecessor.request.target_value + 1)
+    with pytest.raises(ContextualOrbitFabricError, match="different orbit request"):
+        replace(predecessor, request=changed_request)
+
+    payload = predecessor.to_dict()
+    payload["receipt"]["operator_effect_digest"] = "f" * 64
+    with pytest.raises(ContextualOrbitFabricError, match="operator effect"):
+        ContextualOrbitDataflowInput.from_dict(payload)
+
+
 def test_compiler_refuses_control_flow_effects_and_nonterminal_halt() -> None:
     compiler = MailCPUDataflowCompiler()
     unsupported = (
