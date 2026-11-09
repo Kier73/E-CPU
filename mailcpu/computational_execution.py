@@ -164,14 +164,19 @@ class ComputationalExecutionAdmissionCoordinator:
         self,
         operating_system: HeadlessOS,
         resolver: ComputationalAddressResolver | None = None,
+        *,
+        timing_probe: Any | None = None,
     ) -> None:
-        """Mathematics: Bind the coordinator to one receiver-local OS and semantic resolver."""
+        """Mathematics: Bind the coordinator to one receiver-local OS, semantic resolver, and optional timing observer."""
         if not isinstance(operating_system, HeadlessOS):
             raise ComputationalExecutionAdmissionError("execution admission requires a HeadlessOS")
         if resolver is not None and not isinstance(resolver, ComputationalAddressResolver):
             raise ComputationalExecutionAdmissionError("resolver must be a ComputationalAddressResolver")
+        if timing_probe is not None and not callable(getattr(timing_probe, "measure", None)):
+            raise ComputationalExecutionAdmissionError("timing_probe must expose a measure context manager")
         self.operating_system = operating_system
         self.resolver = resolver or ComputationalAddressResolver()
+        self.timing_probe = timing_probe
 
     def _journal(self):
         """Mathematics: Resolve the kernel journal used by the existing Hypervisor audit trail."""
@@ -325,7 +330,11 @@ class ComputationalExecutionAdmissionCoordinator:
             raise ComputationalExecutionAdmissionError("sequence must be a positive strict integer")
 
         try:
-            resolution = self.resolver.resolve(address, catalogue, self.operating_system)
+            if self.timing_probe is None:
+                resolution = self.resolver.resolve(address, catalogue, self.operating_system)
+            else:
+                with self.timing_probe.measure("receiver_witness_revalidation", correlation_id=address.digest):
+                    resolution = self.resolver.resolve(address, catalogue, self.operating_system)
         except Exception as exc:
             return self._refuse(
                 address, witness, source=source, channel=channel, sequence=sequence,
@@ -344,12 +353,23 @@ class ComputationalExecutionAdmissionCoordinator:
                 reason="fresh receiver-local resolution did not reproduce the exact supplied route witness",
             )
 
-        matches = tuple(
-            item for item in catalogue.loci
-            if item.host_id == witness.host_id
-            and item.operator_spec.operator_id == address.operator_id
-            and item.operator_spec.version == witness.operator_version
-        )
+        if self.timing_probe is None:
+            matches = tuple(
+                item for item in catalogue.loci
+                if item.host_id == witness.host_id
+                and item.operator_spec.operator_id == address.operator_id
+                and item.operator_spec.version == witness.operator_version
+            )
+            runtime_matches, runtime_reason = self._runtime_matches(address, witness, matches[0], runtime) if len(matches) == 1 else (False, "selected host locus is absent or ambiguous")
+        else:
+            with self.timing_probe.measure("receiver_host_binding_validation", correlation_id=address.digest):
+                matches = tuple(
+                    item for item in catalogue.loci
+                    if item.host_id == witness.host_id
+                    and item.operator_spec.operator_id == address.operator_id
+                    and item.operator_spec.version == witness.operator_version
+                )
+                runtime_matches, runtime_reason = self._runtime_matches(address, witness, matches[0], runtime) if len(matches) == 1 else (False, "selected host locus is absent or ambiguous")
         if len(matches) != 1:
             return self._refuse(
                 address, witness, source=source, channel=channel, sequence=sequence,
@@ -357,7 +377,6 @@ class ComputationalExecutionAdmissionCoordinator:
                 reason="selected logical host locus is absent or ambiguous in the live catalogue",
             )
         locus = matches[0]
-        runtime_matches, runtime_reason = self._runtime_matches(address, witness, locus, runtime)
         if not runtime_matches:
             return self._refuse(
                 address, witness, source=source, channel=channel, sequence=sequence,
