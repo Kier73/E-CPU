@@ -131,6 +131,7 @@ def test_dataflow_compiler_preserves_program_identity_and_reference_terminal_obs
         b"add mirror right left",
         b"add answer sum offset",
         b"compare relation answer sum",
+        b"mul product sum offset",
         b"halt",
     ))
     compiler = MailCPUDataflowCompiler()
@@ -153,8 +154,8 @@ def test_dataflow_compiler_preserves_program_identity_and_reference_terminal_obs
     assert comparison.equivalent is True
     assert report.observation == {
         "status": "halted",
-        "pc": 7,
-        "steps": 8,
+        "pc": 8,
+        "steps": 9,
         "halted": True,
         "blocked": False,
         "registers": {
@@ -162,6 +163,7 @@ def test_dataflow_compiler_preserves_program_identity_and_reference_terminal_obs
             "left": 5,
             "mirror": 16,
             "offset": 9,
+            "product": 144,
             "relation": 1,
             "right": 11,
             "seed": 17,
