@@ -634,7 +634,7 @@ def test_claim_bound_frontier_automatically_rehomes_ambiguous_child_with_one_new
     request = _request()
     store = _claim_store(tmp_path)
     base = _FakeAuthenticatedBinaryDispatcher(
-        ambiguous_node="pc-000003",
+        ambiguous_node="pc-000001",
         execution_claim_store=store,
     )
     checkpoints = []
