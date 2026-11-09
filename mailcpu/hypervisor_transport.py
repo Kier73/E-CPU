@@ -183,6 +183,19 @@ class HypervisorOperationChannel:
         if peeked is None:
             return None
         transport_sequence, payload = peeked
+        if transport_sequence < self.channel.next_receive_sequence:
+            # This transport sequence was already consumed and acknowledged.
+            # A sender may retransmit it after losing the ACK, including across
+            # a checkpoint/rebind boundary. Consume and ACK that old frame
+            # without authorizing, executing, or republishing its semantic
+            # operation. A new transport sequence carrying the same semantic
+            # identity still follows the normal Hypervisor replay path.
+            duplicate = self.channel.receive()
+            if duplicate is not None:
+                raise HypervisorOperationTransportError(
+                    "old reliable duplicate unexpectedly advanced the receive cursor"
+                )
+            return None
         event = self._decode_payload(payload)
         try:
             authorized = authorize(event)
