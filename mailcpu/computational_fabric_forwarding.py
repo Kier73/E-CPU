@@ -749,6 +749,17 @@ class ComputationalFabricForwardingClient:
                 # consume/ACK it and keep waiting for this operation's result.
                 continue
             if result is not None:
+                # The peer publishes the request ACK and the operation result
+                # on the same reliable stream. The ACK can arrive after the
+                # loop's pre-receive poll, so drain it at the result boundary
+                # before a later semantic retry decides whether to retransmit
+                # the still-pending frame or allocate a fresh transport sequence.
+                try:
+                    self.request.channel.process_ack()
+                except Exception as exc:
+                    raise ComputationalFabricForwardingError(
+                        f"cannot reconcile forwarding request acknowledgement: {exc}"
+                    ) from exc
                 break
             now = time.monotonic()
             if now - last_tick >= 0.03:
