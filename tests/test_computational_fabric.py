@@ -2725,6 +2725,8 @@ def test_persistent_vgi_session_transfers_through_fabric_and_replays_once(tmp_pa
 
 def test_compiled_dataflow_frontiers_execute_on_distinct_fabric_hosts_with_egpu(tmp_path) -> None:
     """One compiled algorithm sends an independent ADD frontier to E-GPU at C, then a dependent ADD to CPU at B."""
+    import hashlib
+
     from mailcpu import (
         ComputationalFabricForwardingClient,
         ComputationalFabricForwardingEnvelope,
