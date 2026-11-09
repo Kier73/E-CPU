@@ -673,18 +673,10 @@ class PartitionedComputationalFabricDataflowBinaryDispatcher:
                 claim.parent_request_digest != request.digest
                 or claim.child_request_digest != child.partition.request.digest
                 or claim.address_digest != child.partition.address.digest
-                or claim.status not in {ExecutionClaimStatus.ASSIGNED, ExecutionClaimStatus.COMPLETED}
-                or (
-                    claim.status is ExecutionClaimStatus.COMPLETED
-                    and child.completion_bundle is None
-                )
-                or (
-                    claim.status is ExecutionClaimStatus.ASSIGNED
-                    and child.completion_bundle is not None
-                )
+                or claim.status is not ExecutionClaimStatus.ASSIGNED
             ):
                 raise OperationNativeDataflowError(
-                    "child assignment ticket does not bind the exact current parent frontier child lifecycle"
+                    "child assignment ticket does not bind the exact still-assigned parent frontier child"
                 )
             result_digest = canonical_value_digest({
                 "schema": "mailcpu.binary-frontier-child-result.v1",
