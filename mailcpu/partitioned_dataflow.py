@@ -405,7 +405,8 @@ class PartitionedComputationalFabricDataflowBinaryDispatcher:
             return tuple(tuple(group) for group in selected)
         if isinstance(configured, Mapping):
             selected = configured.get(request.frontier_index)
-            return None if selected is None else tuple(tuple(group) for group in selected)
+            if selected is not None:
+                return tuple(tuple(group) for group in selected)
         lane_ids = tuple(lane.node_id for lane in request.lanes)
         count = min(self.partition_count, len(lane_ids))
         if count < 2:
