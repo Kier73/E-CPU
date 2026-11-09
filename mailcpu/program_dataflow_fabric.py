@@ -755,6 +755,16 @@ def execute_dataflow_operation_native(
             operation_dispatcher = dispatchers.get(operation)
             if operation_dispatcher is None:
                 raise OperationNativeDataflowError(f"no operation-native dispatcher is configured for {operation}")
+            expected_operator_spec = (
+                dataflow_add_operator_spec()
+                if operation == "ADD"
+                else dataflow_compare_operator_spec()
+            )
+            operator_spec = getattr(operation_dispatcher, "operator_spec", expected_operator_spec)
+            if not isinstance(operator_spec, OperatorSpec) or operator_spec.digest != expected_operator_spec.digest:
+                raise OperationNativeDataflowError(
+                    f"{operation} dispatcher does not advertise the canonical {expected_operator_spec.operator_id}@{expected_operator_spec.version} contract"
+                )
             request_type = DataflowAddFrontierRequest if operation == "ADD" else DataflowCompareFrontierRequest
             receipt_type = DataflowAddFrontierReceipt if operation == "ADD" else DataflowCompareFrontierReceipt
             request = request_type(
@@ -825,24 +835,13 @@ def execute_dataflow_operation_native(
                     raise OperationNativeDataflowError(
                         f"remote {operation} result for {lane.node_id!r} failed the independent scalar oracle"
                     )
-                operator_spec = getattr(operation_dispatcher, "operator_spec", None)
                 pending[lane.node_id] = {
                     "register": lane.destination,
                     "value": expected_value,
                     "operation": operation,
-                    "operator_id": (
-                        operator_spec.operator_id
-                        if isinstance(operator_spec, OperatorSpec)
-                        else f"mailcpu.dataflow.{operation.lower()}_frontier"
-                    ),
-                    "operator_version": (
-                        operator_spec.version
-                        if isinstance(operator_spec, OperatorSpec)
-                        else (3 if operation == "ADD" else 1)
-                    ),
-                    "operator_contract_digest": (
-                        operator_spec.digest if isinstance(operator_spec, OperatorSpec) else None
-                    ),
+                    "operator_id": operator_spec.operator_id,
+                    "operator_version": operator_spec.version,
+                    "operator_contract_digest": operator_spec.digest,
                     "frontier_request_digest": request.digest,
                     "operation_receipt": receipt.to_dict(),
                     "operation_receipt_digest": receipt.digest,
