@@ -92,15 +92,19 @@ def _expected_interval_sum(start: int, count: int) -> int:
     return count * (2 * start + count - 1) // 2
 
 
+def _working_set_page(worker_index: int, page_number: int) -> bytes:
+    """Derive the deterministic page payload assigned to one VM working set."""
+    seed = (worker_index * 17 + page_number * 31) & 0xFF
+    return bytes((seed + offset) & 0xFF for offset in range(PAGE_SIZE))
+
+
 def _initialize_working_set(operating_system: HeadlessOS, pid: int, pages: int, worker_index: int) -> None:
     """Materialize a distinct, fully written page working set for one VM."""
     memory = operating_system.vm.memories[pid]
     if pages > 2:
         memory.map(2 * PAGE_SIZE, (pages - 2) * PAGE_SIZE)
     for page_number in range(pages):
-        seed = (worker_index * 17 + page_number * 31) & 0xFF
-        payload = bytes((seed + offset) & 0xFF for offset in range(PAGE_SIZE))
-        memory.write(page_number * PAGE_SIZE, payload)
+        memory.write(page_number * PAGE_SIZE, _working_set_page(worker_index, page_number))
     if operating_system.vm.resident_pages() != pages:
         raise FleetBenchmarkError(
             f"worker {worker_index} materialized {operating_system.vm.resident_pages()} "
@@ -193,26 +197,29 @@ def benchmark_case(
     total_retired = 0
     total_resident_pages = 0
     total_snapshot_bytes = 0
+    total_restore_ns = 0
     snapshot_started = perf_counter_ns()
     for worker in workers:
         machine = worker["os"]
         task = worker["task"]
         actual_sum = task.backend.read_register("acc")
         expected_steps = 2 * work_units + 4
+        journal_valid = machine.environment.kernel.journal.verify()
         valid = (
             task.state.halted
             and task.state.steps == expected_steps
             and actual_sum == worker["expected_sum"]
             and worker["events"] == expected_steps
-            and machine.environment.kernel.journal.verify()
+            and journal_valid
         )
-        correctness = correctness and valid
         resident_pages = machine.vm.resident_pages()
         total_resident_pages += resident_pages
         total_retired += worker["events"]
+
+        snapshot = machine.snapshot()
         snapshot_bytes = len(
             json.dumps(
-                machine.snapshot(),
+                snapshot,
                 sort_keys=True,
                 separators=(",", ":"),
                 ensure_ascii=False,
@@ -220,12 +227,42 @@ def benchmark_case(
             ).encode("utf-8")
         )
         total_snapshot_bytes += snapshot_bytes
+
+        restore_started = perf_counter_ns()
+        restored = HeadlessOS.from_snapshot(snapshot)
+        restore_ns = perf_counter_ns() - restore_started
+        total_restore_ns += restore_ns
+        restored_task = restored.vm.scheduler.tasks.get(worker["pid"])
+        restored_memory = restored.vm.memories.get(worker["pid"])
+        expected_memory = b"".join(
+            _working_set_page(worker["index"], page_number)
+            for page_number in range(working_set_pages)
+        )
+        memory_restored = (
+            restored_memory is not None
+            and restored_memory.read(0, len(expected_memory)) == expected_memory
+        )
+        checkpoint_valid = (
+            restored_task is not None
+            and restored_task.state.halted
+            and restored_task.state.steps == expected_steps
+            and restored_task.backend.read_register("acc") == worker["expected_sum"]
+            and restored.vm.resident_pages() == resident_pages
+            and memory_restored
+            and restored.environment.kernel.journal.verify()
+        )
+        valid = valid and checkpoint_valid
+        correctness = correctness and valid
         worker_reports.append(
             {
                 "worker_index": worker["index"],
                 "pid": worker["pid"],
+                "headless_os_identity": id(machine),
+                "vm_identity": id(machine.vm),
                 "scheduler_identity": id(machine.vm.scheduler),
                 "kernel_identity": id(machine.environment.kernel),
+                "journal_identity": id(machine.environment.kernel.journal),
+                "guest_memory_identity": id(machine.vm.memories[worker["pid"]]),
                 "resident_pages": resident_pages,
                 "resident_guest_bytes": resident_pages * PAGE_SIZE,
                 "retired_instructions": worker["events"],
@@ -233,8 +270,11 @@ def benchmark_case(
                 "partial_sum": actual_sum,
                 "expected_partial_sum": worker["expected_sum"],
                 "task_halted": bool(task.state.halted),
-                "journal_valid": bool(machine.environment.kernel.journal.verify()),
+                "journal_valid": bool(journal_valid),
                 "snapshot_bytes": snapshot_bytes,
+                "checkpoint_restore_ns": restore_ns,
+                "checkpoint_restored_correctly": bool(checkpoint_valid),
+                "checkpoint_memory_bytes_verified": len(expected_memory) if memory_restored else 0,
                 "worker_wall_ns": worker["elapsed_ns"],
                 "quantum_p50_ns": _percentile(worker["quantum_ns"], 0.50),
                 "quantum_p95_ns": _percentile(worker["quantum_ns"], 0.95),
@@ -242,13 +282,25 @@ def benchmark_case(
         )
     snapshot_ns = perf_counter_ns() - snapshot_started
 
+    distinct_os_ids = len({item["headless_os_identity"] for item in worker_reports})
+    distinct_vm_ids = len({item["vm_identity"] for item in worker_reports})
     distinct_scheduler_ids = len({item["scheduler_identity"] for item in worker_reports})
     distinct_kernel_ids = len({item["kernel_identity"] for item in worker_reports})
+    distinct_journal_ids = len({item["journal_identity"] for item in worker_reports})
+    distinct_memory_ids = len({item["guest_memory_identity"] for item in worker_reports})
     observed_sum = sum(item["partial_sum"] for item in worker_reports)
     total_work_units = admitted_count * work_units
     expected_total_sum = _expected_interval_sum(0, total_work_units)
-    all_workers_independent = (
-        distinct_scheduler_ids == admitted_count and distinct_kernel_ids == admitted_count
+    all_workers_independent = all(
+        identity_count == admitted_count
+        for identity_count in (
+            distinct_os_ids,
+            distinct_vm_ids,
+            distinct_scheduler_ids,
+            distinct_kernel_ids,
+            distinct_journal_ids,
+            distinct_memory_ids,
+        )
     )
     correctness = (
         correctness
@@ -256,11 +308,12 @@ def benchmark_case(
         and observed_sum == expected_total_sum
         and total_retired == admitted_count * (2 * work_units + 4)
         and total_resident_pages == admitted_count * working_set_pages
+        and all(item["checkpoint_restored_correctly"] for item in worker_reports)
     )
 
     rss_after = _current_rss_bytes()
     available_after = _available_memory_bytes()
-    total_elapsed_ns = construction_ns + execution_ns + snapshot_ns
+    total_elapsed_ns = construction_ns + execution_ns + snapshot_ns + total_restore_ns
     instructions_per_second = (
         total_retired * 1_000_000_000 / execution_ns if execution_ns > 0 else None
     )
@@ -278,8 +331,12 @@ def benchmark_case(
         "expected_total_sum": expected_total_sum,
         "observed_total_sum": observed_sum,
         "all_workers_independent": all_workers_independent,
+        "distinct_headless_os_count": distinct_os_ids,
+        "distinct_vm_count": distinct_vm_ids,
         "distinct_scheduler_count": distinct_scheduler_ids,
         "distinct_kernel_count": distinct_kernel_ids,
+        "distinct_journal_count": distinct_journal_ids,
+        "distinct_guest_memory_count": distinct_memory_ids,
         "all_workers_halted_and_correct": correctness,
         "snapshot_bytes_total": total_snapshot_bytes,
         "snapshot_bytes_per_vm_mean": (
@@ -288,6 +345,7 @@ def benchmark_case(
         "construction_wall_ns": construction_ns,
         "execution_wall_ns": execution_ns,
         "snapshot_wall_ns": snapshot_ns,
+        "checkpoint_restore_wall_ns": total_restore_ns,
         "total_wall_ns": total_elapsed_ns,
         "retired_instructions_per_second": instructions_per_second,
         "host_rss_before_bytes": rss_before,
@@ -304,7 +362,8 @@ def benchmark_case(
         "measurement_scope": (
             "Independent HeadlessOS/VM instances in one Python process; local round-robin "
             "orchestration; guest resident-page accounting; process RSS where available; "
-            "full HeadlessOS snapshot serialization; deterministic interval-sum correctness."
+            "full HeadlessOS snapshot serialization and restore; task, journal, and guest-page "
+            "round-trip verification; deterministic interval-sum correctness."
         ),
     }
 
