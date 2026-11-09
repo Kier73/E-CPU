@@ -87,7 +87,7 @@ This first version does not:
 - measure physical latency, energy, or byte movement; or
 - prove universal equivalence beyond the declared instruction subset and terminal observation.
 
-The immediate next integration is to bind DAG nodes to versioned pure Virtual Layer operators, execute ready frontiers through the computational fabric, and compare actual measured host/communication costs against the structural topology profile. That step must keep route estimates distinct from observed execution and preserve receiver-local authority at every operation boundary.
+The first operation-native integration is specified in OPERATION_NATIVE_COMPUTATIONAL_FABRIC.md. It dispatches ready ADD frontiers as pure Virtual Layer operations through authenticated fabric paths, admits CPU and E-GPU realizations under one semantic contract, checks each returned lane independently, and commits results to the original DAG node identities. This remains a sequential reference experiment, not a concurrency or speed claim. The next stage should benchmark local, remote CPU, remote E-GPU and fused placements while preserving the distinction between route estimates and observed execution.
 
 ## Run
 

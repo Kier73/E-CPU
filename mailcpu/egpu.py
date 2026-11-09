@@ -189,6 +189,41 @@ class EGPUHost:
         }
         return {**receipt, "result": result, "receipt_digest": _digest(receipt)}
 
+    def execute_authorized_method(
+        self,
+        method: str,
+        payload: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Mathematics: run one method after outer Virtual Layer Hypervisor admission.
+
+        This adapter is intended for a node-local Virtual Layer handler. The
+        caller must already have admitted the workload and exact operator
+        contract through the receiver's Hypervisor. The synthetic E-GPU event
+        below only preserves EGPUHost's internal typed method interface; it is
+        not a transferable grant and must not be used as an external admission
+        substitute.
+        """
+        if not isinstance(method, str) or method not in _METHODS:
+            raise EGPUError("unsupported E-GPU method")
+        if not isinstance(payload, Mapping) or payload.get("method") != method:
+            raise EGPUError("authorized method payload must name the exact E-GPU method")
+        internal_request = HypervisorRequest(
+            _OPERATION,
+            _RESOURCE,
+            dict(payload),
+            _EXECUTE,
+            _EXECUTE,
+            False,
+        )
+        internal_event = HypervisorArbitrationEvent(
+            f"virtual-layer:{self.host_id}",
+            "egpu.authorized-local-operator",
+            1,
+            0,
+            internal_request,
+        )
+        return self.handle(internal_event)
+
     def _unique_locus(self, capability: str) -> str:
         """Mathematics: resolve a capability only when its host-locus preimage has cardinality one."""
 

@@ -646,6 +646,19 @@ from .program_dataflow import (
     verify_dataflow_compilation,
 )
 
+from .program_dataflow_fabric import (
+    ComputationalFabricDataflowAddDispatcher,
+    DataflowAddFrontierReceipt,
+    DataflowAddFrontierRequest,
+    DataflowAddLane,
+    OperationNativeDataflowError,
+    OperationNativeDataflowReport,
+    dataflow_add_operator_spec,
+    execute_dataflow_operation_native,
+    make_cpu_dataflow_add_handler,
+    make_egpu_dataflow_add_handler,
+)
+
 from .evidence_path_resolver import (
     EvidencePathBlocker,
     EvidencePathBlockerCode,
@@ -883,6 +896,16 @@ from .predictive_selection import (
 __all__ = [
     "CompiledMailCPUDataflow",
     "DataflowExecutionReport",
+    "ComputationalFabricDataflowAddDispatcher",
+    "DataflowAddFrontierReceipt",
+    "DataflowAddFrontierRequest",
+    "DataflowAddLane",
+    "OperationNativeDataflowError",
+    "OperationNativeDataflowReport",
+    "dataflow_add_operator_spec",
+    "execute_dataflow_operation_native",
+    "make_cpu_dataflow_add_handler",
+    "make_egpu_dataflow_add_handler",
     "MailCPUDataflowCompiler",
     "ProgramDataflowError",
     "ProgramDataflowMetrics",
