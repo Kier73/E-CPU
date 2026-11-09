@@ -268,11 +268,11 @@ def benchmark_case(
                         pending.remove(worker_index)
                 reports = supervisor.reconcile()
                 for report in reports:
-                    if report.state in {"failed", "restart_exhausted"}:
-                        if not any(
-                            name == report.name
-                            for name in started_services
-                        ):
+                    if (
+                        report.state in {"failed", "restart_exhausted"}
+                        or (report.state == "exited" and report.exit_code != 0)
+                    ):
+                        if report.name not in started_services:
                             continue
                         worker_index = int(report.name.rsplit("-", 1)[1])
                         if worker_index in pending:
@@ -283,7 +283,7 @@ def benchmark_case(
                             )
                             raise ProcessFleetBenchmarkError(
                                 f"{report.name} failed before publishing its result: "
-                                f"{report.last_error}; log={diagnostic}"
+                                f"{report.last_error}; exit={report.exit_code}; log={diagnostic}"
                             )
                 if pending:
                     time.sleep(0.01)
@@ -394,10 +394,6 @@ def benchmark_case(
     available_after = _available_memory_bytes()
     execution_finished_perf_ns = max(
         int(item["execution_finished_perf_ns"])
-        for item in ordered_results
-    )
-    execution_started_perf_ns = min(
-        int(item["execution_started_perf_ns"])
         for item in ordered_results
     )
     execution_wall_ns = max(1, execution_finished_perf_ns - release_started)
