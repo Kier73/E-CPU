@@ -1205,13 +1205,14 @@ class VirtualLayerRuntime:
             operator_id,
             computational_admission=computational_admission,
         )
+        correlation_id = str(event.request.payload.get("workload_digest", event.sequence))
         if self.timing_probe is None:
             authorized, invoke = self._prepare_event(operating_system, pid, event)
-        else:
-            correlation_id = str(event.request.payload.get("workload_digest", event.sequence))
-            with self.timing_probe.measure("receiver_admission", correlation_id=correlation_id):
-                authorized, invoke = self._prepare_event(operating_system, pid, event)
-        return operating_system.hypervisor_arbitration.execute(authorized, {HypervisorDomain.CPU: invoke})
+            return operating_system.hypervisor_arbitration.execute(authorized, {HypervisorDomain.CPU: invoke})
+        with self.timing_probe.measure("receiver_admission", correlation_id=correlation_id):
+            authorized, invoke = self._prepare_event(operating_system, pid, event)
+        with self.timing_probe.measure("receiver_hypervisor_execution", correlation_id=correlation_id):
+            return operating_system.hypervisor_arbitration.execute(authorized, {HypervisorDomain.CPU: invoke})
 
     def receive_and_execute(self, operation_channel: HypervisorOperationChannel, operating_system: Any, pid: int) -> HypervisorExecutionResult | None:
         """Mathematics: Receive a reliable operation frame, resolve its operator locally, authorize it, execute, then acknowledge."""
