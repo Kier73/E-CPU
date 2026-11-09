@@ -212,6 +212,94 @@ class ContextualOrbitLocateValueReceipt:
         )
 
 
+
+@dataclass(frozen=True)
+class ContextualOrbitDataflowInput:
+    """A routed, origin-verified orbit result bound to one scalar projection for a DAG input."""
+
+    request: ContextualOrbitLocateValueRequest
+    receipt: ContextualOrbitLocateValueReceipt
+    field: str = "value"
+
+    def __post_init__(self) -> None:
+        """Mathematics: preserve the entire navigation witness while validating the chosen scalar projection."""
+        if not isinstance(self.request, ContextualOrbitLocateValueRequest):
+            raise ContextualOrbitFabricError("dataflow predecessor requires a typed contextual-orbit request")
+        if not isinstance(self.receipt, ContextualOrbitLocateValueReceipt):
+            raise ContextualOrbitFabricError("dataflow predecessor requires a typed routed navigation receipt")
+        if self.receipt.request_digest != self.request.digest:
+            raise ContextualOrbitFabricError("dataflow predecessor receipt belongs to a different orbit request")
+        if self.field not in {"value", "coordinate"}:
+            raise ContextualOrbitFabricError("dataflow predecessor field must be value or coordinate")
+        _validate_navigation_result(self.request, self.receipt.result)
+        expected_effect_digest = canonical_value_digest({
+            "request_digest": self.request.digest,
+            "result": self.receipt.result.to_dict(),
+        })
+        if self.receipt.operator_effect_digest != expected_effect_digest:
+            raise ContextualOrbitFabricError("dataflow predecessor operator effect does not bind its verified result")
+
+    @property
+    def selected_coordinate(self) -> int:
+        """Mathematics: expose the exact inverse-selected coordinate without expanding its orbit."""
+        return self.receipt.result.orbit_coordinate
+
+    @property
+    def selected_value(self) -> int:
+        """Mathematics: expose the forward-verified value at the selected coordinate."""
+        return self.receipt.result.target_value
+
+    @property
+    def value(self) -> int:
+        """Mathematics: project the explicitly selected integer field for a register operand."""
+        return self.selected_value if self.field == "value" else self.selected_coordinate
+
+    @property
+    def read_receipt(self):
+        """Mathematics: retain the receiver's exact located-coordinate Structural Memory receipt."""
+        return self.receipt.result.navigation.projection.read_receipt
+
+    @property
+    def observer_receipt(self):
+        """Mathematics: retain the observer evidence that binds the projection and read receipt."""
+        return self.receipt.result.navigation.observation
+
+    @property
+    def digest(self) -> str:
+        """Mathematics: identify request, route, selected coordinate, value, receipt, and scalar projection."""
+        return canonical_value_digest(self.to_dict())
+
+    def to_dict(self) -> dict[str, Any]:
+        """Mathematics: serialize one compact predecessor result, never the intervening state trajectory."""
+        return {
+            "schema": "mailcpu.contextual-orbit.dataflow-input.v1",
+            "request": self.request.to_dict(),
+            "receipt": self.receipt.to_dict(),
+            "field": self.field,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "ContextualOrbitDataflowInput":
+        """Mathematics: reconstruct the full typed predecessor and rerun origin-side result checks."""
+        expected = {"schema", "request", "receipt", "field"}
+        if not isinstance(payload, Mapping) or set(payload) != expected:
+            raise ContextualOrbitFabricError("contextual-orbit dataflow input fields are invalid")
+        if payload["schema"] != "mailcpu.contextual-orbit.dataflow-input.v1":
+            raise ContextualOrbitFabricError("unsupported contextual-orbit dataflow input schema")
+        if not isinstance(payload["request"], Mapping) or not isinstance(payload["receipt"], Mapping):
+            raise ContextualOrbitFabricError("contextual-orbit dataflow request/receipt must be objects")
+        try:
+            return cls(
+                request=ContextualOrbitLocateValueRequest.from_dict(payload["request"]),
+                receipt=ContextualOrbitLocateValueReceipt.from_dict(payload["receipt"]),
+                field=payload["field"],
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            if isinstance(exc, ContextualOrbitFabricError):
+                raise
+            raise ContextualOrbitFabricError(f"contextual-orbit dataflow input is malformed: {exc}") from exc
+
+
 def contextual_orbit_locate_value_operator_spec() -> OperatorSpec:
     """Mathematics: declare the deterministic, pure contract for receiver-side inverse navigation."""
     return OperatorSpec(
