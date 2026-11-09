@@ -210,7 +210,7 @@ class PlacementObservation:
     execution_digest: str
     verification_digest: str
     verification_method: str
-    route_receipt_digest: str | None = None
+    route_receipt: DataflowAddFrontierReceipt | None = None
 
     def __post_init__(self) -> None:
         """Mathematics: admit only correlated total-completion durations with explicit verification evidence."""
@@ -227,8 +227,8 @@ class PlacementObservation:
         if self.timing_sample.elapsed_ns < 0:
             raise PlacementProfileError("timing sample duration cannot be negative")
         _label(self.verification_method, "verification_method")
-        if self.route_receipt_digest is not None:
-            _digest(self.route_receipt_digest, "route_receipt_digest")
+        if self.route_receipt is not None and not isinstance(self.route_receipt, DataflowAddFrontierReceipt):
+            raise PlacementProfileError("route_receipt must be a typed binary frontier receipt")
 
     @classmethod
     def from_timing_sample(
@@ -266,7 +266,7 @@ class PlacementObservation:
             execution_digest=execution_digest,
             verification_digest=verification_digest,
             verification_method=verification_method,
-            route_receipt_digest=None if route_receipt is None else route_receipt.digest,
+            route_receipt=route_receipt,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -279,7 +279,7 @@ class PlacementObservation:
             "execution_digest": self.execution_digest,
             "verification_digest": self.verification_digest,
             "verification_method": self.verification_method,
-            "route_receipt_digest": self.route_receipt_digest,
+            "route_receipt": None if self.route_receipt is None else self.route_receipt.to_dict(),
         }
 
     @classmethod
@@ -288,7 +288,7 @@ class PlacementObservation:
         expected = {
             "schema", "profile_key_digest", "workload_digest", "timing_sample",
             "execution_digest", "verification_digest", "verification_method",
-            "route_receipt_digest",
+            "route_receipt",
         }
         if not isinstance(payload, Mapping) or set(payload) != expected:
             raise PlacementProfileError("placement observation fields are malformed")
@@ -296,6 +296,25 @@ class PlacementObservation:
             raise PlacementProfileError("placement observation schema is unsupported")
         if not isinstance(payload["timing_sample"], Mapping):
             raise PlacementProfileError("placement observation timing sample is malformed")
+        raw_receipt = payload["route_receipt"]
+        route_receipt = None
+        if raw_receipt is not None:
+            if not isinstance(raw_receipt, Mapping):
+                raise PlacementProfileError("placement observation route receipt is malformed")
+            receipt_schema = raw_receipt.get("schema")
+            receipt_types = {
+                "mailcpu.dataflow.add-frontier-receipt.v3": DataflowAddFrontierReceipt,
+                "mailcpu.dataflow.compare-frontier-receipt.v1": __import__(
+                    ".program_dataflow_fabric", fromlist=["DataflowCompareFrontierReceipt"]
+                ).DataflowCompareFrontierReceipt,
+                "mailcpu.dataflow.multiply-frontier-receipt.v1": __import__(
+                    ".program_dataflow_fabric", fromlist=["DataflowMultiplyFrontierReceipt"]
+                ).DataflowMultiplyFrontierReceipt,
+            }
+            receipt_type = receipt_types.get(receipt_schema)
+            if receipt_type is None:
+                raise PlacementProfileError("placement observation route receipt schema is unsupported")
+            route_receipt = receipt_type.from_dict(raw_receipt)
         try:
             return cls(
                 profile_key_digest=payload["profile_key_digest"],
@@ -304,7 +323,7 @@ class PlacementObservation:
                 execution_digest=payload["execution_digest"],
                 verification_digest=payload["verification_digest"],
                 verification_method=payload["verification_method"],
-                route_receipt_digest=payload["route_receipt_digest"],
+                route_receipt=route_receipt,
             )
         except (KeyError, TypeError, ValueError) as exc:
             if isinstance(exc, PlacementProfileError):
@@ -336,6 +355,19 @@ class PlacementProfile:
             for item in observations
         ):
             raise PlacementProfileError("profile observations do not share its exact placement key")
+        for item in observations:
+            receipt = item.route_receipt
+            if self.key.peer_path:
+                if receipt is None or (
+                    receipt.host_id != self.key.target_host_id
+                    or receipt.implementation_fingerprint != self.key.implementation_fingerprint
+                    or receipt.peer_path != self.key.peer_path
+                    or receipt.route_witness_digest != self.key.route_witness_digest
+                    or receipt.peer_id != self.key.peer_path[-1]
+                ):
+                    raise PlacementProfileError("profile route receipt differs from its exact placement key")
+            elif receipt is not None:
+                raise PlacementProfileError("local placement profile cannot contain a remote route receipt")
         digests = [item.digest for item in observations]
         if len(set(digests)) != len(digests):
             raise PlacementProfileError("profile contains duplicate observations")
