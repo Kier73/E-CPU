@@ -542,6 +542,7 @@ def main(arguments: list[str]) -> int:
             if type(expected_live_operations) is not int or expected_live_operations < 1:
                 raise ValueError("live_expected_operations must be a positive integer")
             completed: list[dict[str, Any]] = []
+            downstream_reconnect_count = 0
             deadline = time.monotonic() + 90.0
             while time.monotonic() < deadline:
                 try:
@@ -566,6 +567,7 @@ def main(arguments: list[str]) -> int:
                                 "peer-c",
                                 replacement_transport,
                             )
+                            downstream_reconnect_count += 1
                             server.last_error = None
                         except Exception as reconnect_error:
                             server.last_error = (
@@ -606,6 +608,7 @@ def main(arguments: list[str]) -> int:
                         "downstream_response_seen": len(
                             downstream_client.response.snapshot()["seen"]
                         ),
+                        "downstream_reconnect_count": downstream_reconnect_count,
                         "journal_valid": server.operating_system.environment.kernel.journal.verify(),
                     })
                     return 0
