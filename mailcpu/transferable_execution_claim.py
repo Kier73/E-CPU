@@ -87,6 +87,18 @@ def _positive(value: Any, name: str) -> int:
     return value
 
 
+def _read_bounded(path: Path, maximum: int, name: str) -> bytes:
+    """Mathematics: Read at most maximum+1 bytes so an oversized persisted artifact is refused before unbounded allocation."""
+    try:
+        with path.open("rb") as stream:
+            payload = stream.read(maximum + 1)
+    except OSError as exc:
+        raise TransferableExecutionClaimError(f"cannot read {name}: {exc}") from exc
+    if len(payload) > maximum:
+        raise TransferableExecutionClaimError(f"{name} exceeds its finite byte bound")
+    return payload
+
+
 def _fsync_directory(path: Path) -> None:
     """Mathematics: Persist directory-entry publication where the platform exposes directory fsync."""
     if os.name == "nt":
@@ -435,6 +447,12 @@ class PortableExecutionClaimBundle:
             or not all(isinstance(payload.get(key), Mapping) for key in ("claim", "manifest", "proof", "state_snapshot"))
         ):
             raise TransferableExecutionClaimError("portable execution claim bundle fields or schema are invalid")
+        state_claims = payload["state_snapshot"].get("claims")
+        if not isinstance(state_claims, list) or len(state_claims) > _MAX_CLAIMS:
+            raise TransferableExecutionClaimError("portable claim bundle exceeds the finite claim-count bound")
+        state_bytes = _canonical_json(payload["state_snapshot"]) + b"\\n"
+        if len(state_bytes) > _MAX_STATE_BYTES:
+            raise TransferableExecutionClaimError("portable claim bundle exceeds the finite state-byte bound")
         projection = {key: payload[key] for key in (
             "schema", "claim", "manifest", "proof", "state_snapshot"
         )}
@@ -636,8 +654,8 @@ class TransferableExecutionClaimStore:
             return generation, predecessor, snapshot, {}, None, None
         directory = self._generation_directory(generation)
         try:
-            state_bytes = (directory / "claims.json").read_bytes()
-            manifest_bytes = (directory / "manifest.json").read_bytes()
+            state_bytes = _read_bounded(directory / "claims.json", _MAX_STATE_BYTES, "claim state snapshot")
+            manifest_bytes = _read_bounded(directory / "manifest.json", 64 * 1024, "claim state manifest")
             snapshot = json.loads(state_bytes.decode("utf-8"))
             raw_manifest = json.loads(manifest_bytes.decode("utf-8"))
             manifest = RecoveryStateManifest.from_snapshot(raw_manifest)
@@ -670,8 +688,8 @@ class TransferableExecutionClaimStore:
         if not target.exists():
             return False
         try:
-            state_bytes = (target / "claims.json").read_bytes()
-            manifest_bytes = (target / "manifest.json").read_bytes()
+            state_bytes = _read_bounded(target / "claims.json", _MAX_STATE_BYTES, "pending claim state")
+            manifest_bytes = _read_bounded(target / "manifest.json", 64 * 1024, "pending claim manifest")
             snapshot = json.loads(state_bytes.decode("utf-8"))
             manifest = RecoveryStateManifest.from_snapshot(json.loads(manifest_bytes.decode("utf-8")))
         except (OSError, UnicodeDecodeError, json.JSONDecodeError, RecoveryLineageError) as exc:
@@ -721,8 +739,6 @@ class TransferableExecutionClaimStore:
         state_bytes = _canonical_json(snapshot) + b"\n"
         if len(state_bytes) > _MAX_STATE_BYTES:
             raise TransferableExecutionClaimError("claim ledger state exceeds its finite serialized-byte bound")
-        if len(claims) > _MAX_CLAIMS:
-            raise TransferableExecutionClaimError("claim ledger exceeds the finite claim-count bound")
         membership = self.coordinator.membership
         manifest = RecoveryStateManifest(
             machine_id=membership.system_id,
