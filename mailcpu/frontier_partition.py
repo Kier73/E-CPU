@@ -239,6 +239,8 @@ class BinaryFrontierPartition:
         if self.address.operator_contract_digest != expected_spec.digest:
             raise FrontierPartitionError("child ComputationalAddress does not bind the exact operator contract")
         host = self.route_witness.target_host
+        if host.node_id not in self.address.workload.eligible_nodes:
+            raise FrontierPartitionError("child ComputationalAddress does not admit the route witness target node")
         if host.operator_spec.digest != expected_spec.digest:
             raise FrontierPartitionError("partition route host does not advertise the exact operation contract")
         if host.implementation_fingerprint is None:
