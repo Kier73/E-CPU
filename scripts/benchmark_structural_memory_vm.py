@@ -13,10 +13,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import math
-import os
-import platform
-import sys
 from time import perf_counter_ns
 from typing import Any, Sequence
 
@@ -299,8 +295,10 @@ def benchmark_pair(
             raise ValueError(f"{name} must be an integer >= {minimum}")
     if page_size & (page_size - 1) or page_size > 65_536:
         raise ValueError("page_size must be a power of two no larger than 65536")
-    if working_set_pages > virtual_pages:
-        raise ValueError("working_set_pages cannot exceed virtual_pages")
+    if working_set_pages >= virtual_pages:
+        raise ValueError(
+            "working_set_pages must be less than virtual_pages to leave a cold restore page"
+        )
 
     materialized = _make_case(
         "materialized",
