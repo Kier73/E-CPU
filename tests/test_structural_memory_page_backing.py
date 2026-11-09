@@ -143,6 +143,35 @@ def test_structural_memory_page_backing_bounds_host_cache_and_reuses_verified_ra
     assert operating_system.environment.kernel.journal.verify()
 
 
+def test_structural_backing_cache_shares_immutable_page_object_across_reclaim_and_refault() -> None:
+    operating_system = _operating_system()
+    version = _admit_byte_memory(operating_system)
+    expected = b"ABCDEFGH"
+    digest = hashlib.sha256(expected).hexdigest()
+    backing = StructuralMemoryPageBacking(operating_system.structural_memory)
+    backing.register_page_reference(digest, _page_reference(version))
+    memory = VirtualMemory(page_size=8, page_backing=backing)
+    memory.reserve(0, 8, backing_blob_ids=(digest,))
+
+    assert memory.read(0, 8) == expected
+    assert memory._blobs[digest] is backing._page_cache[digest]
+    assert backing.shared_resident_cache_bytes(memory._blobs) == 8
+    assert backing.cached_page_bytes == 8
+
+    # Reclaim removes the VM's mapping/blob reference, but the page backing
+    # retains the same immutable bytes object for a cheap refault.
+    assert memory.reclaim(page_numbers=(0,)) == (0,)
+    assert digest not in memory._blobs
+    assert backing.cached_page_bytes == 8
+    assert backing.shared_resident_cache_bytes(memory._blobs) == 0
+
+    assert memory.read(0, 8) == expected
+    assert memory._blobs[digest] is backing._page_cache[digest]
+    assert backing.shared_resident_cache_bytes(memory._blobs) == 8
+    assert backing.cached_provider_coordinate_count == 0
+    assert operating_system.environment.kernel.journal.verify()
+
+
 def test_structural_memory_page_fault_preserves_copy_on_write_identity() -> None:
     operating_system = _operating_system()
     version = _admit_byte_memory(operating_system)
