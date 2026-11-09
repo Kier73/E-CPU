@@ -759,7 +759,7 @@ class MailCPUDataflowCompiler:
         overlap = set().union(*(left & right for index, left in enumerate(supplied_sets) for right in supplied_sets[index + 1:]))
         if overlap:
             raise ProgramDataflowError(
-                "registers cannot be supplied by both inline state and Structural Memory receipts or symbolic references: "
+                "registers cannot be supplied by more than one inline, Structural Memory receipt/reference, or contextual-orbit source: "
                 + ", ".join(sorted(overlap))
             )
 
