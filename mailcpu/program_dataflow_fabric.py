@@ -13,11 +13,8 @@ from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Sequence
 
 from .computation_dag import ComputationDAGError, NavigableComputationDAG
-from .computational_execution import ComputationalExecutionResult
 from .computational_fabric import (
     ComputationalFabricResolver,
-    ComputationalFabricStatus,
-    ComputationalPeerSnapshot,
 )
 from .computational_fabric_forwarding import (
     ComputationalFabricForwardingClient,
@@ -31,7 +28,6 @@ from .model import Op, RunStatus
 from .program_dataflow import (
     CompiledMailCPUDataflow,
     DataflowExecutionReport,
-    ProgramDataflowError,
 )
 from .seed import SystemIdentity
 from .semantic_translation import canonical_value_digest
@@ -228,17 +224,19 @@ class OperationNativeDataflowReport:
             raise OperationNativeDataflowError("one execution cannot repeat an ADD frontier request identity")
         object.__setattr__(self, "frontier_receipts", receipts)
 
-    @property
-    def digest(self) -> str:
-        return canonical_value_digest(self.to_dict())
-
-    def to_dict(self) -> dict[str, Any]:
+    def _payload(self) -> dict[str, Any]:
         return {
             "schema": "mailcpu.operation-native-dataflow-execution.v1",
             "execution": self.execution.to_dict(),
             "frontier_receipts": [item.to_dict() for item in self.frontier_receipts],
-            "digest": self.digest,
         }
+
+    @property
+    def digest(self) -> str:
+        return canonical_value_digest(self._payload())
+
+    def to_dict(self) -> dict[str, Any]:
+        return {**self._payload(), "digest": self.digest}
 
 
 def _operand_value(graph: NavigableComputationDAG, operand: Mapping[str, Any], node_id: str) -> int:
