@@ -1448,6 +1448,12 @@ def test_federated_workload_forwards_over_two_authenticated_hops_and_replays_onc
     from mailcpu.classifier import HypervisorPolicy
     from mailcpu.law_certifier import Law
     from mailcpu.virtual_layer import VirtualStructuralMemoryRef
+    from mailcpu.recovery_lineage import (
+        RecoveryLineageAuthority,
+        RecoveryLineageCoordinator,
+        SeedCommitMembership,
+    )
+    from mailcpu.transferable_execution_claim import TransferableExecutionClaimStore
     from mailcpu.computational_fabric_forwarding import (
         ComputationalFabricForwardingClient,
         ComputationalFabricForwardingEnvelope,
@@ -1512,7 +1518,11 @@ def test_federated_workload_forwards_over_two_authenticated_hops_and_replays_onc
         workload_id="federated-forwarding-sum",
         system=system_identity,
         ground=system_ground,
-        intention={"goal": {"kind": "sum", "expected": 9}},
+        intention={"goal": {
+            "kind": "sum",
+            "expected": 9,
+            "request_digest": __import__("hashlib").sha256(b"federated-child").hexdigest(),
+        }},
         operators=(VirtualOperatorRef("core.sum_pair", 1, "cpu"),),
         input_value={"left": 4, "right": 5},
         budget=VirtualBudget(10_000, 10_000, 10_000),
@@ -1546,11 +1556,42 @@ def test_federated_workload_forwards_over_two_authenticated_hops_and_replays_onc
     assert planned.status is ComputationalFabricStatus.FOUND
     assert planned.witness is not None
     assert planned.witness.peer_path == ("peer-a", "peer-b", "peer-c")
+    membership = SeedCommitMembership(
+        "federated-forwarding-claims",
+        1,
+        ("peer-a", "peer-b", "peer-c"),
+        "peer-a",
+        1,
+        "0" * 64,
+    )
+    claim_authorities = {
+        member: RecoveryLineageAuthority(
+            membership,
+            member,
+            tmp_path / f"{member}.federated-claim-journal.jsonl",
+        )
+        for member in membership.member_ids
+    }
+    claim_coordinator = RecoveryLineageCoordinator(membership, claim_authorities)
+    claim_store = TransferableExecutionClaimStore(tmp_path / "federated-claim-store", claim_coordinator)
+    parent_request_digest = __import__("hashlib").sha256(b"federated-parent").hexdigest()
+    claim_bundle = claim_store.create(
+        parent_request_digest=parent_request_digest,
+        child_request_digest=workload.intention["goal"]["request_digest"],
+        address_digest=address.digest,
+        operator_spec=spec,
+        computational_ground_fingerprint=GROUND_FP,
+        owner_peer_id="peer-c",
+        owner_host_id=locus.host_id,
+        implementation_fingerprint=IMPLEMENTATION_FP,
+    )
     envelope = ComputationalFabricForwardingEnvelope.begin(
         address,
         planned.witness,
         origin_channel="application.batch",
         origin_sequence=7,
+        parent_request_digest=parent_request_digest,
+        claim_bundle=claim_bundle,
     )
 
     allow_policy = HypervisorPolicy(
@@ -1611,6 +1652,7 @@ def test_federated_workload_forwards_over_two_authenticated_hops_and_replays_onc
                 origin_channel="application.batch",
                 catalogue=catalogue,
                 timeout=4.0,
+                claim_coordinator=claim_coordinator,
             )
         except BaseException as exc:
             failures.append(exc)
@@ -1701,6 +1743,8 @@ def test_federated_workload_forwards_over_two_authenticated_hops_and_replays_onc
         assert terminal["status"] == "executed"
         assert terminal["execution"]["action"] == "allow"
         assert terminal["execution"]["effect"]["result"] == 9
+        assert terminal["execution_claim"]["claim_id"] == claim_bundle.claim.claim_id
+        assert terminal["execution_claim"]["assignment_epoch"] == 1
         assert calls == ["federated-forwarding-sum"]
 
         restored_receipt = ComputationalFabricHopReceipt.from_dict(receipt.to_dict())
@@ -1779,6 +1823,7 @@ def test_federated_workload_forwards_over_two_authenticated_hops_and_replays_onc
                     transport,
                     directory_c,
                     catalogue=catalogue,
+                    claim_coordinator=claim_coordinator,
                 )
             except BaseException as exc:
                 rebound_failures.append(exc)
