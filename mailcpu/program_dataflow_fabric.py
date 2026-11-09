@@ -328,6 +328,53 @@ class DataflowAddFrontierReceipt:
             ],
         }
 
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "DataflowAddFrontierReceipt":
+        """Mathematics: rehydrate a versioned binary operation receipt and revalidate every route/read field."""
+        expected_schema = (
+            "mailcpu.dataflow.compare-frontier-receipt.v1"
+            if cls.__name__ == "DataflowCompareFrontierReceipt"
+            else "mailcpu.dataflow.add-frontier-receipt.v3"
+        )
+        expected = {
+            "schema", "request_digest", "results", "host_id", "peer_id", "peer_path",
+            "route_witness_digest", "forwarding_receipt_digest", "operator_effect_digest",
+            "implementation_fingerprint", "backend_receipt_digest", "structural_memory_receipts",
+        }
+        if not isinstance(payload, Mapping) or set(payload) != expected:
+            raise OperationNativeDataflowError("binary frontier receipt fields are invalid")
+        if payload["schema"] != expected_schema:
+            raise OperationNativeDataflowError("binary frontier receipt schema does not match its typed operation")
+        if (
+            not isinstance(payload["results"], list)
+            or not isinstance(payload["peer_path"], list)
+            or not isinstance(payload["structural_memory_receipts"], list)
+        ):
+            raise OperationNativeDataflowError("binary frontier receipt result/path/read fields are malformed")
+        results = []
+        for item in payload["results"]:
+            if not isinstance(item, list) or len(item) != 2:
+                raise OperationNativeDataflowError("binary frontier receipt result lane is malformed")
+            results.append((item[0], item[1]))
+        memory_receipts = []
+        for item in payload["structural_memory_receipts"]:
+            if not isinstance(item, list) or len(item) != 2 or not isinstance(item[1], Mapping):
+                raise OperationNativeDataflowError("binary frontier Structural Memory receipt entry is malformed")
+            memory_receipts.append((item[0], StructuralMemoryReadReceipt.from_dict(item[1])))
+        return cls(
+            request_digest=payload["request_digest"],
+            results=tuple(results),
+            host_id=payload["host_id"],
+            peer_id=payload["peer_id"],
+            peer_path=tuple(payload["peer_path"]),
+            route_witness_digest=payload["route_witness_digest"],
+            forwarding_receipt_digest=payload["forwarding_receipt_digest"],
+            operator_effect_digest=payload["operator_effect_digest"],
+            implementation_fingerprint=payload["implementation_fingerprint"],
+            backend_receipt_digest=payload["backend_receipt_digest"],
+            structural_memory_receipts=tuple(memory_receipts),
+        )
+
 
 class DataflowCompareFrontierReceipt(DataflowAddFrontierReceipt):
     """Verified transport result for a COMPARE frontier, retaining lane and route identities."""
