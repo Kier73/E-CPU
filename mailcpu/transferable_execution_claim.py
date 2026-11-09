@@ -1,0 +1,871 @@
+"""Quorum-anchored portable claims for replay-safe computational result ownership.
+
+A claim does not promise that only one physical processor can calculate a pure
+operation. It makes result acceptance transferable: after a quorum-anchored
+reassignment, only the current assignment epoch may commit the semantic result.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import shutil
+import tempfile
+import threading
+from contextlib import contextmanager
+from dataclasses import dataclass
+from enum import Enum
+from pathlib import Path
+from typing import Any, Iterator, Mapping
+
+from .recovery_lineage import (
+    RecoveryLineageCoordinator,
+    RecoveryLineageError,
+    RecoveryLineageProof,
+    RecoveryStateManifest,
+)
+
+
+class TransferableExecutionClaimError(ValueError):
+    """Mathematics: A portable execution claim, assignment transition, or quorum proof is invalid."""
+
+
+REPLAY_POLICY_PURE = "pure-replay-safe/v1"
+_CAPTURE_CUT = "transferable-execution-claims"
+_SCHEMA = "mailcpu.transferable-execution-claim-ledger.v1"
+_HEX = frozenset("0123456789abcdef")
+
+
+def _canonical_json(value: Mapping[str, Any]) -> bytes:
+    """Mathematics: Encode a finite record into deterministic UTF-8 JSON bytes."""
+    try:
+        return json.dumps(
+            dict(value),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise TransferableExecutionClaimError("execution claim record is outside canonical JSON") from exc
+
+
+def _digest(value: Any, name: str) -> str:
+    """Mathematics: Require one lowercase SHA-256 identity in the canonical digest domain."""
+    if (
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(character not in _HEX for character in value)
+    ):
+        raise TransferableExecutionClaimError(f"{name} must be a lowercase SHA-256 digest")
+    return value
+
+
+def _label(value: Any, name: str, maximum: int = 256) -> str:
+    """Mathematics: Validate one bounded, non-empty, trimmed identity label."""
+    if (
+        not isinstance(value, str)
+        or not value
+        or value.strip() != value
+        or len(value) > maximum
+        or any(ord(character) < 32 for character in value)
+    ):
+        raise TransferableExecutionClaimError(f"{name} must be bounded non-empty trimmed text")
+    return value
+
+
+def _positive(value: Any, name: str) -> int:
+    """Mathematics: Require one strictly positive integer coordinate and exclude Boolean aliases."""
+    if type(value) is not int or value <= 0:
+        raise TransferableExecutionClaimError(f"{name} must be a positive strict integer")
+    return value
+
+
+def _fsync_directory(path: Path) -> None:
+    """Mathematics: Persist directory-entry publication where the platform exposes directory fsync."""
+    if os.name == "nt":
+        return
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+class ExecutionClaimStatus(str, Enum):
+    """Mathematics: The claim state is assigned until one current-epoch result is quorum committed."""
+
+    ASSIGNED = "assigned"
+    COMPLETED = "completed"
+
+
+@dataclass(frozen=True)
+class ExecutionClaimAssignment:
+    """Mathematics: One fenced assignment coordinate A=(epoch,peer,host,implementation,generation,evidence)."""
+
+    epoch: int
+    owner_peer_id: str
+    owner_host_id: str
+    implementation_fingerprint: str
+    state_generation: int
+    failure_evidence_digest: str | None = None
+
+    def __post_init__(self) -> None:
+        _positive(self.epoch, "assignment epoch")
+        _label(self.owner_peer_id, "assignment peer id", 128)
+        _label(self.owner_host_id, "assignment host id", 128)
+        _digest(self.implementation_fingerprint, "assignment implementation fingerprint")
+        _positive(self.state_generation, "assignment state generation")
+        if self.epoch == 1 and self.failure_evidence_digest is not None:
+            raise TransferableExecutionClaimError("initial assignment cannot carry reassignment evidence")
+        if self.epoch > 1:
+            _digest(self.failure_evidence_digest, "reassignment evidence digest")
+
+    @property
+    def digest(self) -> str:
+        """Mathematics: Identify the exact owner/implementation/epoch assignment and its recovery evidence."""
+        return hashlib.sha256(_canonical_json(self.to_dict())).hexdigest()
+
+    def to_dict(self) -> dict[str, Any]:
+        """Mathematics: Serialize every assignment coordinate needed to verify the fencing epoch."""
+        return {
+            "epoch": self.epoch,
+            "owner_peer_id": self.owner_peer_id,
+            "owner_host_id": self.owner_host_id,
+            "implementation_fingerprint": self.implementation_fingerprint,
+            "state_generation": self.state_generation,
+            "failure_evidence_digest": self.failure_evidence_digest,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "ExecutionClaimAssignment":
+        """Mathematics: Reconstruct an assignment only from its exact versioned field set."""
+        expected = {
+            "epoch", "owner_peer_id", "owner_host_id",
+            "implementation_fingerprint", "state_generation",
+            "failure_evidence_digest",
+        }
+        if not isinstance(payload, Mapping) or set(payload) != expected:
+            raise TransferableExecutionClaimError("execution claim assignment fields are malformed")
+        try:
+            return cls(
+                payload["epoch"],
+                payload["owner_peer_id"],
+                payload["owner_host_id"],
+                payload["implementation_fingerprint"],
+                payload["state_generation"],
+                payload["failure_evidence_digest"],
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            if isinstance(exc, TransferableExecutionClaimError):
+                raise
+            raise TransferableExecutionClaimError("execution claim assignment is invalid") from exc
+
+
+@dataclass(frozen=True)
+class TransferableExecutionClaim:
+    """Mathematics: Immutable operation identity plus an ordered assignment history and one terminal result commitment."""
+
+    parent_request_digest: str
+    child_request_digest: str
+    address_digest: str
+    operator_id: str
+    operator_contract_digest: str
+    computational_ground_fingerprint: str
+    replay_policy: str
+    assignments: tuple[ExecutionClaimAssignment, ...]
+    status: ExecutionClaimStatus = ExecutionClaimStatus.ASSIGNED
+    result_digest: str | None = None
+    child_receipt_digest: str | None = None
+    completion_generation: int | None = None
+
+    def __post_init__(self) -> None:
+        for name in (
+            "parent_request_digest",
+            "child_request_digest",
+            "address_digest",
+            "operator_contract_digest",
+            "computational_ground_fingerprint",
+        ):
+            _digest(getattr(self, name), name)
+        _label(self.operator_id, "operator id", 256)
+        if self.replay_policy != REPLAY_POLICY_PURE:
+            raise TransferableExecutionClaimError(
+                "transferable claims currently admit only the pure replay-safe execution policy"
+            )
+        assignments = tuple(self.assignments)
+        if not assignments or any(not isinstance(item, ExecutionClaimAssignment) for item in assignments):
+            raise TransferableExecutionClaimError("execution claim requires a non-empty typed assignment history")
+        if tuple(item.epoch for item in assignments) != tuple(range(1, len(assignments) + 1)):
+            raise TransferableExecutionClaimError("assignment epochs must be contiguous and begin at one")
+        generations = tuple(item.state_generation for item in assignments)
+        if generations != tuple(sorted(set(generations))):
+            raise TransferableExecutionClaimError("assignment generations must be strictly increasing")
+        for previous, current in zip(assignments, assignments[1:]):
+            if (previous.owner_peer_id, previous.owner_host_id) == (
+                current.owner_peer_id, current.owner_host_id
+            ):
+                raise TransferableExecutionClaimError("reassignment must move to a different logical host")
+            if current.failure_evidence_digest is None:
+                raise TransferableExecutionClaimError("reassignment requires an evidence commitment")
+        object.__setattr__(self, "assignments", assignments)
+        if not isinstance(self.status, ExecutionClaimStatus):
+            try:
+                object.__setattr__(self, "status", ExecutionClaimStatus(self.status))
+            except (TypeError, ValueError) as exc:
+                raise TransferableExecutionClaimError("execution claim status is unsupported") from exc
+        if self.status is ExecutionClaimStatus.ASSIGNED:
+            if any(item is not None for item in (
+                self.result_digest, self.child_receipt_digest, self.completion_generation
+            )):
+                raise TransferableExecutionClaimError("assigned claim cannot contain completion evidence")
+        else:
+            _digest(self.result_digest, "completed result digest")
+            _digest(self.child_receipt_digest, "completed child receipt digest")
+            _positive(self.completion_generation, "completion generation")
+            if self.completion_generation <= assignments[-1].state_generation:
+                raise TransferableExecutionClaimError("completion generation must follow the current assignment")
+
+    @property
+    def claim_id(self) -> str:
+        """Mathematics: Derive stable claim identity from the immutable parent/child/address/operator/Ground tuple."""
+        return hashlib.sha256(_canonical_json({
+            "schema": "mailcpu.transferable-execution-claim-identity.v1",
+            "parent_request_digest": self.parent_request_digest,
+            "child_request_digest": self.child_request_digest,
+            "address_digest": self.address_digest,
+            "operator_id": self.operator_id,
+            "operator_contract_digest": self.operator_contract_digest,
+            "computational_ground_fingerprint": self.computational_ground_fingerprint,
+            "replay_policy": self.replay_policy,
+        })).hexdigest()
+
+    @property
+    def current_assignment(self) -> ExecutionClaimAssignment:
+        """Mathematics: Select the last assignment in the monotonic fencing sequence."""
+        return self.assignments[-1]
+
+    def _payload(self) -> dict[str, Any]:
+        """Mathematics: Project the complete immutable semantic identity and current lifecycle state."""
+        return {
+            "schema": "mailcpu.transferable-execution-claim.v1",
+            "parent_request_digest": self.parent_request_digest,
+            "child_request_digest": self.child_request_digest,
+            "address_digest": self.address_digest,
+            "operator_id": self.operator_id,
+            "operator_contract_digest": self.operator_contract_digest,
+            "computational_ground_fingerprint": self.computational_ground_fingerprint,
+            "replay_policy": self.replay_policy,
+            "assignments": [item.to_dict() for item in self.assignments],
+            "status": self.status.value,
+            "result_digest": self.result_digest,
+            "child_receipt_digest": self.child_receipt_digest,
+            "completion_generation": self.completion_generation,
+        }
+
+    @property
+    def digest(self) -> str:
+        """Mathematics: Identify the exact claim version, including assignment history and result completion."""
+        return hashlib.sha256(_canonical_json(self._payload())).hexdigest()
+
+    def to_dict(self) -> dict[str, Any]:
+        """Mathematics: Serialize stable claim identity and all version-specific assignment/result evidence."""
+        return {**self._payload(), "claim_id": self.claim_id, "digest": self.digest}
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "TransferableExecutionClaim":
+        """Mathematics: Restore a claim only after validating its exact schema, assignment sequence, stable id and digest."""
+        expected = {
+            "schema", "parent_request_digest", "child_request_digest", "address_digest",
+            "operator_id", "operator_contract_digest", "computational_ground_fingerprint",
+            "replay_policy", "assignments", "status", "result_digest",
+            "child_receipt_digest", "completion_generation", "claim_id", "digest",
+        }
+        if (
+            not isinstance(payload, Mapping)
+            or set(payload) != expected
+            or payload.get("schema") != "mailcpu.transferable-execution-claim.v1"
+            or not isinstance(payload.get("assignments"), list)
+        ):
+            raise TransferableExecutionClaimError("transferable execution claim fields or schema are invalid")
+        try:
+            claim = cls(
+                parent_request_digest=payload["parent_request_digest"],
+                child_request_digest=payload["child_request_digest"],
+                address_digest=payload["address_digest"],
+                operator_id=payload["operator_id"],
+                operator_contract_digest=payload["operator_contract_digest"],
+                computational_ground_fingerprint=payload["computational_ground_fingerprint"],
+                replay_policy=payload["replay_policy"],
+                assignments=tuple(ExecutionClaimAssignment.from_dict(item) for item in payload["assignments"]),
+                status=ExecutionClaimStatus(payload["status"]),
+                result_digest=payload["result_digest"],
+                child_receipt_digest=payload["child_receipt_digest"],
+                completion_generation=payload["completion_generation"],
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            if isinstance(exc, TransferableExecutionClaimError):
+                raise
+            raise TransferableExecutionClaimError("transferable execution claim contains malformed nested fields") from exc
+        if payload["claim_id"] != claim.claim_id or payload["digest"] != claim.digest:
+            raise TransferableExecutionClaimError("transferable execution claim identity or digest mismatch")
+        return claim
+
+
+@dataclass(frozen=True)
+class PortableExecutionClaimBundle:
+    """Mathematics: Portable claim, full state payload, recovery manifest and quorum proof form one independently verifiable bundle."""
+
+    claim: TransferableExecutionClaim
+    manifest: RecoveryStateManifest
+    proof: RecoveryLineageProof
+    state_snapshot: Mapping[str, Any]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.claim, TransferableExecutionClaim):
+            raise TransferableExecutionClaimError("claim bundle requires a typed execution claim")
+        if not isinstance(self.manifest, RecoveryStateManifest):
+            raise TransferableExecutionClaimError("claim bundle requires a typed recovery state manifest")
+        if not isinstance(self.proof, RecoveryLineageProof):
+            raise TransferableExecutionClaimError("claim bundle requires a typed recovery lineage proof")
+        if not isinstance(self.state_snapshot, Mapping):
+            raise TransferableExecutionClaimError("claim bundle state snapshot must be a mapping")
+        snapshot = dict(self.state_snapshot)
+        if set(snapshot) != {"schema", "claims"} or snapshot.get("schema") != _SCHEMA:
+            raise TransferableExecutionClaimError("claim ledger state snapshot fields or schema are invalid")
+        if not isinstance(snapshot.get("claims"), list):
+            raise TransferableExecutionClaimError("claim ledger state snapshot claims must be a list")
+        claims = tuple(TransferableExecutionClaim.from_dict(item) for item in snapshot["claims"])
+        ids = tuple(item.claim_id for item in claims)
+        if ids != tuple(sorted(set(ids))):
+            raise TransferableExecutionClaimError("claim ledger snapshot identities must be unique and sorted")
+        selected = tuple(item for item in claims if item.claim_id == self.claim.claim_id)
+        if len(selected) != 1 or selected[0].to_dict() != self.claim.to_dict():
+            raise TransferableExecutionClaimError("bundle claim is absent or differs from the quorum-bound state snapshot")
+        if self.manifest.capture_cut != _CAPTURE_CUT:
+            raise TransferableExecutionClaimError("claim bundle manifest has the wrong capture cut")
+        payload = _canonical_json(snapshot) + b"\n"
+        if hashlib.sha256(payload).hexdigest() != self.manifest.state_digest:
+            raise TransferableExecutionClaimError("claim bundle state bytes differ from the recovery manifest")
+        if (
+            self.proof.proposal.slot != self.manifest.generation
+            or self.proof.proposal.result_state_digest != self.manifest.digest
+            or self.proof.proposal.request_fingerprint != self.manifest.request_fingerprint
+            or self.proof.proposal.membership_digest != self.manifest.membership_digest
+        ):
+            raise TransferableExecutionClaimError("claim bundle quorum proof does not anchor its exact manifest")
+        object.__setattr__(self, "state_snapshot", snapshot)
+
+    @property
+    def digest(self) -> str:
+        """Mathematics: Identify the complete portable claim, state snapshot, manifest and quorum proof."""
+        return hashlib.sha256(_canonical_json(self.to_dict(include_digest=False))).hexdigest()
+
+    def to_dict(self, *, include_digest: bool = True) -> dict[str, Any]:
+        """Mathematics: Serialize the complete claim bundle without omitting the state bytes needed for independent validation."""
+        payload = {
+            "schema": "mailcpu.portable-execution-claim-bundle.v1",
+            "claim": self.claim.to_dict(),
+            "manifest": self.manifest.snapshot(),
+            "proof": self.proof.snapshot(),
+            "state_snapshot": dict(self.state_snapshot),
+        }
+        if include_digest:
+            payload["digest"] = hashlib.sha256(_canonical_json(payload)).hexdigest()
+        return payload
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "PortableExecutionClaimBundle":
+        """Mathematics: Rehydrate a portable claim bundle and recompute every nested digest before exposure."""
+        expected = {"schema", "claim", "manifest", "proof", "state_snapshot", "digest"}
+        if (
+            not isinstance(payload, Mapping)
+            or set(payload) != expected
+            or payload.get("schema") != "mailcpu.portable-execution-claim-bundle.v1"
+            or not all(isinstance(payload.get(key), Mapping) for key in ("claim", "manifest", "proof", "state_snapshot"))
+        ):
+            raise TransferableExecutionClaimError("portable execution claim bundle fields or schema are invalid")
+        projection = {key: payload[key] for key in (
+            "schema", "claim", "manifest", "proof", "state_snapshot"
+        )}
+        if payload["digest"] != hashlib.sha256(_canonical_json(projection)).hexdigest():
+            raise TransferableExecutionClaimError("portable execution claim bundle digest mismatch")
+        try:
+            return cls(
+                TransferableExecutionClaim.from_dict(payload["claim"]),
+                RecoveryStateManifest.from_snapshot(payload["manifest"]),
+                RecoveryLineageProof.from_snapshot(payload["proof"]),
+                payload["state_snapshot"],
+            )
+        except (KeyError, TypeError, ValueError, RecoveryLineageError) as exc:
+            if isinstance(exc, TransferableExecutionClaimError):
+                raise
+            raise TransferableExecutionClaimError("portable execution claim bundle contains invalid proof material") from exc
+
+    def verify_current(self, coordinator: RecoveryLineageCoordinator) -> None:
+        """Mathematics: Admit the bundle only if the configured live quorum still recognizes this exact manifest as high-water."""
+        if not isinstance(coordinator, RecoveryLineageCoordinator):
+            raise TransferableExecutionClaimError("claim verification requires a RecoveryLineageCoordinator")
+        try:
+            proof = coordinator.verify_state(self.manifest)
+        except RecoveryLineageError as exc:
+            raise TransferableExecutionClaimError(f"portable execution claim is not current: {exc}") from exc
+        if proof.snapshot() != self.proof.snapshot():
+            raise TransferableExecutionClaimError("live quorum proof differs from the portable claim proof")
+
+    def verify_for_target(
+        self,
+        coordinator: RecoveryLineageCoordinator,
+        *,
+        parent_request_digest: str,
+        child_request_digest: str,
+        address_digest: str,
+        operator_id: str,
+        operator_contract_digest: str,
+        computational_ground_fingerprint: str,
+        owner_peer_id: str,
+        owner_host_id: str,
+        implementation_fingerprint: str,
+    ) -> None:
+        """Mathematics: Verify current quorum ownership and exact semantic/address/implementation target binding."""
+        self.verify_current(coordinator)
+        claim = self.claim
+        assignment = claim.current_assignment
+        expected = (
+            (claim.parent_request_digest, _digest(parent_request_digest, "parent request digest")),
+            (claim.child_request_digest, _digest(child_request_digest, "child request digest")),
+            (claim.address_digest, _digest(address_digest, "ComputationalAddress digest")),
+            (claim.operator_id, _label(operator_id, "operator id", 256)),
+            (claim.operator_contract_digest, _digest(operator_contract_digest, "operator contract digest")),
+            (claim.computational_ground_fingerprint, _digest(computational_ground_fingerprint, "Computational Ground fingerprint")),
+            (assignment.owner_peer_id, _label(owner_peer_id, "target peer id", 128)),
+            (assignment.owner_host_id, _label(owner_host_id, "target host id", 128)),
+            (assignment.implementation_fingerprint, _digest(implementation_fingerprint, "target implementation fingerprint")),
+        )
+        if any(actual != supplied for actual, supplied in expected):
+            raise TransferableExecutionClaimError("portable execution claim does not authorize this exact target workload and implementation")
+        if claim.status is not ExecutionClaimStatus.ASSIGNED:
+            raise TransferableExecutionClaimError("completed execution claim cannot authorize a new computation")
+
+
+class TransferableExecutionClaimStore:
+    """Mathematics: Owner-side immutable claim-state generations, each admitted by one fixed-membership RecoveryLineage quorum."""
+
+    def __init__(self, directory: str | os.PathLike[str], coordinator: RecoveryLineageCoordinator) -> None:
+        """Mathematics: Bind one durable claim artifact directory to the existing fixed-membership recovery coordinator."""
+        if not isinstance(coordinator, RecoveryLineageCoordinator):
+            raise TransferableExecutionClaimError("claim store requires a RecoveryLineageCoordinator")
+        self.directory = Path(directory)
+        self.directory.mkdir(parents=True, exist_ok=True)
+        self.coordinator = coordinator
+        self._lock = threading.RLock()
+        self._lock_path = self.directory / ".claims.lock"
+
+    @contextmanager
+    def _locked(self) -> Iterator[None]:
+        """Mathematics: Serialize local writers across threads/processes while quorum slots serialize distributed history."""
+        with self._lock:
+            self._lock_path.touch(exist_ok=True)
+            with self._lock_path.open("a+b") as stream:
+                stream.seek(0, os.SEEK_END)
+                if stream.tell() == 0:
+                    stream.write(b"0")
+                    stream.flush()
+                stream.seek(0)
+                locking_module: Any = None
+                try:
+                    import msvcrt as locking_module
+                except ImportError:
+                    try:
+                        import fcntl as locking_module
+                    except ImportError:
+                        locking_module = None
+                if locking_module is None or not (
+                    hasattr(locking_module, "locking") or hasattr(locking_module, "flock")
+                ):
+                    raise TransferableExecutionClaimError("platform does not provide cross-process claim-store locking")
+                if hasattr(locking_module, "locking"):
+                    locking_module.locking(stream.fileno(), locking_module.LK_LOCK, 1)
+                else:
+                    locking_module.flock(stream.fileno(), locking_module.LOCK_EX)
+                try:
+                    yield
+                finally:
+                    if hasattr(locking_module, "locking"):
+                        stream.seek(0)
+                        locking_module.locking(stream.fileno(), locking_module.LK_UNLCK, 1)
+                    else:
+                        locking_module.flock(stream.fileno(), locking_module.LOCK_UN)
+
+    def _generation_directory(self, generation: int) -> Path:
+        """Mathematics: Map a positive quorum generation to one immutable claim-state directory."""
+        _positive(generation, "claim state generation")
+        return self.directory / f"generation-{generation:020d}"
+
+    def _persist_generation(
+        self,
+        generation: int,
+        state_bytes: bytes,
+        manifest: RecoveryStateManifest,
+    ) -> Path:
+        """Mathematics: Fsync state and manifest bytes before atomically publishing one immutable generation directory."""
+        target = self._generation_directory(generation)
+        expected = {
+            "claims.json": state_bytes,
+            "manifest.json": _canonical_json(manifest.snapshot()) + b"\n",
+        }
+        if target.exists():
+            try:
+                actual = {name: (target / name).read_bytes() for name in expected}
+            except OSError as exc:
+                raise TransferableExecutionClaimError("existing claim generation is incomplete") from exc
+            if actual != expected:
+                raise TransferableExecutionClaimError(
+                    f"claim generation {generation} already contains different bytes"
+                )
+            return target
+        staging = Path(tempfile.mkdtemp(prefix=f".generation-{generation:020d}.", dir=str(self.directory)))
+        try:
+            for name, payload in expected.items():
+                path = staging / name
+                with path.open("xb") as stream:
+                    stream.write(payload)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+            _fsync_directory(staging)
+            try:
+                os.rename(staging, target)
+            except FileExistsError:
+                actual = {name: (target / name).read_bytes() for name in expected}
+                if actual != expected:
+                    raise TransferableExecutionClaimError(
+                        f"claim generation {generation} was concurrently published with different bytes"
+                    )
+            _fsync_directory(self.directory)
+            return target
+        finally:
+            if staging.exists():
+                shutil.rmtree(staging, ignore_errors=True)
+
+    @staticmethod
+    def _empty_snapshot() -> dict[str, Any]:
+        """Mathematics: Return the unique empty claim registry at the configured lineage genesis."""
+        return {"schema": _SCHEMA, "claims": []}
+
+    @staticmethod
+    def _claims_from_snapshot(snapshot: Mapping[str, Any]) -> dict[str, TransferableExecutionClaim]:
+        """Mathematics: Reconstruct a unique claim-id map from one canonical sorted ledger state."""
+        if (
+            not isinstance(snapshot, Mapping)
+            or set(snapshot) != {"schema", "claims"}
+            or snapshot.get("schema") != _SCHEMA
+            or not isinstance(snapshot.get("claims"), list)
+        ):
+            raise TransferableExecutionClaimError("claim ledger snapshot fields or schema are invalid")
+        claims = tuple(TransferableExecutionClaim.from_dict(item) for item in snapshot["claims"])
+        identifiers = tuple(item.claim_id for item in claims)
+        if identifiers != tuple(sorted(set(identifiers))):
+            raise TransferableExecutionClaimError("claim ledger entries must be unique and sorted by stable claim id")
+        return {item.claim_id: item for item in claims}
+
+    def _load_latest_locked(
+        self,
+    ) -> tuple[int, str, dict[str, Any], dict[str, TransferableExecutionClaim], RecoveryStateManifest | None, RecoveryLineageProof | None]:
+        """Mathematics: Load only the state whose exact manifest is the current durable quorum high-water."""
+        try:
+            proof = self.coordinator.latest_proof()
+            generation, predecessor = self.coordinator.high_water()
+        except RecoveryLineageError as exc:
+            raise TransferableExecutionClaimError(f"cannot read execution claim quorum high-water: {exc}") from exc
+        if proof is None:
+            if generation != 0:
+                raise TransferableExecutionClaimError("claim authority has a generation without a quorum proof")
+            snapshot = self._empty_snapshot()
+            return generation, predecessor, snapshot, {}, None, None
+        directory = self._generation_directory(generation)
+        try:
+            state_bytes = (directory / "claims.json").read_bytes()
+            manifest_bytes = (directory / "manifest.json").read_bytes()
+            snapshot = json.loads(state_bytes.decode("utf-8"))
+            raw_manifest = json.loads(manifest_bytes.decode("utf-8"))
+            manifest = RecoveryStateManifest.from_snapshot(raw_manifest)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, RecoveryLineageError) as exc:
+            raise TransferableExecutionClaimError(f"claim generation {generation} is unavailable or malformed") from exc
+        if (
+            manifest.generation != generation
+            or manifest.capture_cut != _CAPTURE_CUT
+            or manifest.digest != proof.proposal.result_state_digest
+            or manifest.membership_digest != self.coordinator.membership.digest
+            or manifest_bytes != _canonical_json(manifest.snapshot()) + b"\n"
+            or state_bytes != _canonical_json(snapshot) + b"\n"
+        ):
+            raise TransferableExecutionClaimError("claim state or manifest does not match the quorum high-water")
+        try:
+            manifest.verify_payload(state_bytes)
+            verified = self.coordinator.verify_state(manifest)
+        except RecoveryLineageError as exc:
+            raise TransferableExecutionClaimError(f"claim generation {generation} failed quorum verification") from exc
+        if verified.snapshot() != proof.snapshot():
+            raise TransferableExecutionClaimError("claim authority proof changed during state verification")
+        claims = self._claims_from_snapshot(snapshot)
+        return generation, manifest.digest, snapshot, claims, manifest, proof
+
+    def _publish_locked(
+        self,
+        claims: Mapping[str, TransferableExecutionClaim],
+        previous_generation: int,
+        predecessor_digest: str,
+    ) -> PortableExecutionClaimBundle:
+        """Mathematics: Publish one full sorted claim state only after its bytes are durable and a strict majority commits its manifest."""
+        generation = previous_generation + 1
+        snapshot = {
+            "schema": _SCHEMA,
+            "claims": [claims[key].to_dict() for key in sorted(claims)],
+        }
+        state_bytes = _canonical_json(snapshot) + b"\n"
+        membership = self.coordinator.membership
+        manifest = RecoveryStateManifest(
+            machine_id=membership.system_id,
+            incarnation=membership.incarnation,
+            owner_id=membership.owner_id,
+            owner_term=membership.owner_term,
+            membership_digest=membership.digest,
+            generation=generation,
+            predecessor_digest=predecessor_digest,
+            state_digest=hashlib.sha256(state_bytes).hexdigest(),
+            capture_cut=_CAPTURE_CUT,
+        )
+        self._persist_generation(generation, state_bytes, manifest)
+        try:
+            proof = self.coordinator.seal(manifest)
+        except RecoveryLineageError as exc:
+            raise TransferableExecutionClaimError(
+                f"claim generation {generation} is durable locally but lacks a quorum commit: {exc}"
+            ) from exc
+        try:
+            verified = self.coordinator.verify_state(manifest)
+        except RecoveryLineageError as exc:
+            raise TransferableExecutionClaimError(
+                f"claim generation {generation} committed but failed live quorum verification: {exc}"
+            ) from exc
+        if proof.snapshot() != verified.snapshot():
+            raise TransferableExecutionClaimError("claim commit proof differs from the live verified proof")
+        claim = next((item for item in claims.values() if item.claim_id == self._pending_claim_id), None)
+        if claim is None:
+            raise TransferableExecutionClaimError("published claim transition omitted its target claim")
+        return PortableExecutionClaimBundle(claim, manifest, proof, snapshot)
+
+    def create(
+        self,
+        *,
+        parent_request_digest: str,
+        child_request_digest: str,
+        address_digest: str,
+        operator_id: str,
+        operator_contract_digest: str,
+        computational_ground_fingerprint: str,
+        owner_peer_id: str,
+        owner_host_id: str,
+        implementation_fingerprint: str,
+        replay_policy: str = REPLAY_POLICY_PURE,
+    ) -> PortableExecutionClaimBundle:
+        """Mathematics: Create exactly one quorum-assigned claim for an immutable replay-safe child operation."""
+        if replay_policy != REPLAY_POLICY_PURE:
+            raise TransferableExecutionClaimError("only pure replay-safe operations are currently transferable")
+        initial = ExecutionClaimAssignment(
+            1,
+            owner_peer_id,
+            owner_host_id,
+            implementation_fingerprint,
+            1,
+        )
+        candidate = TransferableExecutionClaim(
+            parent_request_digest,
+            child_request_digest,
+            address_digest,
+            operator_id,
+            operator_contract_digest,
+            computational_ground_fingerprint,
+            replay_policy,
+            (initial,),
+        )
+        with self._locked():
+            generation, predecessor, _snapshot, claims, _manifest, proof = self._load_latest_locked()
+            existing = claims.get(candidate.claim_id)
+            if existing is not None:
+                if (
+                    existing.status is ExecutionClaimStatus.ASSIGNED
+                    and existing.current_assignment.owner_peer_id == owner_peer_id
+                    and existing.current_assignment.owner_host_id == owner_host_id
+                    and existing.current_assignment.implementation_fingerprint == implementation_fingerprint
+                ):
+                    return PortableExecutionClaimBundle(existing, _manifest, proof, _snapshot)
+                raise TransferableExecutionClaimError("immutable execution claim identity already exists with another assignment or outcome")
+            next_generation = generation + 1
+            claim = TransferableExecutionClaim(
+                candidate.parent_request_digest,
+                candidate.child_request_digest,
+                candidate.address_digest,
+                candidate.operator_id,
+                candidate.operator_contract_digest,
+                candidate.computational_ground_fingerprint,
+                candidate.replay_policy,
+                (ExecutionClaimAssignment(1, owner_peer_id, owner_host_id, implementation_fingerprint, next_generation),),
+            )
+            claims[claim.claim_id] = claim
+            self._pending_claim_id = claim.claim_id
+            try:
+                return self._publish_locked(claims, generation, predecessor)
+            finally:
+                self._pending_claim_id = None
+
+    def get(self, claim_id: str) -> PortableExecutionClaimBundle:
+        """Mathematics: Return the current claim and full portable quorum proof from the latest anchored state."""
+        _digest(claim_id, "claim id")
+        with self._locked():
+            _generation, _predecessor, snapshot, claims, manifest, proof = self._load_latest_locked()
+            claim = claims.get(claim_id)
+            if claim is None or manifest is None or proof is None:
+                raise TransferableExecutionClaimError("execution claim does not exist in the quorum ledger")
+            return PortableExecutionClaimBundle(claim, manifest, proof, snapshot)
+
+    def reassign(
+        self,
+        claim_id: str,
+        *,
+        expected_epoch: int,
+        owner_peer_id: str,
+        owner_host_id: str,
+        implementation_fingerprint: str,
+        failure_evidence_digest: str,
+    ) -> PortableExecutionClaimBundle:
+        """Mathematics: Revoke a prior result-acceptance epoch and assign a new logical host through one quorum transition."""
+        _digest(claim_id, "claim id")
+        _positive(expected_epoch, "expected assignment epoch")
+        _digest(failure_evidence_digest, "reassignment evidence digest")
+        target_peer = _label(owner_peer_id, "new assignment peer id", 128)
+        target_host = _label(owner_host_id, "new assignment host id", 128)
+        target_implementation = _digest(implementation_fingerprint, "new implementation fingerprint")
+        with self._locked():
+            generation, predecessor, _snapshot, claims, manifest, proof = self._load_latest_locked()
+            current = claims.get(claim_id)
+            if current is None or manifest is None or proof is None:
+                raise TransferableExecutionClaimError("execution claim does not exist in the quorum ledger")
+            if current.status is ExecutionClaimStatus.COMPLETED:
+                raise TransferableExecutionClaimError("completed execution claim cannot be reassigned")
+            latest = current.current_assignment
+            if latest.epoch == expected_epoch + 1 and (
+                latest.owner_peer_id,
+                latest.owner_host_id,
+                latest.implementation_fingerprint,
+                latest.failure_evidence_digest,
+            ) == (
+                target_peer,
+                target_host,
+                target_implementation,
+                failure_evidence_digest,
+            ):
+                return PortableExecutionClaimBundle(current, manifest, proof, _snapshot)
+            if latest.epoch != expected_epoch:
+                raise TransferableExecutionClaimError("stale assignment epoch cannot reassign the current execution claim")
+            if (latest.owner_peer_id, latest.owner_host_id) == (target_peer, target_host):
+                raise TransferableExecutionClaimError("reassignment must target a different logical host")
+            next_generation = generation + 1
+            assignment = ExecutionClaimAssignment(
+                expected_epoch + 1,
+                target_peer,
+                target_host,
+                target_implementation,
+                next_generation,
+                failure_evidence_digest,
+            )
+            updated = TransferableExecutionClaim(
+                current.parent_request_digest,
+                current.child_request_digest,
+                current.address_digest,
+                current.operator_id,
+                current.operator_contract_digest,
+                current.computational_ground_fingerprint,
+                current.replay_policy,
+                current.assignments + (assignment,),
+            )
+            claims[claim_id] = updated
+            self._pending_claim_id = claim_id
+            try:
+                return self._publish_locked(claims, generation, predecessor)
+            finally:
+                self._pending_claim_id = None
+
+    def complete(
+        self,
+        claim_id: str,
+        *,
+        expected_epoch: int,
+        owner_peer_id: str,
+        owner_host_id: str,
+        implementation_fingerprint: str,
+        result_digest: str,
+        child_receipt_digest: str,
+    ) -> PortableExecutionClaimBundle:
+        """Mathematics: Commit one result only when the expected assignment epoch still owns the claim at quorum high-water."""
+        _digest(claim_id, "claim id")
+        _positive(expected_epoch, "expected assignment epoch")
+        actor_peer = _label(owner_peer_id, "completion peer id", 128)
+        actor_host = _label(owner_host_id, "completion host id", 128)
+        actor_implementation = _digest(implementation_fingerprint, "completion implementation fingerprint")
+        result = _digest(result_digest, "result digest")
+        receipt = _digest(child_receipt_digest, "child receipt digest")
+        with self._locked():
+            generation, predecessor, snapshot, claims, manifest, proof = self._load_latest_locked()
+            current = claims.get(claim_id)
+            if current is None or manifest is None or proof is None:
+                raise TransferableExecutionClaimError("execution claim does not exist in the quorum ledger")
+            assignment = current.current_assignment
+            if current.status is ExecutionClaimStatus.COMPLETED:
+                if (
+                    assignment.epoch == expected_epoch
+                    and (assignment.owner_peer_id, assignment.owner_host_id, assignment.implementation_fingerprint)
+                    == (actor_peer, actor_host, actor_implementation)
+                    and (current.result_digest, current.child_receipt_digest)
+                    == (result, receipt)
+                ):
+                    return PortableExecutionClaimBundle(current, manifest, proof, snapshot)
+                raise TransferableExecutionClaimError("execution claim is already completed with another epoch or result")
+            if assignment.epoch != expected_epoch:
+                raise TransferableExecutionClaimError("stale assignment epoch cannot complete a rehomed execution claim")
+            if (
+                assignment.owner_peer_id,
+                assignment.owner_host_id,
+                assignment.implementation_fingerprint,
+            ) != (actor_peer, actor_host, actor_implementation):
+                raise TransferableExecutionClaimError("execution result producer does not own the current claim assignment")
+            next_generation = generation + 1
+            updated = TransferableExecutionClaim(
+                current.parent_request_digest,
+                current.child_request_digest,
+                current.address_digest,
+                current.operator_id,
+                current.operator_contract_digest,
+                current.computational_ground_fingerprint,
+                current.replay_policy,
+                current.assignments,
+                ExecutionClaimStatus.COMPLETED,
+                result,
+                receipt,
+                next_generation,
+            )
+            claims[claim_id] = updated
+            self._pending_claim_id = claim_id
+            try:
+                return self._publish_locked(claims, generation, predecessor)
+            finally:
+                self._pending_claim_id = None
+
+    @property
+    def high_water(self) -> tuple[int, str]:
+        """Mathematics: Expose the highest recovery generation and claim-state digest supported by the configured quorum."""
+        try:
+            return self.coordinator.high_water()
+        except RecoveryLineageError as exc:
+            raise TransferableExecutionClaimError(f"cannot read claim authority high-water: {exc}") from exc
