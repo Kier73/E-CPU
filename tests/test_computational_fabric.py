@@ -4116,19 +4116,19 @@ def test_b_64_authenticated_claim_status_refresh_is_scoped_to_the_assigned_peer_
     authority = ComputationalFabricAuthority(endpoint, lease_seconds=30)
     server_errors: list[BaseException] = []
     stop = threading.Event()
+    peer_listener = ComputationalFabricPeerListener(
+        authority,
+        listener,
+        "peer-b",
+        expected_client_dns="peer-b.fabric.test",
+        tls_context=server_context,
+        execution_claim_store=store,
+    )
 
     def serve() -> None:
         """Mathematics: accept only peer-b's DNS-authenticated control stream and serve its bounded status reads."""
         try:
-            server = ComputationalFabricPeerServer.accept_mutual_tls(
-                authority,
-                listener,
-                "peer-b",
-                expected_client_dns="peer-b.fabric.test",
-                tls_context=server_context,
-                execution_claim_store=store,
-            )
-            server.serve_forever(stop)
+            peer_listener.serve_forever(stop)
         except BaseException as exc:
             server_errors.append(exc)
 
@@ -4186,6 +4186,7 @@ def test_b_64_authenticated_claim_status_refresh_is_scoped_to_the_assigned_peer_
         stop.set()
         if client is not None:
             client.close()
+        peer_listener.close()
         listener.close()
         thread.join(timeout=5.0)
     assert not thread.is_alive()
