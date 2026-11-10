@@ -115,7 +115,7 @@ For deterministic execution, the scheduler must define a stable ordering rule. F
 - queue capacity and backpressure;
 - ordering and causality for messages;
 - cancellation and failure transitions;
-- capability checks at every effect boundary.
+- capability checks at each effectful host.
 
 This is logical concurrency through interleaved state transitions. It does not prohibit using operating-system threads or parallel processors as an implementation detail. It means that correctness is defined by the transition relation and its observable traces, not by relying on thread timing.
 
