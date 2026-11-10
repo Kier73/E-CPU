@@ -2,7 +2,7 @@
 
 ## Purpose and reading discipline
 
-This document maps the mathematics already present across E-CPU / MailCPU. It is an index and a composition model, not a replacement for subsystem specifications. E-CPU is organized as a family of typed transition systems whose contracts compose through explicit interfaces. Different state owners, graphs, clocks, and solvers retain their own identities and semantics.
+This document maps the mathematics already present across E-CPU / MailCPU. Read it alongside [COMPUTATIONAL_STATE_SPACE_ARCHITECTURE.md](COMPUTATIONAL_STATE_SPACE_ARCHITECTURE.md), which gives the governing order for describing, interpreting, observing, navigating, realizing, and verifying computation. This map inventories mathematical structures and their implementation relationships; subsystem specifications remain authoritative for their individual contracts. Different state owners, graphs, clocks, and solvers retain their own identities and semantics.
 
 Use four evidence labels when reading the map:
 
@@ -411,24 +411,25 @@ The composition order is important. Routing precedes neither authority nor seman
 When in doubt, the local subsystem specification and its tests are authoritative. This map explains how the mathematics fits together and where each active build connects to its existing contracts.
 
 
-## 14. To Do — ongoing builds
+## 14. In development — ordered architecture work
 
-These are development directions, not fixed exclusions. Each item is an active extension path; move it forward through a typed contract, implementation, independent oracles where useful, and repeatable tests. Update this section as work is completed or decomposed.
+The ordered development model is maintained in [COMPUTATIONAL_STATE_SPACE_ARCHITECTURE.md](COMPUTATIONAL_STATE_SPACE_ARCHITECTURE.md). The following items connect the broader intent to the mathematical work already represented in this map.
 
-- **Global semantic resolution — in progress:** extend the existing computational address and receiver-local resolver into coordinated search over host, state, checkpoint, implementation, and evidence catalogues. Keep resolution proposals separate from local authority and execution.
-- **Authenticated topology discovery — in progress:** extend direct-peer refresh into restart-aware topology reconciliation across larger federations. Add controlled peer federation/gossip only with verifiable origin and revision evidence; a relayed claim must never be mistaken for a direct TLS observation.
-- **Peer-service supervision — in progress:** a bounded parent-owned subprocess supervisor, readiness-token/PID validation, atomic peer-authority snapshot store, and hard-kill/restart/lease-reacquisition test now form the one-client service baseline. Extend this to parent-supervisor recovery, multi-identity listener acceptance, endpoint revision/rotation, multi-peer topology federation, and protected or recovery-lineage-anchored bootstrap state.
-- **Multi-objective navigation — in progress:** evolve deterministic bounded routing into Pareto-aware or policy-lexicographic selection using measured latency, transfer volume, resource cost, verification work, and recovery risk. Calibrate physical energy claims against declared instruments and workloads.
-- **General state-space acceleration — in progress:** broaden sound abstract interpretation and exact witness reconstruction beyond current affine and finite transition subsets; compose symbolic constraints with concrete path replay.
-- **Structural Memory growth — in progress:** add further typed generator families, composable law forms, richer context mappings, and verified revisions while retaining safe admission rather than turning memory descriptions into arbitrary code execution.
-- **Self-revision of transition algebra — in progress:** let the system propose and test revisions to its own admitted transition descriptions, with proof obligations for compatibility, provenance, revision ancestry, and rollback.
-- **Attention as a navigation budget — in progress:** formalize bounded allocation of search/evaluation effort across candidate paths, with measurable information gain, path cost, and stopping criteria.
-- **Distributed effects and multi-peer failure — in progress:** extend recovery beyond the current pure deterministic workload with effect-owner idempotency, durable side-effect journals, requester/anchor failure tests, and increasingly broad peer-failure schedules.
-- **Heterogeneous refinement — in progress:** prove observable correspondence between abstract Ground transitions, native vCPU execution, E-GPU methods, emulators, and remote hosts under explicit contracts and independent semantic oracles.
-- **vCPU and accelerator realization — in progress:** grow the native context adapter toward a complete instruction-execution core and connect the E-GPU operational graph to a faithful emulator or hardware backend, with resource and performance measurements.
-- **Physical/information-theoretic substrates — in progress:** convert promising channel, delay, timing, and routing phenomena into typed state resources only after encoding, observation, noise, contention, expiry, security, and recovery have been experimentally established.
-- **End-to-end origin evidence — in progress:** bind origin identity and semantic operation commitments to portable signed evidence while preserving immediate-neighbor mutual TLS and receiver-local authorization as separate trust layers.
+1. **Ground contracts and description languages — In development:** define a shared versioned structure for domains, representations, state variables, transitions, invariants, observers, cost descriptions, and evidence. Keep domain-specific algebra in its own Ground implementation.
+2. **Input and output translation — In development:** turn external programs, equations, model requests, tensors, signals, and application state into typed Ground descriptions, then render accepted observations back into the requesting representation.
+3. **Ground construction from observation — In development:** integrate controlled probing, predictive-context induction, counterexample refinement, and explicit known/unknown/ambiguous transition records.
+4. **Observation and intention — In development:** describe target states, predicates, output projections, comparisons, and logical-time queries in a reusable observer language.
+5. **Navigation strategy selection — In development:** select direct evaluation, inverse navigation, index construction, formal analysis, or explicit path traversal from the Ground's admitted methods and the requested observation. Allocate attention/search effort through declared cost and information criteria.
+6. **Compositional evidence — In development:** join observation receipts, semantic translations, independent oracles, route witnesses, and state lineage into evidence for complete computational paths.
+7. **Network-wide semantic resolution — In development:** extend the existing computational address and receiver-local resolvers into coordinated search over Grounds, state descriptions, checkpoints, observers, implementations, and evidence catalogues.
+8. **Multi-objective path selection — In development:** use measured latency, transfer volume, resource cost, verification work, and recovery risk without collapsing incomparable dimensions into one unqualified score. Calibrate physical energy estimates against declared instruments and workloads.
+9. **Heterogeneous realization — In development:** establish observable correspondence among abstract Ground transitions, native vCPU execution, E-GPU methods, emulators, and remote hosts through typed contracts and independent semantic oracles.
+10. **General model and tensor computation — In development:** introduce useful tensor and model-operation Grounds, including representation, numeric types, stateful sessions, and workload-specific observations.
+11. **Persistent distributed continuation — In development:** extend checkpoint and recovery-lineage mechanisms to larger federations, peer-service restart, endpoint revision, multi-peer failure, and effect-owner idempotency.
+12. **Self-description and transition-algebra revision — In development:** let E-CPU describe its own admitted computational structures, propose candidate revisions, test them against independent observations, and preserve provenance, compatibility, ancestry, and rollback.
+13. **Physical and information-theoretic substrates — In development:** promote channel, delay, timing, and routing phenomena to typed state resources only after encoding, observation, noise, contention, expiry, security, and recovery have been experimentally established.
 
+Move each item forward through a typed contract, implementation, independent checks where useful, and repeatable tests. Reorder or decompose work when experiments show a better dependency sequence.
 
 ## 15. Computational objects, byte identity, and temporal interpretation
 

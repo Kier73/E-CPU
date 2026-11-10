@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This note records an architectural interpretation of symbolic capacity, finite observation, and time-indexed navigation. It is a design model, not a claim that the current MailCPU implementation already supports arbitrary symbolic spaces or concurrent remote orbit scheduling.
+This note records the relationship between symbolic capacity, finite observation, and time-indexed navigation. It is a design model for the state-space architecture described in [COMPUTATIONAL_STATE_SPACE_ARCHITECTURE.md](COMPUTATIONAL_STATE_SPACE_ARCHITECTURE.md). The executable mechanisms are identified separately from development paths.
 
 The governing principle is:
 
@@ -47,7 +47,7 @@ s_{j+1}=T_{a_j}(s_j),
 a_j\in\mathcal{T},
 \]
 
-subject to the budget and invariants.
+subject to its declared budget and invariants.
 
 Three objects should remain distinct:
 
@@ -75,7 +75,7 @@ Run-length structure illustrates compact representation. For an integer \(N\geq 
 
 The description “\(N\) zeros, then a one” has size \(O(\log N)\) when \(N\) is encoded as an integer, while writing all decimal digits has size \(O(N)\). The compact form describes the value exactly without writing the expanded string.
 
-There is a boundary worth preserving: a finite symbolic language can define an uncountable domain and many useful families of elements, but it cannot provide a distinct finite description for every real number. Some individual reals are not computable or finitely nameable. The system's capacity is therefore expressed through domains, constraints, families, and operators—not by claiming that every member has an executable address.
+An important distinction: a finite symbolic language can define an uncountable domain and many useful families of elements, but it cannot provide a distinct finite description for every real number. Some individual reals are not computable or finitely nameable. The system's capacity is therefore expressed through domains, constraints, families, and operators—not by claiming that every member has an executable address.
 
 ## 4. Time as navigation budget
 
@@ -115,22 +115,22 @@ For deterministic execution, the scheduler must define a stable ordering rule. F
 - queue capacity and backpressure;
 - ordering and causality for messages;
 - cancellation and failure transitions;
-- capability checks at every effect boundary.
+- capability checks at each effectful host.
 
 This is logical concurrency through interleaved state transitions. It does not prohibit using operating-system threads or parallel processors as an implementation detail. It means that correctness is defined by the transition relation and its observable traces, not by relying on thread timing.
 
 ## 6. E-CPU staging
 
-The prudent implementation sequence is:
+The intended E-CPU composition sequence is:
 
-1. **Authenticated transit:** the mutual-TLS adapter now wraps the existing framed MailCPU transport, validates the server hostname and the client's expected DNS SAN, and requires TLS 1.2 or newer. A loopback integration test runs the bounded compute operation across authenticated request and result channels. A deployed separate-host service, certificate lifecycle, and WAN validation remain future work.
-2. **Verified job capsule:** describe a job by its finite program, input state, operation identity, allowed effects, and resource budgets.
-3. **Trajectory evidence:** record accepted transitions, state digests, event identities, and replay receipts. State clearly which information is a digest/index and which is sufficient to reconstruct a state.
-4. **Navigation policy:** select the next job or transition using explicit fairness, cost, and resource rules.
-5. **Orbit scheduler:** allow independent jobs to make progress along their own message paths while preserving a deterministic global transition order where deterministic replay is required.
-6. **Validation:** test equivalence, fairness, backpressure, cancellation, checkpoint/restore, duplicate replay, and authenticated multi-host operation.
+1. **Ground description:** identify the domain, representations, state family, admitted transformations, observers, invariants, cost description, and evidence.
+2. **Input interpretation:** bind the external input and context to a versioned Ground-bound description; preserve ambiguity when meaning is unresolved.
+3. **Observation intent:** state the requested output, predicate, state, transition, comparison, or logical-time coordinate.
+4. **Navigation:** select direct coordinate evaluation, inverse lookup, reusable indexing, formal analysis, or declared path traversal.
+5. **Realization:** resolve an eligible E-CPU host and authenticated communication path; reconstruct local authority before any effectful transition.
+6. **Verification and rendering:** verify the result and its observer receipts, retain the accepted state/lineage, and translate the observation for the requesting system.
 
-The current transit worker implements only the bounded compute capsule and one-request service boundary. The mutual-TLS adapter is implemented and operation-tested on loopback; deployment across separate hosts remains unproven. The orbit scheduler remains a future layer.
+The existing mutual-TLS path is operation-tested on loopback. Separate-host deployment and broader service federation are in development. The orbit scheduler and global semantic resolver are also in development.
 
 ## 7. Design criterion
 
@@ -139,8 +139,10 @@ A successful system should not attempt to store its entire potential state-space
 - a closed, verified description of admissible states and transformations;
 - a finite current state;
 - a navigable transition relation;
-- bounded path evidence;
+- evidence for the finite path;
 - explicit budgets and authority;
 - a way to reconstruct or verify the state required for continuation.
+
+The initial implementation experiment is [examples/state_space_navigation_experiment.py](../examples/state_space_navigation_experiment.py). It compares sequential recurrence, direct contextual observation, and inverse coordinate navigation over one admitted integer-progression Ground. The corresponding test exercises the actual E-CPU observer and navigator APIs.
 
 That is the proposed bridge between symbolic capacity and computation in time.

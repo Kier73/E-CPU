@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document records a design interpretation for E-CPU: a portable operation is a stable semantic relation, while a concrete execution is that relation interpreted under an exact Ground, input state, memory context, observation contract, and admitted host implementation.
+This document specifies one part of the E-CPU state-space architecture: a portable operation is a stable semantic relation, while a concrete realization is that relation interpreted under an exact Ground, input state, memory context, observation contract, and admitted host implementation. The larger description-to-observation model is in [COMPUTATIONAL_STATE_SPACE_ARCHITECTURE.md](COMPUTATIONAL_STATE_SPACE_ARCHITECTURE.md).
 
 The operation is not a VM image. It is not inherently tied to one processor instruction sequence. It is a typed relation that can be realized wherever an eligible host can establish the same declared meaning.
 
@@ -164,27 +164,27 @@ T_{\mathrm{return}}
 
 The "speed of interpretation" hypothesis is therefore precise: when an admitted Ground and Structural Memory law provide a direct representation or inverse coordinate method, the system may avoid unnecessary trajectory expansion or full-state reconstruction. It is not a claim that communication or physical computation takes zero time.
 
-## 6. Current composition and proof boundary
+## 6. Current composition and in-development work
 
 The existing modules establish complementary pieces:
 
-| Capability | Existing implementation | Boundary |
+| Capability | Existing implementation | In development |
 |---|---|---|
-| Stable operation DAG | MailCPU dataflow compiler | Bounded straight-line pure subset |
-| Heterogeneous operation placement | Virtual Layer + Computational Fabric | Receiver must advertise compatible Ground, operator and capabilities |
-| Receiver-local memory resolution | Virtual Layer `VirtualStructuralMemoryRef` | Exact pinned coordinate; receiver read authority required |
-| Authority-only navigation access | Virtual Layer schema-v3 `structural_memory_access="navigate"` | Receiver validates an exact revision and coordinate after Hypervisor ALLOW without materializing that coordinate |
-| Contextual coordinate evaluation | `ContextualOrbitNavigator.locate` | Admitted Structural Memory generator families |
-| Target-value coordinate inversion | `ContextualOrbitNavigator.locate_value`, exposed through `ContextualOrbitLocateValueDispatcher` | Explicitly supported inverses only; bounded receiver descriptor/index profiles; unsupported families refuse |
-| Verified inverse-to-DAG predecessor | `ContextualOrbitDataflowInput` and `MailCPUDataflowCompiler.contextual_orbit_inputs` | Explicit coordinate/value projections; complete request, observer, route and located-coordinate receipt retained without trajectory expansion |
-| State/path navigation | Contextual Process Navigation | Finite declared rule language and bounded BFS |
-| Result integrity | Translation contracts, receipts, DAG commits, contextual orbit route receipt | Digests bind content and provenance; they are not signatures or remote hardware attestation |
+| Stable operation DAG | MailCPU dataflow compiler | Richer control-flow and domain-neutral DAG lowering; current compiler accepts a straight-line pure subset |
+| Heterogeneous operation placement | Virtual Layer + Computational Fabric | Global semantic placement across arbitrary Grounds; current receivers validate their advertised Ground, operator, and capabilities |
+| Receiver-local memory resolution | Virtual Layer VirtualStructuralMemoryRef | General symbolic state-shape and component composition; current reads use exact pinned references and receiver read authority |
+| Authority-only navigation access | Virtual Layer schema-v3 structural_memory_access=navigate | Additional observer and generator access modes; current receiver validates an exact revision and coordinate after Hypervisor ALLOW |
+| Contextual coordinate evaluation | ContextualOrbitNavigator.locate | Additional generator families and composed state projections |
+| Target-value coordinate inversion | ContextualOrbitNavigator.locate_value, exposed through ContextualOrbitLocateValueDispatcher | Additional inverse methods with exact forward verification; other families report that no direct inverse is available |
+| Verified inverse-to-DAG predecessor | ContextualOrbitDataflowInput and MailCPUDataflowCompiler.contextual_orbit_inputs | More general input projections and operation families while retaining request, observer, route, and located-coordinate evidence |
+| State/path navigation | Contextual Process Navigation | Broader symbolic rule languages, observation predicates, and strategy selection |
+| Result integrity | Translation contracts, receipts, DAG commits, contextual orbit route receipt | Composed multi-step verification and stronger origin evidence across multiple realizers |
 
 The operation-native dataflow profile composes symbolic memory references with remote ADD execution and checks receiver read receipts plus an independent scalar operation oracle before committing a frontier. The contextual orbit profile routes a typed target-value query through the existing fabric: the destination validates its local Structural Memory authority, invokes the existing inverse navigator, forward-verifies the candidate, and returns the selected projection and located-coordinate receipt. The explicit navigate access mode prevents the receiver's authorization step from eagerly reading the base coordinate. A three-peer integration test asserts that the relay performs no Structural Memory read and the destination journals only the selected coordinate read.
 
 The next composition is now implemented on top of those capabilities. ContextualOrbitDataflowInput binds the original inverse request to its origin-verified routed receipt and exposes a selected coordinate or value. The v3 compiler emits a distinct predecessor node for each such input and attaches normal dependency edges to consuming instructions. The DAG retains the typed request, selected projection, observer evidence and read receipt; it does not copy intermediate states or replay transitions. When a downstream ADD is routed, the operation-native executor recovers the compact evidence through the DAG ancestry and carries it alongside the scalar operand. The receiving CPU/E-GPU operator revalidates that evidence, and the origin still checks the scalar arithmetic result independently before commit.
 
-These remain bounded operation profiles, not arbitrary predicate search over arbitrary state-spaces. The current bridge accepts coordinate/value projections and routes ADD frontiers; it does not make every opcode remotely executable. Ground, observer, memory-revision, route and read-receipt identities remain bound, and a digest receipt is not treated as a proof of trusted hardware execution.
+These are current operation profiles. General predicate search across arbitrary state-spaces is in development. The current bridge accepts coordinate/value projections and routes ADD frontiers; it does not make every opcode remotely executable. Ground, observer, memory-revision, route and read-receipt identities remain bound, and a digest receipt is not treated as a proof of trusted hardware execution.
 
 ## Design rule
 

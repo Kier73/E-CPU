@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "mailcpu"
 version = "0.1.0"
-description = "A deterministic headless virtual machine whose state, time, and authority are expressed as message transitions over a communication substrate."
+description = "A computational state-space architecture for describing, interpreting, and navigating computation through typed Grounds, observers, and distributed realizers."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
@@ -16,6 +16,10 @@ keywords = [
   "message-passing",
   "capability-security",
   "information-logistics",
+  "state-space-navigation",
+  "computational-ground",
+  "symbolic-computation",
+  "semantic-translation",
 ]
 classifiers = [
   "Development Status :: 3 - Alpha",
