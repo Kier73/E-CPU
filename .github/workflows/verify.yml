@@ -73,6 +73,20 @@ jobs:
           path: vm-fleet-capacity.json
           if-no-files-found: warn
 
+      - name: Measure state-space navigation strategies
+        if: success() && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.14'
+        run: >-
+          python examples/state_space_navigation_experiment.py
+          --output state-space-navigation-experiment.json
+
+      - name: Upload state-space navigation report
+        if: always() && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.14'
+        uses: actions/upload-artifact@v4
+        with:
+          name: state-space-navigation-report
+          path: state-space-navigation-experiment.json
+          if-no-files-found: warn
+
       - name: Measure persistent VGI fabric transfer
         if: success() && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.14'
         run: python -m pytest -q -s tests/test_computational_fabric.py::test_persistent_vgi_session_transfers_through_fabric_and_replays_once
