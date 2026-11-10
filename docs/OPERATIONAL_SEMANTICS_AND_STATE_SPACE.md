@@ -170,15 +170,15 @@ The existing modules establish complementary pieces:
 
 | Capability | Existing implementation | In development |
 |---|---|---|
-| Stable operation DAG | MailCPU dataflow compiler | Straight-line pure subset; richer control-flow compilation is in development |
-| Heterogeneous operation placement | Virtual Layer + Computational Fabric | Receiver must advertise compatible Ground, operator and capabilities |
-| Receiver-local memory resolution | Virtual Layer `VirtualStructuralMemoryRef` | Exact pinned coordinate; receiver read authority required |
-| Authority-only navigation access | Virtual Layer schema-v3 `structural_memory_access="navigate"` | Receiver validates an exact revision and coordinate after Hypervisor ALLOW without materializing that coordinate |
-| Contextual coordinate evaluation | `ContextualOrbitNavigator.locate` | Admitted Structural Memory generator families |
-| Target-value coordinate inversion | `ContextualOrbitNavigator.locate_value`, exposed through `ContextualOrbitLocateValueDispatcher` | Explicitly supported inverses; other families report that no direct inverse is available |
-| Verified inverse-to-DAG predecessor | `ContextualOrbitDataflowInput` and `MailCPUDataflowCompiler.contextual_orbit_inputs` | Explicit coordinate/value projections; complete request, observer, route and located-coordinate receipt retained without trajectory expansion |
-| State/path navigation | Contextual Process Navigation | Finite declared rule language and explicitly budgeted BFS |
-| Result integrity | Translation contracts, receipts, DAG commits, contextual orbit route receipt | Digests bind content and provenance; they are not signatures or remote hardware attestation |
+| Stable operation DAG | MailCPU dataflow compiler | Richer control-flow and domain-neutral DAG lowering; current compiler accepts a straight-line pure subset |
+| Heterogeneous operation placement | Virtual Layer + Computational Fabric | Global semantic placement across arbitrary Grounds; current receivers validate their advertised Ground, operator, and capabilities |
+| Receiver-local memory resolution | Virtual Layer VirtualStructuralMemoryRef | General symbolic state-shape and component composition; current reads use exact pinned references and receiver read authority |
+| Authority-only navigation access | Virtual Layer schema-v3 structural_memory_access=navigate | Additional observer and generator access modes; current receiver validates an exact revision and coordinate after Hypervisor ALLOW |
+| Contextual coordinate evaluation | ContextualOrbitNavigator.locate | Additional generator families and composed state projections |
+| Target-value coordinate inversion | ContextualOrbitNavigator.locate_value, exposed through ContextualOrbitLocateValueDispatcher | Additional inverse methods with exact forward verification; other families report that no direct inverse is available |
+| Verified inverse-to-DAG predecessor | ContextualOrbitDataflowInput and MailCPUDataflowCompiler.contextual_orbit_inputs | More general input projections and operation families while retaining request, observer, route, and located-coordinate evidence |
+| State/path navigation | Contextual Process Navigation | Broader symbolic rule languages, observation predicates, and strategy selection |
+| Result integrity | Translation contracts, receipts, DAG commits, contextual orbit route receipt | Composed multi-step verification and stronger origin evidence across multiple realizers |
 
 The operation-native dataflow profile composes symbolic memory references with remote ADD execution and checks receiver read receipts plus an independent scalar operation oracle before committing a frontier. The contextual orbit profile routes a typed target-value query through the existing fabric: the destination validates its local Structural Memory authority, invokes the existing inverse navigator, forward-verifies the candidate, and returns the selected projection and located-coordinate receipt. The explicit navigate access mode prevents the receiver's authorization step from eagerly reading the base coordinate. A three-peer integration test asserts that the relay performs no Structural Memory read and the destination journals only the selected coordinate read.
 
