@@ -80,6 +80,8 @@ Index of specification documents. Documents use defined terms from `GLOSSARY.md`
 
 **Specification.** `ARCHITECTURE.md`, `SEMANTIC_TRANSLATION.md`, `REPLACEMENT_SPEC.md`, `INTEGRATION_SPEC.md`. Core system design and interfaces.
 
+**Architecture charter.** `COMPUTATIONAL_STATE_SPACE_ARCHITECTURE.md`. Governing E-CPU description-to-observation model, current mathematical components, and ordered in-development work.
+
 **System profile.** `HYPERVISOR_PROFILE.md`. Operational state, equations, receipts, replay, revisions, and integration surfaces of the hypervisor.
 
 **Procedural model.** `BOUNDARY_PROCEDURAL_MODEL.md`. Procedural decision model.
