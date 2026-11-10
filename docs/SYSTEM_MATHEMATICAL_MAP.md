@@ -2,7 +2,7 @@
 
 ## Purpose and reading discipline
 
-This document maps the mathematics already present across E-CPU / MailCPU. It is an index and a composition model, not a replacement for subsystem specifications. E-CPU is organized as a family of typed transition systems whose contracts compose through explicit interfaces. Different state owners, graphs, clocks, and solvers retain their own identities and semantics.
+This document maps the mathematics already present across E-CPU / MailCPU. Read it alongside [COMPUTATIONAL_STATE_SPACE_ARCHITECTURE.md](COMPUTATIONAL_STATE_SPACE_ARCHITECTURE.md), which gives the governing order for describing, interpreting, observing, navigating, realizing, and verifying computation. This map inventories mathematical structures and their implementation relationships; subsystem specifications remain authoritative for their individual contracts. Different state owners, graphs, clocks, and solvers retain their own identities and semantics.
 
 Use four evidence labels when reading the map:
 
@@ -411,9 +411,9 @@ The composition order is important. Routing precedes neither authority nor seman
 When in doubt, the local subsystem specification and its tests are authoritative. This map explains how the mathematics fits together and where each active build connects to its existing contracts.
 
 
-## 14. To Do — ongoing builds
+## 14. In development — ongoing architectural work
 
-These are development directions, not fixed exclusions. Each item is an active extension path; move it forward through a typed contract, implementation, independent oracles where useful, and repeatable tests. Update this section as work is completed or decomposed.
+These are active development paths for increasing the system's ability to describe, interpret, observe, navigate, realize, and verify computation. Move each forward through a typed contract, implementation, independent oracles where useful, and repeatable tests. Update this section as work is completed or decomposed.
 
 - **Global semantic resolution — in progress:** extend the existing computational address and receiver-local resolver into coordinated search over host, state, checkpoint, implementation, and evidence catalogues. Keep resolution proposals separate from local authority and execution.
 - **Authenticated topology discovery — in progress:** extend direct-peer refresh into restart-aware topology reconciliation across larger federations. Add controlled peer federation/gossip only with verifiable origin and revision evidence; a relayed claim must never be mistaken for a direct TLS observation.
