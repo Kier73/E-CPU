@@ -388,3 +388,34 @@ The executable experiment lives in [examples/state_space_navigation_experiment.p
 E-CPU should prioritize capabilities that increase its ability to describe more computational domains through explicit, versioned Grounds; interpret more input and output representations without losing semantic identity; represent larger state-spaces through compact verified laws; navigate to required states without unnecessary expansion; compose observers, translations, and transitions into verifiable paths; select physical realizers without making placement part of computational identity; and preserve accepted state and evidence while computation continues or moves.
 
 Execution, scheduling, storage, communication, and recovery remain essential. They are mechanisms by which the computational state-space architecture operates; they are not the final definition of the system.
+
+
+## 13. Observed orbits, communication paths, and temporal memory
+
+A Ground describes a transform system; its orbit is the sequence or relation of states that the Ground produces at its own admissible coordinates. A sensor stream or communication path can expose observations of that orbit. The received stream is evidence about the Ground, not automatically a proof of its transition law.
+
+E-CPU now has an initial implementation that composes the existing mechanisms into the following path:
+
+\[
+\text{Observation}
+\rightarrow
+\text{Ground construction}
+\rightarrow
+\text{Description selection}
+\rightarrow
+\text{Intention interpretation}
+\rightarrow
+\text{Navigation strategy}
+\rightarrow
+\text{Verified realization}.
+\]
+
+The key separation is between **observed history** and **generative memory**. Observed history preserves source payloads, quorum decisions, event coordinates, and typed source/receiver timing. Generative memory preserves the admitted law, parameters, context, revision, certificate, witnesses, and evidence-bearing reads. The trace digest is embedded in the Ground context, so the generator remains connected to the stream from which it was recovered.
+
+The trace uses an explicit ordinal sample coordinate for the first trace-recovery ABI while retaining the source's logical event time separately. An irregular signal cadence therefore does not silently become a unit-step recurrence.
+
+Latency is treated as a typed temporal vector rather than one global number. Local monotonic duration, wall time, causal order, scheduler progress, event sequence, chemical time, and chronon phase retain their distinct comparison rules. A cross-host causal relation does not manufacture a comparable monotonic duration.
+
+The initial implementation also closes two realization paths: a single admitted Ground can be navigated directly or inversely under the receiver's actual Hypervisor read capability; a selected composed Ground can be navigated at a common scheduler coordinate under a capability scoped to its component revisions and context. Both paths produce evidence-bearing observer results.
+
+See [Observed Orbit Pipeline](OBSERVED_ORBIT_PIPELINE.md) for the API, contracts, latency model, tests, and active development sequence. The current implementation is a deliberate first vertical slice: arbitrary symbolic/tensor induction, multi-hop six-stage realization, and long-lived stream compaction remain in development.

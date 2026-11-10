@@ -2,6 +2,8 @@
 
 ## Purpose
 
+The observed-stream integration records these domains together in an immutable [TemporalPathTrace](OBSERVED_ORBIT_PIPELINE.md#8-latency-is-a-temporal-vector-carried-by-the-path). Its TemporalDelta calculation only subtracts monotonic readings from the same actor and segment, compares scheduler readings only within one scheduler, and retains causal relations across actors.
+
 E-CPU has several distinct temporal coordinates already in use. This specification adds a process-scoped interface for selecting and observing them without collapsing their meanings into one scalar clock.
 
 The temporal context is a clock adapter and causal ledger. It does not change MailCPU instruction semantics, the orbit scheduler's fairness policy, the reliable-channel sequence numbers, or the existing `SystemEpoch`.
