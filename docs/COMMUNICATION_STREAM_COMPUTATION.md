@@ -2,6 +2,8 @@
 
 ## Purpose
 
+The executable [Observed Orbit Pipeline](OBSERVED_ORBIT_PIPELINE.md) now shows one concrete composition: consensus-authorized stream samples become trace evidence, a withheld-verified law becomes a contextual Ground, and the selected Ground description is observed at a typed coordinate through receiver-side Hypervisor authority. The path carries temporal evidence with the samples rather than treating transport delay as the only computation-related quantity.
+
 This document describes a direction for E-CPU: treat communication infrastructure as a navigable computational substrate in which ports, services, queues, translators, memory providers, and execution hosts can participate as typed operational loci.
 
 The underlying abstraction is **host = observer**. Any identifiable locus that observes information or changes information through observation and interaction is an observer-host candidate. An observer may be a receiver, sensor, queue, port, timing probe, memory provider, interpreter, or composite service; it need not be a conventional machine or general-purpose executor. Observation itself may be read-only, or it may change the observer's state, the observed state, or both.

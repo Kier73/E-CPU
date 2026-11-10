@@ -2,6 +2,8 @@
 
 ## Purpose
 
+This abstract model now has an executable observation-to-Ground vertical slice in [OBSERVED_ORBIT_PIPELINE.md](OBSERVED_ORBIT_PIPELINE.md). It keeps the sample's ordinal orbit coordinate distinct from source logical time, binds the observation trace into the Ground context, and realizes direct or inverse reads through the receiver Hypervisor.
+
 This note records the relationship between symbolic capacity, finite observation, and time-indexed navigation. It is a design model for the state-space architecture described in [COMPUTATIONAL_STATE_SPACE_ARCHITECTURE.md](COMPUTATIONAL_STATE_SPACE_ARCHITECTURE.md). The executable mechanisms are identified separately from development paths.
 
 The governing principle is:

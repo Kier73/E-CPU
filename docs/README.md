@@ -82,6 +82,8 @@ Index of specification documents. Documents use defined terms from `GLOSSARY.md`
 
 **Architecture charter.** `COMPUTATIONAL_STATE_SPACE_ARCHITECTURE.md`. Governing E-CPU description-to-observation model, current mathematical components, and ordered in-development work.
 
+**Observed-orbit integration.** `OBSERVED_ORBIT_PIPELINE.md`. Executable composition of observation, Ground construction, description selection, intention, navigation, receiver authority, verified realization, and typed temporal evidence.
+
 **System profile.** `HYPERVISOR_PROFILE.md`. Operational state, equations, receipts, replay, revisions, and integration surfaces of the hypervisor.
 
 **Procedural model.** `BOUNDARY_PROCEDURAL_MODEL.md`. Procedural decision model.

@@ -65,6 +65,8 @@ The answer may be obtained without generating every earlier state. When a direct
 
 Logical time, scheduler ticks, physical duration, and causal order are kept as distinct coordinates. Navigation is about reaching a state or observation in the described computation, not assuming that all forms of time are interchangeable.
 
+A sensor stream or communication path can be treated as an observed orbit of a particular transform system. E-CPU now has an initial implementation that carries quorum-approved samples and temporal provenance into a candidate Ground, then selects, navigates, and verifies the requested observation through receiver-side authority. Its latency is represented as a vector of comparable clock relations, not forced into one duration. See [Observed Orbit Pipeline](docs/OBSERVED_ORBIT_PIPELINE.md).
+
 "In transit" refers to the logical path through which descriptions, state references, observations, transformations, and evidence move. Communication carries the information; observer-hosts on the path interpret it or perform admitted transitions.
 
 ## The computational path
