@@ -94,6 +94,7 @@ class ComputationalFabricPeerListener:
         policy: ReliabilityPolicy | None = None,
         handshake_timeout: float = 5.0,
         idle_sleep: float = 0.002,
+        execution_claim_store: Any | None = None,
     ) -> None:
         if not isinstance(authority, ComputationalFabricAuthority):
             raise ComputationalFabricDiscoveryError(
@@ -113,6 +114,7 @@ class ComputationalFabricPeerListener:
         self.expected_client_dns = expected_client_dns
         self.tls_context = tls_context
         self.policy = policy
+        self.execution_claim_store = execution_claim_store
         self.handshake_timeout = _positive_seconds(
             handshake_timeout,
             "handshake_timeout",
@@ -159,6 +161,7 @@ class ComputationalFabricPeerListener:
                     tls_context=self.tls_context,
                     policy=self.policy,
                     handshake_timeout=self.handshake_timeout,
+                    execution_claim_store=self.execution_claim_store,
                 )
             except Exception:
                 with self._lock:

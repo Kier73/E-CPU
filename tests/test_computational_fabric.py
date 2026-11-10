@@ -3854,6 +3854,7 @@ def test_terminal_host_checks_live_claim_before_hypervisor_and_refuses_stale_tic
         SeedCommitMembership,
     )
     from mailcpu.transferable_execution_claim import (
+        TransferableExecutionClaimError,
         TransferableExecutionClaimStore,
     )
 
@@ -4007,3 +4008,189 @@ def test_terminal_host_checks_live_claim_before_hypervisor_and_refuses_stale_tic
     with pytest.raises(ComputationalFabricForwardingError, match="claim was not admitted"):
         server._execute_terminal(envelope)
     assert calls == ["terminal-claim-sum"]
+
+    class _CurrentClaimStatusClient:
+        """Mathematics: stand in for the already-tested authenticated peer-control client at this terminal boundary."""
+
+        def get_execution_claim_status(self, claim_id: str, *, expected_host_id: str):
+            assert claim_id == ticket.claim.claim_id
+            assert expected_host_id == locus.host_id
+            return store.get(claim_id)
+
+    server.claim_status_clients = {"peer-a": _CurrentClaimStatusClient()}
+    refreshed_execution = server._execute_terminal(envelope)
+    assert refreshed_execution["execution_claim"]["schema"] == "mailcpu.execution-claim-attestation.v2"
+    assert refreshed_execution["execution_claim"]["submitted_ticket_digest"] == ticket.digest
+    assert refreshed_execution["execution_claim"]["admission_ticket_digest"] == store.get(ticket.claim.claim_id).digest
+    assert refreshed_execution["execution_claim"]["state_generation"] == store.high_water[0]
+    assert calls == ["terminal-claim-sum"]
+
+
+def test_b_64_authenticated_claim_status_refresh_is_scoped_to_the_assigned_peer_and_host(tmp_path: Path) -> None:
+    """Mathematics: A receiver can refresh a globally expired ticket only while its mTLS identity remains the current assigned Host."""
+    import hashlib
+
+    from mailcpu.computational_fabric import ComputationalFabricError
+    from mailcpu.recovery_lineage import (
+        RecoveryLineageAuthority,
+        RecoveryLineageCoordinator,
+    )
+    from mailcpu.seed_commit_quorum import SeedCommitMembership
+    from mailcpu.transferable_execution_claim import (
+        TransferableExecutionClaimError,
+        TransferableExecutionClaimStore,
+    )
+
+    certificates = _make_test_certificates(tmp_path)
+    server_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    server_context.minimum_version = ssl.TLSVersion.TLSv1_2
+    server_context.load_cert_chain(
+        str(certificates["client_cert"]),
+        str(certificates["client_key"]),
+    )
+    server_context.load_verify_locations(cafile=str(certificates["ca"]))
+    server_context.verify_mode = ssl.CERT_REQUIRED
+
+    client_context = ssl.create_default_context(
+        ssl.Purpose.SERVER_AUTH,
+        cafile=str(certificates["ca"]),
+    )
+    client_context.minimum_version = ssl.TLSVersion.TLSv1_2
+    client_context.load_cert_chain(
+        str(certificates["server_cert"]),
+        str(certificates["server_key"]),
+    )
+
+    membership = SeedCommitMembership(
+        "fabric-claim-status",
+        1,
+        ("peer-a", "peer-b", "peer-c"),
+        "peer-a",
+        1,
+        "0" * 64,
+    )
+    authorities = {
+        member: RecoveryLineageAuthority(
+            membership,
+            member,
+            tmp_path / f"{member}.claim-status-journal.jsonl",
+        )
+        for member in membership.member_ids
+    }
+    coordinator = RecoveryLineageCoordinator(membership, authorities)
+    store = TransferableExecutionClaimStore(tmp_path / "claim-status-state", coordinator)
+
+    digest = lambda value: hashlib.sha256(value.encode("utf-8")).hexdigest()
+    parent_digest = digest("claim-status-parent")
+    child_digest = digest("claim-status-child")
+    address_digest = digest("claim-status-address")
+    ticket = store.create(
+        parent_request_digest=parent_digest,
+        child_request_digest=child_digest,
+        address_digest=address_digest,
+        operator_spec=_spec(),
+        computational_ground_fingerprint=GROUND_FP,
+        owner_peer_id="peer-b",
+        owner_host_id="logical-host-b",
+        implementation_fingerprint=IMPLEMENTATION_FP,
+    )
+    # A different claim advances the single shared root and expires the
+    # portable ticket even though the original assignment remains unchanged.
+    store.create(
+        parent_request_digest=parent_digest,
+        child_request_digest=digest("claim-status-unrelated-child"),
+        address_digest=digest("claim-status-unrelated-address"),
+        operator_spec=_spec(),
+        computational_ground_fingerprint=GROUND_FP,
+        owner_peer_id="peer-c",
+        owner_host_id="logical-host-c",
+        implementation_fingerprint=digest("implementation-c"),
+    )
+    with pytest.raises(TransferableExecutionClaimError, match="not current"):
+        ticket.verify_current(coordinator)
+
+    listener = SocketTransport.listen("127.0.0.1", 0)
+    endpoint = ComputationalPeerEndpoint(
+        "peer-a",
+        "peer-a.fabric.test",
+        "127.0.0.1",
+        listener.getsockname()[1],
+    )
+    authority = ComputationalFabricAuthority(endpoint, lease_seconds=30)
+    server_errors: list[BaseException] = []
+    stop = threading.Event()
+    peer_listener = ComputationalFabricPeerListener(
+        authority,
+        listener,
+        "peer-b",
+        expected_client_dns="peer-b.fabric.test",
+        tls_context=server_context,
+        execution_claim_store=store,
+    )
+
+    def serve() -> None:
+        """Mathematics: accept only peer-b's DNS-authenticated control stream and serve its bounded status reads."""
+        try:
+            peer_listener.serve_forever(stop)
+        except BaseException as exc:
+            server_errors.append(exc)
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    client: ComputationalFabricPeerClient | None = None
+    try:
+        client = ComputationalFabricPeerClient.connect_mutual_tls(
+            "peer-b",
+            endpoint,
+            client_context,
+            timeout=3.0,
+        )
+        refreshed = client.get_execution_claim_status(
+            ticket.claim.claim_id,
+            expected_host_id="logical-host-b",
+        )
+        assert refreshed.claim.claim_id == ticket.claim.claim_id
+        assert refreshed.claim.current_assignment == ticket.claim.current_assignment
+        assert refreshed.manifest.generation == ticket.manifest.generation + 1
+        refreshed.verify_for_target(
+            coordinator,
+            parent_request_digest=parent_digest,
+            child_request_digest=child_digest,
+            address_digest=address_digest,
+            operator_spec=_spec(),
+            computational_ground_fingerprint=GROUND_FP,
+            owner_peer_id="peer-b",
+            owner_host_id="logical-host-b",
+            implementation_fingerprint=IMPLEMENTATION_FP,
+        )
+
+        with pytest.raises(ComputationalFabricError, match="execution claim status refused"):
+            client.get_execution_claim_status(
+                ticket.claim.claim_id,
+                expected_host_id="logical-host-other",
+            )
+
+        # Reassignment changes the winner, so the old authenticated peer can
+        # no longer retrieve even the refreshed current ticket.
+        store.reassign(
+            ticket.claim.claim_id,
+            expected_epoch=1,
+            owner_peer_id="peer-c",
+            owner_host_id="logical-host-c",
+            implementation_fingerprint=digest("implementation-c"),
+            failure_evidence_digest=digest("path-loss"),
+        )
+        with pytest.raises(ComputationalFabricError, match="execution claim status refused"):
+            client.get_execution_claim_status(
+                ticket.claim.claim_id,
+                expected_host_id="logical-host-b",
+            )
+    finally:
+        stop.set()
+        if client is not None:
+            client.close()
+        peer_listener.close()
+        listener.close()
+        thread.join(timeout=5.0)
+    assert not thread.is_alive()
+    assert not server_errors, repr(server_errors)

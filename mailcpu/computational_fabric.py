@@ -27,6 +27,12 @@ from .mtls_transport import accept_mutual_tls, connect_mutual_tls
 from .reliability import ReliableChannel, ReliabilityPolicy
 from .socket_transport import SocketTransport
 from .virtual_layer import OperatorSpec, VirtualLayerError, VirtualLayerWorkload
+from .transferable_execution_claim import (
+    ExecutionClaimStatus,
+    PortableExecutionClaimBundle,
+    TransferableExecutionClaimError,
+    TransferableExecutionClaimStore,
+)
 
 
 COMPUTATIONAL_DIRECTORY_REQUEST_CHANNEL = "computational.directory.request"
@@ -34,6 +40,8 @@ COMPUTATIONAL_DIRECTORY_RESPONSE_CHANNEL = "computational.directory.response"
 COMPUTATIONAL_DIRECTORY_REQUEST_KIND = "mailcpu.computational.directory.snapshot.request"
 COMPUTATIONAL_DIRECTORY_SNAPSHOT_KIND = "mailcpu.computational.directory.snapshot"
 COMPUTATIONAL_DIRECTORY_ERROR_KIND = "mailcpu.computational.directory.error"
+COMPUTATIONAL_EXECUTION_CLAIM_STATUS_REQUEST_KIND = "mailcpu.computational.execution-claim-status.request"
+COMPUTATIONAL_EXECUTION_CLAIM_STATUS_RESPONSE_KIND = "mailcpu.computational.execution-claim-status"
 
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _PEER_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
@@ -1113,8 +1121,9 @@ class ComputationalFabricPeerServer:
         *,
         expected_client_dns: str,
         policy: ReliabilityPolicy | None = None,
+        execution_claim_store: TransferableExecutionClaimStore | None = None,
     ) -> None:
-        """Mathematics: Bind reciprocal reliable channels to the one TLS-authenticated client and peer-owned directory authority."""
+        """Mathematics: Bind reciprocal reliable channels and narrowly scoped claim reads to one TLS-authenticated peer."""
         if not isinstance(authority, ComputationalFabricAuthority):
             raise ComputationalFabricError("peer server requires a ComputationalFabricAuthority")
         if not isinstance(transport, SocketTransport):
@@ -1127,9 +1136,16 @@ class ComputationalFabricPeerServer:
             or not _certificate_has_dns(transport, expected_dns)
         ):
             raise ComputationalFabricError("peer server stream is not bound to the configured authenticated client")
+        if execution_claim_store is not None and not isinstance(
+            execution_claim_store, TransferableExecutionClaimStore
+        ):
+            raise ComputationalFabricError(
+                "execution_claim_store must be a TransferableExecutionClaimStore or None"
+            )
         self.authority = authority
         self.transport = transport
         self.client_peer_id = client_id
+        self.execution_claim_store = execution_claim_store
         selected_policy = policy or ReliabilityPolicy(lease_ticks=3, max_attempts=16, window_size=8)
         self.inbound = ReliableChannel(
             transport,
@@ -1169,8 +1185,9 @@ class ComputationalFabricPeerServer:
         tls_context: ssl.SSLContext,
         policy: ReliabilityPolicy | None = None,
         handshake_timeout: float = 5.0,
+        execution_claim_store: TransferableExecutionClaimStore | None = None,
     ) -> "ComputationalFabricPeerServer":
-        """Mathematics: Accept a directory client only after CA, client-certificate and exact DNS-SAN validation."""
+        """Mathematics: Accept a directory/claim-status client only after CA, client-certificate and exact DNS-SAN validation."""
         if not isinstance(authority, ComputationalFabricAuthority):
             raise ComputationalFabricError("accept requires a ComputationalFabricAuthority")
         transport = accept_mutual_tls(
@@ -1188,46 +1205,41 @@ class ComputationalFabricPeerServer:
                 client_peer_id,
                 expected_client_dns=expected_client_dns,
                 policy=policy,
+                execution_claim_store=execution_claim_store,
             )
         except Exception:
             transport.close()
             raise
 
     def service_once(self) -> bool:
-        """Mathematics: Commit one snapshot request into the reliable response channel before acknowledging its inbound sequence."""
+        """Mathematics: Serve bounded directory and scoped claim-status requests before acknowledging each request."""
         self.outbound.process_ack()
         if self.outbound.available_window < 1:
             self._tick_outbound_if_due()
             return False
         handled = False
 
+        def error_response(request_id: str, detail: str) -> dict[str, Any]:
+            """Mathematics: Bind every refused control request to this peer and its correlated request identifier."""
+            return {
+                "kind": COMPUTATIONAL_DIRECTORY_ERROR_KIND,
+                "request_id": request_id,
+                "peer_id": self.authority.endpoint.peer_id,
+                "error": detail,
+            }
+
         def apply(_sequence: int, payload: Any) -> None:
-            """Mathematics: Encode one validated snapshot request into a reliable response before inbound acknowledgement."""
+            """Mathematics: Publish one read-only control response before consuming its reliable inbound sequence."""
             nonlocal handled
             handled = True
-            if not isinstance(payload, Mapping) or set(payload) != {"kind", "request_id"}:
-                response = {
-                    "kind": COMPUTATIONAL_DIRECTORY_ERROR_KIND,
-                    "request_id": "",
-                    "peer_id": self.authority.endpoint.peer_id,
-                    "error": "directory request fields are malformed",
-                }
-            elif payload.get("kind") != COMPUTATIONAL_DIRECTORY_REQUEST_KIND:
-                response = {
-                    "kind": COMPUTATIONAL_DIRECTORY_ERROR_KIND,
-                    "request_id": payload.get("request_id", ""),
-                    "peer_id": self.authority.endpoint.peer_id,
-                    "error": "directory request kind is unsupported",
-                }
-            else:
-                request_id = payload.get("request_id")
-                if not isinstance(request_id, str) or not request_id or len(request_id) > 256:
-                    response = {
-                        "kind": COMPUTATIONAL_DIRECTORY_ERROR_KIND,
-                        "request_id": "",
-                        "peer_id": self.authority.endpoint.peer_id,
-                        "error": "directory request correlation identity is invalid",
-                    }
+            request_id = payload.get("request_id", "") if isinstance(payload, Mapping) else ""
+            if not isinstance(payload, Mapping):
+                response = error_response("", "directory control request must be a mapping")
+            elif not isinstance(request_id, str) or not request_id or len(request_id) > 256:
+                response = error_response("", "directory control request correlation identity is invalid")
+            elif payload.get("kind") == COMPUTATIONAL_DIRECTORY_REQUEST_KIND:
+                if set(payload) != {"kind", "request_id"}:
+                    response = error_response(request_id, "directory snapshot request fields are malformed")
                 else:
                     response = {
                         "kind": COMPUTATIONAL_DIRECTORY_SNAPSHOT_KIND,
@@ -1235,6 +1247,44 @@ class ComputationalFabricPeerServer:
                         "peer_id": self.authority.endpoint.peer_id,
                         "snapshot": self.authority.snapshot().to_dict(),
                     }
+            elif payload.get("kind") == COMPUTATIONAL_EXECUTION_CLAIM_STATUS_REQUEST_KIND:
+                expected_fields = {"kind", "request_id", "claim_id", "expected_host_id"}
+                if set(payload) != expected_fields:
+                    response = error_response(request_id, "execution claim status request fields are malformed")
+                elif self.execution_claim_store is None:
+                    response = error_response(request_id, "execution claim status is not enabled on this peer")
+                else:
+                    claim_id = payload.get("claim_id")
+                    expected_host_id = payload.get("expected_host_id")
+                    if not isinstance(claim_id, str) or _SHA256.fullmatch(claim_id) is None:
+                        response = error_response(request_id, "execution claim status identifier is malformed")
+                    else:
+                        try:
+                            host_id = _peer_id(expected_host_id, "expected_host_id")
+                            bundle = self.execution_claim_store.get(claim_id)
+                            claim = bundle.claim
+                            assignment = claim.current_assignment
+                            if (
+                                claim.status is not ExecutionClaimStatus.ASSIGNED
+                                or assignment.owner_peer_id != self.client_peer_id
+                                or assignment.owner_host_id != host_id
+                            ):
+                                raise TransferableExecutionClaimError(
+                                    "claim is not assigned to this authenticated peer and logical Host"
+                                )
+                            response = {
+                                "kind": COMPUTATIONAL_EXECUTION_CLAIM_STATUS_RESPONSE_KIND,
+                                "request_id": request_id,
+                                "peer_id": self.authority.endpoint.peer_id,
+                                "ticket": bundle.to_dict(),
+                            }
+                        except (TransferableExecutionClaimError, ValueError) as exc:
+                            response = error_response(
+                                request_id,
+                                f"execution claim status refused: {exc}",
+                            )
+            else:
+                response = error_response(request_id, "directory control request kind is unsupported")
             self.outbound.send(response)
 
         received = self.inbound.receive(commit=apply)
@@ -1296,6 +1346,7 @@ class ComputationalFabricPeerClient:
         self.transport = transport
         self.timeout = float(timeout)
         self._sequence = 0
+        self._rpc_lock = threading.RLock()
         selected_policy = policy or ReliabilityPolicy(lease_ticks=3, max_attempts=16, window_size=8)
         self.requests = ReliableChannel(
             transport,
@@ -1349,61 +1400,103 @@ class ComputationalFabricPeerClient:
             transport.close()
             raise
 
-    def _exchange_snapshot(self) -> ComputationalPeerSnapshot:
-        """Mathematics: Obtain one correlated revisioned snapshot before a finite monotonic deadline."""
-        self._sequence += 1
-        request_id = f"{self.local_peer_id}:{self._sequence}"
-        try:
-            self.requests.process_ack()
-            self.requests.send({
-                "kind": COMPUTATIONAL_DIRECTORY_REQUEST_KIND,
-                "request_id": request_id,
-            })
-        except Exception as exc:
-            raise ComputationalFabricError(f"cannot send directory snapshot request: {exc}") from exc
-
-        deadline = time.monotonic() + self.timeout
-        last_tick = time.monotonic()
-        while time.monotonic() < deadline:
+    def _exchange(self, payload: Mapping[str, Any], expected_kind: str) -> dict[str, Any]:
+        """Mathematics: Serialize one correlated reliable control RPC and consume only its peer-bound response."""
+        with self._rpc_lock:
+            self._sequence += 1
+            request_id = f"{self.local_peer_id}:{self._sequence}"
+            message = dict(payload)
+            message["request_id"] = request_id
             try:
                 self.requests.process_ack()
-                now = time.monotonic()
-                if now - last_tick >= 0.03:
-                    self.requests.tick()
-                    last_tick = now
-                received = self.responses.receive()
+                self.requests.send(message)
             except Exception as exc:
-                raise ComputationalFabricError(f"directory peer stream failed: {exc}") from exc
-            if received is not None:
-                _sequence, response = received
-                if not isinstance(response, Mapping):
-                    raise ComputationalFabricError("directory peer response must be a mapping")
-                if (
-                    response.get("request_id") != request_id
-                    or response.get("peer_id") != self.remote_endpoint.peer_id
-                ):
-                    raise ComputationalFabricError("directory response correlation or peer identity mismatch")
-                if response.get("kind") == COMPUTATIONAL_DIRECTORY_ERROR_KIND:
-                    raise ComputationalFabricError(
-                        str(response.get("error", "remote directory peer refused request"))
-                    )
-                if response.get("kind") != COMPUTATIONAL_DIRECTORY_SNAPSHOT_KIND:
-                    raise ComputationalFabricError("directory response kind is unsupported")
-                snapshot = ComputationalPeerSnapshot.from_dict(response.get("snapshot"))
-                # The remote_endpoint is the authenticated discovery/control
-                # socket. The peer snapshot may advertise a distinct forwarding
-                # socket; bind that advertisement to the same logical peer and
-                # TLS DNS identity, not to the control-plane port.
-                if (
-                    snapshot.endpoint.peer_id != self.remote_endpoint.peer_id
-                    or snapshot.endpoint.tls_server_name != self.remote_endpoint.tls_server_name
-                ):
-                    raise ComputationalFabricError(
-                        "directory snapshot identity differs from authenticated discovery peer"
-                    )
-                return snapshot
-            time.sleep(0.002)
-        raise ComputationalFabricError("directory peer did not answer before the RPC deadline")
+                raise ComputationalFabricError(f"cannot send computational peer control request: {exc}") from exc
+
+            deadline = time.monotonic() + self.timeout
+            last_tick = time.monotonic()
+            while time.monotonic() < deadline:
+                try:
+                    self.requests.process_ack()
+                    now = time.monotonic()
+                    if now - last_tick >= 0.03:
+                        self.requests.tick()
+                        last_tick = now
+                    received = self.responses.receive()
+                except Exception as exc:
+                    raise ComputationalFabricError(f"computational peer control stream failed: {exc}") from exc
+                if received is not None:
+                    _sequence, response = received
+                    if not isinstance(response, Mapping):
+                        raise ComputationalFabricError("computational peer control response must be a mapping")
+                    if (
+                        response.get("request_id") != request_id
+                        or response.get("peer_id") != self.remote_endpoint.peer_id
+                    ):
+                        raise ComputationalFabricError("computational peer control response correlation or identity mismatch")
+                    if response.get("kind") == COMPUTATIONAL_DIRECTORY_ERROR_KIND:
+                        raise ComputationalFabricError(
+                            str(response.get("error", "remote computational peer refused the request"))
+                        )
+                    if response.get("kind") != expected_kind:
+                        raise ComputationalFabricError("computational peer control response kind is unsupported")
+                    return dict(response)
+                time.sleep(0.002)
+            raise ComputationalFabricError("computational peer did not answer before the RPC deadline")
+
+    def _exchange_snapshot(self) -> ComputationalPeerSnapshot:
+        """Mathematics: Obtain one correlated revisioned snapshot before a finite monotonic deadline."""
+        response = self._exchange(
+            {"kind": COMPUTATIONAL_DIRECTORY_REQUEST_KIND},
+            COMPUTATIONAL_DIRECTORY_SNAPSHOT_KIND,
+        )
+        snapshot = ComputationalPeerSnapshot.from_dict(response.get("snapshot"))
+        # The remote_endpoint is the authenticated discovery/control socket.
+        # The peer snapshot may advertise a distinct forwarding socket; bind
+        # that advertisement to the same logical peer and TLS DNS identity.
+        if (
+            snapshot.endpoint.peer_id != self.remote_endpoint.peer_id
+            or snapshot.endpoint.tls_server_name != self.remote_endpoint.tls_server_name
+        ):
+            raise ComputationalFabricError(
+                "directory snapshot identity differs from authenticated discovery peer"
+            )
+        return snapshot
+
+    def get_execution_claim_status(
+        self,
+        claim_id: str,
+        *,
+        expected_host_id: str,
+    ) -> PortableExecutionClaimBundle:
+        """Mathematics: Fetch a fresh current ticket only when the owner confirms this authenticated peer/Host still owns the claim."""
+        if not isinstance(claim_id, str) or _SHA256.fullmatch(claim_id) is None:
+            raise ComputationalFabricError("execution claim status identifier must be a SHA-256 digest")
+        host_id = _peer_id(expected_host_id, "expected_host_id")
+        response = self._exchange(
+            {
+                "kind": COMPUTATIONAL_EXECUTION_CLAIM_STATUS_REQUEST_KIND,
+                "claim_id": claim_id,
+                "expected_host_id": host_id,
+            },
+            COMPUTATIONAL_EXECUTION_CLAIM_STATUS_RESPONSE_KIND,
+        )
+        try:
+            bundle = PortableExecutionClaimBundle.from_dict(response.get("ticket"))
+        except (TransferableExecutionClaimError, TypeError, ValueError) as exc:
+            raise ComputationalFabricError(f"remote peer returned an invalid execution claim ticket: {exc}") from exc
+        claim = bundle.claim
+        assignment = claim.current_assignment
+        if (
+            claim.claim_id != claim_id
+            or claim.status is not ExecutionClaimStatus.ASSIGNED
+            or assignment.owner_peer_id != self.local_peer_id
+            or assignment.owner_host_id != host_id
+        ):
+            raise ComputationalFabricError(
+                "execution claim status response is not assigned to this authenticated peer and logical Host"
+            )
+        return bundle
 
     def refresh(self, directory: ComputationalFabricDirectory) -> bool:
         """Mathematics: Merge a fetched peer snapshot only under the directly verified TLS peer and DNS identities."""

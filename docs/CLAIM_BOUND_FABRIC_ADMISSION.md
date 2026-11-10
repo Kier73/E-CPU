@@ -29,6 +29,10 @@ The ticket is bounded by the claim protocol's 128 KiB transport limit and contai
 
 A claim-bound terminal receiver must be configured with its own live `RecoveryLineageCoordinator`, normally a `DistributedRecoveryLineageCoordinator` using the existing mutual-TLS authority service. This live authority is a runtime dependency and is deliberately not serialized into a forwarding checkpoint; restore callers must rebind it.
 
+An execution Host may also be configured with a direct mutual-TLS `ComputationalFabricPeerClient` to the claim owner, supplied in `ComputationalFabricForwardingServer.claim_status_clients` under the origin peer ID. The owner-side `ComputationalFabricPeerServer` or restart-aware `ComputationalFabricPeerListener` receives the durable `TransferableExecutionClaimStore` through `execution_claim_store`. This is a peer-control RPC over the existing authenticated peer service, not a relay operation or a second consensus path.
+
+The status request identifies the claim and expected logical Host. The owner returns a fresh ticket only when the TLS-authenticated requester peer and requested Host exactly match the claim's current `ASSIGNED` owner. Completed/unknown claims, wrong Hosts, reassigned owners and unavailable stores are refused. The store's normal `get()` recovery path may finish replay of an already-persisted pending generation before returning the latest state; the status request itself cannot create a new assignment or reassign a claim. The client checks request correlation, remote peer identity, claim ID, status and local peer/Host assignment. The terminal verifies the returned ticket against its own live `RecoveryLineageCoordinator` and requires the refreshed assignment to equal the submitted assignment before continuing. Refresh does not follow reassignment; the origin must replan and issue a new child assignment.
+
 Before the receiver's ordinary address resolution and `ComputationalExecutionAdmissionCoordinator.execute()` handoff, the terminal server:
 
 1. verifies the ticket's Merkle path and requires its `RecoveryStateManifest` to remain the live fixed-membership quorum high-water;
@@ -37,7 +41,7 @@ Before the receiver's ordinary address resolution and `ComputationalExecutionAdm
 4. checks Computational Ground, local peer, logical Host and pinned implementation against the current assignment; and
 5. only then continues through the regular receiver-local `ComputationalAddressResolver`, Virtual Layer, capability reconstruction and Hypervisor admission/effect path.
 
-The terminal receipt includes an `execution-claim-attestation.v1` record with the claim ID, assignment epoch, ticket digest, state generation and manifest digest. The origin compares every field to the exact ticket it sent.
+Without a configured status client, the terminal emits `execution-claim-attestation.v1` for the submitted ticket, and stale tickets continue to fail closed. With authenticated refresh configured, it emits `execution-claim-attestation.v2`, binding the claim ID/epoch, submitted ticket digest, refreshed admission-ticket digest, state generation and manifest digest. These fields identify the terminal's admission input; the attestation digest is not itself a signature or an independent proof of terminal state.
 
 ## Origin-side freshness and result completion
 
@@ -71,7 +75,7 @@ The guarantee remains single-winner semantic result acceptance for deterministic
 | A — Claim authority | Stable semantic identity, quorum Merkle root, assignment epochs, batch create/refresh/complete | Implemented |
 | B — Fabric admission | Envelope v2, terminal live check, origin freshness, typed child attestation | Implemented in this increment |
 | C — Rehome orchestration | Classify bounded path-loss failures, batch-reassign incomplete claims, resolve distinct Hosts, checkpoint intents and retry | Implemented for pure binary frontiers |
-| D — Process recovery | Rebind live distributed claim authorities on each Host and reconcile the claim root with forwarding checkpoint restore | Partial; coordinator is caller-rebound |
+| D — Process recovery | Rebind live distributed claim authorities and authenticated status clients on each Host; reconcile claim roots with forwarding checkpoint restore | Authenticated status refresh is implemented on the existing mutual-TLS peer-control service; runtime coordinator/client rebinding remains caller-configured |
 | E — Adversarial verification | Concurrent rehome/completion races, quorum loss, root rollback, stale receipt, route drift and interruption at each completion cut | Continue expanding |
 
 The work tracks share one `TransferableExecutionClaimStore` and the existing fixed-membership quorum. They must not add independent result-acceptance authorities.
@@ -83,5 +87,6 @@ The work tracks share one `TransferableExecutionClaimStore` and the existing fix
 - B-61: Child tickets are batched before dispatch, forwarded through envelope v2, validated by the terminal Host and rechecked by the origin after response.
 - B-62: One parent frontier's child claims complete in one all-or-none quorum generation; the composite preserves assignment and completion proofs.
 - B-63: Failed pure children may be rehomed only after route re-resolution and a pre-persisted intent; all changed epochs commit in one quorum generation, pending sibling tickets refresh under the new root, and checkpoint replay preserves the exact semantic child and original DAG commit boundary.
+- B-64: Execution Hosts refresh expired tickets only through direct mutual TLS; the owner scopes each response to the still-assigned peer/Host, and the receiver verifies the refreshed ticket against its own quorum coordinator without following reassignment.
 
 See [INVARIANTS.md](INVARIANTS.md) for the executable registry.

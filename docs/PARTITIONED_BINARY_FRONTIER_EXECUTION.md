@@ -88,7 +88,9 @@ This implementation supports dispatch, typed child receipts, composite receipts,
 - make a content digest equivalent to a signature or hardware attestation; or
 - prove physical accelerator speedup or end-to-end WAN performance.
 
-The next meaningful frontier is authenticated claim-status access on each execution Host and deeper adversarial verification of concurrent rehome/completion races, quorum loss and receiver restart. Generalizing resource advertisements beyond the supported binary CPU/E-GPU operator family follows once those recovery cuts are exercised.
+Authenticated claim-status refresh is now implemented as a direct mutual-TLS peer-control status RPC. The owner's normal store-read path may replay a previously persisted pending quorum generation, but does not create a new assignment. A claim owner returns a fresh ticket only to the currently assigned peer and logical Host; the execution Host verifies it against its own live quorum coordinator and refuses any refreshed assignment change. See [CLAIM_BOUND_FABRIC_ADMISSION.md](CLAIM_BOUND_FABRIC_ADMISSION.md) for runtime wiring and the attestation boundary.
+
+The next meaningful frontier is adversarial verification of concurrent rehome/completion races, status reads concurrent with quorum transitions, quorum loss, and receiver/relay restart at each persisted checkpoint cut. Generalizing resource advertisements beyond the supported binary CPU/E-GPU operator family follows once those recovery cuts are exercised.
 
 ## Invariants
 

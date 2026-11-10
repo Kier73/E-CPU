@@ -94,7 +94,11 @@ Claim-bound child receipts preserve the original assignment ticket and terminal 
 
 ### Remaining recovery boundary
 
-Automatic pure-child rehome is implemented in the partitioned dispatcher. The remaining distributed boundary is authenticated claim-status access on each execution Host and adversarial testing of concurrent rehome/completion, authority quorum loss, and receiver/relay restart during each persisted checkpoint cut. The existing `DistributedRecoveryLineageCoordinator` and mutual-TLS authority service provide the underlying quorum path; each Host must still be provisioned with the same live fixed-membership coordinator. A portable ticket or local cache alone is never current authority.
+Automatic pure-child rehome is implemented in the partitioned dispatcher. Authenticated claim-status refresh is now available over the existing direct mutual-TLS computational peer-control channel. The owner peer's `ComputationalFabricPeerServer`/`ComputationalFabricPeerListener` can be given the durable `TransferableExecutionClaimStore`; an authenticated peer client requests a ticket by claim ID and expected logical Host. The owner returns it only while that exact peer and Host remain the current `ASSIGNED` owner. The store's normal `get()` path may replay an already-persisted pending generation before returning; it does not create a new assignment. The execution Host verifies the returned ticket against its own live `DistributedRecoveryLineageCoordinator` and refuses any refreshed assignment that differs from the assignment carried by the original computation. The forwarding relay does not answer status requests, and no second result authority is introduced.
+
+The runtime wiring is explicit: configure the owner peer listener with `execution_claim_store`, and configure each execution forwarding server with a direct `claim_status_clients` entry for the claim-origin peer. After process restore, callers must rebind the live coordinator and peer clients; checkpoints do not persist TLS streams or runtime authority objects.
+
+The remaining work is adversarial testing of concurrent rehome/completion, status reads racing claim transitions, authority quorum loss, and receiver/relay restart during each persisted checkpoint cut. A portable ticket or local cache alone is never current authority.
 
 The `DistributedRecoveryLineageCoordinator` and existing mutual-TLS authority service provide the multi-process authority path. Each participating Host must bind its own live coordinator to the same configured fixed membership; no local cache or caller-supplied ticket substitutes for current quorum status.
 
@@ -107,7 +111,7 @@ The tracks now converge on one claim authority:
 | A — Claim authority | Portable claim schema, immutable generation store, Merkle ticket, batch assignment/reassignment/completion and quorum fencing | Implemented |
 | B — Fabric admission | Envelope v2, terminal verification, typed child receipt attestation, origin freshness check and parent batch completion | Implemented |
 | C — Rehome orchestration | Detect bounded path-loss failures, persist intent, batch-advance epochs, choose distinct Hosts, retry and preserve the parent receipt | Implemented for pure binary frontiers |
-| D — Recovery persistence | Restore forwarding servers with live claim authorities and reconcile assignment/completion tickets across process restarts | Coordinator is rebound by the caller; authenticated claim-status endpoint remains follow-on |
+| D — Recovery persistence | Restore forwarding servers with live claim authorities and reconcile assignment/completion tickets across process restarts | Authenticated status refresh is implemented over direct mutual TLS; runtime coordinator/client rebinding remains caller-configured |
 | E — Adversarial proof | Race old/new completion, quorum loss, stale proof, changed workload, route drift and interrupted transitions | Continue with current implementation |
 
 The tracks still share one TransferableExecutionClaimStore and the existing fixed-membership quorum. They must not create independent result-winner ledgers.
@@ -116,5 +120,6 @@ The tracks still share one TransferableExecutionClaimStore and the existing fixe
 
 - B-59 binds each portable claim to its exact semantic child identity, typed deterministic-pure operator contract, full assignment history, quorum-anchored state-root envelope and Merkle membership proof. The owner-side snapshot is recomputed against the root at restore; the portable ticket is compact and carries no registry snapshot. A ticket is valid only at its exact shared-ledger high-water; any later claim-state transition requires a fresh ticket.
 - B-60 fences old assignment epochs at the live quorum high-water and admits completion only from the current assigned Host/implementation, with one terminal result/receipt commitment.
+- B-64 limits ticket refresh to the current authenticated peer/Host assignment; the execution Host verifies the fresh owner-issued ticket against its own live quorum coordinator before admission.
 
 See [INVARIANTS.md](INVARIANTS.md) for the executable registry.

@@ -109,7 +109,7 @@ class BinaryFrontierChildReceipt:
                 raise OperationNativeDataflowError("child receipt claim evidence must be a typed PortableExecutionClaimBundle")
             claim = self.claim_bundle.claim
             assignment = claim.current_assignment
-            expected_attestation = {
+            expected_attestation_v1 = {
                 "schema": "mailcpu.execution-claim-attestation.v1",
                 "claim_id": claim.claim_id,
                 "assignment_epoch": assignment.epoch,
@@ -117,6 +117,36 @@ class BinaryFrontierChildReceipt:
                 "state_generation": self.claim_bundle.manifest.generation,
                 "state_manifest_digest": self.claim_bundle.manifest.digest,
             }
+            actual_attestation = dict(receipt.execution_claim or {})
+            attestation_valid = actual_attestation == expected_attestation_v1
+            if actual_attestation.get("schema") == "mailcpu.execution-claim-attestation.v2":
+                expected_fields = {
+                    "schema",
+                    "claim_id",
+                    "assignment_epoch",
+                    "submitted_ticket_digest",
+                    "admission_ticket_digest",
+                    "state_generation",
+                    "state_manifest_digest",
+                }
+                admission_digest = actual_attestation.get("admission_ticket_digest")
+                manifest_digest = actual_attestation.get("state_manifest_digest")
+                generation = actual_attestation.get("state_generation")
+                attestation_valid = (
+                    set(actual_attestation) == expected_fields
+                    and actual_attestation.get("claim_id") == claim.claim_id
+                    and actual_attestation.get("assignment_epoch") == assignment.epoch
+                    and actual_attestation.get("submitted_ticket_digest") == self.claim_bundle.digest
+                    and isinstance(admission_digest, str)
+                    and len(admission_digest) == 64
+                    and all(character in "0123456789abcdef" for character in admission_digest)
+                    and isinstance(manifest_digest, str)
+                    and len(manifest_digest) == 64
+                    and all(character in "0123456789abcdef" for character in manifest_digest)
+                    and isinstance(generation, int)
+                    and not isinstance(generation, bool)
+                    and generation >= self.claim_bundle.manifest.generation
+                )
             if (
                 claim.child_request_digest != self.partition.request.digest
                 or claim.address_digest != self.partition.address.digest
@@ -125,7 +155,7 @@ class BinaryFrontierChildReceipt:
                 or assignment.owner_peer_id != route.target_host.peer_id
                 or assignment.owner_host_id != route.target_host.host_id
                 or assignment.implementation_fingerprint != route.target_host.implementation_fingerprint
-                or dict(receipt.execution_claim or {}) != expected_attestation
+                or not attestation_valid
             ):
                 raise OperationNativeDataflowError(
                     "child receipt does not preserve the exact quorum-bound claim, assignment epoch and target"
