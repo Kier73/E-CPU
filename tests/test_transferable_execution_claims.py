@@ -732,3 +732,81 @@ def test_batch_reassignment_refuses_partial_retry_without_advancing_quorum(tmp_p
             },
         ))
     assert store.high_water == before
+
+
+def test_concurrent_reassignment_and_completion_have_one_claim_winner(tmp_path: Path) -> None:
+    """Mathematics: Competing stores sharing one durable claim directory linearize complete vs reassign to exactly one quorum winner."""
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+
+    store_a, coordinator_a = _store(tmp_path)
+    # A second independent store/coordinator models another owner process
+    # opening the same durable claim and authority journals.
+    store_b = TransferableExecutionClaimStore(
+        tmp_path / "claims",
+        _coordinator(tmp_path / "authorities"),
+    )
+    original = _create(store_a)
+    completion = {
+        "claim_id": original.claim.claim_id,
+        "expected_epoch": original.claim.current_assignment.epoch,
+        "owner_peer_id": original.claim.current_assignment.owner_peer_id,
+        "owner_host_id": original.claim.current_assignment.owner_host_id,
+        "implementation_fingerprint": original.claim.current_assignment.implementation_fingerprint,
+        "result_digest": RESULT,
+        "child_receipt_digest": RECEIPT,
+    }
+    reassignment = {
+        "claim_id": original.claim.claim_id,
+        "expected_epoch": original.claim.current_assignment.epoch,
+        "owner_peer_id": "peer-d",
+        "owner_host_id": "logical-cpu-d",
+        "implementation_fingerprint": H("replacement-cpu-d"),
+        "failure_evidence_digest": FAILURE,
+    }
+    start = threading.Barrier(2)
+
+    def attempt_completion():
+        """Mathematics: Race the exact original producer's completion through the first independent store."""
+        start.wait(timeout=10)
+        try:
+            return ("completed", store_a.complete_many((completion,))[0])
+        except TransferableExecutionClaimError as exc:
+            return ("refused", str(exc))
+
+    def attempt_reassignment():
+        """Mathematics: Race assignment-epoch revocation through a second store handle on the same durable directory."""
+        start.wait(timeout=10)
+        try:
+            return ("reassigned", store_b.reassign_many((reassignment,))[0])
+        except TransferableExecutionClaimError as exc:
+            return ("refused", str(exc))
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        completion_future = executor.submit(attempt_completion)
+        reassignment_future = executor.submit(attempt_reassignment)
+        completion_outcome = completion_future.result(timeout=60)
+        reassignment_outcome = reassignment_future.result(timeout=60)
+
+    outcomes = (completion_outcome, reassignment_outcome)
+    winners = tuple(item for item in outcomes if item[0] != "refused")
+    refusals = tuple(item for item in outcomes if item[0] == "refused")
+    assert len(winners) == 1
+    assert len(refusals) == 1
+    assert store_a.high_water[0] == original.manifest.generation + 1
+
+    current = store_a.get(original.claim.claim_id)
+    current.verify_current(coordinator_a)
+    if winners[0][0] == "completed":
+        assert current.claim.status is ExecutionClaimStatus.COMPLETED
+        assert current.claim.current_assignment == original.claim.current_assignment
+        assert current.claim.result_digest == RESULT
+        assert current.claim.child_receipt_digest == RECEIPT
+        assert refusals[0][1]
+    else:
+        assert current.claim.status is ExecutionClaimStatus.ASSIGNED
+        assert current.claim.current_assignment.epoch == original.claim.current_assignment.epoch + 1
+        assert current.claim.current_assignment.owner_peer_id == "peer-d"
+        assert current.claim.current_assignment.owner_host_id == "logical-cpu-d"
+        with pytest.raises(TransferableExecutionClaimError, match="not current"):
+            original.verify_current(coordinator_a)
