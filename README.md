@@ -106,6 +106,9 @@ The current architecture already contains several important components of this m
 | Generative state descriptions | Structural Memory, law certification, Virtual Grounds, Composed Virtual Grounds |
 | Semantic identity and context | Computational addresses, Ground fingerprints, typed workloads, content-addressed objects |
 | Observation | Observer contracts, observer receipts, contextual orbit projections |
+| Typed observation intake | Resolver, timing, delay, temporal and phase observation records; quorum-gated event admission |
+| Intent and Ground-family hints | Structural intent embeddings and advisory generator-family suggestions, checked by deterministic law recovery |
+| Ground comparison and composition | Composed Virtual Ground projections and predictive description selection against independent observations |
 | State-space navigation | Direct orbit evaluation, inverse navigation, process path indexes, formal reachability |
 | Description and operation translation | Semantic translation contracts, MailCPU program dataflow compilation, VGI task compilation |
 | Description selection | Predictive description selection over independently observed composed states |
