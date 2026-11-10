@@ -7,11 +7,20 @@ Defined terms follow `docs/GLOSSARY.md`.
 
 ## 1. Purpose
 
-MailCPU specifies a virtual environment whose conventional hardware surfaces are
-expressed as typed state transformations over communication paths. It is not a
-remote shell, and it is not a wrapper that forwards commands across a network
-link. Each surface below is defined by its state and its transition function,
-independently of the substrate carrying its messages.
+This document specifies the MailCPU execution environment that currently
+realizes selected work within E-CPU. The governing architectural intent is the
+broader computational state-space model in
+[COMPUTATIONAL_STATE_SPACE_ARCHITECTURE.md](COMPUTATIONAL_STATE_SPACE_ARCHITECTURE.md):
+typed Grounds describe computational domains, observers define requested
+information, and navigators select paths to verified observations. The
+instruction machine defined here remains one concrete realization within that
+architecture.
+
+MailCPU's conventional hardware surfaces are expressed as typed state
+transformations over communication paths. It is not a remote shell, and it is
+not a wrapper that forwards commands across a network link. Each surface below
+is defined by its state and transition function, independently of the
+substrate carrying its messages.
 
 ## 2. Feature decomposition
 
