@@ -189,6 +189,13 @@ The current codebase contains several mechanisms that become more powerful when 
 | Virtual Ground references | Bind a computation to an admitted system state and input frontier | [mailcpu/virtual_layer.py](../mailcpu/virtual_layer.py) |
 | Composed Virtual Grounds | Describe a multi-component state from independently identified components and their admitted laws | [COMPOSED_VIRTUAL_GROUND.md](COMPOSED_VIRTUAL_GROUND.md) |
 | Observer contracts and receipts | Give observations stable subject, Ground, context, projection, and evidence identities | [OBSERVER_ORBIT_CONTRACT.md](OBSERVER_ORBIT_CONTRACT.md), [mailcpu/observer_orbit.py](../mailcpu/observer_orbit.py) |
+| Typed substrate observations | Decode resolver, timing, delay, temporal, and phase observations into typed evidence and register projections | [mailcpu/observation.py](../mailcpu/observation.py), [tests/test_observation_bridge.py](../tests/test_observation_bridge.py) |
+| Quorum-gated observation ingestion | Collect source-linked observations, compare them under a declared source/quorum policy, and apply authorized representatives through a crash-safe coordinator | [mailcpu/gated_observation.py](../mailcpu/gated_observation.py), [mailcpu/observation.py](../mailcpu/observation.py) |
+| Structural intent representation | Encode an already structured request deterministically from its typed paths, values, and sequence positions; prototype predictions remain advisory | [mailcpu/intent_embedding.py](../mailcpu/intent_embedding.py), [tests/test_intent_embedding.py](../tests/test_intent_embedding.py) |
+| Candidate Ground-family suggestion | Rank likely law families from an observed integer window while deterministic law recovery and witness verification determine the admitted result | [mailcpu/neural_lifter.py](../mailcpu/neural_lifter.py), [mailcpu/law_certifier.py](../mailcpu/law_certifier.py), [tests/test_neural_lifter.py](../tests/test_neural_lifter.py) |
+| Composed Virtual Ground projections | Assemble independently admitted component laws into one structured state projection at a shared scheduler coordinate | [COMPOSED_VIRTUAL_GROUND.md](COMPOSED_VIRTUAL_GROUND.md), [mailcpu/composed_ground.py](../mailcpu/composed_ground.py) |
+| Predictive description selection | Compare admitted candidate descriptions with independent chronological observations and rank them using predictive and cost metrics | [PREDICTIVE_DESCRIPTION_SELECTION.md](PREDICTIVE_DESCRIPTION_SELECTION.md), [mailcpu/predictive_selection.py](../mailcpu/predictive_selection.py) |
+| Typed temporal coordinates | Keep wall, monotonic, causal, scheduler, event, chronon, and chemical coordinates distinct | [TEMPORAL_CLOCK_FABRIC.md](TEMPORAL_CLOCK_FABRIC.md), [mailcpu/temporal.py](../mailcpu/temporal.py) |
 | Contextual orbit navigation | Evaluate a certified law at a scheduler coordinate and return a typed projection and receipt | [OBSERVER_ORBIT_CONTRACT.md](OBSERVER_ORBIT_CONTRACT.md) |
 | Inverse navigation | Derive coordinates for selected integer, LCG, GF(2), and finite-graph observation families | [mailcpu/law_certifier.py](../mailcpu/law_certifier.py), [mailcpu/observer_orbit.py](../mailcpu/observer_orbit.py) |
 | Formal navigation and navigation coordination | Compare concrete process navigation, abstract integer-affine reachability, representation equivalence, and causal dependencies | [FORMAL_NAVIGATION.md](FORMAL_NAVIGATION.md), [NAVIGATION_COORDINATOR.md](NAVIGATION_COORDINATOR.md) |
@@ -202,6 +209,64 @@ The current codebase contains several mechanisms that become more powerful when 
 | Recovery lineage and transferable claims | Preserve semantic identity and accepted state while execution placement changes | [RECOVERY_LINEAGE.md](RECOVERY_LINEAGE.md), [TRANSFERABLE_EXECUTION_CLAIMS.md](TRANSFERABLE_EXECUTION_CLAIMS.md) |
 
 These systems should not be collapsed into one universal graph or instruction format. Their value comes from their different roles and the contracts connecting them.
+
+
+## 7A. An existing observation-to-Ground composition
+
+The codebase contains an especially useful sequence that is easy to miss when each subsystem is read on its own. It provides much of the material for moving from observed information to a candidate computational description, then comparing and navigating that description.
+
+1. **Acquire typed observations.** `mailcpu/observation.py` defines a typed protocol for substrate observations. The current families include resolver, timing, delay, temporal, and phase observations. Each supplies a structured payload and a projection into a register valuation. This means observed system behaviour can already enter E-CPU through identified data forms rather than arriving only as an untyped byte stream.
+
+2. **Establish source agreement and event identity.** `GatedObservationCoordinator` connects observations to source identities, reliable channels, an `ObservationAuthorityPolicy`, and `ObservationConsensus`. For one declared observation kind and logical event coordinate, it can gather source-linked evidence, finalize the quorum decision, and apply only an authorized representative through a crash-safe VM update path. This is an executable observation-ingestion mechanism. It does not yet feed a general Ground induction service; adapting its accepted event/evidence records to that role is in development.
+
+3. **Describe request structure.** `IntentEmbedding` produces a deterministic structural encoding from an already typed/structured request: field paths, values, and sequence positions are hashed into a normalized vector. `IntentPrototypeModel` compares that vector with finite domain prototypes. This can help characterize request shape and propose a domain or handler family. It is not a natural-language parser, it does not discover a Ground, and its prediction is advisory. The exact request and its canonical identity remain available for later interpretation.
+
+4. **Suggest a candidate law family.** `NeuralLifterPolicy` uses observed integer windows to produce a likely generator-family suggestion from the current `int`, `lcg`, `gf2`, `fgraph`, `kreg`, and `tape` ladder. It separately calls deterministic `recover_law`; that recovery and its witness checks determine the law verdict. A wrong or high-confidence suggestion cannot admit or veto a law. This is a useful model for how learned guidance may prioritize interpretation while deterministic evidence remains responsible for Ground admission.
+
+5. **Admit a generative description.** A recovered law can be represented as a `StructuralMemorySpec` with exact parameters, context, revision, and certificate. The registry stages a proposal and requires the configured host admission policy before the version becomes available for reads. A typed law can then represent a state family without storing all of its values.
+
+6. **Compose component descriptions.** `ComposedVirtualGroundAddress` combines multiple independently pinned component laws under one SystemIdentity, base Virtual Ground, Computational Ground, schema, and scheduler coordinate. `ComposedVirtualGroundNavigator` reads each selected component coordinate and assembles a structured projection with per-component read receipts. That gives E-CPU a concrete method for describing selected fields of a larger system from a set of generative descriptions.
+
+7. **Compare descriptions with independent observations.** `PredictiveDescriptionSelector` compares already-admitted composed Ground candidates against observer-receipted states partitioned chronologically into development, validation, and later test samples. It evaluates prediction yield, coverage, full-state matches, unmodelled changes, description size, verification witnesses, and navigation work. Its candidate-pool builder can vary one component revision at a time rather than enumerate the full Cartesian product. Selection is offline and advisory: it neither learns a law from the samples nor admits or promotes a revision.
+
+8. **Navigate the requested information.** Once the Ground and the observation intention are identified, contextual orbit navigation can directly evaluate a requested coordinate or invert a supported target value. Formal navigation can add conservative reachability analysis, representation bisimulation, and causal dependency checks. `NavigationCoordinator` composes the supported analyses into a non-authoritative proposal; the receiver's normal admission and execution path remains responsible for authority and state mutation.
+
+9. **Translate and realize the selected path.** Semantic translation contracts identify the representation relationships that must preserve an observation. The evidence-path resolver can search known, evidence-backed representation edges under named cost dimensions. The computational fabric can then find authenticated host routes and perform receiver-authorized operations. Recovery lineage and transferable execution claims preserve the identity of accepted work as realization moves.
+
+### What this composition reveals
+
+The existing components form a plausible architecture for:
+
+[
+	ext{observed information}
+ightarrow
+	ext{typed evidence}
+ightarrow
+	ext{candidate description}
+ightarrow
+	ext{deterministically admitted Ground}
+ightarrow
+	ext{composed state model}
+ightarrow
+	ext{predictively selected description}
+ightarrow
+	ext{requested observation}
+ightarrow
+	ext{verified navigation path}.
+]
+
+The sequence above is an architectural composition proposal, not a claim that one end-to-end service already runs these stages automatically. Several pieces are independently executable and tested; their orchestration into a reusable Ground-construction and observation-planning service is in development.
+
+The important separation to preserve is:
+
+- **Intent suggestion** proposes what the request may concern.
+- **Ground induction** proposes a law or state description from observations.
+- **Evidence admission** determines which descriptions become available for use.
+- **Predictive selection** compares admitted descriptions against independent observations.
+- **Observation and navigation** answer the actual request using the selected Ground.
+- **Physical realization** supplies resources for the transitions chosen by E-CPU.
+
+These are related operations, but none should silently substitute for another. In particular, a request embedding is not semantic understanding; a likely law family is not a certified Ground; a high predictive score is not admission; and a reachable host is not authority to execute.
 
 ## 8. How the pieces should operate together
 
