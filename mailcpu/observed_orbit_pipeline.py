@@ -502,9 +502,13 @@ class ObservedOrbitTrace:
                 raise StateSpacePipelineError("trace event logical times must be strictly increasing")
             if sample.observation_kind != self.observation_kind or sample.value_register != self.value_register:
                 raise StateSpacePipelineError("trace samples disagree on observation kind or value register")
-            if not set(sample.observed_sources).issubset(sources):
+            observed_sources = set(sample.observed_sources)
+            missing_sources = set(sample.missing_sources)
+            if not observed_sources.issubset(sources):
                 raise StateSpacePipelineError("sample contains a source outside the trace authority policy")
-            if len(set(sample.observed_sources) - set(sample.dissenting_sources)) < self.quorum:
+            if observed_sources.intersection(missing_sources) or observed_sources.union(missing_sources) != set(sources):
+                raise StateSpacePipelineError("observed and missing sources do not partition the trace authority policy")
+            if len(observed_sources - set(sample.dissenting_sources)) < self.quorum:
                 raise StateSpacePipelineError("sample does not retain an authorized quorum")
             previous_time = sample.logical_time
         object.__setattr__(self, "samples", samples)
@@ -1264,6 +1268,22 @@ class VerifiedGroundRealizer:
             raise StateSpacePipelineError("an intention was supplied but the navigation plan does not bind it")
         if plan.selection_report_digest is not None:
             raise StateSpacePipelineError("single-Ground realization cannot consume a composed description-selection report")
+        if (host_start_frame is None) != (host_end_frame is None):
+            raise StateSpacePipelineError("host_start_frame and host_end_frame must be supplied together")
+        if host_start_frame is not None:
+            if not isinstance(host_start_frame, TemporalFrame) or not isinstance(host_end_frame, TemporalFrame):
+                raise StateSpacePipelineError("host timing frames must be TemporalFrame values")
+            if host_start_frame.actor_id != host_actor_id or host_end_frame.actor_id != host_actor_id:
+                raise StateSpacePipelineError("host timing frames must belong to host_actor_id")
+        if observer_time_frame is not None:
+            if not isinstance(observer_time_frame, TemporalFrame):
+                raise StateSpacePipelineError("observer_time_frame must be a TemporalFrame")
+            if observer_time_frame.actor_id != observer.observer_id:
+                raise StateSpacePipelineError("observer time frame belongs to another observer")
+            if plan.strategy is NavigationStrategy.DIRECT_COORDINATE and observer_time_frame.scheduler is not None:
+                expected_scheduler = SchedulerReading(address.coordinate.scheduler_id, plan.target_coordinate)
+                if observer_time_frame.scheduler != expected_scheduler:
+                    raise StateSpacePipelineError("observer scheduler frame differs from direct navigation target")
         if operating_system.structural_memory is not self.registry:
             raise StateSpacePipelineError("Ground registry must be the receiver OS's own admitted Structural Memory registry")
         resource = virtual_ground_read_resource(

@@ -70,7 +70,9 @@ The builder produces an ObservedOrbitTrace. Its samples have two intentionally s
 
 The ordinal coordinate is the argument used by the first Structural Memory trace-recovery ABI. It is not an assertion that the underlying sensor's event clock advances by one at each observation. Irregular logical times remain present in the trace and its digest.
 
-The trace requires contiguous ordinal coordinates, strictly increasing event logical times, one observation kind/register, source membership in the authority policy, and a non-dissenting representative source. It retains at least the configured source quorum for every accepted sample.
+The trace requires contiguous ordinal coordinates, strictly increasing event logical times, one observation kind/register, source membership in the authority policy, and a non-dissenting representative source. Observed and missing sources must partition the configured source set. It retains at least the configured source quorum for every accepted sample.
+
+Consensus checks the configured source identifiers and quorum. It does not, by itself, cryptographically authenticate a remote sender. Authentication of the source identity belongs to the trusted ingress/transport mechanism; the trace digest binds the identity and payload that the receiver admitted, but is not a signature.
 
 ObservedOrbitTrace.to_dict() and from_dict() preserve and recheck the complete sample identity, including the temporal evidence digest.
 
@@ -167,13 +169,15 @@ After dispatch, the realizer independently checks:
 
 The returned VerifiedGroundRealization binds the decision receipt, observer and Structural Memory evidence, address, plan, value, host identity, and local host duration into one content-addressed receipt.
 
+Observer and Structural Memory digests establish content identity and contract consistency. They are not remote signatures, and the word verified here means that the receiver checked the declared contract, pinned revisions, local authority decision, and returned evidence. Remote observer authenticity continues to depend on the existing authenticated host/fabric mechanisms.
+
 ### Composed Ground
 
 VerifiedComposedGroundRealizer consumes the explicit DescriptionSelectionStage, the IntentionInterpretation, and a direct-coordinate NavigationPlan. It moves the selected composition to one common scheduler coordinate while preserving each component's pinned law and context.
 
 Its read resource identifies the exact composition: system and base Ground, Computational Ground, state schema, template, scheduler, extensions, and each component's memory/revision/spec/certificate/context identity. The resource intentionally does not include the target coordinate, so a host can be granted read access to the one selected composition at its navigable coordinates without gaining access to another description.
 
-The receiver Hypervisor must authorize that resource. Only the ALLOW handler invokes ComposedVirtualGroundNavigator. The realizer then creates an observer contract for the exact composed address and a receipt over the complete state projection, including its component evidence. It checks that the returned component receipt set matches the selected component revisions.
+The receiver Hypervisor must authorize that resource. Only the ALLOW handler invokes ComposedVirtualGroundNavigator. The realizer then creates an observer contract for the exact composed address and a receipt over the complete state projection, including its component evidence. It checks that the returned component receipt set matches the selected component revisions. The receipt digest binds this local result to its contract; it does not turn the local observer into a cryptographic identity claim about a remote host.
 
 This closes the path from selected description to verified composed realization without turning the selector into authority.
 
