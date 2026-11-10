@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This note records an architectural interpretation of symbolic capacity, finite observation, and time-indexed navigation. It is a design model, not a claim that the current MailCPU implementation already supports arbitrary symbolic spaces or concurrent remote orbit scheduling.
+This note records the relationship between symbolic capacity, finite observation, and time-indexed navigation. It is a design model for the state-space architecture described in [COMPUTATIONAL_STATE_SPACE_ARCHITECTURE.md](COMPUTATIONAL_STATE_SPACE_ARCHITECTURE.md). The executable mechanisms are identified separately from development paths.
 
 The governing principle is:
 
