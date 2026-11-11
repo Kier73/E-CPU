@@ -24,7 +24,11 @@ import time
 from typing import Any, Mapping, Sequence
 
 from .classifier import HypervisorAction, HypervisorDecision, HypervisorDomain
-from .composed_ground import (\n    ComposedGroundNavigationResult,\n    ComposedVirtualGroundAddress,\n    ComposedVirtualGroundNavigator,\n)
+from .composed_ground import (
+    ComposedGroundNavigationResult,
+    ComposedVirtualGroundAddress,
+    ComposedVirtualGroundNavigator,
+)
 from .headless import HeadlessOS
 from .intent_embedding import IntentPrediction, IntentPrototypeModel
 from .observation import ObservationConsensus
