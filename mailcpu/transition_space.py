@@ -2020,3 +2020,420 @@ Mathematics: this callable implements the deterministic mapping or invariant sta
                 "live-feature neural compilation failed its finite verification"
             )
     return model
+
+
+class SparseTransitionReLUNetwork:
+    """Sparse execution realization of an existing exact finite Boolean ReLU model.
+
+    The dense source remains the semantic reference. This representation stores
+    only nonzero weights and biases, executes only stored weight products, and
+    retains the source Ground digest and dense model digest. It is intended for
+    exact finite Boolean transition programs; no continuous-domain or hardware
+    performance claim follows from this representation alone.
+    """
+
+    SCHEMA = "mailcpu.sparse-transition-relu.v1"
+
+    def __init__(
+        self,
+        weight_rows: Sequence[Sequence[Sequence[Sequence[int | float]]]],
+        bias_entries: Sequence[Sequence[Sequence[int | float]]],
+        *,
+        source_kind: str,
+        source_digest: str,
+        source_model_digest: str,
+        input_names: Sequence[str],
+        output_names: Sequence[str],
+        architecture: Sequence[int],
+    ) -> None:
+        self._source_kind = source_kind
+        self._source_digest = _validate_digest(source_digest, "source_digest")
+        self._source_model_digest = _validate_digest(
+            source_model_digest,
+            "source_model_digest",
+        )
+        self._input_names = _names(input_names, "input_names")
+        self._output_names = _names(output_names, "output_names")
+        self._architecture = tuple(architecture)
+
+        normalized_rows: list[tuple[tuple[tuple[int, float], ...], ...]] = []
+        for layer_index, layer in enumerate(weight_rows):
+            normalized_layer: list[tuple[tuple[int, float], ...]] = []
+            for output_index, row in enumerate(layer):
+                if not isinstance(row, Sequence) or isinstance(row, (str, bytes)):
+                    raise TransitionSpaceError(
+                        f"sparse weight row {layer_index}:{output_index} must be a sequence"
+                    )
+                normalized_row: list[tuple[int, float]] = []
+                previous_index = -1
+                for pair_index, pair in enumerate(row):
+                    if (
+                        not isinstance(pair, Sequence)
+                        or isinstance(pair, (str, bytes))
+                        or len(pair) != 2
+                    ):
+                        raise TransitionSpaceError(
+                            f"sparse weight entry {layer_index}:{output_index}:{pair_index} must be an index/value pair"
+                        )
+                    source_index, raw_weight = pair
+                    if type(source_index) is not int or source_index <= previous_index:
+                        raise TransitionSpaceError(
+                            "sparse weight indices must be strictly increasing integers"
+                        )
+                    weight = _finite_number(raw_weight, "sparse weight")
+                    if weight == 0.0:
+                        raise TransitionSpaceError(
+                            "sparse weight entries must not store zero coefficients"
+                        )
+                    normalized_row.append((source_index, weight))
+                    previous_index = source_index
+                normalized_layer.append(tuple(normalized_row))
+            normalized_rows.append(tuple(normalized_layer))
+
+        normalized_biases: list[tuple[tuple[int, float], ...]] = []
+        for layer_index, layer in enumerate(bias_entries):
+            if not isinstance(layer, Sequence) or isinstance(layer, (str, bytes)):
+                raise TransitionSpaceError(
+                    f"sparse bias layer {layer_index} must be a sequence"
+                )
+            normalized_layer: list[tuple[int, float]] = []
+            previous_index = -1
+            for pair_index, pair in enumerate(layer):
+                if (
+                    not isinstance(pair, Sequence)
+                    or isinstance(pair, (str, bytes))
+                    or len(pair) != 2
+                ):
+                    raise TransitionSpaceError(
+                        f"sparse bias entry {layer_index}:{pair_index} must be an index/value pair"
+                    )
+                output_index, raw_bias = pair
+                if type(output_index) is not int or output_index <= previous_index:
+                    raise TransitionSpaceError(
+                        "sparse bias indices must be strictly increasing integers"
+                    )
+                bias = _finite_number(raw_bias, "sparse bias")
+                if bias == 0.0:
+                    raise TransitionSpaceError(
+                        "sparse bias entries must not store zero coefficients"
+                    )
+                normalized_layer.append((output_index, bias))
+                previous_index = output_index
+            normalized_biases.append(tuple(normalized_layer))
+
+        self._weight_rows = tuple(normalized_rows)
+        self._bias_entries = tuple(normalized_biases)
+        self._validate_shape()
+        self._bias_maps = tuple(dict(layer) for layer in self._bias_entries)
+
+    @classmethod
+    def from_dense(
+        cls,
+        model: TransitionReLUNetwork | CompositionalTransitionReLUNetwork,
+    ) -> "SparseTransitionReLUNetwork":
+        """Build a sparse execution representation from a supported dense model."""
+        if isinstance(model, TransitionReLUNetwork):
+            source_kind = "transition_table"
+            source_digest = model.table_digest
+        elif isinstance(model, CompositionalTransitionReLUNetwork):
+            source_kind = "transition_program"
+            source_digest = model.program_digest
+        else:
+            raise TransitionSpaceError(
+                "sparse conversion requires a supported dense transition ReLU model"
+            )
+
+        weight_rows = [
+            [
+                [
+                    (source_index, weight)
+                    for source_index, weight in enumerate(row)
+                    if weight != 0.0
+                ]
+                for row in layer
+            ]
+            for layer in model.weights
+        ]
+        bias_entries = [
+            [
+                (output_index, bias)
+                for output_index, bias in enumerate(layer)
+                if bias != 0.0
+            ]
+            for layer in model.biases
+        ]
+        return cls(
+            weight_rows,
+            bias_entries,
+            source_kind=source_kind,
+            source_digest=source_digest,
+            source_model_digest=model.digest,
+            input_names=model.input_names,
+            output_names=model.output_names,
+            architecture=model.architecture,
+        )
+
+    def _validate_shape(self) -> None:
+        if self._source_kind not in {"transition_table", "transition_program"}:
+            raise TransitionSpaceError("sparse source_kind is unsupported")
+        if (
+            len(self._architecture) < 3
+            or any(type(width) is not int or width < 1 for width in self._architecture)
+            or self._architecture[0] != len(self._input_names)
+            or self._architecture[-1] != len(self._output_names)
+            or len(self._weight_rows) != len(self._architecture) - 1
+            or len(self._bias_entries) != len(self._architecture) - 1
+        ):
+            raise TransitionSpaceError("sparse model architecture is invalid")
+
+        for layer_index, (input_width, output_width) in enumerate(
+            zip(self._architecture[:-1], self._architecture[1:])
+        ):
+            rows = self._weight_rows[layer_index]
+            biases = self._bias_entries[layer_index]
+            if len(rows) != output_width:
+                raise TransitionSpaceError(
+                    f"sparse layer {layer_index} output row count is invalid"
+                )
+            for output_index, row in enumerate(rows):
+                if any(source_index >= input_width for source_index, _ in row):
+                    raise TransitionSpaceError(
+                        f"sparse layer {layer_index} row {output_index} references an out-of-range input"
+                    )
+            if any(output_index >= output_width for output_index, _ in biases):
+                raise TransitionSpaceError(
+                    f"sparse layer {layer_index} contains an out-of-range bias index"
+                )
+
+    @property
+    def source_kind(self) -> str:
+        return self._source_kind
+
+    @property
+    def source_digest(self) -> str:
+        return self._source_digest
+
+    @property
+    def source_model_digest(self) -> str:
+        return self._source_model_digest
+
+    @property
+    def input_names(self) -> tuple[str, ...]:
+        return self._input_names
+
+    @property
+    def output_names(self) -> tuple[str, ...]:
+        return self._output_names
+
+    @property
+    def architecture(self) -> tuple[int, ...]:
+        return self._architecture
+
+    @property
+    def sparse_weights(self) -> tuple[tuple[tuple[tuple[int, float], ...], ...], ...]:
+        return self._weight_rows
+
+    @property
+    def sparse_biases(self) -> tuple[tuple[tuple[int, float], ...], ...]:
+        return self._bias_entries
+
+    @property
+    def stored_weight_count(self) -> int:
+        return sum(
+            len(row)
+            for layer in self._weight_rows
+            for row in layer
+        )
+
+    @property
+    def stored_bias_count(self) -> int:
+        return sum(len(layer) for layer in self._bias_entries)
+
+    @property
+    def stored_parameter_count(self) -> int:
+        """Count only serialized nonzero weights and nonzero biases."""
+        return self.stored_weight_count + self.stored_bias_count
+
+    @property
+    def parameter_count(self) -> int:
+        """Alias for the number of explicitly stored sparse scalar parameters."""
+        return self.stored_parameter_count
+
+    @property
+    def dense_weight_slot_count(self) -> int:
+        return sum(
+            input_width * output_width
+            for input_width, output_width in zip(
+                self._architecture[:-1],
+                self._architecture[1:],
+            )
+        )
+
+    @property
+    def dense_equivalent_parameter_count(self) -> int:
+        return self.dense_weight_slot_count + sum(self._architecture[1:])
+
+    @property
+    def active_parameter_count(self) -> int:
+        return self.stored_parameter_count
+
+    @property
+    def digest(self) -> str:
+        encoded = json.dumps(
+            self._payload(),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    @property
+    def operation_profile(self) -> dict[str, int]:
+        """Return exact structural operation counts for one dense or sparse forward.
+
+        The current dense forward performs one multiplication and one sum
+        accumulation per dense weight slot. The sparse forward skips zero
+        weights. For each output neuron it still combines its bias with the
+        sparse sum, so an all-zero row requires one addition.
+        """
+        dense_multiply_count = self.dense_weight_slot_count
+        sparse_multiply_count = self.stored_weight_count
+        dense_addition_count = dense_multiply_count
+        sparse_addition_count = sum(
+            max(1, len(row))
+            for layer in self._weight_rows
+            for row in layer
+        )
+        relu_count = sum(self._architecture[1:-1])
+        return {
+            "dense_weight_multiply_count": dense_multiply_count,
+            "sparse_weight_multiply_count": sparse_multiply_count,
+            "dense_accumulator_addition_count": dense_addition_count,
+            "sparse_accumulator_addition_count": sparse_addition_count,
+            "dense_relu_count": relu_count,
+            "sparse_relu_count": relu_count,
+        }
+
+    def forward(self, inputs: Sequence[int | float]) -> tuple[float, ...]:
+        """Evaluate the sparse ReLU layers using only explicitly stored weights."""
+        if len(inputs) != len(self._input_names):
+            raise TransitionSpaceError(
+                "input vector width does not match the sparse transition model"
+            )
+        values = [_finite_number(value, "input") for value in inputs]
+        for layer_index, rows in enumerate(self._weight_rows):
+            bias_map = self._bias_maps[layer_index]
+            next_values = [
+                bias_map.get(output_index, 0.0)
+                + sum(weight * values[source_index] for source_index, weight in row)
+                for output_index, row in enumerate(rows)
+            ]
+            values = (
+                [max(0.0, value) for value in next_values]
+                if layer_index < len(self._weight_rows) - 1
+                else next_values
+            )
+        return tuple(values)
+
+    def predict(self, inputs: Sequence[int]) -> tuple[int, ...]:
+        """Evaluate a Boolean input and reject any output outside the exact bit set."""
+        pattern = tuple(_bit(value, "transition input") for value in inputs)
+        values = self.forward(pattern)
+        rounded = tuple(round(value) for value in values)
+        if any(
+            nearest not in (0, 1)
+            or not math.isclose(value, nearest, rel_tol=0.0, abs_tol=1e-12)
+            for value, nearest in zip(values, rounded)
+        ):
+            raise TransitionSpaceError(
+                "sparse network output left the exact Boolean set"
+            )
+        return tuple(int(value) for value in rounded)
+
+    def _payload(self) -> dict[str, Any]:
+        return {
+            "schema": self.SCHEMA,
+            "source_kind": self._source_kind,
+            "source_digest": self._source_digest,
+            "source_model_digest": self._source_model_digest,
+            "input_names": list(self._input_names),
+            "output_names": list(self._output_names),
+            "architecture": list(self._architecture),
+            "layers": [
+                {
+                    "weight_rows": [
+                        [[source_index, weight] for source_index, weight in row]
+                        for row in layer
+                    ],
+                    "bias_entries": [
+                        [output_index, bias]
+                        for output_index, bias in biases
+                    ],
+                }
+                for layer, biases in zip(self._weight_rows, self._bias_entries)
+            ],
+            "dense_equivalent_parameter_count": self.dense_equivalent_parameter_count,
+            "stored_parameter_count": self.stored_parameter_count,
+        }
+
+    def snapshot(self) -> dict[str, Any]:
+        payload = self._payload()
+        payload["digest"] = self.digest
+        return payload
+
+    @classmethod
+    def from_snapshot(
+        cls,
+        payload: Mapping[str, Any],
+    ) -> "SparseTransitionReLUNetwork":
+        required = {
+            "schema",
+            "source_kind",
+            "source_digest",
+            "source_model_digest",
+            "input_names",
+            "output_names",
+            "architecture",
+            "layers",
+            "dense_equivalent_parameter_count",
+            "stored_parameter_count",
+            "digest",
+        }
+        if not isinstance(payload, Mapping) or set(payload) != required:
+            raise TransitionSpaceError(
+                "sparse snapshot fields do not match the schema"
+            )
+        if payload["schema"] != cls.SCHEMA:
+            raise TransitionSpaceError("unsupported sparse transition schema")
+        layers = payload["layers"]
+        if not isinstance(layers, Sequence) or isinstance(layers, (str, bytes)):
+            raise TransitionSpaceError("sparse snapshot layers must be a sequence")
+        if any(
+            not isinstance(layer, Mapping) or set(layer) != {"weight_rows", "bias_entries"}
+            for layer in layers
+        ):
+            raise TransitionSpaceError("sparse snapshot layer fields do not match the schema")
+        model = cls(
+            [layer["weight_rows"] for layer in layers],
+            [layer["bias_entries"] for layer in layers],
+            source_kind=payload["source_kind"],
+            source_digest=payload["source_digest"],
+            source_model_digest=payload["source_model_digest"],
+            input_names=payload["input_names"],
+            output_names=payload["output_names"],
+            architecture=payload["architecture"],
+        )
+        if (
+            type(payload["dense_equivalent_parameter_count"]) is not int
+            or payload["dense_equivalent_parameter_count"]
+            != model.dense_equivalent_parameter_count
+            or type(payload["stored_parameter_count"]) is not int
+            or payload["stored_parameter_count"] != model.stored_parameter_count
+            or payload["digest"] != model.digest
+        ):
+            raise TransitionSpaceError(
+                "sparse snapshot parameter counts or digest mismatch"
+            )
+        return model
+
