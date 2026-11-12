@@ -44,7 +44,7 @@ For binary inputs, \\(h_1=a\\land b\\). Every additional hidden layer copies the
 y_{xor}=h_0-2h_1,\\qquad y_{and}=h_1.
 \\]
 
-For all four input pairs, these equations return exact Boolean XOR and AND values in both architectures. Each network has 10,000 declared weights and biases, but only nine nonzero entries for XOR and eight for AND. Total and active counts are both exposed in the API.
+For all four input pairs, these equations return exact Boolean XOR and AND values in both architectures. The shallow network has nine nonzero entries for XOR and eight for AND. The deeper network has eleven for XOR and ten for AND because it adds one further hidden feature-copy layer. Both still have 10,000 declared weights and biases; total and active counts are exposed separately in the API.
 
 ## Semantic intervention
 
