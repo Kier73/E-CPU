@@ -1480,3 +1480,364 @@ def compile_compositional_transition_program(
         if model.predict(pattern) != program.evaluate(pattern):
             raise TransitionSpaceError("compositional neural compilation failed its finite verification")
     return model
+
+
+def compile_live_compositional_transition_program(
+    program: FiniteTransitionProgram,
+) -> CompositionalTransitionReLUNetwork:
+    """Compile a Boolean expression DAG with layer-by-layer feature liveness projection.
+
+    Unlike the dense carry compiler, each hidden layer projects away input values
+    and computed features that no future expression or output needs. A feature
+    survives only while it is a direct dependency of a later AST node or output.
+    """
+    if not isinstance(program, FiniteTransitionProgram):
+        raise TransitionSpaceError("program must be a FiniteTransitionProgram")
+
+    nodes_by_depth: dict[int, set[BooleanExpr]] = {}
+    depths: dict[BooleanExpr, int] = {}
+
+    def visit(expression: BooleanExpr) -> int:
+        """Collect computed AST nodes and their topological expression depth."""
+        if isinstance(expression, (BooleanInput, BooleanConstant)):
+            return 0
+        if expression in depths:
+            return depths[expression]
+        if isinstance(expression, BooleanAnd) and _literal_conjunction(expression) is not None:
+            depth = 1
+        else:
+            child_depths = tuple(
+                visit(child) for child in _boolean_expression_children(expression)
+            )
+            depth = 1 + max(child_depths, default=0)
+        depths[expression] = depth
+        nodes_by_depth.setdefault(depth, set()).add(expression)
+        return depth
+
+    for output in program.output_expressions:
+        visit(output)
+
+    input_width = len(program.input_names)
+    output_width = len(program.output_names)
+    input_names = set(program.input_names)
+    input_refs = {name: index for index, name in enumerate(program.input_names)}
+    active_refs: dict[BooleanExpr, tuple[tuple[float, ...], float]] = {}
+    weights: list[list[list[float]]] = []
+    biases: list[list[float]] = []
+    hidden_widths: list[int] = []
+
+    def direct_required_inputs(expression: BooleanExpr) -> set[str]:
+        """Return raw input names consumed directly by this node's affine construction."""
+        literals = _literal_conjunction(expression)
+        if literals is not None:
+            return {name for name, _ in literals}
+        return {
+            child.name
+            for child in _boolean_expression_children(expression)
+            if isinstance(child, BooleanInput)
+        }
+
+    def requirements_after(
+        depth: int,
+    ) -> tuple[set[str], set[BooleanExpr]]:
+        """Find raw inputs and computed expressions still needed after this depth."""
+        needed_inputs: set[str] = set()
+        needed_expressions: set[BooleanExpr] = set()
+
+        for parent_depth, parents in nodes_by_depth.items():
+            if parent_depth <= depth:
+                continue
+            for parent in parents:
+                needed_inputs.update(direct_required_inputs(parent))
+                for child in _boolean_expression_children(parent):
+                    if child in depths and depths[child] <= depth:
+                        needed_expressions.add(child)
+
+        for output in program.output_expressions:
+            if isinstance(output, BooleanInput):
+                needed_inputs.add(output.name)
+            elif output in depths and depths[output] <= depth:
+                needed_expressions.add(output)
+
+        return needed_inputs, needed_expressions
+
+    def previous_reference(
+        expression: BooleanExpr,
+        width: int,
+    ) -> tuple[list[float], float]:
+        """Resolve one expression into affine coordinates of the previous hidden output."""
+        if isinstance(expression, BooleanInput):
+            if expression.name not in input_refs:
+                raise TransitionSpaceError(
+                    f"input {expression.name!r} expired before its final use"
+                )
+            vector = [0.0] * width
+            vector[input_refs[expression.name]] = 1.0
+            return vector, 0.0
+        if isinstance(expression, BooleanConstant):
+            return [0.0] * width, float(expression.value)
+        if expression not in active_refs:
+            raise TransitionSpaceError(
+                "computed expression expired before its final dependency"
+            )
+        coefficients, offset = active_refs[expression]
+        if len(coefficients) != width:
+            raise TransitionSpaceError("live feature reference has an invalid layer width")
+        return list(coefficients), offset
+
+    if not nodes_by_depth:
+        # Preserve the minimal input basis for programs whose outputs are only leaves.
+        identity = [
+            [1.0 if row == column else 0.0 for column in range(input_width)]
+            for row in range(input_width)
+        ]
+        weights.append(identity)
+        biases.append([0.0] * input_width)
+        hidden_widths.append(input_width)
+        current_refs: dict[BooleanExpr, tuple[tuple[float, ...], float]] = {}
+        for name, index in input_refs.items():
+            vector = [0.0] * input_width
+            vector[index] = 1.0
+            # Raw inputs are addressed through input_refs, not active_refs.
+    else:
+        for depth in sorted(nodes_by_depth):
+            live_input_names, live_expressions = requirements_after(depth)
+            carry_indices: set[int] = set()
+
+            for name in live_input_names:
+                if name not in input_refs:
+                    raise TransitionSpaceError(
+                        f"input {name!r} is not live at the required layer"
+                    )
+                carry_indices.add(input_refs[name])
+
+            for expression in live_expressions:
+                if depths[expression] >= depth:
+                    continue
+                if expression not in active_refs:
+                    raise TransitionSpaceError(
+                        "a live expression is missing from the preceding layer"
+                    )
+                coefficients, _ = active_refs[expression]
+                carry_indices.update(
+                    index
+                    for index, coefficient in enumerate(coefficients)
+                    if coefficient != 0.0
+                )
+
+            previous_width = max(
+                [input_width, *(index + 1 for index in carry_indices)],
+                default=input_width,
+            )
+            # Include all needed indices but discard every dead input/feature coordinate.
+            ordered_carry = sorted(carry_indices)
+            old_to_new = {
+                old_index: new_index
+                for new_index, old_index in enumerate(ordered_carry)
+            }
+            layer_matrix = [
+                [
+                    1.0 if input_index == old_index else 0.0
+                    for input_index in range(previous_width)
+                ]
+                for old_index in ordered_carry
+            ]
+            layer_bias = [0.0] * len(ordered_carry)
+            base_width = len(layer_matrix)
+
+            def add_unit(coefficients: Sequence[float], offset: float) -> int:
+                """Append one ReLU feature row over the previous compact layer."""
+                if len(coefficients) != previous_width:
+                    raise TransitionSpaceError("live feature row has an invalid input width")
+                layer_matrix.append([float(value) for value in coefficients])
+                layer_bias.append(float(offset))
+                return len(layer_matrix) - 1
+
+            node_representations: list[
+                tuple[BooleanExpr, tuple[tuple[int, float], ...]]
+            ] = []
+            level_nodes = sorted(
+                nodes_by_depth[depth],
+                key=_boolean_expression_key,
+            )
+            for expression in level_nodes:
+                if isinstance(expression, BooleanNot):
+                    child, child_bias = previous_reference(
+                        expression.value,
+                        previous_width,
+                    )
+                    index = add_unit(
+                        [-value for value in child],
+                        1.0 - child_bias,
+                    )
+                    node_representations.append((expression, ((index, 1.0),)))
+                    continue
+
+                if isinstance(expression, BooleanAnd):
+                    literals = _literal_conjunction(expression)
+                    if literals is not None:
+                        coefficients = [0.0] * previous_width
+                        positive_count = 0
+                        for input_name, expected_bit in literals:
+                            if input_name not in input_refs:
+                                raise TransitionSpaceError(
+                                    f"minterm input {input_name!r} is not live"
+                                )
+                            coefficients[input_refs[input_name]] = (
+                                1.0 if expected_bit else -1.0
+                            )
+                            positive_count += expected_bit
+                        index = add_unit(coefficients, 1.0 - positive_count)
+                    else:
+                        left, left_bias = previous_reference(
+                            expression.left,
+                            previous_width,
+                        )
+                        right, right_bias = previous_reference(
+                            expression.right,
+                            previous_width,
+                        )
+                        coefficients = [
+                            a + b for a, b in zip(left, right)
+                        ]
+                        index = add_unit(
+                            coefficients,
+                            left_bias + right_bias - 1.0,
+                        )
+                    node_representations.append((expression, ((index, 1.0),)))
+                    continue
+
+                if isinstance(expression, BooleanXor):
+                    left, left_bias = previous_reference(
+                        expression.left,
+                        previous_width,
+                    )
+                    right, right_bias = previous_reference(
+                        expression.right,
+                        previous_width,
+                    )
+                    coefficients = [
+                        a + b for a, b in zip(left, right)
+                    ]
+                    offset = left_bias + right_bias
+                    first = add_unit(coefficients, offset)
+                    second = add_unit(coefficients, offset - 1.0)
+                    node_representations.append(
+                        (expression, ((first, 1.0), (second, -2.0)))
+                    )
+                    continue
+
+                if isinstance(expression, BooleanSelect):
+                    condition, condition_bias = previous_reference(
+                        expression.condition,
+                        previous_width,
+                    )
+                    when_one, when_one_bias = previous_reference(
+                        expression.when_one,
+                        previous_width,
+                    )
+                    when_zero, when_zero_bias = previous_reference(
+                        expression.when_zero,
+                        previous_width,
+                    )
+                    first_coefficients = [
+                        a + b for a, b in zip(condition, when_one)
+                    ]
+                    second_coefficients = [
+                        a - b for a, b in zip(when_zero, condition)
+                    ]
+                    first = add_unit(
+                        first_coefficients,
+                        condition_bias + when_one_bias - 1.0,
+                    )
+                    second = add_unit(
+                        second_coefficients,
+                        when_zero_bias - condition_bias,
+                    )
+                    node_representations.append(
+                        (expression, ((first, 1.0), (second, 1.0)))
+                    )
+                    continue
+
+                raise TransitionSpaceError(
+                    f"unsupported computed expression: {type(expression).__name__}"
+                )
+
+            current_width = len(layer_matrix)
+            current_refs: dict[BooleanExpr, tuple[tuple[float, ...], float]] = {}
+
+            # Move still-live prior expressions through the selected identity coordinates.
+            for expression in live_expressions:
+                if depths[expression] >= depth:
+                    continue
+                coefficients, offset = active_refs[expression]
+                compacted = [0.0] * current_width
+                for old_index, new_index in old_to_new.items():
+                    compacted[new_index] = coefficients[old_index]
+                current_refs[expression] = (tuple(compacted), offset)
+
+            # Add the expression nodes produced at the current depth.
+            for expression, terms in node_representations:
+                coefficients = [0.0] * current_width
+                for index, value in terms:
+                    coefficients[index] += value
+                current_refs[expression] = (tuple(coefficients), 0.0)
+
+            # A newly computed node is retained only if a later expression or output uses it.
+            active_refs = {
+                expression: current_refs[expression]
+                for expression in live_expressions
+                if expression in current_refs
+            }
+            missing_live = live_expressions - set(active_refs)
+            if missing_live:
+                raise TransitionSpaceError(
+                    "feature-liveness pass discarded a required expression"
+                )
+
+            input_refs = {
+                name: old_to_new[input_refs[name]]
+                for name in live_input_names
+            }
+            weights.append(layer_matrix)
+            biases.append(layer_bias)
+            hidden_widths.append(current_width)
+
+    final_width = hidden_widths[-1]
+    output_matrix: list[list[float]] = []
+    output_bias: list[float] = []
+    for expression in program.output_expressions:
+        if isinstance(expression, BooleanInput):
+            if expression.name not in input_refs:
+                raise TransitionSpaceError("an input output was not kept live")
+            coefficients = [0.0] * final_width
+            coefficients[input_refs[expression.name]] = 1.0
+            offset = 0.0
+        elif isinstance(expression, BooleanConstant):
+            coefficients = [0.0] * final_width
+            offset = float(expression.value)
+        else:
+            if expression not in active_refs:
+                raise TransitionSpaceError("an output expression was not kept live")
+            coefficients_tuple, offset = active_refs[expression]
+            coefficients = list(coefficients_tuple)
+        output_matrix.append(coefficients)
+        output_bias.append(offset)
+
+    weights.append(output_matrix)
+    biases.append(output_bias)
+    architecture = (input_width, *hidden_widths, output_width)
+    model = CompositionalTransitionReLUNetwork(
+        weights,
+        biases,
+        program_digest=program.digest,
+        input_names=program.input_names,
+        output_names=program.output_names,
+        architecture=architecture,
+    )
+    for pattern in itertools.product((0, 1), repeat=input_width):
+        if model.predict(pattern) != program.evaluate(pattern):
+            raise TransitionSpaceError(
+                "live-feature neural compilation failed its finite verification"
+            )
+    return model
