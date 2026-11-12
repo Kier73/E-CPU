@@ -15,6 +15,7 @@ from mailcpu.transition_space import (
     compile_transition_program,
     compile_transition_table,
     pattern_to_index,
+    two_bit_counter_program,
     two_bit_counter_table,
 )
 
