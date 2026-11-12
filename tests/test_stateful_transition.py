@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import ast
 import copy
 import itertools
+from pathlib import Path
 
 import pytest
 
@@ -184,3 +186,20 @@ def test_runtime_validates_initial_state_width_and_program_outputs():
     )
     with pytest.raises(StatefulTransitionError, match="one next-state output"):
         StatefulTransitionRuntime(invalid_outputs, (0, 1))
+
+
+def test_new_transition_modules_have_governing_mathematics_annotations():
+    root = Path(__file__).resolve().parents[1]
+    for module_name in ("transition_space.py", "stateful_transition.py"):
+        module_path = root / "mailcpu" / module_name
+        tree = ast.parse(module_path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if node.name.startswith("__") and node.name.endswith("__"):
+                continue
+            docstring = ast.get_docstring(node)
+            assert docstring is not None, f"{module_name}:{node.lineno} {node.name} has no docstring"
+            assert "Mathematics:" in docstring, (
+                f"{module_name}:{node.lineno} {node.name} has no governing mathematics annotation"
+            )
