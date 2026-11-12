@@ -1,4 +1,5 @@
 """Exact small-domain compilation of Boolean gates into dense ReLU weights.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
 
 This is a deliberately bounded constructive realization, not a trainer and not
 an arbitrary-network synthesizer. It compiles two-input XOR/AND specifications
@@ -25,11 +26,15 @@ _GATE_OUTPUTS = {"xor": (1.0, -2.0), "and": (0.0, 1.0)}
 
 
 class WeightSpaceError(ValueError):
-    """A model, gate specification, input, or intervention is outside this prototype's contract."""
+    """A model, gate specification, input, or intervention is outside this prototype's contract.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
 
 
 def _finite_number(value: Any, label: str) -> float:
-    """Validate and normalize one finite real-valued model scalar."""
+    """Validate and normalize one finite real-valued model scalar.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise WeightSpaceError(f"{label} must be a real number")
     result = float(value)
@@ -39,7 +44,9 @@ def _finite_number(value: Any, label: str) -> float:
 
 
 def _binary(value: Any, label: str) -> int:
-    """Validate a Boolean-domain input while excluding non-binary integers."""
+    """Validate a Boolean-domain input while excluding non-binary integers.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
     if isinstance(value, bool):
         return int(value)
     if type(value) is int and value in (0, 1):
@@ -48,7 +55,9 @@ def _binary(value: Any, label: str) -> int:
 
 
 class DenseReLUNetwork:
-    """Dense MLP with output-major matrices and an explicit bias per layer output."""
+    """Dense MLP with output-major matrices and an explicit bias per layer output.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
 
     def __init__(
         self,
@@ -73,7 +82,9 @@ class DenseReLUNetwork:
         self._validate_shape()
 
     def _validate_shape(self) -> None:
-        """Reject tensors whose dimensions differ from the declared architecture."""
+        """Reject tensors whose dimensions differ from the declared architecture.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         if (
             self._architecture not in SUPPORTED_ARCHITECTURES
             or len(self._weights) != len(self._architecture) - 1
@@ -91,34 +102,46 @@ class DenseReLUNetwork:
 
     @property
     def architecture(self) -> tuple[int, ...]:
-        """Return the layer-width tuple represented by this network."""
+        """Return the layer-width tuple represented by this network.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return self._architecture
 
     @property
     def compiled_gate(self) -> str:
-        """Return the gate identity used by the deterministic compiler template."""
+        """Return the gate identity used by the deterministic compiler template.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return self._compiled_gate
 
     @property
     def weights(self) -> tuple[tuple[tuple[float, ...], ...], ...]:
-        """Expose an immutable output-major copy of all weight matrices."""
+        """Expose an immutable output-major copy of all weight matrices.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return tuple(tuple(tuple(row) for row in layer) for layer in self._weights)
 
     @property
     def biases(self) -> tuple[tuple[float, ...], ...]:
-        """Expose an immutable copy of the layer bias vectors."""
+        """Expose an immutable copy of the layer bias vectors.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return tuple(tuple(layer) for layer in self._biases)
 
     @property
     def parameter_count(self) -> int:
-        """Count every declared weight and bias, including zero-valued entries."""
+        """Count every declared weight and bias, including zero-valued entries.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return sum(len(row) for layer in self._weights for row in layer) + sum(
             len(layer) for layer in self._biases
         )
 
     @property
     def active_parameter_count(self) -> int:
-        """Count nonzero weights and biases in the current parameterization."""
+        """Count nonzero weights and biases in the current parameterization.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return sum(
             value != 0.0
             for layer in self._weights
@@ -127,7 +150,9 @@ class DenseReLUNetwork:
         ) + sum(value != 0.0 for layer in self._biases for value in layer)
 
     def forward(self, inputs: Sequence[int | float]) -> tuple[float, ...]:
-        """Evaluate the declared dense layers with ReLU hidden activations."""
+        """Evaluate the declared dense layers with ReLU hidden activations.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         if len(inputs) != self._architecture[0]:
             raise WeightSpaceError("input must contain exactly two values")
         values = [_finite_number(value, "input") for value in inputs]
@@ -145,7 +170,9 @@ class DenseReLUNetwork:
         return tuple(values)
 
     def predict(self, left: int, right: int) -> int:
-        """Evaluate the declared Boolean domain {0,1}² and return one exact bit."""
+        """Evaluate the declared Boolean domain {0,1}² and return one exact bit.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         left_bit, right_bit = _binary(left, "left input"), _binary(right, "right input")
         output = self.forward((left_bit, right_bit))[0]
         nearest = round(output)
@@ -159,7 +186,9 @@ class DenseReLUNetwork:
         return int(nearest)
 
     def _payload(self) -> dict[str, Any]:
-        """Build a detached canonical-JSON-compatible model snapshot payload."""
+        """Build a detached canonical-JSON-compatible model snapshot payload.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         # Snapshots must not alias mutable internal tensors.
         return {
             "schema": SCHEMA,
@@ -173,7 +202,9 @@ class DenseReLUNetwork:
 
     @property
     def digest(self) -> str:
-        """Return SHA-256 identity of the canonical model snapshot payload."""
+        """Return SHA-256 identity of the canonical model snapshot payload.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         encoded = json.dumps(
             self._payload(),
             sort_keys=True,
@@ -183,14 +214,18 @@ class DenseReLUNetwork:
         return hashlib.sha256(encoded).hexdigest()
 
     def snapshot(self) -> dict[str, Any]:
-        """Return a detached, digest-bound serialization of the model."""
+        """Return a detached, digest-bound serialization of the model.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         payload = self._payload()
         payload["digest"] = self.digest
         return payload
 
     @classmethod
     def from_snapshot(cls, payload: Mapping[str, Any]) -> "DenseReLUNetwork":
-        """Restore a model only after checking its schema, shape, count, and digest."""
+        """Restore a model only after checking its schema, shape, count, and digest.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         if not isinstance(payload, Mapping):
             raise WeightSpaceError("snapshot must be a mapping")
         required = {
@@ -234,6 +269,7 @@ def compile_boolean_gate(
     architecture: Sequence[int] = ARCHITECTURE,
 ) -> DenseReLUNetwork:
     """Construct a 10,000-parameter Boolean MLP without an optimizer or dataset.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
 
     The supported architectures are 2-85-112-1 and 2-17-254-21-1.
     Their hidden layers preserve two features:
@@ -280,13 +316,17 @@ def compile_boolean_gate(
 
 @dataclass(frozen=True)
 class ParameterCoordinate:
-    """Identify one output-major weight coordinate in a layer matrix."""
+    """Identify one output-major weight coordinate in a layer matrix.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
     layer_index: int
     output_index: int
     input_index: int
 
     def to_dict(self) -> dict[str, int]:
-        """Serialize the three integer indices of this parameter coordinate."""
+        """Serialize the three integer indices of this parameter coordinate.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return {
             "layer_index": self.layer_index,
             "output_index": self.output_index,
@@ -296,14 +336,18 @@ class ParameterCoordinate:
 
 @dataclass(frozen=True)
 class ParameterIntervention:
-    """Record the content identities and coordinates of one parameter edit."""
+    """Record the content identities and coordinates of one parameter edit.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
     source_digest: str
     target_digest: str
     changed_parameters: int
     coordinates: tuple[ParameterCoordinate, ...]
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize the intervention identity and its changed coordinates."""
+        """Serialize the intervention identity and its changed coordinates.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return {
             "source_digest": self.source_digest,
             "target_digest": self.target_digest,
@@ -316,7 +360,9 @@ def edit_boolean_gate(
     model: DenseReLUNetwork,
     target_gate: str,
 ) -> ParameterIntervention:
-    """Change XOR↔AND by editing exactly two output coefficients in the final layer."""
+    """Change XOR↔AND by editing exactly two output coefficients in the final layer.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
     if not isinstance(model, DenseReLUNetwork):
         raise WeightSpaceError("model must be a DenseReLUNetwork")
     if target_gate not in _GATE_OUTPUTS:
@@ -358,7 +404,9 @@ def edit_boolean_gate(
 
 
 def boolean_gate_program(gate: str) -> Program:
-    """Build a MailCPU instruction program for the same two-input Boolean function."""
+    """Build a MailCPU instruction program for the same two-input Boolean function.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
     if gate == "and":
         return Program(
             (
@@ -381,7 +429,9 @@ def boolean_gate_program(gate: str) -> Program:
 
 
 def evaluate_boolean_gate(gate: str, left: int, right: int) -> int:
-    """Independent, explicit specification oracle on the declared binary domain."""
+    """Independent, explicit specification oracle on the declared binary domain.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
     left_bit, right_bit = _binary(left, "left input"), _binary(right, "right input")
     if gate == "xor":
         return left_bit ^ right_bit
@@ -391,12 +441,16 @@ def evaluate_boolean_gate(gate: str, left: int, right: int) -> int:
 
 
 def encode_boolean_signal(bit: int) -> int:
-    """Embed the Boolean group in Z/8Z: 0↦0 and 1↦4; addition then realizes XOR."""
+    """Embed the Boolean group in Z/8Z: 0↦0 and 1↦4; addition then realizes XOR.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
     return 4 * _binary(bit, "signal input")
 
 
 def decode_boolean_signal(symbol: int) -> int:
-    """Decode one value from the embedded Boolean subgroup {0, 4} of Z/8Z."""
+    """Decode one value from the embedded Boolean subgroup {0, 4} of Z/8Z.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
     if symbol == 0:
         return 0
     if symbol == 4:

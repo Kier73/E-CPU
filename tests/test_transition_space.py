@@ -1,0 +1,439 @@
+from __future__ import annotations
+
+import copy
+import itertools
+import random
+
+import pytest
+
+from mailcpu.interpreter import QueueInterpreter, ReferenceInterpreter
+from mailcpu.model import canonical_result
+from mailcpu.transition_space import (
+    BooleanAnd,
+    BooleanConstant,
+    BooleanInput,
+    BooleanNot,
+    BooleanSelect,
+    BooleanXor,
+    FiniteTransitionProgram,
+    FiniteTransitionTable,
+    TransitionRow,
+    TransitionSpaceError,
+    apply_table_intervention,
+    compile_compositional_transition_program,
+    compile_live_compositional_transition_program,
+    compile_transition_program,
+    compile_transition_table,
+    pattern_to_index,
+    two_bit_counter_program,
+    two_bit_counter_table,
+)
+
+
+def _architectures(table: FiniteTransitionTable) -> tuple[tuple[int, ...], ...]:
+    width = len(table.input_names)
+    rows = table.row_count
+    outputs = len(table.output_names)
+    return (
+        (width, rows, outputs),
+        (width, rows, rows, outputs),
+    )
+
+
+def _initial_registers(table: FiniteTransitionTable, inputs: tuple[int, ...]) -> dict[str, int]:
+    return dict(zip(table.input_names, inputs))
+
+
+def _expected_registers(table: FiniteTransitionTable, outputs: tuple[int, ...]) -> dict[str, int]:
+    return dict(zip(table.output_names, outputs))
+
+
+def test_two_bit_counter_table_is_total_and_deterministic():
+    table = two_bit_counter_table()
+    assert table.row_count == 16
+    assert len({row.inputs for row in table.rows}) == 16
+
+    assert table.row_for((0, 0, 1, 0)).outputs == (0, 1)
+    assert table.row_for((0, 1, 1, 0)).outputs == (1, 0)
+    assert table.row_for((1, 1, 1, 0)).outputs == (0, 0)
+    assert table.row_for((0, 1, 0, 0)).outputs == (0, 1)
+    assert table.row_for((0, 1, 1, 1)).outputs == (0, 0)
+
+
+@pytest.mark.parametrize("architecture_index", (0, 1))
+def test_truth_table_compiles_to_distinct_exact_relu_architectures(architecture_index: int):
+    table = two_bit_counter_table()
+    architecture = _architectures(table)[architecture_index]
+    model = compile_transition_table(table, architecture=architecture)
+
+    assert model.architecture == architecture
+    assert model.parameter_count == (
+        114 if architecture_index == 0 else 386
+    )
+    for row in table.rows:
+        assert model.predict(row.inputs) == row.outputs
+
+
+def test_mailcpu_program_and_both_execution_backends_match_every_transition():
+    table = two_bit_counter_table()
+    program = compile_transition_program(table)
+
+    for row in table.rows:
+        initial = _initial_registers(table, row.inputs)
+        reference = ReferenceInterpreter(program).run(initial_registers=initial)
+        queued = QueueInterpreter(program).run(initial_registers=initial)
+
+        assert reference.status.value == "halted"
+        assert queued.status.value == "halted"
+        assert _expected_registers(table, row.outputs).items() <= reference.state.registers.items()
+        assert _expected_registers(table, row.outputs).items() <= queued.state.registers.items()
+        assert canonical_result(reference) == canonical_result(queued)
+
+
+def test_editing_one_transition_row_changes_exactly_one_neural_weight():
+    table = two_bit_counter_table()
+    changed_inputs = (0, 1, 1, 1)
+    changed_outputs = (1, 0)
+    target = table.with_output(changed_inputs, changed_outputs)
+    row_index = pattern_to_index(changed_inputs)
+
+    for architecture in _architectures(table):
+        model = compile_transition_table(table, architecture=architecture)
+        before_weights = model.weights
+        intervention = apply_table_intervention(model, table, target)
+        after_weights = model.weights
+        final_layer = len(architecture) - 2
+
+        assert intervention.changed_parameters == 1
+        assert [
+            (item.layer_index, item.output_index, item.input_index)
+            for item in intervention.coordinates
+        ] == [(final_layer, 0, row_index)]
+
+        changed_coordinates = [
+            (layer, output, input_index)
+            for layer, (old_matrix, new_matrix) in enumerate(
+                zip(before_weights, after_weights)
+            )
+            for output, (old_row, new_row) in enumerate(
+                zip(old_matrix, new_matrix)
+            )
+            for input_index, (old, new) in enumerate(zip(old_row, new_row))
+            if old != new
+        ]
+        assert changed_coordinates == [(final_layer, 0, row_index)]
+        assert model.table_digest == target.digest
+
+        for row in target.rows:
+            assert model.predict(row.inputs) == row.outputs
+
+
+def test_neural_intervention_changes_only_the_selected_transition():
+    source = two_bit_counter_table()
+    target = source.with_output((0, 1, 1, 1), (1, 0))
+    model = compile_transition_table(source)
+    apply_table_intervention(model, source, target)
+
+    for row in source.rows:
+        actual = model.predict(row.inputs)
+        if row.inputs == (0, 1, 1, 1):
+            assert actual == (1, 0)
+        else:
+            assert actual == row.outputs
+
+
+def test_edited_transition_program_matches_updated_neural_model():
+    source = two_bit_counter_table()
+    target = source.with_output((0, 1, 1, 1), (1, 0))
+    program = compile_transition_program(target)
+    model = compile_transition_table(source)
+    apply_table_intervention(model, source, target)
+
+    for row in target.rows:
+        result = ReferenceInterpreter(program).run(
+            initial_registers=_initial_registers(target, row.inputs)
+        )
+        assert result.status.value == "halted"
+        assert _expected_registers(target, row.outputs).items() <= result.state.registers.items()
+        assert model.predict(row.inputs) == row.outputs
+
+
+def test_snapshot_round_trip_and_detached_payload():
+    table = two_bit_counter_table()
+    for architecture in _architectures(table):
+        model = compile_transition_table(table, architecture=architecture)
+        snapshot = model.snapshot()
+        restored = type(model).from_snapshot(snapshot)
+        assert restored.digest == model.digest
+        assert restored.snapshot() == snapshot
+
+        altered = copy.deepcopy(snapshot)
+        altered["weights"][-1][0][0] = 99.0
+        with pytest.raises(TransitionSpaceError, match="digest mismatch"):
+            type(model).from_snapshot(altered)
+
+
+def test_intervention_rejects_wrong_source_or_changed_interface():
+    table = two_bit_counter_table()
+    model = compile_transition_table(table)
+    target = table.with_output((0, 1, 1, 1), (1, 0))
+    wrong_source = table.with_output((0, 0, 0, 0), (1, 1))
+
+    with pytest.raises(TransitionSpaceError, match="source table"):
+        apply_table_intervention(model, wrong_source, target)
+
+    different_interface = FiniteTransitionTable(
+        target.name,
+        target.input_names,
+        ("other_output_1", "other_output_0"),
+        target.rows,
+    )
+    with pytest.raises(TransitionSpaceError, match="interface"):
+        apply_table_intervention(model, table, different_interface)
+
+
+def test_transition_table_rejects_missing_or_duplicate_input_patterns():
+    with pytest.raises(TransitionSpaceError, match="cover every Boolean input pattern"):
+        FiniteTransitionTable(
+            "incomplete",
+            ("a", "b"),
+            ("out",),
+            (
+                TransitionRow((0, 0), (0,)),
+                TransitionRow((0, 1), (0,)),
+                TransitionRow((1, 0), (1,)),
+            ),
+        )
+
+    with pytest.raises(TransitionSpaceError, match="cover every Boolean input pattern"):
+        FiniteTransitionTable(
+            "duplicate",
+            ("a",),
+            ("out",),
+            (TransitionRow((0,), (0,)), TransitionRow((0,), (1,))),
+        )
+
+
+def test_compiler_refuses_architecture_without_one_hidden_unit_per_row():
+    table = two_bit_counter_table()
+    with pytest.raises(TransitionSpaceError, match="one hidden neuron per table row"):
+        compile_transition_table(table, architecture=(4, 8, 2))
+
+
+if __name__ == "__main__":
+    pytest.main([__file__])
+
+
+def test_compositional_transition_program_enumerates_the_complete_table():
+    program = two_bit_counter_program()
+    table = program.to_table()
+
+    assert table == two_bit_counter_table()
+    for row in table.rows:
+        assert program.evaluate(row.inputs) == row.outputs
+
+    restored = type(program).from_dict(program.to_dict())
+    assert restored.digest == program.digest
+    assert restored.to_table() == table
+
+
+def test_compositional_transition_program_rejects_undeclared_inputs():
+    from mailcpu.transition_space import (
+        BooleanInput,
+        BooleanSelect,
+        FiniteTransitionProgram,
+    )
+
+    with pytest.raises(TransitionSpaceError, match="undeclared inputs"):
+        FiniteTransitionProgram(
+            "invalid-transition",
+            ("state",),
+            ("next_state",),
+            (BooleanSelect(BooleanInput("missing"), BooleanInput("state"), BooleanInput("state")),),
+        )
+
+
+def test_typed_program_row_override_changes_only_the_selected_transition():
+    source_program = two_bit_counter_program()
+    source_table = source_program.to_table()
+    target_program = source_program.with_row_output(
+        (0, 1, 1, 1),
+        (1, 0),
+        name="two-bit-counter.reset-exception.v1",
+    )
+    target_table = target_program.to_table()
+
+    assert target_table == source_table.with_output(
+        (0, 1, 1, 1),
+        (1, 0),
+        name="two-bit-counter.reset-exception.v1",
+    )
+    changed_rows = [
+        row.inputs
+        for row, target_row in zip(source_table.rows, target_table.rows)
+        if row.outputs != target_row.outputs
+    ]
+    assert changed_rows == [(0, 1, 1, 1)]
+
+
+def test_compositional_relu_compiler_matches_typed_counter_program():
+    program = two_bit_counter_program()
+    table = program.to_table()
+    model = compile_compositional_transition_program(program)
+
+    assert model.architecture[0] == len(table.input_names)
+    assert model.architecture[-1] == len(table.output_names)
+    assert model.parameter_count > 0
+    assert model.program_digest == program.digest
+    for row in table.rows:
+        assert model.predict(row.inputs) == program.evaluate(row.inputs)
+        assert model.predict(row.inputs) == row.outputs
+
+    restored = type(model).from_snapshot(model.snapshot())
+    assert restored.digest == model.digest
+    assert restored.architecture == model.architecture
+    assert restored.program_digest == program.digest
+
+
+def test_compositional_relu_compiler_tracks_one_row_typed_override():
+    source_program = two_bit_counter_program()
+    target_program = source_program.with_row_output(
+        (0, 1, 1, 1),
+        (1, 0),
+        name="two-bit-counter.reset-exception.v1",
+    )
+    target_table = target_program.to_table()
+    target_model = compile_compositional_transition_program(target_program)
+    source_model = compile_compositional_transition_program(source_program)
+
+    assert target_model.program_digest == target_program.digest
+    assert target_model.digest != source_model.digest
+    assert target_model.parameter_count < 1678
+    assert len(target_model.architecture) < 8
+    changed = []
+    for row in target_table.rows:
+        expected = target_program.evaluate(row.inputs)
+        assert target_model.predict(row.inputs) == expected
+        if row.inputs == (0, 1, 1, 1):
+            assert expected == (1, 0)
+        else:
+            assert expected == source_program.evaluate(row.inputs)
+        if expected != source_program.evaluate(row.inputs):
+            changed.append(row.inputs)
+    assert changed == [(0, 1, 1, 1)]
+
+
+def test_compositional_and_truth_table_neural_compilers_are_semantically_equivalent():
+    program = two_bit_counter_program()
+    table = program.to_table()
+    compositional = compile_compositional_transition_program(program)
+    enumerated = compile_transition_table(table)
+
+    assert compositional.architecture[0] == enumerated.architecture[0]
+    assert compositional.architecture[-1] == enumerated.architecture[-1]
+    for row in table.rows:
+        assert compositional.predict(row.inputs) == enumerated.predict(row.inputs)
+        assert compositional.predict(row.inputs) == table.row_for(row.inputs).outputs
+
+
+def test_live_feature_compiler_matches_dense_compositional_models():
+    source_program = two_bit_counter_program()
+    target_program = source_program.with_row_output(
+        (0, 1, 1, 1),
+        (1, 0),
+        name="two-bit-counter.reset-exception.v1",
+    )
+
+    for program in (source_program, target_program):
+        table = program.to_table()
+        dense = compile_compositional_transition_program(program)
+        compact = compile_live_compositional_transition_program(program)
+
+        assert compact.program_digest == program.digest
+        assert compact.architecture[0] == len(program.input_names)
+        assert compact.architecture[-1] == len(program.output_names)
+        assert compact.parameter_count <= dense.parameter_count
+        for row in table.rows:
+            assert compact.predict(row.inputs) == dense.predict(row.inputs)
+            assert compact.predict(row.inputs) == row.outputs
+
+        restored = type(compact).from_snapshot(compact.snapshot())
+        assert restored.digest == compact.digest
+        assert restored.architecture == compact.architecture
+
+
+def test_live_feature_compiler_handles_leaf_outputs_and_direct_input_pruning():
+    program = FiniteTransitionProgram(
+        "leaf-and-negated-literal",
+        ("a", "b", "unused"),
+        ("not_a", "a_and_b", "constant"),
+        (
+            BooleanNot(BooleanInput("a")),
+            BooleanAnd(BooleanInput("a"), BooleanInput("b")),
+            BooleanConstant(1),
+        ),
+    )
+    model = compile_live_compositional_transition_program(program)
+
+    assert model.architecture == (3, 2, 3)
+    for values in itertools.product((0, 1), repeat=3):
+        expected = (1 - values[0], values[0] & values[1], 1)
+        assert model.predict(values) == expected
+
+
+def test_live_feature_compiler_handles_leaf_only_transition_programs():
+    program = FiniteTransitionProgram(
+        "leaf-only-output",
+        ("a", "b"),
+        ("copy_b", "constant"),
+        (BooleanInput("b"), BooleanConstant(1)),
+    )
+    model = compile_live_compositional_transition_program(program)
+
+    for values in itertools.product((0, 1), repeat=2):
+        assert model.predict(values) == (values[1], 1)
+
+
+def test_all_neural_compilers_match_a_deterministic_generated_boolean_program_corpus():
+    rng = random.Random(7142026)
+    input_names = ("state_a", "state_b", "event")
+
+    def expression(depth: int):
+        """Generate one bounded typed Boolean expression from the compiler's declared node algebra."""
+        if depth == 0 or rng.random() < 0.24:
+            if rng.random() < 0.18:
+                return BooleanConstant(rng.randrange(2))
+            return BooleanInput(rng.choice(input_names))
+
+        kind = rng.randrange(4)
+        if kind == 0:
+            return BooleanNot(expression(depth - 1))
+        if kind == 1:
+            return BooleanAnd(expression(depth - 1), expression(depth - 1))
+        if kind == 2:
+            return BooleanXor(expression(depth - 1), expression(depth - 1))
+        return BooleanSelect(
+            expression(depth - 1),
+            expression(depth - 1),
+            expression(depth - 1),
+        )
+
+    for seed in range(24):
+        rng.seed(7142026 + seed)
+        program = FiniteTransitionProgram(
+            f"generated-boolean-transition-{seed:02d}",
+            input_names,
+            ("next_a", "next_b"),
+            (expression(3), expression(3)),
+        )
+        table = program.to_table()
+        table_model = compile_transition_table(table)
+        dense_model = compile_compositional_transition_program(program)
+        live_model = compile_live_compositional_transition_program(program)
+
+        for row in table.rows:
+            expected = program.evaluate(row.inputs)
+            assert table_model.predict(row.inputs) == expected
+            assert dense_model.predict(row.inputs) == expected
+            assert live_model.predict(row.inputs) == expected
+
