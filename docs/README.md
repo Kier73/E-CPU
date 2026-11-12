@@ -76,6 +76,8 @@ Index of specification documents. Documents use defined terms from `GLOSSARY.md`
 | 67 | [`TRANSFERABLE_EXECUTION_CLAIMS.md`](TRANSFERABLE_EXECUTION_CLAIMS.md) | Quorum-anchored portable execution claims, assignment-epoch fencing, current-owner verification and safe result acceptance for pure operations |
 | 68 | [`CLAIM_BOUND_FABRIC_ADMISSION.md`](CLAIM_BOUND_FABRIC_ADMISSION.md) | Batched child tickets, claim-bound envelope v2, direct mutual-TLS status refresh, terminal Hypervisor admission, origin freshness checks, atomic parent completion and bounded rehome |
 
+| 69 | [SPARSE_TRANSITION_REALIZATION.md](SPARSE_TRANSITION_REALIZATION.md) | Sparse exact finite-transition ReLU storage, execution semantics, cost dimensions, snapshot integrity, and verification boundaries |
+
 ## Document classes
 
 **Specification.** `ARCHITECTURE.md`, `SEMANTIC_TRANSLATION.md`, `REPLACEMENT_SPEC.md`, `INTEGRATION_SPEC.md`. Core system design and interfaces.
