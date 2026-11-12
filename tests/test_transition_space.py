@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import itertools
+import random
 
 import pytest
 
@@ -12,6 +13,8 @@ from mailcpu.transition_space import (
     BooleanConstant,
     BooleanInput,
     BooleanNot,
+    BooleanSelect,
+    BooleanXor,
     FiniteTransitionProgram,
     FiniteTransitionTable,
     TransitionRow,
@@ -389,3 +392,48 @@ def test_live_feature_compiler_handles_leaf_only_transition_programs():
 
     for values in itertools.product((0, 1), repeat=2):
         assert model.predict(values) == (values[1], 1)
+
+
+def test_all_neural_compilers_match_a_deterministic_generated_boolean_program_corpus():
+    rng = random.Random(7142026)
+    input_names = ("state_a", "state_b", "event")
+
+    def expression(depth: int):
+        """Generate one bounded typed Boolean expression from the compiler's declared node algebra."""
+        if depth == 0 or rng.random() < 0.24:
+            if rng.random() < 0.18:
+                return BooleanConstant(rng.randrange(2))
+            return BooleanInput(rng.choice(input_names))
+
+        kind = rng.randrange(4)
+        if kind == 0:
+            return BooleanNot(expression(depth - 1))
+        if kind == 1:
+            return BooleanAnd(expression(depth - 1), expression(depth - 1))
+        if kind == 2:
+            return BooleanXor(expression(depth - 1), expression(depth - 1))
+        return BooleanSelect(
+            expression(depth - 1),
+            expression(depth - 1),
+            expression(depth - 1),
+        )
+
+    for seed in range(24):
+        rng.seed(7142026 + seed)
+        program = FiniteTransitionProgram(
+            f"generated-boolean-transition-{seed:02d}",
+            input_names,
+            ("next_a", "next_b"),
+            (expression(3), expression(3)),
+        )
+        table = program.to_table()
+        table_model = compile_transition_table(table)
+        dense_model = compile_compositional_transition_program(program)
+        live_model = compile_live_compositional_transition_program(program)
+
+        for row in table.rows:
+            expected = program.evaluate(row.inputs)
+            assert table_model.predict(row.inputs) == expected
+            assert dense_model.predict(row.inputs) == expected
+            assert live_model.predict(row.inputs) == expected
+
