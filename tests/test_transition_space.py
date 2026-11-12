@@ -8,6 +8,11 @@ import pytest
 from mailcpu.interpreter import QueueInterpreter, ReferenceInterpreter
 from mailcpu.model import canonical_result
 from mailcpu.transition_space import (
+    BooleanAnd,
+    BooleanConstant,
+    BooleanInput,
+    BooleanNot,
+    FiniteTransitionProgram,
     FiniteTransitionTable,
     TransitionRow,
     TransitionSpaceError,
@@ -352,3 +357,35 @@ def test_live_feature_compiler_matches_dense_compositional_models():
         restored = type(compact).from_snapshot(compact.snapshot())
         assert restored.digest == compact.digest
         assert restored.architecture == compact.architecture
+
+
+def test_live_feature_compiler_handles_leaf_outputs_and_direct_input_pruning():
+    program = FiniteTransitionProgram(
+        "leaf-and-negated-literal",
+        ("a", "b", "unused"),
+        ("not_a", "a_and_b", "constant"),
+        (
+            BooleanNot(BooleanInput("a")),
+            BooleanAnd(BooleanInput("a"), BooleanInput("b")),
+            BooleanConstant(1),
+        ),
+    )
+    model = compile_live_compositional_transition_program(program)
+
+    assert model.architecture == (3, 2, 3)
+    for values in itertools.product((0, 1), repeat=3):
+        expected = (1 - values[0], values[0] & values[1], 1)
+        assert model.predict(values) == expected
+
+
+def test_live_feature_compiler_handles_leaf_only_transition_programs():
+    program = FiniteTransitionProgram(
+        "leaf-only-output",
+        ("a", "b"),
+        ("copy_b", "constant"),
+        (BooleanInput("b"), BooleanConstant(1)),
+    )
+    model = compile_live_compositional_transition_program(program)
+
+    for values in itertools.product((0, 1), repeat=2):
+        assert model.predict(values) == (values[1], 1)
