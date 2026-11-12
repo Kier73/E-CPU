@@ -179,3 +179,13 @@ The live compiler reduced total parameters by 67.46% on the baseline program and
 The feature-liveness implementation is regression-tested for both counter programs, a program with an unused declared input, negated literals, direct input outputs, constant outputs, and leaf-only source programs. It also compares both compact models against the un-compacted DAG compiler and the complete transition table.
 
 The remaining limitation is that each layer is still stored as a dense matrix. Liveness removes dead rows and features, but the surviving layers may still contain zero coefficients. A sparse tensor/runtime representation is a distinct next step.
+
+## Generated algebra corpus
+
+The transition compiler tests also generate a deterministic corpus of 24 small typed Boolean programs using only the declared input, constant, NOT, AND, XOR, and SELECT nodes. Every program is exhaustively evaluated over its three-input Boolean domain and compared across all three neural construction routes:
+
+- Complete-table minterms.
+- Direct expression-DAG compilation.
+- Liveness-compacted expression-DAG compilation.
+
+This supplements the hand-specified two-bit counter with structurally different expression trees and exercises combinations of nested selections and Boolean operators. The corpus is deterministic by seed and is a finite property test, not a proof for every possible expression tree or unbounded program.
