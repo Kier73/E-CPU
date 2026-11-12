@@ -240,3 +240,26 @@ def test_compositional_transition_program_rejects_undeclared_inputs():
             ("next_state",),
             (BooleanSelect(BooleanInput("missing"), BooleanInput("state"), BooleanInput("state")),),
         )
+
+
+def test_typed_program_row_override_changes_only_the_selected_transition():
+    source_program = two_bit_counter_program()
+    source_table = source_program.to_table()
+    target_program = source_program.with_row_output(
+        (0, 1, 1, 1),
+        (1, 0),
+        name="two-bit-counter.reset-exception.v1",
+    )
+    target_table = target_program.to_table()
+
+    assert target_table == source_table.with_output(
+        (0, 1, 1, 1),
+        (1, 0),
+        name="two-bit-counter.reset-exception.v1",
+    )
+    changed_rows = [
+        row.inputs
+        for row, target_row in zip(source_table.rows, target_table.rows)
+        if row.outputs != target_row.outputs
+    ]
+    assert changed_rows == [(0, 1, 1, 1)]
