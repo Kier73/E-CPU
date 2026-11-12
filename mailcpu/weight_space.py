@@ -17,6 +17,8 @@ from typing import Any
 from .model import Instruction, Op, Program
 
 ARCHITECTURE = (2, 85, 112, 1)
+DEEP_ARCHITECTURE = (2, 17, 254, 21, 1)
+SUPPORTED_ARCHITECTURES = (ARCHITECTURE, DEEP_ARCHITECTURE)
 ACTIVATION = "relu-hidden-linear-output"
 SCHEMA = "mailcpu.weight-space-model.v1"
 _GATE_OUTPUTS = {"xor": (1.0, -2.0), "and": (0.0, 1.0)}
@@ -46,8 +48,7 @@ def _binary(value: Any, label: str) -> int:
 
 
 class DenseReLUNetwork:
-    """Explicit dense 2-85-112-1 ReLU parameterization for a Boolean gate."""
-    """Dense MLP whose matrices are stored output-major and include explicit biases."""
+    """Dense MLP with output-major matrices and an explicit bias per layer output."""
 
     def __init__(
         self,
@@ -55,6 +56,7 @@ class DenseReLUNetwork:
         biases: Sequence[Sequence[float]],
         *,
         compiled_gate: str,
+        architecture: Sequence[int] = ARCHITECTURE,
     ) -> None:
         if compiled_gate not in _GATE_OUTPUTS:
             raise WeightSpaceError("compiled_gate must be 'xor' or 'and'")
@@ -67,13 +69,18 @@ class DenseReLUNetwork:
             for layer in biases
         ]
         self._compiled_gate = compiled_gate
+        self._architecture = tuple(architecture)
         self._validate_shape()
 
     def _validate_shape(self) -> None:
         """Reject tensors whose dimensions differ from the declared architecture."""
-        if len(self._weights) != 3 or len(self._biases) != 3:
-            raise WeightSpaceError("the prototype requires exactly three dense layers")
-        expected = tuple(zip(ARCHITECTURE[:-1], ARCHITECTURE[1:]))
+        if (
+            self._architecture not in SUPPORTED_ARCHITECTURES
+            or len(self._weights) != len(self._architecture) - 1
+            or len(self._biases) != len(self._architecture) - 1
+        ):
+            raise WeightSpaceError("the model architecture is unsupported or tensor depth is invalid")
+        expected = tuple(zip(self._architecture[:-1], self._architecture[1:]))
         for layer_index, ((input_width, output_width), matrix, bias) in enumerate(
             zip(expected, self._weights, self._biases)
         ):
@@ -84,8 +91,8 @@ class DenseReLUNetwork:
 
     @property
     def architecture(self) -> tuple[int, ...]:
-        """Return the fixed layer-width tuple represented by this network."""
-        return ARCHITECTURE
+        """Return the layer-width tuple represented by this network."""
+        return self._architecture
 
     @property
     def compiled_gate(self) -> str:
@@ -121,7 +128,7 @@ class DenseReLUNetwork:
 
     def forward(self, inputs: Sequence[int | float]) -> tuple[float, ...]:
         """Evaluate the declared dense layers with ReLU hidden activations."""
-        if len(inputs) != ARCHITECTURE[0]:
+        if len(inputs) != self._architecture[0]:
             raise WeightSpaceError("input must contain exactly two values")
         values = [_finite_number(value, "input") for value in inputs]
         for layer_index, (matrix, bias) in enumerate(zip(self._weights, self._biases)):
@@ -132,7 +139,7 @@ class DenseReLUNetwork:
             # The architecture is ReLU on hidden layers and linear at the output.
             values = (
                 [max(0.0, value) for value in next_values]
-                if layer_index < 2
+                if layer_index < len(self._weights) - 1
                 else next_values
             )
         return tuple(values)
@@ -156,7 +163,7 @@ class DenseReLUNetwork:
         # Snapshots must not alias mutable internal tensors.
         return {
             "schema": SCHEMA,
-            "architecture": list(ARCHITECTURE),
+            "architecture": list(self._architecture),
             "activation": ACTIVATION,
             "compiled_gate": self._compiled_gate,
             "weights": [[list(row) for row in layer] for layer in self._weights],
@@ -200,7 +207,7 @@ class DenseReLUNetwork:
             raise WeightSpaceError("snapshot fields do not match the v1 schema")
         if (
             payload["schema"] != SCHEMA
-            or tuple(payload["architecture"]) != ARCHITECTURE
+            or tuple(payload["architecture"]) not in SUPPORTED_ARCHITECTURES
         ):
             raise WeightSpaceError("snapshot schema or architecture is unsupported")
         if payload["activation"] != ACTIVATION:
@@ -209,6 +216,7 @@ class DenseReLUNetwork:
             payload["weights"],
             payload["biases"],
             compiled_gate=payload["compiled_gate"],
+            architecture=payload["architecture"],
         )
         if (
             type(payload["parameter_count"]) is not int
@@ -220,35 +228,53 @@ class DenseReLUNetwork:
         return restored
 
 
-def compile_boolean_gate(gate: str = "xor") -> DenseReLUNetwork:
-    """Construct a 10,000-parameter 2-85-112-1 MLP without an optimizer or dataset.
+def compile_boolean_gate(
+    gate: str = "xor",
+    *,
+    architecture: Sequence[int] = ARCHITECTURE,
+) -> DenseReLUNetwork:
+    """Construct a 10,000-parameter Boolean MLP without an optimizer or dataset.
 
-    Hidden unit 0 computes ReLU(a+b); hidden unit 1 computes ReLU(a+b-1).
-    The second hidden layer copies those two non-negative features. The final
+    The supported architectures are 2-85-112-1 and 2-17-254-21-1.
+    Their hidden layers preserve two features:
+    h0=ReLU(a+b), h1=ReLU(a+b-1).
+    Intermediate hidden layers copy those non-negative features. The final
     linear weights are (1,-2) for XOR and (0,1) for AND.
     """
     if gate not in _GATE_OUTPUTS:
         raise WeightSpaceError("gate must be 'xor' or 'and'")
+    selected_architecture = tuple(architecture)
+    if selected_architecture not in SUPPORTED_ARCHITECTURES:
+        raise WeightSpaceError("architecture must be one of the supported 10,000-parameter layouts")
 
-    w1 = [[0.0, 0.0] for _ in range(85)]
-    b1 = [0.0] * 85
-    w1[0] = [1.0, 1.0]
-    w1[1] = [1.0, 1.0]
-    b1[1] = -1.0
+    weights: list[list[list[float]]] = []
+    biases: list[list[float]] = []
+    for layer_index, (input_width, output_width) in enumerate(
+        zip(selected_architecture[:-2], selected_architecture[1:-1])
+    ):
+        matrix = [[0.0] * input_width for _ in range(output_width)]
+        bias = [0.0] * output_width
+        if layer_index == 0:
+            matrix[0] = [1.0, 1.0]
+            matrix[1] = [1.0, 1.0]
+            bias[1] = -1.0
+        else:
+            matrix[0][0] = 1.0
+            matrix[1][1] = 1.0
+        weights.append(matrix)
+        biases.append(bias)
 
-    w2 = [[0.0] * 85 for _ in range(112)]
-    b2 = [0.0] * 112
-    w2[0][0] = 1.0
-    w2[1][1] = 1.0
-
-    w3 = [[0.0] * 112]
-    b3 = [0.0]
-    w3[0][0], w3[0][1] = _GATE_OUTPUTS[gate]
+    output_width = selected_architecture[-2]
+    output_matrix = [[0.0] * output_width]
+    output_matrix[0][0], output_matrix[0][1] = _GATE_OUTPUTS[gate]
+    weights.append(output_matrix)
+    biases.append([0.0])
 
     return DenseReLUNetwork(
-        (w1, w2, w3),
-        (b1, b2, b3),
+        weights,
+        biases,
         compiled_gate=gate,
+        architecture=selected_architecture,
     )
 
 
@@ -297,7 +323,10 @@ def edit_boolean_gate(
         raise WeightSpaceError("target_gate must be 'xor' or 'and'")
 
     # Refuse to apply the surgical edit to an arbitrary or externally mutated network.
-    canonical = compile_boolean_gate(model.compiled_gate)
+    canonical = compile_boolean_gate(
+        model.compiled_gate,
+        architecture=model.architecture,
+    )
     if model.weights != canonical.weights or model.biases != canonical.biases:
         raise WeightSpaceError("model no longer matches its declared compiled template")
 
@@ -307,10 +336,13 @@ def edit_boolean_gate(
 
     desired = _GATE_OUTPUTS[target_gate]
     coordinates: list[ParameterCoordinate] = []
+    output_layer_index = len(model._weights) - 1
     for input_index, value in enumerate(desired):
-        if model._weights[2][0][input_index] != value:
-            model._weights[2][0][input_index] = value
-            coordinates.append(ParameterCoordinate(2, 0, input_index))
+        if model._weights[output_layer_index][0][input_index] != value:
+            model._weights[output_layer_index][0][input_index] = value
+            coordinates.append(
+                ParameterCoordinate(output_layer_index, 0, input_index)
+            )
     model._compiled_gate = target_gate
 
     if len(coordinates) != 2:
