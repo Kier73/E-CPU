@@ -99,7 +99,9 @@ def test_second_deeper_architecture_preserves_the_same_function_and_edit():
         model = compile_boolean_gate("xor", architecture=architecture)
         assert model.architecture == architecture
         assert model.parameter_count == 10_000
-        assert model.active_parameter_count == 9
+        expected_xor_active = 9 if architecture == ARCHITECTURE else 11
+        expected_and_active = 8 if architecture == ARCHITECTURE else 10
+        assert model.active_parameter_count == expected_xor_active
         for left, right in _cases():
             assert model.predict(left, right) == left ^ right
 
@@ -114,7 +116,7 @@ def test_second_deeper_architecture_preserves_the_same_function_and_edit():
             for item in intervention.coordinates
         ] == [(final_layer, 0, 0), (final_layer, 0, 1)]
         assert model.parameter_count == 10_000
-        assert model.active_parameter_count == 8
+        assert model.active_parameter_count == expected_and_active
 
         changed = [
             (layer, output, input_index)
