@@ -211,7 +211,7 @@ def test_new_neural_and_runtime_invariants_resolve_in_registry():
     root = Path(__file__).resolve().parents[1]
     registry_path = root / "docs" / "INVARIANTS.md"
     registry_lines = registry_path.read_text(encoding="utf-8").splitlines()
-    owned_ids = {"N-7", "N-8", "N-9", "N-10", "N-11", "N-12"}
+    owned_ids = {"N-7", "N-8", "N-9", "N-10", "N-11", "N-12", "N-13", "N-14"}
     owned_lines = {
         index + 1
         for index, line in enumerate(registry_lines)
