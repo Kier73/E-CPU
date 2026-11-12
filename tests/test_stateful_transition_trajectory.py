@@ -12,6 +12,7 @@ from mailcpu.stateful_transition_trajectory import (
     StatefulTransitionTrajectoryError,
     export_stateful_transition_trajectory,
     restore_stateful_transition_trajectory,
+    seek_stateful_transition_checkpoint,
     seek_stateful_transition_event,
 )
 from mailcpu.trajectory import TrajectoryReader
