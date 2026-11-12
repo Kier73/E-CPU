@@ -27,6 +27,7 @@ class WeightSpaceError(ValueError):
 
 
 def _finite_number(value: Any, label: str) -> float:
+    """Validate and normalize one finite real-valued model scalar."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise WeightSpaceError(f"{label} must be a real number")
     result = float(value)
@@ -36,6 +37,7 @@ def _finite_number(value: Any, label: str) -> float:
 
 
 def _binary(value: Any, label: str) -> int:
+    """Validate a Boolean-domain input while excluding non-binary integers."""
     if isinstance(value, bool):
         return int(value)
     if type(value) is int and value in (0, 1):
@@ -44,6 +46,7 @@ def _binary(value: Any, label: str) -> int:
 
 
 class DenseReLUNetwork:
+    """Explicit dense 2-85-112-1 ReLU parameterization for a Boolean gate."""
     """Dense MLP whose matrices are stored output-major and include explicit biases."""
 
     def __init__(
@@ -67,6 +70,7 @@ class DenseReLUNetwork:
         self._validate_shape()
 
     def _validate_shape(self) -> None:
+        """Reject tensors whose dimensions differ from the declared architecture."""
         if len(self._weights) != 3 or len(self._biases) != 3:
             raise WeightSpaceError("the prototype requires exactly three dense layers")
         expected = tuple(zip(ARCHITECTURE[:-1], ARCHITECTURE[1:]))
@@ -80,28 +84,34 @@ class DenseReLUNetwork:
 
     @property
     def architecture(self) -> tuple[int, ...]:
+        """Return the fixed layer-width tuple represented by this network."""
         return ARCHITECTURE
 
     @property
     def compiled_gate(self) -> str:
+        """Return the gate identity used by the deterministic compiler template."""
         return self._compiled_gate
 
     @property
     def weights(self) -> tuple[tuple[tuple[float, ...], ...], ...]:
+        """Expose an immutable output-major copy of all weight matrices."""
         return tuple(tuple(tuple(row) for row in layer) for layer in self._weights)
 
     @property
     def biases(self) -> tuple[tuple[float, ...], ...]:
+        """Expose an immutable copy of the layer bias vectors."""
         return tuple(tuple(layer) for layer in self._biases)
 
     @property
     def parameter_count(self) -> int:
+        """Count every declared weight and bias, including zero-valued entries."""
         return sum(len(row) for layer in self._weights for row in layer) + sum(
             len(layer) for layer in self._biases
         )
 
     @property
     def active_parameter_count(self) -> int:
+        """Count nonzero weights and biases in the current parameterization."""
         return sum(
             value != 0.0
             for layer in self._weights
@@ -110,6 +120,7 @@ class DenseReLUNetwork:
         ) + sum(value != 0.0 for layer in self._biases for value in layer)
 
     def forward(self, inputs: Sequence[int | float]) -> tuple[float, ...]:
+        """Evaluate the declared dense layers with ReLU hidden activations."""
         if len(inputs) != ARCHITECTURE[0]:
             raise WeightSpaceError("input must contain exactly two values")
         values = [_finite_number(value, "input") for value in inputs]
@@ -141,6 +152,7 @@ class DenseReLUNetwork:
         return int(nearest)
 
     def _payload(self) -> dict[str, Any]:
+        """Build a detached canonical-JSON-compatible model snapshot payload."""
         # Snapshots must not alias mutable internal tensors.
         return {
             "schema": SCHEMA,
@@ -154,6 +166,7 @@ class DenseReLUNetwork:
 
     @property
     def digest(self) -> str:
+        """Return SHA-256 identity of the canonical model snapshot payload."""
         encoded = json.dumps(
             self._payload(),
             sort_keys=True,
@@ -163,12 +176,14 @@ class DenseReLUNetwork:
         return hashlib.sha256(encoded).hexdigest()
 
     def snapshot(self) -> dict[str, Any]:
+        """Return a detached, digest-bound serialization of the model."""
         payload = self._payload()
         payload["digest"] = self.digest
         return payload
 
     @classmethod
     def from_snapshot(cls, payload: Mapping[str, Any]) -> "DenseReLUNetwork":
+        """Restore a model only after checking its schema, shape, count, and digest."""
         if not isinstance(payload, Mapping):
             raise WeightSpaceError("snapshot must be a mapping")
         required = {
@@ -239,11 +254,13 @@ def compile_boolean_gate(gate: str = "xor") -> DenseReLUNetwork:
 
 @dataclass(frozen=True)
 class ParameterCoordinate:
+    """Identify one output-major weight coordinate in a layer matrix."""
     layer_index: int
     output_index: int
     input_index: int
 
     def to_dict(self) -> dict[str, int]:
+        """Serialize the three integer indices of this parameter coordinate."""
         return {
             "layer_index": self.layer_index,
             "output_index": self.output_index,
@@ -253,12 +270,14 @@ class ParameterCoordinate:
 
 @dataclass(frozen=True)
 class ParameterIntervention:
+    """Record the content identities and coordinates of one parameter edit."""
     source_digest: str
     target_digest: str
     changed_parameters: int
     coordinates: tuple[ParameterCoordinate, ...]
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize the intervention identity and its changed coordinates."""
         return {
             "source_digest": self.source_digest,
             "target_digest": self.target_digest,
@@ -345,6 +364,7 @@ def encode_boolean_signal(bit: int) -> int:
 
 
 def decode_boolean_signal(symbol: int) -> int:
+    """Decode one value from the embedded Boolean subgroup {0, 4} of Z/8Z."""
     if symbol == 0:
         return 0
     if symbol == 4:
