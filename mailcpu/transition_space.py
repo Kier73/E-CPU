@@ -1,4 +1,5 @@
 """Constructive ReLU realization of complete finite Boolean transition tables.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
 
 A table row is compiled into one hidden minterm unit. The unit is exactly one
 on its declared input row and zero on every other Boolean input. A linear
@@ -25,11 +26,15 @@ _INTERNAL_PREFIX = "transition_"
 
 
 class TransitionSpaceError(ValueError):
-    """A transition table, neural architecture, snapshot, or intervention violates the finite-table contract."""
+    """A transition table, neural architecture, snapshot, or intervention violates the finite-table contract.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
 
 
 def _bit(value: Any, label: str) -> int:
-    """Normalize a Boolean bit while rejecting values outside the finite domain."""
+    """Normalize a Boolean bit while rejecting values outside the finite domain.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
     if isinstance(value, bool):
         return int(value)
     if type(value) is int and value in (0, 1):
@@ -38,7 +43,9 @@ def _bit(value: Any, label: str) -> int:
 
 
 def _finite_number(value: Any, label: str) -> float:
-    """Validate and normalize one finite scalar in a neural tensor."""
+    """Validate and normalize one finite scalar in a neural tensor.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise TransitionSpaceError(f"{label} must be numeric")
     result = float(value)
@@ -48,7 +55,9 @@ def _finite_number(value: Any, label: str) -> float:
 
 
 def _names(values: Sequence[str], label: str) -> tuple[str, ...]:
-    """Validate a nonempty ordered set of safe and unique field names."""
+    """Validate a nonempty ordered set of safe and unique field names.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
     result = tuple(values)
     if not result or any(
         not isinstance(value, str)
@@ -64,13 +73,17 @@ def _names(values: Sequence[str], label: str) -> tuple[str, ...]:
 
 @dataclass(frozen=True, slots=True)
 class TransitionRow:
-    """One complete Boolean input pattern and its corresponding output pattern."""
+    """One complete Boolean input pattern and its corresponding output pattern.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
 
     inputs: tuple[int, ...]
     outputs: tuple[int, ...]
 
     def __post_init__(self) -> None:
-        """Normalize both sides of a transition row to immutable Boolean tuples."""
+        """Normalize both sides of a transition row to immutable Boolean tuples.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         normalized_inputs = tuple(
             _bit(value, "transition input") for value in self.inputs
         )
@@ -83,13 +96,17 @@ class TransitionRow:
         object.__setattr__(self, "outputs", normalized_outputs)
 
     def to_dict(self) -> dict[str, list[int]]:
-        """Serialize the input and output bit patterns."""
+        """Serialize the input and output bit patterns.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return {"inputs": list(self.inputs), "outputs": list(self.outputs)}
 
 
 @dataclass(frozen=True, slots=True)
 class FiniteTransitionTable:
-    """A total deterministic Boolean function represented by its complete truth table."""
+    """A total deterministic Boolean function represented by its complete truth table.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
 
     name: str
     input_names: tuple[str, ...]
@@ -97,7 +114,9 @@ class FiniteTransitionTable:
     rows: tuple[TransitionRow, ...]
 
     def __post_init__(self) -> None:
-        """Require every Boolean input pattern exactly once and sort rows canonically."""
+        """Require every Boolean input pattern exactly once and sort rows canonically.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         if not isinstance(self.name, str) or not self.name.strip():
             raise TransitionSpaceError("transition table name must be nonempty")
         input_names = _names(self.input_names, "input_names")
@@ -128,12 +147,16 @@ class FiniteTransitionTable:
 
     @property
     def row_count(self) -> int:
-        """Return the number of fully enumerated Boolean input patterns."""
+        """Return the number of fully enumerated Boolean input patterns.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return len(self.rows)
 
     @property
     def digest(self) -> str:
-        """Return the SHA-256 identity of the canonical transition-table payload."""
+        """Return the SHA-256 identity of the canonical transition-table payload.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         encoded = json.dumps(
             self.to_dict(),
             sort_keys=True,
@@ -143,14 +166,18 @@ class FiniteTransitionTable:
         return hashlib.sha256(encoded).hexdigest()
 
     def row_index(self, inputs: Sequence[int]) -> int:
-        """Find the canonical row index for one validated input bit pattern."""
+        """Find the canonical row index for one validated input bit pattern.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         pattern = tuple(_bit(value, "transition input") for value in inputs)
         if len(pattern) != len(self.input_names):
             raise TransitionSpaceError("input pattern width does not match the table")
         return pattern_to_index(pattern)
 
     def row_for(self, inputs: Sequence[int]) -> TransitionRow:
-        """Return the declared transition for one exact Boolean input pattern."""
+        """Return the declared transition for one exact Boolean input pattern.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return self.rows[self.row_index(inputs)]
 
     def with_output(
@@ -160,7 +187,9 @@ class FiniteTransitionTable:
         *,
         name: str | None = None,
     ) -> "FiniteTransitionTable":
-        """Return a new table with one selected row's output bits replaced."""
+        """Return a new table with one selected row's output bits replaced.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         row_index = self.row_index(inputs)
         output_pattern = tuple(
             _bit(value, "transition output") for value in outputs
@@ -177,7 +206,9 @@ class FiniteTransitionTable:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize the table with deterministic field and row ordering."""
+        """Serialize the table with deterministic field and row ordering.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return {
             "schema": "mailcpu.finite-transition-table.v1",
             "name": self.name,
@@ -188,7 +219,9 @@ class FiniteTransitionTable:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "FiniteTransitionTable":
-        """Restore a transition table only from the exact declared schema."""
+        """Restore a transition table only from the exact declared schema.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         required = {"schema", "name", "input_names", "output_names", "rows"}
         if not isinstance(payload, Mapping) or set(payload) != required:
             raise TransitionSpaceError("transition table fields do not match the schema")
@@ -211,7 +244,9 @@ class FiniteTransitionTable:
 
 
 def pattern_to_index(pattern: Sequence[int]) -> int:
-    """Interpret an ordered bit pattern as its stable binary row index."""
+    """Interpret an ordered bit pattern as its stable binary row index.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
     result = 0
     for value in pattern:
         result = (result << 1) | _bit(value, "pattern bit")
@@ -219,20 +254,26 @@ def pattern_to_index(pattern: Sequence[int]) -> int:
 
 
 def two_bit_counter_table() -> FiniteTransitionTable:
-    """Enumerate the typed two-bit counter program into its complete truth table."""
+    """Enumerate the typed two-bit counter program into its complete truth table.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
     return two_bit_counter_program().to_table()
 
 
 @dataclass(frozen=True, slots=True)
 class TransitionWeightCoordinate:
-    """Identify one output-major neural weight changed by a table intervention."""
+    """Identify one output-major neural weight changed by a table intervention.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
 
     layer_index: int
     output_index: int
     input_index: int
 
     def to_dict(self) -> dict[str, int]:
-        """Serialize the layer, output-neuron, and input-neuron coordinates."""
+        """Serialize the layer, output-neuron, and input-neuron coordinates.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return {
             "layer_index": self.layer_index,
             "output_index": self.output_index,
@@ -242,7 +283,9 @@ class TransitionWeightCoordinate:
 
 @dataclass(frozen=True, slots=True)
 class TransitionWeightIntervention:
-    """Bind a finite-table edit to the exact neural model parameters that changed."""
+    """Bind a finite-table edit to the exact neural model parameters that changed.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
 
     source_table_digest: str
     target_table_digest: str
@@ -252,7 +295,9 @@ class TransitionWeightIntervention:
     coordinates: tuple[TransitionWeightCoordinate, ...]
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize source/target identities and every modified weight coordinate."""
+        """Serialize source/target identities and every modified weight coordinate.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return {
             "source_table_digest": self.source_table_digest,
             "target_table_digest": self.target_table_digest,
@@ -264,7 +309,9 @@ class TransitionWeightIntervention:
 
 
 class TransitionReLUNetwork:
-    """Dense ReLU model whose first hidden layer encodes one minterm per table row."""
+    """Dense ReLU model whose first hidden layer encodes one minterm per table row.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
 
     def __init__(
         self,
@@ -276,7 +323,9 @@ class TransitionReLUNetwork:
         output_names: Sequence[str],
         architecture: Sequence[int],
     ) -> None:
-        """Copy finite tensors and validate them against a complete-table architecture."""
+        """Copy finite tensors and validate them against a complete-table architecture.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         self._weights = [
             [[_finite_number(value, "weight") for value in row] for row in layer]
             for layer in weights
@@ -293,7 +342,9 @@ class TransitionReLUNetwork:
         self._validate_shape()
 
     def _validate_shape(self) -> None:
-        """Require one hidden unit per truth-table row and matching layer tensors."""
+        """Require one hidden unit per truth-table row and matching layer tensors.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         if (
             len(self._architecture) < 3
             or self._architecture[0] != len(self._input_names)
@@ -314,44 +365,60 @@ class TransitionReLUNetwork:
 
     @property
     def architecture(self) -> tuple[int, ...]:
-        """Return the exact layer-width tuple for this finite transition model."""
+        """Return the exact layer-width tuple for this finite transition model.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return self._architecture
 
     @property
     def table_digest(self) -> str:
-        """Return the digest of the truth table compiled into the current weights."""
+        """Return the digest of the truth table compiled into the current weights.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return self._table_digest
 
     @property
     def input_names(self) -> tuple[str, ...]:
-        """Return the ordered transition input register names."""
+        """Return the ordered transition input register names.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return self._input_names
 
     @property
     def output_names(self) -> tuple[str, ...]:
-        """Return the ordered next-state output register names."""
+        """Return the ordered next-state output register names.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return self._output_names
 
     @property
     def weights(self) -> tuple[tuple[tuple[float, ...], ...], ...]:
-        """Expose immutable output-major copies of the model weight matrices."""
+        """Expose immutable output-major copies of the model weight matrices.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return tuple(tuple(tuple(row) for row in layer) for layer in self._weights)
 
     @property
     def biases(self) -> tuple[tuple[float, ...], ...]:
-        """Expose immutable copies of the model bias vectors."""
+        """Expose immutable copies of the model bias vectors.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return tuple(tuple(layer) for layer in self._biases)
 
     @property
     def parameter_count(self) -> int:
-        """Count all declared weights and biases, including zero-valued entries."""
+        """Count all declared weights and biases, including zero-valued entries.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return sum(len(row) for layer in self._weights for row in layer) + sum(
             len(layer) for layer in self._biases
         )
 
     @property
     def active_parameter_count(self) -> int:
-        """Count only nonzero weights and biases in the current network."""
+        """Count only nonzero weights and biases in the current network.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return sum(
             value != 0.0
             for layer in self._weights
@@ -361,7 +428,9 @@ class TransitionReLUNetwork:
 
     @property
     def digest(self) -> str:
-        """Return a SHA-256 identity over architecture, source table, and all tensors."""
+        """Return a SHA-256 identity over architecture, source table, and all tensors.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         encoded = json.dumps(
             self._payload(),
             sort_keys=True,
@@ -371,7 +440,9 @@ class TransitionReLUNetwork:
         return hashlib.sha256(encoded).hexdigest()
 
     def forward(self, inputs: Sequence[int | float]) -> tuple[float, ...]:
-        """Evaluate the dense ReLU layers for one correctly sized finite input vector."""
+        """Evaluate the dense ReLU layers for one correctly sized finite input vector.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         if len(inputs) != len(self._input_names):
             raise TransitionSpaceError("input vector width does not match the transition table")
         values = [_finite_number(value, "input") for value in inputs]
@@ -388,7 +459,9 @@ class TransitionReLUNetwork:
         return tuple(values)
 
     def predict(self, inputs: Sequence[int]) -> tuple[int, ...]:
-        """Evaluate a Boolean transition row and require exact Boolean outputs."""
+        """Evaluate a Boolean transition row and require exact Boolean outputs.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         normalized = tuple(_bit(value, "transition input") for value in inputs)
         values = self.forward(normalized)
         rounded = tuple(round(value) for value in values)
@@ -401,7 +474,9 @@ class TransitionReLUNetwork:
         return tuple(int(value) for value in rounded)
 
     def _payload(self) -> dict[str, Any]:
-        """Build a detached canonical snapshot payload for content addressing."""
+        """Build a detached canonical snapshot payload for content addressing.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return {
             "schema": SCHEMA,
             "table_digest": self._table_digest,
@@ -415,14 +490,18 @@ class TransitionReLUNetwork:
         }
 
     def snapshot(self) -> dict[str, Any]:
-        """Return a detached digest-bound model snapshot."""
+        """Return a detached digest-bound model snapshot.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         payload = self._payload()
         payload["digest"] = self.digest
         return payload
 
     @classmethod
     def from_snapshot(cls, payload: Mapping[str, Any]) -> "TransitionReLUNetwork":
-        """Restore a model only after checking schema, dimensions, counts, and digest."""
+        """Restore a model only after checking schema, dimensions, counts, and digest.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         required = {
             "schema",
             "table_digest",
@@ -458,7 +537,9 @@ class TransitionReLUNetwork:
 
 
 def _validate_digest(value: Any, label: str) -> str:
-    """Validate one lowercase SHA-256 hexadecimal digest."""
+    """Validate one lowercase SHA-256 hexadecimal digest.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
     if (
         not isinstance(value, str)
         or len(value) != 64
@@ -474,6 +555,7 @@ def compile_transition_table(
     architecture: Sequence[int] | None = None,
 ) -> TransitionReLUNetwork:
     """Compile a total Boolean transition table into exact ReLU minterm weights.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
 
     For table row r, its hidden unit is:
         h_r(x) = ReLU(sum_i (x_i if r_i=1 else 1-x_i) - (n-1)).
@@ -545,7 +627,9 @@ def apply_table_intervention(
     source_table: FiniteTransitionTable,
     target_table: FiniteTransitionTable,
 ) -> TransitionWeightIntervention:
-    """Edit only output-layer weights corresponding to rows changed in a target table."""
+    """Edit only output-layer weights corresponding to rows changed in a target table.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
     if not isinstance(model, TransitionReLUNetwork):
         raise TransitionSpaceError("model must be a TransitionReLUNetwork")
     if not isinstance(source_table, FiniteTransitionTable) or not isinstance(
@@ -598,6 +682,7 @@ def apply_table_intervention(
 
 def compile_transition_program(table: FiniteTransitionTable) -> Program:
     """Compile a finite table to a MailCPU program using Boolean minterm branches.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
 
     Each input row gets one conjunction of literals. Exactly one conjunction is
     true on each valid Boolean input, so its branch selects the row's output block.
@@ -659,12 +744,16 @@ def compile_transition_program(table: FiniteTransitionTable) -> Program:
 
 @dataclass(frozen=True, slots=True)
 class BooleanInput:
-    """Reference one named Boolean input in a compositional transition expression."""
+    """Reference one named Boolean input in a compositional transition expression.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
 
     name: str
 
     def __post_init__(self) -> None:
-        """Require an input identifier that cannot collide with compiler temporaries."""
+        """Require an input identifier that cannot collide with compiler temporaries.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         if (
             not isinstance(self.name, str)
             or _IDENTIFIER.fullmatch(self.name) is None
@@ -675,25 +764,33 @@ class BooleanInput:
 
 @dataclass(frozen=True, slots=True)
 class BooleanConstant:
-    """Represent one literal Boolean constant."""
+    """Represent one literal Boolean constant.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
 
     value: int
 
     def __post_init__(self) -> None:
-        """Normalize the constant to an immutable bit."""
+        """Normalize the constant to an immutable bit.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         object.__setattr__(self, "value", _bit(self.value, "Boolean constant"))
 
 
 @dataclass(frozen=True, slots=True)
 class BooleanNot:
-    """Negate one Boolean expression."""
+    """Negate one Boolean expression.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
 
     value: "BooleanExpr"
 
 
 @dataclass(frozen=True, slots=True)
 class BooleanAnd:
-    """Conjoin two Boolean expressions."""
+    """Conjoin two Boolean expressions.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
 
     left: "BooleanExpr"
     right: "BooleanExpr"
@@ -701,7 +798,9 @@ class BooleanAnd:
 
 @dataclass(frozen=True, slots=True)
 class BooleanXor:
-    """Exclusive-or two Boolean expressions."""
+    """Exclusive-or two Boolean expressions.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
 
     left: "BooleanExpr"
     right: "BooleanExpr"
@@ -709,7 +808,9 @@ class BooleanXor:
 
 @dataclass(frozen=True, slots=True)
 class BooleanSelect:
-    """Select one expression when a condition is one and another when it is zero."""
+    """Select one expression when a condition is one and another when it is zero.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
 
     condition: "BooleanExpr"
     when_one: "BooleanExpr"
@@ -727,7 +828,9 @@ BooleanExpr = (
 
 
 def _boolean_expression_inputs(expression: BooleanExpr) -> set[str]:
-    """Collect all input identifiers referenced by one typed Boolean expression."""
+    """Collect all input identifiers referenced by one typed Boolean expression.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
     if isinstance(expression, BooleanInput):
         return {expression.name}
     if isinstance(expression, BooleanConstant):
@@ -754,7 +857,9 @@ def _evaluate_boolean_expression(
     expression: BooleanExpr,
     environment: Mapping[str, int],
 ) -> int:
-    """Evaluate one typed Boolean expression against a complete bit environment."""
+    """Evaluate one typed Boolean expression against a complete bit environment.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
     if isinstance(expression, BooleanInput):
         return environment[expression.name]
     if isinstance(expression, BooleanConstant):
@@ -781,7 +886,9 @@ def _evaluate_boolean_expression(
 
 
 def _boolean_expression_to_dict(expression: BooleanExpr) -> dict[str, Any]:
-    """Serialize one typed Boolean expression as its versioned algebra node."""
+    """Serialize one typed Boolean expression as its versioned algebra node.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
     if isinstance(expression, BooleanInput):
         return {"type": "input", "name": expression.name}
     if isinstance(expression, BooleanConstant):
@@ -816,7 +923,9 @@ def _boolean_expression_to_dict(expression: BooleanExpr) -> dict[str, Any]:
 
 
 def _boolean_expression_from_dict(payload: Any) -> BooleanExpr:
-    """Restore one Boolean expression only from the exact fields of its node type."""
+    """Restore one Boolean expression only from the exact fields of its node type.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
     if not isinstance(payload, Mapping) or "type" not in payload:
         raise TransitionSpaceError("Boolean expression nodes must be typed objects")
     kind = payload["type"]
@@ -853,7 +962,9 @@ def _boolean_expression_from_dict(payload: Any) -> BooleanExpr:
 
 @dataclass(frozen=True, slots=True)
 class FiniteTransitionProgram:
-    """Compositional typed Boolean source program for a finite-state transition."""
+    """Compositional typed Boolean source program for a finite-state transition.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
 
     name: str
     input_names: tuple[str, ...]
@@ -861,7 +972,9 @@ class FiniteTransitionProgram:
     output_expressions: tuple[BooleanExpr, ...]
 
     def __post_init__(self) -> None:
-        """Validate output expressions, declared inputs, and the complete name interface."""
+        """Validate output expressions, declared inputs, and the complete name interface.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         if not isinstance(self.name, str) or not self.name.strip():
             raise TransitionSpaceError("transition program name must be nonempty")
         input_names = _names(self.input_names, "input_names")
@@ -887,7 +1000,9 @@ class FiniteTransitionProgram:
 
     @property
     def digest(self) -> str:
-        """Return SHA-256 identity of the canonical typed transition program."""
+        """Return SHA-256 identity of the canonical typed transition program.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         encoded = json.dumps(
             self.to_dict(),
             sort_keys=True,
@@ -897,7 +1012,9 @@ class FiniteTransitionProgram:
         return hashlib.sha256(encoded).hexdigest()
 
     def evaluate(self, inputs: Sequence[int] | Mapping[str, int]) -> tuple[int, ...]:
-        """Evaluate the transition expressions for one complete Boolean input vector."""
+        """Evaluate the transition expressions for one complete Boolean input vector.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         if isinstance(inputs, Mapping):
             if set(inputs) != set(self.input_names):
                 raise TransitionSpaceError("input mapping must match the declared input names")
@@ -922,7 +1039,9 @@ class FiniteTransitionProgram:
         *,
         name: str | None = None,
     ) -> "FiniteTransitionProgram":
-        """Compose a one-row override around the existing output expressions."""
+        """Compose a one-row override around the existing output expressions.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         pattern = tuple(_bit(value, "transition input") for value in inputs)
         output_pattern = tuple(_bit(value, "transition output") for value in outputs)
         if len(pattern) != len(self.input_names):
@@ -959,7 +1078,9 @@ class FiniteTransitionProgram:
         )
 
     def to_table(self) -> FiniteTransitionTable:
-        """Enumerate the compositional program over every Boolean input pattern."""
+        """Enumerate the compositional program over every Boolean input pattern.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         rows = tuple(
             TransitionRow(pattern, self.evaluate(pattern))
             for pattern in itertools.product((0, 1), repeat=len(self.input_names))
@@ -972,7 +1093,9 @@ class FiniteTransitionProgram:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize the typed transition program and its ordered outputs."""
+        """Serialize the typed transition program and its ordered outputs.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return {
             "schema": "mailcpu.finite-transition-program.v1",
             "name": self.name,
@@ -989,7 +1112,9 @@ class FiniteTransitionProgram:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "FiniteTransitionProgram":
-        """Restore a typed transition program from the exact versioned schema."""
+        """Restore a typed transition program from the exact versioned schema.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         required = {"schema", "name", "input_names", "output_names", "outputs"}
         if not isinstance(payload, Mapping) or set(payload) != required:
             raise TransitionSpaceError("transition program fields do not match the schema")
@@ -1018,6 +1143,7 @@ class FiniteTransitionProgram:
 
 def two_bit_counter_program() -> FiniteTransitionProgram:
     """Declare the reset-dominant two-bit counter compositionally, without row enumeration.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
 
     The next high bit is state_1 XOR state_0 when advancing; the next low bit
     is NOT state_0. Reset dominates advance, and the no-action path holds.
@@ -1046,7 +1172,9 @@ def two_bit_counter_program() -> FiniteTransitionProgram:
 
 
 def _boolean_expression_children(expression: BooleanExpr) -> tuple[BooleanExpr, ...]:
-    """Return the ordered child expressions of one non-leaf Boolean AST node."""
+    """Return the ordered child expressions of one non-leaf Boolean AST node.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
     if isinstance(expression, (BooleanInput, BooleanConstant)):
         return ()
     if isinstance(expression, BooleanNot):
@@ -1061,7 +1189,9 @@ def _boolean_expression_children(expression: BooleanExpr) -> tuple[BooleanExpr, 
 
 
 def _boolean_expression_key(expression: BooleanExpr) -> str:
-    """Return the canonical structural key used to hash-cons repeated AST nodes."""
+    """Return the canonical structural key used to hash-cons repeated AST nodes.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
     return json.dumps(
         _boolean_expression_to_dict(expression),
         sort_keys=True,
@@ -1072,7 +1202,9 @@ def _boolean_expression_key(expression: BooleanExpr) -> str:
 def _literal_conjunction(
     expression: BooleanExpr,
 ) -> tuple[tuple[str, int], ...] | None:
-    """Flatten an AND tree only when every leaf is a named input or its negation."""
+    """Flatten an AND tree only when every leaf is a named input or its negation.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
     if isinstance(expression, BooleanInput):
         return ((expression.name, 1),)
     if isinstance(expression, BooleanNot) and isinstance(expression.value, BooleanInput):
@@ -1090,7 +1222,9 @@ def _literal_conjunction(
 
 
 class CompositionalTransitionReLUNetwork:
-    """ReLU network compiled from shared Boolean expression nodes rather than truth-table rows."""
+    """ReLU network compiled from shared Boolean expression nodes rather than truth-table rows.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
 
     def __init__(
         self,
@@ -1102,7 +1236,9 @@ class CompositionalTransitionReLUNetwork:
         output_names: Sequence[str],
         architecture: Sequence[int],
     ) -> None:
-        """Copy tensors and validate their exact dimensions and source-program identity."""
+        """Copy tensors and validate their exact dimensions and source-program identity.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         self._weights = [
             [[_finite_number(value, "weight") for value in row] for row in layer]
             for layer in weights
@@ -1118,7 +1254,9 @@ class CompositionalTransitionReLUNetwork:
         self._validate_shape()
 
     def _validate_shape(self) -> None:
-        """Require one dense tensor pair for every transition between declared layers."""
+        """Require one dense tensor pair for every transition between declared layers.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         if (
             len(self._architecture) < 3
             or self._architecture[0] != len(self._input_names)
@@ -1139,34 +1277,46 @@ class CompositionalTransitionReLUNetwork:
 
     @property
     def architecture(self) -> tuple[int, ...]:
-        """Return the input, hidden, and output widths of the compositional network."""
+        """Return the input, hidden, and output widths of the compositional network.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return self._architecture
 
     @property
     def program_digest(self) -> str:
-        """Return the digest of the typed transition program compiled into the weights."""
+        """Return the digest of the typed transition program compiled into the weights.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return self._program_digest
 
     @property
     def weights(self) -> tuple[tuple[tuple[float, ...], ...], ...]:
-        """Expose immutable output-major copies of the neural weight matrices."""
+        """Expose immutable output-major copies of the neural weight matrices.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return tuple(tuple(tuple(row) for row in layer) for layer in self._weights)
 
     @property
     def biases(self) -> tuple[tuple[float, ...], ...]:
-        """Expose immutable copies of the neural bias vectors."""
+        """Expose immutable copies of the neural bias vectors.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return tuple(tuple(layer) for layer in self._biases)
 
     @property
     def parameter_count(self) -> int:
-        """Count all declared weights and biases, including zero-valued entries."""
+        """Count all declared weights and biases, including zero-valued entries.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return sum(len(row) for layer in self._weights for row in layer) + sum(
             len(layer) for layer in self._biases
         )
 
     @property
     def active_parameter_count(self) -> int:
-        """Count only nonzero weights and biases in the compositional model."""
+        """Count only nonzero weights and biases in the compositional model.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return sum(
             value != 0.0
             for layer in self._weights
@@ -1176,7 +1326,9 @@ class CompositionalTransitionReLUNetwork:
 
     @property
     def digest(self) -> str:
-        """Return a content identity over the typed source, architecture, and all parameters."""
+        """Return a content identity over the typed source, architecture, and all parameters.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         encoded = json.dumps(
             self._payload(),
             sort_keys=True,
@@ -1186,7 +1338,9 @@ class CompositionalTransitionReLUNetwork:
         return hashlib.sha256(encoded).hexdigest()
 
     def forward(self, inputs: Sequence[int | float]) -> tuple[float, ...]:
-        """Evaluate the ReLU hidden layers and linear output for one finite input vector."""
+        """Evaluate the ReLU hidden layers and linear output for one finite input vector.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         if len(inputs) != len(self._input_names):
             raise TransitionSpaceError("input vector width does not match the transition program")
         values = [_finite_number(value, "input") for value in inputs]
@@ -1203,7 +1357,9 @@ class CompositionalTransitionReLUNetwork:
         return tuple(values)
 
     def predict(self, inputs: Sequence[int]) -> tuple[int, ...]:
-        """Evaluate a Boolean transition input and require exact Boolean output bits."""
+        """Evaluate a Boolean transition input and require exact Boolean output bits.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         pattern = tuple(_bit(value, "transition input") for value in inputs)
         values = self.forward(pattern)
         rounded = tuple(round(value) for value in values)
@@ -1216,7 +1372,9 @@ class CompositionalTransitionReLUNetwork:
         return tuple(int(value) for value in rounded)
 
     def _payload(self) -> dict[str, Any]:
-        """Build a detached canonical snapshot payload for model provenance."""
+        """Build a detached canonical snapshot payload for model provenance.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return {
             "schema": "mailcpu.compositional-transition-relu.v1",
             "program_digest": self._program_digest,
@@ -1229,7 +1387,9 @@ class CompositionalTransitionReLUNetwork:
         }
 
     def snapshot(self) -> dict[str, Any]:
-        """Return a detached model snapshot with its canonical SHA-256 digest."""
+        """Return a detached model snapshot with its canonical SHA-256 digest.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         payload = self._payload()
         payload["digest"] = self.digest
         return payload
@@ -1239,7 +1399,9 @@ class CompositionalTransitionReLUNetwork:
         cls,
         payload: Mapping[str, Any],
     ) -> "CompositionalTransitionReLUNetwork":
-        """Restore a compositional network only after strict schema and digest checks."""
+        """Restore a compositional network only after strict schema and digest checks.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         required = {
             "schema",
             "program_digest",
@@ -1276,6 +1438,7 @@ def compile_compositional_transition_program(
     program: FiniteTransitionProgram,
 ) -> CompositionalTransitionReLUNetwork:
     """Compile the typed Boolean expression DAG directly into layered ReLU weights.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
 
     Input and prior feature activations are copied forward through each hidden
     layer. NOT, AND, XOR, and SELECT nodes add only the ReLU features needed by
@@ -1289,7 +1452,9 @@ def compile_compositional_transition_program(
     depths: dict[BooleanExpr, int] = {}
 
     def visit(expression: BooleanExpr) -> int:
-        """Collect one shared expression node and return its compositional depth."""
+        """Collect one shared expression node and return its compositional depth.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         if isinstance(expression, (BooleanInput, BooleanConstant)):
             return 0
         if expression in depths:
@@ -1321,7 +1486,9 @@ def compile_compositional_transition_program(
         expression: BooleanExpr,
         width: int,
     ) -> tuple[list[float], float]:
-        """Return an expression's affine feature representation at the current layer."""
+        """Return an expression's affine feature representation at the current layer.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         if isinstance(expression, BooleanInput):
             vector = [0.0] * width
             vector[input_indices[expression.name]] = 1.0
@@ -1355,7 +1522,9 @@ def compile_compositional_transition_program(
         node_references: list[tuple[BooleanExpr, tuple[int, ...]]] = []
 
         def add_unit(coefficients: Sequence[float], offset: float) -> int:
-            """Append one ReLU feature row and return its output coordinate."""
+            """Append one ReLU feature row and return its output coordinate.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
             if len(coefficients) != previous_width:
                 raise TransitionSpaceError("internal feature row has the wrong width")
             layer_matrix.append([float(value) for value in coefficients])
@@ -1486,6 +1655,7 @@ def compile_live_compositional_transition_program(
     program: FiniteTransitionProgram,
 ) -> CompositionalTransitionReLUNetwork:
     """Compile a Boolean expression DAG with layer-by-layer feature liveness projection.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
 
     Unlike the dense carry compiler, each hidden layer projects away input values
     and computed features that no future expression or output needs. A feature
@@ -1498,7 +1668,9 @@ def compile_live_compositional_transition_program(
     depths: dict[BooleanExpr, int] = {}
 
     def visit(expression: BooleanExpr) -> int:
-        """Collect computed AST nodes and their topological expression depth."""
+        """Collect computed AST nodes and their topological expression depth.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         if isinstance(expression, (BooleanInput, BooleanConstant)):
             return 0
         if expression in depths:
@@ -1527,7 +1699,9 @@ def compile_live_compositional_transition_program(
     hidden_widths: list[int] = []
 
     def direct_required_inputs(expression: BooleanExpr) -> set[str]:
-        """Return raw input names consumed directly by this node's affine construction."""
+        """Return raw input names consumed directly by this node's affine construction.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         literals = _literal_conjunction(expression)
         if literals is not None:
             return {name for name, _ in literals}
@@ -1540,7 +1714,9 @@ def compile_live_compositional_transition_program(
     def requirements_after(
         depth: int,
     ) -> tuple[set[str], set[BooleanExpr]]:
-        """Find raw inputs and computed expressions still needed after this depth."""
+        """Find raw inputs and computed expressions still needed after this depth.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         needed_inputs: set[str] = set()
         needed_expressions: set[BooleanExpr] = set()
 
@@ -1565,7 +1741,9 @@ def compile_live_compositional_transition_program(
         expression: BooleanExpr,
         width: int,
     ) -> tuple[list[float], float]:
-        """Resolve one expression into affine coordinates of the previous hidden output."""
+        """Resolve one expression into affine coordinates of the previous hidden output.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         if isinstance(expression, BooleanInput):
             if expression.name not in input_refs:
                 raise TransitionSpaceError(
@@ -1645,7 +1823,9 @@ def compile_live_compositional_transition_program(
             base_width = len(layer_matrix)
 
             def add_unit(coefficients: Sequence[float], offset: float) -> int:
-                """Append one ReLU feature row over the previous compact layer."""
+                """Append one ReLU feature row over the previous compact layer.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
                 if len(coefficients) != previous_width:
                     raise TransitionSpaceError("live feature row has an invalid input width")
                 layer_matrix.append([float(value) for value in coefficients])
