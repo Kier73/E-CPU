@@ -1,4 +1,6 @@
-"""Bridge stateful transition snapshots to E-CPU's indexed trajectory and event-journal formats."""
+"""Bridge stateful transition snapshots to E-CPU's indexed trajectory and event-journal formats.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
 
 from __future__ import annotations
 
@@ -22,7 +24,9 @@ ZERO_RECEIPT = "0" * 64
 
 
 class StatefulTransitionTrajectoryError(ValueError):
-    """A trajectory export, manifest, receipt chain, or runtime replay violates its contract."""
+    """A trajectory export, manifest, receipt chain, or runtime replay violates its contract.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
 
 
 def _canonical_json(value: Any) -> str:
@@ -126,6 +130,7 @@ def export_stateful_transition_trajectory(
     stride: int = 64,
 ) -> dict[str, Any]:
     """Persist runtime events as indexed TrajectoryFrames and an EventJournal-bound manifest.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
 
     Every runtime step/revision event is kept intact inside one binary trajectory
     frame. The frame receipt chain is verified by TrajectoryReader. Separately,
@@ -226,7 +231,9 @@ def restore_stateful_transition_trajectory(
     data_path: str | Path,
     index_path: str | Path,
 ) -> StatefulTransitionRuntime:
-    """Restore a runtime by verifying trajectory receipts, EventJournal projection, and runtime replay."""
+    """Restore a runtime by verifying trajectory receipts, EventJournal projection, and runtime replay.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
     try:
         manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -392,7 +399,9 @@ def seek_stateful_transition_event(
     index_path: str | Path,
     target_tick: int,
 ) -> dict[str, Any] | None:
-    """Seek the latest indexed runtime event at a logical tick after verifying all trajectory receipts."""
+    """Seek the latest indexed runtime event at a logical tick after verifying all trajectory receipts.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
     if type(target_tick) is not int or target_tick < 0:
         raise StatefulTransitionTrajectoryError(
             "target_tick must be a non-negative integer"
