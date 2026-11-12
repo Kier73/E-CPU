@@ -49,14 +49,17 @@ class StatefulTransitionCheckpoint:
     trajectory_receipt: str
 
     def __post_init__(self) -> None:
-        """Validate the finite state coordinate and all content-addressed provenance fields."""
+        """Validate the finite state coordinate and all content-addressed provenance fields.
+
+        Mathematics: require logical_time, revision, and trajectory_sequence in N_0,
+        runtime_event_sequence in N_plus, state in {0,1}^n, and all digests in SHA256.
+        """
         integer_fields = (
             self.logical_time,
             self.revision,
-            self.runtime_event_sequence,
             self.trajectory_sequence,
         )
-        if any(type(value) is not int or value < 0 for value in integer_fields):
+        if any(type(value) is not int or value < 0 for value in integer_fields) or type(self.runtime_event_sequence) is not int or self.runtime_event_sequence <= 0:
             raise StatefulTransitionTrajectoryError(
                 "checkpoint logical time, revision, and sequence fields must be non-negative integers"
             )
@@ -87,7 +90,11 @@ class StatefulTransitionCheckpoint:
                 )
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize the checkpoint's state/time coordinate and linked event provenance."""
+        """Serialize the checkpoint's state/time coordinate and linked event provenance.
+
+        Mathematics: encode the checkpoint tuple as a versioned JSON mapping without
+        changing its state, logical coordinate, model revision, or receipt identities.
+        """
         return {
             "schema": "mailcpu.stateful-transition-checkpoint.v1",
             "logical_time": self.logical_time,
