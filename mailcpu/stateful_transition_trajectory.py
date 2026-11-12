@@ -399,9 +399,11 @@ def seek_stateful_transition_event(
     index_path: str | Path,
     target_tick: int,
 ) -> dict[str, Any] | None:
-    """Seek the latest indexed runtime event at a logical tick after verifying all trajectory receipts.
-Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
-"""
+    """Seek the last runtime event at an exact logical tick after verifying trajectory receipts.
+
+    Mathematics: after receipt verification, return the last frame f_k for which
+    logical_time(f_k) equals target_tick, including unindexed same-tick frames.
+    """
     if type(target_tick) is not int or target_tick < 0:
         raise StatefulTransitionTrajectoryError(
             "target_tick must be a non-negative integer"
@@ -410,6 +412,16 @@ Mathematics: this callable implements the deterministic mapping or invariant sta
         with TrajectoryReader(data_path, index_path) as reader:
             reader.verify()
             frame = reader.seek_time(target_tick)
+            if frame is not None and frame.logical_time == target_tick:
+                selected = frame
+                while True:
+                    following = reader.read_frame()
+                    if following is None or following.logical_time != target_tick:
+                        break
+                    selected = following
+                frame = selected
+            else:
+                frame = None
     except (TrajectoryError, OSError) as exc:
         raise StatefulTransitionTrajectoryError(
             "cannot seek an invalid stateful transition trajectory"
