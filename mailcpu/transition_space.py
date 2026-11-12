@@ -219,33 +219,8 @@ def pattern_to_index(pattern: Sequence[int]) -> int:
 
 
 def two_bit_counter_table() -> FiniteTransitionTable:
-    """Build a two-bit counter with hold, advance, and reset-dominant transitions.
-
-    Inputs are ordered as (state_1, state_0, advance, reset). Reset wins over
-    advance. Otherwise advance increments modulo four; absent advance holds.
-    Outputs are the next-state bits (next_state_1, next_state_0).
-    """
-    rows: list[TransitionRow] = []
-    for state_1, state_0, advance, reset in itertools.product((0, 1), repeat=4):
-        state = (state_1 << 1) | state_0
-        if reset:
-            next_state = 0
-        elif advance:
-            next_state = (state + 1) % 4
-        else:
-            next_state = state
-        rows.append(
-            TransitionRow(
-                (state_1, state_0, advance, reset),
-                ((next_state >> 1) & 1, next_state & 1),
-            )
-        )
-    return FiniteTransitionTable(
-        "two-bit-counter.reset-dominant.v1",
-        ("state_1", "state_0", "advance", "reset"),
-        ("next_state_1", "next_state_0"),
-        tuple(rows),
-    )
+    """Enumerate the typed two-bit counter program into its complete truth table."""
+    return two_bit_counter_program().to_table()
 
 
 @dataclass(frozen=True, slots=True)
@@ -680,3 +655,348 @@ def compile_transition_program(table: FiniteTransitionTable) -> Program:
     if default_target >= len(instructions):
         raise TransitionSpaceError("internal compiler error: missing default output block")
     return Program(tuple(instructions))
+
+
+@dataclass(frozen=True, slots=True)
+class BooleanInput:
+    """Reference one named Boolean input in a compositional transition expression."""
+
+    name: str
+
+    def __post_init__(self) -> None:
+        """Require an input identifier that cannot collide with compiler temporaries."""
+        if (
+            not isinstance(self.name, str)
+            or _IDENTIFIER.fullmatch(self.name) is None
+            or self.name.startswith(_INTERNAL_PREFIX)
+        ):
+            raise TransitionSpaceError("BooleanInput name must be a safe non-reserved identifier")
+
+
+@dataclass(frozen=True, slots=True)
+class BooleanConstant:
+    """Represent one literal Boolean constant."""
+
+    value: int
+
+    def __post_init__(self) -> None:
+        """Normalize the constant to an immutable bit."""
+        object.__setattr__(self, "value", _bit(self.value, "Boolean constant"))
+
+
+@dataclass(frozen=True, slots=True)
+class BooleanNot:
+    """Negate one Boolean expression."""
+
+    value: "BooleanExpr"
+
+
+@dataclass(frozen=True, slots=True)
+class BooleanAnd:
+    """Conjoin two Boolean expressions."""
+
+    left: "BooleanExpr"
+    right: "BooleanExpr"
+
+
+@dataclass(frozen=True, slots=True)
+class BooleanXor:
+    """Exclusive-or two Boolean expressions."""
+
+    left: "BooleanExpr"
+    right: "BooleanExpr"
+
+
+@dataclass(frozen=True, slots=True)
+class BooleanSelect:
+    """Select one expression when a condition is one and another when it is zero."""
+
+    condition: "BooleanExpr"
+    when_one: "BooleanExpr"
+    when_zero: "BooleanExpr"
+
+
+BooleanExpr = (
+    BooleanInput
+    | BooleanConstant
+    | BooleanNot
+    | BooleanAnd
+    | BooleanXor
+    | BooleanSelect
+)
+
+
+def _boolean_expression_inputs(expression: BooleanExpr) -> set[str]:
+    """Collect all input identifiers referenced by one typed Boolean expression."""
+    if isinstance(expression, BooleanInput):
+        return {expression.name}
+    if isinstance(expression, BooleanConstant):
+        return set()
+    if isinstance(expression, BooleanNot):
+        return _boolean_expression_inputs(expression.value)
+    if isinstance(expression, (BooleanAnd, BooleanXor)):
+        return (
+            _boolean_expression_inputs(expression.left)
+            | _boolean_expression_inputs(expression.right)
+        )
+    if isinstance(expression, BooleanSelect):
+        return (
+            _boolean_expression_inputs(expression.condition)
+            | _boolean_expression_inputs(expression.when_one)
+            | _boolean_expression_inputs(expression.when_zero)
+        )
+    raise TransitionSpaceError(
+        f"unsupported Boolean expression type: {type(expression).__name__}"
+    )
+
+
+def _evaluate_boolean_expression(
+    expression: BooleanExpr,
+    environment: Mapping[str, int],
+) -> int:
+    """Evaluate one typed Boolean expression against a complete bit environment."""
+    if isinstance(expression, BooleanInput):
+        return environment[expression.name]
+    if isinstance(expression, BooleanConstant):
+        return expression.value
+    if isinstance(expression, BooleanNot):
+        return 1 - _evaluate_boolean_expression(expression.value, environment)
+    if isinstance(expression, BooleanAnd):
+        return (
+            _evaluate_boolean_expression(expression.left, environment)
+            & _evaluate_boolean_expression(expression.right, environment)
+        )
+    if isinstance(expression, BooleanXor):
+        return (
+            _evaluate_boolean_expression(expression.left, environment)
+            ^ _evaluate_boolean_expression(expression.right, environment)
+        )
+    if isinstance(expression, BooleanSelect):
+        condition = _evaluate_boolean_expression(expression.condition, environment)
+        selected = expression.when_one if condition else expression.when_zero
+        return _evaluate_boolean_expression(selected, environment)
+    raise TransitionSpaceError(
+        f"unsupported Boolean expression type: {type(expression).__name__}"
+    )
+
+
+def _boolean_expression_to_dict(expression: BooleanExpr) -> dict[str, Any]:
+    """Serialize one typed Boolean expression as its versioned algebra node."""
+    if isinstance(expression, BooleanInput):
+        return {"type": "input", "name": expression.name}
+    if isinstance(expression, BooleanConstant):
+        return {"type": "constant", "value": expression.value}
+    if isinstance(expression, BooleanNot):
+        return {
+            "type": "not",
+            "value": _boolean_expression_to_dict(expression.value),
+        }
+    if isinstance(expression, BooleanAnd):
+        return {
+            "type": "and",
+            "left": _boolean_expression_to_dict(expression.left),
+            "right": _boolean_expression_to_dict(expression.right),
+        }
+    if isinstance(expression, BooleanXor):
+        return {
+            "type": "xor",
+            "left": _boolean_expression_to_dict(expression.left),
+            "right": _boolean_expression_to_dict(expression.right),
+        }
+    if isinstance(expression, BooleanSelect):
+        return {
+            "type": "select",
+            "condition": _boolean_expression_to_dict(expression.condition),
+            "when_one": _boolean_expression_to_dict(expression.when_one),
+            "when_zero": _boolean_expression_to_dict(expression.when_zero),
+        }
+    raise TransitionSpaceError(
+        f"unsupported Boolean expression type: {type(expression).__name__}"
+    )
+
+
+def _boolean_expression_from_dict(payload: Any) -> BooleanExpr:
+    """Restore one Boolean expression only from the exact fields of its node type."""
+    if not isinstance(payload, Mapping) or "type" not in payload:
+        raise TransitionSpaceError("Boolean expression nodes must be typed objects")
+    kind = payload["type"]
+    if kind == "input":
+        if set(payload) != {"type", "name"}:
+            raise TransitionSpaceError("Boolean input node fields are invalid")
+        return BooleanInput(payload["name"])
+    if kind == "constant":
+        if set(payload) != {"type", "value"}:
+            raise TransitionSpaceError("Boolean constant node fields are invalid")
+        return BooleanConstant(payload["value"])
+    if kind == "not":
+        if set(payload) != {"type", "value"}:
+            raise TransitionSpaceError("Boolean not node fields are invalid")
+        return BooleanNot(_boolean_expression_from_dict(payload["value"]))
+    if kind in ("and", "xor"):
+        if set(payload) != {"type", "left", "right"}:
+            raise TransitionSpaceError("Boolean binary node fields are invalid")
+        node = BooleanAnd if kind == "and" else BooleanXor
+        return node(
+            _boolean_expression_from_dict(payload["left"]),
+            _boolean_expression_from_dict(payload["right"]),
+        )
+    if kind == "select":
+        if set(payload) != {"type", "condition", "when_one", "when_zero"}:
+            raise TransitionSpaceError("Boolean select node fields are invalid")
+        return BooleanSelect(
+            _boolean_expression_from_dict(payload["condition"]),
+            _boolean_expression_from_dict(payload["when_one"]),
+            _boolean_expression_from_dict(payload["when_zero"]),
+        )
+    raise TransitionSpaceError(f"unknown Boolean expression type: {kind!r}")
+
+
+@dataclass(frozen=True, slots=True)
+class FiniteTransitionProgram:
+    """Compositional typed Boolean source program for a finite-state transition."""
+
+    name: str
+    input_names: tuple[str, ...]
+    output_names: tuple[str, ...]
+    output_expressions: tuple[BooleanExpr, ...]
+
+    def __post_init__(self) -> None:
+        """Validate output expressions, declared inputs, and the complete name interface."""
+        if not isinstance(self.name, str) or not self.name.strip():
+            raise TransitionSpaceError("transition program name must be nonempty")
+        input_names = _names(self.input_names, "input_names")
+        output_names = _names(self.output_names, "output_names")
+        if set(input_names) & set(output_names):
+            raise TransitionSpaceError("input and output names must be disjoint")
+        if len(input_names) > 8:
+            raise TransitionSpaceError("transition programs are bounded to at most eight input bits")
+        expressions = tuple(self.output_expressions)
+        if len(expressions) != len(output_names):
+            raise TransitionSpaceError("output expression count must match output names")
+        referenced: set[str] = set()
+        for expression in expressions:
+            referenced.update(_boolean_expression_inputs(expression))
+        missing = referenced - set(input_names)
+        if missing:
+            raise TransitionSpaceError(
+                f"transition expressions reference undeclared inputs: {sorted(missing)}"
+            )
+        object.__setattr__(self, "input_names", input_names)
+        object.__setattr__(self, "output_names", output_names)
+        object.__setattr__(self, "output_expressions", expressions)
+
+    @property
+    def digest(self) -> str:
+        """Return SHA-256 identity of the canonical typed transition program."""
+        encoded = json.dumps(
+            self.to_dict(),
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    def evaluate(self, inputs: Sequence[int] | Mapping[str, int]) -> tuple[int, ...]:
+        """Evaluate the transition expressions for one complete Boolean input vector."""
+        if isinstance(inputs, Mapping):
+            if set(inputs) != set(self.input_names):
+                raise TransitionSpaceError("input mapping must match the declared input names")
+            values = {
+                name: _bit(inputs[name], f"input {name}")
+                for name in self.input_names
+            }
+        else:
+            pattern = tuple(_bit(value, "transition input") for value in inputs)
+            if len(pattern) != len(self.input_names):
+                raise TransitionSpaceError("input vector width does not match transition program")
+            values = dict(zip(self.input_names, pattern))
+        return tuple(
+            _evaluate_boolean_expression(expression, values)
+            for expression in self.output_expressions
+        )
+
+    def to_table(self) -> FiniteTransitionTable:
+        """Enumerate the compositional program over every Boolean input pattern."""
+        rows = tuple(
+            TransitionRow(pattern, self.evaluate(pattern))
+            for pattern in itertools.product((0, 1), repeat=len(self.input_names))
+        )
+        return FiniteTransitionTable(
+            self.name,
+            self.input_names,
+            self.output_names,
+            rows,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize the typed transition program and its ordered outputs."""
+        return {
+            "schema": "mailcpu.finite-transition-program.v1",
+            "name": self.name,
+            "input_names": list(self.input_names),
+            "output_names": list(self.output_names),
+            "outputs": [
+                {
+                    "name": name,
+                    "expression": _boolean_expression_to_dict(expression),
+                }
+                for name, expression in zip(self.output_names, self.output_expressions)
+            ],
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "FiniteTransitionProgram":
+        """Restore a typed transition program from the exact versioned schema."""
+        required = {"schema", "name", "input_names", "output_names", "outputs"}
+        if not isinstance(payload, Mapping) or set(payload) != required:
+            raise TransitionSpaceError("transition program fields do not match the schema")
+        if payload["schema"] != "mailcpu.finite-transition-program.v1":
+            raise TransitionSpaceError("unsupported transition program schema")
+        outputs = payload["outputs"]
+        output_names = tuple(payload["output_names"])
+        if not isinstance(outputs, list) or len(outputs) != len(output_names):
+            raise TransitionSpaceError("transition program output entries are invalid")
+        expressions = []
+        for expected_name, item in zip(output_names, outputs):
+            if (
+                not isinstance(item, Mapping)
+                or set(item) != {"name", "expression"}
+                or item["name"] != expected_name
+            ):
+                raise TransitionSpaceError("transition program output name/order is invalid")
+            expressions.append(_boolean_expression_from_dict(item["expression"]))
+        return cls(
+            payload["name"],
+            tuple(payload["input_names"]),
+            output_names,
+            tuple(expressions),
+        )
+
+
+def two_bit_counter_program() -> FiniteTransitionProgram:
+    """Declare the reset-dominant two-bit counter compositionally, without row enumeration.
+
+    The next high bit is state_1 XOR state_0 when advancing; the next low bit
+    is NOT state_0. Reset dominates advance, and the no-action path holds.
+    """
+    state_1 = BooleanInput("state_1")
+    state_0 = BooleanInput("state_0")
+    advance = BooleanInput("advance")
+    reset = BooleanInput("reset")
+    zero = BooleanConstant(0)
+    next_state_1 = BooleanSelect(
+        reset,
+        zero,
+        BooleanSelect(advance, BooleanXor(state_1, state_0), state_1),
+    )
+    next_state_0 = BooleanSelect(
+        reset,
+        zero,
+        BooleanSelect(advance, BooleanNot(state_0), state_0),
+    )
+    return FiniteTransitionProgram(
+        "two-bit-counter.reset-dominant.v1",
+        ("state_1", "state_0", "advance", "reset"),
+        ("next_state_1", "next_state_0"),
+        (next_state_1, next_state_0),
+    )
