@@ -231,6 +231,7 @@ def _expected_symbol(establishes: str) -> str | None:
         "weight_space": "DenseReLUNetwork",
         "transition_space": "FiniteTransitionProgram",
         "stateful_transition": "StatefulTransitionRuntime",
+        "stateful_transition_trajectory": "export_stateful_transition_trajectory",
     }
     return mapping.get(stem)
 
