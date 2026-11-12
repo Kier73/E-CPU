@@ -389,9 +389,10 @@ class StatefulTransitionRuntime:
             or payload["tick"] != runtime.tick
             or type(payload["revision"]) is not int
             or payload["revision"] != runtime.revision
-            or payload["chain_head_digest"] != runtime.chain_head_digest
         ):
             raise StatefulTransitionError("runtime terminal state or counters do not match replay")
+        if payload["chain_head_digest"] != runtime.chain_head_digest:
+            raise StatefulTransitionError("event chain head digest mismatch")
         runtime._assert_runtime_invariants()
         return runtime
 
