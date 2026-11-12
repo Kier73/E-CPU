@@ -13,6 +13,7 @@ from mailcpu.transition_space import (
     TransitionSpaceError,
     apply_table_intervention,
     compile_compositional_transition_program,
+    compile_live_compositional_transition_program,
     compile_transition_program,
     compile_transition_table,
     pattern_to_index,
@@ -325,3 +326,29 @@ def test_compositional_and_truth_table_neural_compilers_are_semantically_equival
     for row in table.rows:
         assert compositional.predict(row.inputs) == enumerated.predict(row.inputs)
         assert compositional.predict(row.inputs) == table.row_for(row.inputs).outputs
+
+
+def test_live_feature_compiler_matches_dense_compositional_models():
+    source_program = two_bit_counter_program()
+    target_program = source_program.with_row_output(
+        (0, 1, 1, 1),
+        (1, 0),
+        name="two-bit-counter.reset-exception.v1",
+    )
+
+    for program in (source_program, target_program):
+        table = program.to_table()
+        dense = compile_compositional_transition_program(program)
+        compact = compile_live_compositional_transition_program(program)
+
+        assert compact.program_digest == program.digest
+        assert compact.architecture[0] == len(program.input_names)
+        assert compact.architecture[-1] == len(program.output_names)
+        assert compact.parameter_count <= dense.parameter_count
+        for row in table.rows:
+            assert compact.predict(row.inputs) == dense.predict(row.inputs)
+            assert compact.predict(row.inputs) == row.outputs
+
+        restored = type(compact).from_snapshot(compact.snapshot())
+        assert restored.digest == compact.digest
+        assert restored.architecture == compact.architecture
