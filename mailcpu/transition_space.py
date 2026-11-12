@@ -1040,3 +1040,399 @@ def two_bit_counter_program() -> FiniteTransitionProgram:
         ("next_state_1", "next_state_0"),
         (next_state_1, next_state_0),
     )
+
+
+def _boolean_expression_children(expression: BooleanExpr) -> tuple[BooleanExpr, ...]:
+    """Return the ordered child expressions of one non-leaf Boolean AST node."""
+    if isinstance(expression, (BooleanInput, BooleanConstant)):
+        return ()
+    if isinstance(expression, BooleanNot):
+        return (expression.value,)
+    if isinstance(expression, (BooleanAnd, BooleanXor)):
+        return (expression.left, expression.right)
+    if isinstance(expression, BooleanSelect):
+        return (expression.condition, expression.when_one, expression.when_zero)
+    raise TransitionSpaceError(
+        f"unsupported Boolean expression type: {type(expression).__name__}"
+    )
+
+
+def _boolean_expression_key(expression: BooleanExpr) -> str:
+    """Return the canonical structural key used to hash-cons repeated AST nodes."""
+    return json.dumps(
+        _boolean_expression_to_dict(expression),
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+class CompositionalTransitionReLUNetwork:
+    """ReLU network compiled from shared Boolean expression nodes rather than truth-table rows."""
+
+    def __init__(
+        self,
+        weights: Sequence[Sequence[Sequence[float]]],
+        biases: Sequence[Sequence[float]],
+        *,
+        program_digest: str,
+        input_names: Sequence[str],
+        output_names: Sequence[str],
+        architecture: Sequence[int],
+    ) -> None:
+        """Copy tensors and validate their exact dimensions and source-program identity."""
+        self._weights = [
+            [[_finite_number(value, "weight") for value in row] for row in layer]
+            for layer in weights
+        ]
+        self._biases = [
+            [_finite_number(value, "bias") for value in layer]
+            for layer in biases
+        ]
+        self._program_digest = _validate_digest(program_digest, "program_digest")
+        self._input_names = _names(input_names, "input_names")
+        self._output_names = _names(output_names, "output_names")
+        self._architecture = tuple(architecture)
+        self._validate_shape()
+
+    def _validate_shape(self) -> None:
+        """Require one dense tensor pair for every transition between declared layers."""
+        if (
+            len(self._architecture) < 3
+            or self._architecture[0] != len(self._input_names)
+            or self._architecture[-1] != len(self._output_names)
+            or any(type(width) is not int or width < 1 for width in self._architecture)
+            or len(self._weights) != len(self._architecture) - 1
+            or len(self._biases) != len(self._architecture) - 1
+        ):
+            raise TransitionSpaceError("compositional model architecture is invalid")
+        expected = tuple(zip(self._architecture[:-1], self._architecture[1:]))
+        for layer_index, ((input_width, output_width), matrix, bias) in enumerate(
+            zip(expected, self._weights, self._biases)
+        ):
+            if len(matrix) != output_width or len(bias) != output_width:
+                raise TransitionSpaceError(f"layer {layer_index} output shape is invalid")
+            if any(len(row) != input_width for row in matrix):
+                raise TransitionSpaceError(f"layer {layer_index} input shape is invalid")
+
+    @property
+    def architecture(self) -> tuple[int, ...]:
+        """Return the input, hidden, and output widths of the compositional network."""
+        return self._architecture
+
+    @property
+    def program_digest(self) -> str:
+        """Return the digest of the typed transition program compiled into the weights."""
+        return self._program_digest
+
+    @property
+    def weights(self) -> tuple[tuple[tuple[float, ...], ...], ...]:
+        """Expose immutable output-major copies of the neural weight matrices."""
+        return tuple(tuple(tuple(row) for row in layer) for layer in self._weights)
+
+    @property
+    def biases(self) -> tuple[tuple[float, ...], ...]:
+        """Expose immutable copies of the neural bias vectors."""
+        return tuple(tuple(layer) for layer in self._biases)
+
+    @property
+    def parameter_count(self) -> int:
+        """Count all declared weights and biases, including zero-valued entries."""
+        return sum(len(row) for layer in self._weights for row in layer) + sum(
+            len(layer) for layer in self._biases
+        )
+
+    @property
+    def active_parameter_count(self) -> int:
+        """Count only nonzero weights and biases in the compositional model."""
+        return sum(
+            value != 0.0
+            for layer in self._weights
+            for row in layer
+            for value in row
+        ) + sum(value != 0.0 for layer in self._biases for value in layer)
+
+    @property
+    def digest(self) -> str:
+        """Return a content identity over the typed source, architecture, and all parameters."""
+        encoded = json.dumps(
+            self._payload(),
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    def forward(self, inputs: Sequence[int | float]) -> tuple[float, ...]:
+        """Evaluate the ReLU hidden layers and linear output for one finite input vector."""
+        if len(inputs) != len(self._input_names):
+            raise TransitionSpaceError("input vector width does not match the transition program")
+        values = [_finite_number(value, "input") for value in inputs]
+        for layer_index, (matrix, bias) in enumerate(zip(self._weights, self._biases)):
+            next_values = [
+                offset + sum(weight * value for weight, value in zip(row, values))
+                for row, offset in zip(matrix, bias)
+            ]
+            values = (
+                [max(0.0, value) for value in next_values]
+                if layer_index < len(self._weights) - 1
+                else next_values
+            )
+        return tuple(values)
+
+    def predict(self, inputs: Sequence[int]) -> tuple[int, ...]:
+        """Evaluate a Boolean transition input and require exact Boolean output bits."""
+        pattern = tuple(_bit(value, "transition input") for value in inputs)
+        values = self.forward(pattern)
+        rounded = tuple(round(value) for value in values)
+        if any(
+            nearest not in (0, 1)
+            or not math.isclose(value, nearest, rel_tol=0.0, abs_tol=1e-12)
+            for value, nearest in zip(values, rounded)
+        ):
+            raise TransitionSpaceError("compositional network output left the Boolean set")
+        return tuple(int(value) for value in rounded)
+
+    def _payload(self) -> dict[str, Any]:
+        """Build a detached canonical snapshot payload for model provenance."""
+        return {
+            "schema": "mailcpu.compositional-transition-relu.v1",
+            "program_digest": self._program_digest,
+            "input_names": list(self._input_names),
+            "output_names": list(self._output_names),
+            "architecture": list(self._architecture),
+            "weights": [[list(row) for row in layer] for layer in self._weights],
+            "biases": [list(layer) for layer in self._biases],
+            "parameter_count": self.parameter_count,
+        }
+
+    def snapshot(self) -> dict[str, Any]:
+        """Return a detached model snapshot with its canonical SHA-256 digest."""
+        payload = self._payload()
+        payload["digest"] = self.digest
+        return payload
+
+    @classmethod
+    def from_snapshot(
+        cls,
+        payload: Mapping[str, Any],
+    ) -> "CompositionalTransitionReLUNetwork":
+        """Restore a compositional network only after strict schema and digest checks."""
+        required = {
+            "schema",
+            "program_digest",
+            "input_names",
+            "output_names",
+            "architecture",
+            "weights",
+            "biases",
+            "parameter_count",
+            "digest",
+        }
+        if not isinstance(payload, Mapping) or set(payload) != required:
+            raise TransitionSpaceError("compositional snapshot fields do not match the schema")
+        if payload["schema"] != "mailcpu.compositional-transition-relu.v1":
+            raise TransitionSpaceError("unsupported compositional network schema")
+        model = cls(
+            payload["weights"],
+            payload["biases"],
+            program_digest=payload["program_digest"],
+            input_names=payload["input_names"],
+            output_names=payload["output_names"],
+            architecture=payload["architecture"],
+        )
+        if (
+            type(payload["parameter_count"]) is not int
+            or payload["parameter_count"] != model.parameter_count
+            or payload["digest"] != model.digest
+        ):
+            raise TransitionSpaceError("compositional snapshot parameter count or digest mismatch")
+        return model
+
+
+def compile_compositional_transition_program(
+    program: FiniteTransitionProgram,
+) -> CompositionalTransitionReLUNetwork:
+    """Compile the typed Boolean expression DAG directly into layered ReLU weights.
+
+    Input and prior feature activations are copied forward through each hidden
+    layer. NOT, AND, XOR, and SELECT nodes add only the ReLU features needed by
+    their own truth conditions. Structurally identical AST nodes are shared.
+    This compilation does not allocate one hidden unit per complete input row.
+    """
+    if not isinstance(program, FiniteTransitionProgram):
+        raise TransitionSpaceError("program must be a FiniteTransitionProgram")
+
+    nodes_by_depth: dict[int, set[BooleanExpr]] = {}
+    depths: dict[BooleanExpr, int] = {}
+
+    def visit(expression: BooleanExpr) -> int:
+        """Collect one shared expression node and return its compositional depth."""
+        if isinstance(expression, (BooleanInput, BooleanConstant)):
+            return 0
+        if expression in depths:
+            return depths[expression]
+        child_depths = tuple(visit(child) for child in _boolean_expression_children(expression))
+        depth = 1 + max(child_depths, default=0)
+        depths[expression] = depth
+        nodes_by_depth.setdefault(depth, set()).add(expression)
+        return depth
+
+    for expression in program.output_expressions:
+        visit(expression)
+
+    input_width = len(program.input_names)
+    output_width = len(program.output_names)
+    input_indices = {name: index for index, name in enumerate(program.input_names)}
+    references: dict[BooleanExpr, tuple[tuple[float, ...], float]] = {}
+    weights: list[list[list[float]]] = []
+    biases: list[list[float]] = []
+    hidden_widths: list[int] = []
+    feature_count = 0
+
+    def reference(
+        expression: BooleanExpr,
+        width: int,
+    ) -> tuple[list[float], float]:
+        """Return an expression's affine feature representation at the current layer."""
+        if isinstance(expression, BooleanInput):
+            vector = [0.0] * width
+            vector[input_indices[expression.name]] = 1.0
+            return vector, 0.0
+        if isinstance(expression, BooleanConstant):
+            return [0.0] * width, float(expression.value)
+        if expression not in references:
+            raise TransitionSpaceError("typed expression dependency is not in an earlier layer")
+        coefficients, offset = references[expression]
+        if len(coefficients) > width:
+            raise TransitionSpaceError("internal feature representation exceeds layer width")
+        return list(coefficients) + [0.0] * (width - len(coefficients)), offset
+
+    if not nodes_by_depth:
+        # A source made only of inputs/constants still gets one identity ReLU layer.
+        matrix = [
+            [1.0 if row == column else 0.0 for column in range(input_width)]
+            for row in range(input_width)
+        ]
+        weights.append(matrix)
+        biases.append([0.0] * input_width)
+        hidden_widths.append(input_width)
+
+    for depth in sorted(nodes_by_depth):
+        previous_width = input_width + feature_count
+        layer_matrix = [
+            [1.0 if row == column else 0.0 for column in range(previous_width)]
+            for row in range(previous_width)
+        ]
+        layer_bias = [0.0] * previous_width
+        node_references: list[tuple[BooleanExpr, tuple[int, ...]]] = []
+
+        def add_unit(coefficients: Sequence[float], offset: float) -> int:
+            """Append one ReLU feature row and return its output coordinate."""
+            if len(coefficients) != previous_width:
+                raise TransitionSpaceError("internal feature row has the wrong width")
+            layer_matrix.append([float(value) for value in coefficients])
+            layer_bias.append(float(offset))
+            return len(layer_matrix) - 1
+
+        level_nodes = sorted(
+            nodes_by_depth[depth],
+            key=_boolean_expression_key,
+        )
+        for expression in level_nodes:
+            if isinstance(expression, BooleanNot):
+                child, child_bias = reference(expression.value, previous_width)
+                index = add_unit([-value for value in child], 1.0 - child_bias)
+                node_references.append((expression, (index,)))
+                continue
+
+            if isinstance(expression, BooleanAnd):
+                left, left_bias = reference(expression.left, previous_width)
+                right, right_bias = reference(expression.right, previous_width)
+                coefficients = [a + b for a, b in zip(left, right)]
+                index = add_unit(coefficients, left_bias + right_bias - 1.0)
+                node_references.append((expression, (index,)))
+                continue
+
+            if isinstance(expression, BooleanXor):
+                left, left_bias = reference(expression.left, previous_width)
+                right, right_bias = reference(expression.right, previous_width)
+                coefficients = [a + b for a, b in zip(left, right)]
+                total_bias = left_bias + right_bias
+                first = add_unit(coefficients, total_bias)
+                second = add_unit(coefficients, total_bias - 1.0)
+                node_references.append((expression, (first, second)))
+                continue
+
+            if isinstance(expression, BooleanSelect):
+                condition, condition_bias = reference(
+                    expression.condition,
+                    previous_width,
+                )
+                when_one, when_one_bias = reference(
+                    expression.when_one,
+                    previous_width,
+                )
+                when_zero, when_zero_bias = reference(
+                    expression.when_zero,
+                    previous_width,
+                )
+                first_coefficients = [
+                    a + b for a, b in zip(condition, when_one)
+                ]
+                second_coefficients = [
+                    a - b for a, b in zip(when_zero, condition)
+                ]
+                first = add_unit(
+                    first_coefficients,
+                    condition_bias + when_one_bias - 1.0,
+                )
+                second = add_unit(
+                    second_coefficients,
+                    when_zero_bias - condition_bias,
+                )
+                node_references.append((expression, (first, second)))
+                continue
+
+            raise TransitionSpaceError(
+                f"unsupported computed expression: {type(expression).__name__}"
+            )
+
+        current_width = len(layer_matrix)
+        for expression, feature_indices in node_references:
+            coefficients = [0.0] * current_width
+            if isinstance(expression, BooleanXor):
+                coefficients[feature_indices[0]] = 1.0
+                coefficients[feature_indices[1]] = -2.0
+            else:
+                for index in feature_indices:
+                    coefficients[index] = 1.0
+            references[expression] = (tuple(coefficients), 0.0)
+
+        weights.append(layer_matrix)
+        biases.append(layer_bias)
+        hidden_widths.append(current_width)
+        feature_count = current_width - input_width
+
+    final_width = input_width + feature_count
+    output_matrix: list[list[float]] = []
+    output_bias: list[float] = []
+    for expression in program.output_expressions:
+        coefficients, offset = reference(expression, final_width)
+        output_matrix.append(coefficients)
+        output_bias.append(offset)
+    weights.append(output_matrix)
+    biases.append(output_bias)
+
+    architecture = (input_width, *hidden_widths, output_width)
+    model = CompositionalTransitionReLUNetwork(
+        weights,
+        biases,
+        program_digest=program.digest,
+        input_names=program.input_names,
+        output_names=program.output_names,
+        architecture=architecture,
+    )
+    for pattern in itertools.product((0, 1), repeat=input_width):
+        if model.predict(pattern) != program.evaluate(pattern):
+            raise TransitionSpaceError("compositional neural compilation failed its finite verification")
+    return model
