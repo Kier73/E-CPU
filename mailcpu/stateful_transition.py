@@ -1,4 +1,6 @@
-"""Stateful verified transition execution with revision continuity and hash-chained events."""
+"""Stateful verified transition execution with revision continuity and hash-chained events.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
 
 from __future__ import annotations
 
@@ -20,12 +22,16 @@ _GENESIS_DOMAIN = "mailcpu.stateful-transition-runtime.genesis.v1"
 
 
 class StatefulTransitionError(ValueError):
-    """A runtime input, revision, snapshot, or event chain violates its contract."""
+    """A runtime input, revision, snapshot, or event chain violates its contract.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
 
 
 @dataclass(frozen=True, slots=True)
 class TransitionStep:
-    """The committed result of one logical transition tick."""
+    """The committed result of one logical transition tick.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
 
     tick: int
     revision: int
@@ -36,7 +42,9 @@ class TransitionStep:
 
 
 def _bit(value: Any, label: str) -> int:
-    """Accept only strict Boolean bits, excluding numeric values such as 0.0."""
+    """Accept only strict Boolean bits, excluding numeric values such as 0.0.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
     if isinstance(value, bool):
         return int(value)
     if type(value) is int and value in (0, 1):
@@ -45,7 +53,9 @@ def _bit(value: Any, label: str) -> int:
 
 
 def _canonical_json(value: Any) -> str:
-    """Encode a JSON-compatible value deterministically and reject non-finite numbers."""
+    """Encode a JSON-compatible value deterministically and reject non-finite numbers.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
     try:
         return json.dumps(
             value,
@@ -59,17 +69,22 @@ def _canonical_json(value: Any) -> str:
 
 
 def _digest(value: Any) -> str:
-    """Return the SHA-256 digest of one canonical JSON value."""
+    """Return the SHA-256 digest of one canonical JSON value.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
     return hashlib.sha256(_canonical_json(value).encode("utf-8")).hexdigest()
 
 
 def _copy_json(value: Any) -> Any:
-    """Create a detached JSON-compatible copy of an event or snapshot value."""
+    """Create a detached JSON-compatible copy of an event or snapshot value.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
     return json.loads(_canonical_json(value))
 
 
 class StatefulTransitionRuntime:
     """Own a live Boolean state, verified ReLU model, logical tick, and event chain.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
 
     The runtime is generic over a typed finite Boolean transition program. A
     subset of program inputs is designated as state registers; all remaining
@@ -89,7 +104,9 @@ class StatefulTransitionRuntime:
         *,
         state_input_names: Sequence[str] = ("state_1", "state_0"),
     ) -> None:
-        """Construct a runtime and verify the initial program/model pairing."""
+        """Construct a runtime and verify the initial program/model pairing.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         if not isinstance(program, FiniteTransitionProgram):
             raise StatefulTransitionError("program must be a FiniteTransitionProgram")
         state_names = tuple(state_input_names)
@@ -132,71 +149,99 @@ class StatefulTransitionRuntime:
 
     @property
     def state(self) -> tuple[int, ...]:
-        """Return the current immutable state-register vector."""
+        """Return the current immutable state-register vector.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return self._state
 
     @property
     def tick(self) -> int:
-        """Return the number of committed transition steps."""
+        """Return the number of committed transition steps.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return self._tick
 
     @property
     def revision(self) -> int:
-        """Return the number of accepted model/program revisions."""
+        """Return the number of accepted model/program revisions.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return self._revision
 
     @property
     def program(self) -> FiniteTransitionProgram:
-        """Return the current immutable typed transition program."""
+        """Return the current immutable typed transition program.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return self._program
 
     @property
     def program_digest(self) -> str:
-        """Return the content digest of the current typed transition program."""
+        """Return the content digest of the current typed transition program.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return self._program.digest
 
     @property
     def model_digest(self) -> str:
-        """Return the content digest of the current compiled ReLU realization."""
+        """Return the content digest of the current compiled ReLU realization.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return self._model.digest
 
     @property
     def model_parameter_count(self) -> int:
-        """Return the dense parameter count of the currently active ReLU model."""
+        """Return the dense parameter count of the currently active ReLU model.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return self._model.parameter_count
 
     @property
     def model_active_parameter_count(self) -> int:
-        """Return the number of nonzero weights and biases in the active model."""
+        """Return the number of nonzero weights and biases in the active model.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return self._model.active_parameter_count
 
     @property
     def state_input_names(self) -> tuple[str, ...]:
-        """Return the ordered names that carry the live state vector."""
+        """Return the ordered names that carry the live state vector.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return self._state_input_names
 
     @property
     def control_names(self) -> tuple[str, ...]:
-        """Return the ordered input names supplied externally on each transition."""
+        """Return the ordered input names supplied externally on each transition.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return self._control_names
 
     @property
     def event_count(self) -> int:
-        """Return the number of committed step and revision events."""
+        """Return the number of committed step and revision events.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return len(self._events)
 
     @property
     def chain_head_digest(self) -> str:
-        """Return the digest of the latest event, or the initial genesis record."""
+        """Return the digest of the latest event, or the initial genesis record.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return self._chain_head_digest
 
     @property
     def events(self) -> tuple[dict[str, Any], ...]:
-        """Return detached event records in append order."""
+        """Return detached event records in append order.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return tuple(_copy_json(event) for event in self._events)
 
     def _append_event(self, payload: Mapping[str, Any]) -> dict[str, Any]:
-        """Bind a payload to the prior chain head and append its content digest."""
+        """Bind a payload to the prior chain head and append its content digest.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         event_payload = {
             "sequence": len(self._events) + 1,
             "previous_event_digest": self._chain_head_digest,
@@ -209,7 +254,9 @@ class StatefulTransitionRuntime:
         return event
 
     def step(self, controls: Mapping[str, int]) -> TransitionStep:
-        """Execute one transition, verify the neural result, and commit a hashed event."""
+        """Execute one transition, verify the neural result, and commit a hashed event.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         if not isinstance(controls, Mapping):
             raise StatefulTransitionError("controls must be a mapping of declared input names")
         if set(controls) != set(self._control_names):
@@ -266,7 +313,9 @@ class StatefulTransitionRuntime:
         )
 
     def revise(self, target_program: FiniteTransitionProgram) -> dict[str, Any]:
-        """Install a fully compiled compatible program without changing live state or tick."""
+        """Install a fully compiled compatible program without changing live state or tick.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         if not isinstance(target_program, FiniteTransitionProgram):
             raise StatefulTransitionError("target_program must be a FiniteTransitionProgram")
         if (
@@ -302,7 +351,9 @@ class StatefulTransitionRuntime:
         return _copy_json(event)
 
     def snapshot(self) -> dict[str, Any]:
-        """Return a replayable snapshot with program, model, state, counters, and hash chain."""
+        """Return a replayable snapshot with program, model, state, counters, and hash chain.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return {
             "schema": SCHEMA,
             "compiler_id": COMPILER_ID,
@@ -320,12 +371,16 @@ class StatefulTransitionRuntime:
         }
 
     def _initial_program_payload(self) -> dict[str, Any]:
-        """Return the detached initial source program retained from construction."""
+        """Return the detached initial source program retained from construction.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         return _copy_json(self._initial_program)
 
     @classmethod
     def from_snapshot(cls, payload: Mapping[str, Any]) -> "StatefulTransitionRuntime":
-        """Restore a runtime only after replaying and validating every chained event."""
+        """Restore a runtime only after replaying and validating every chained event.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         required = {
             "schema",
             "compiler_id",
@@ -397,7 +452,9 @@ class StatefulTransitionRuntime:
         return runtime
 
     def _assert_runtime_invariants(self) -> None:
-        """Recheck interface, model/source identity, and chain linkage after replay."""
+        """Recheck interface, model/source identity, and chain linkage after replay.
+Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
+"""
         if self._model.program_digest != self._program.digest:
             raise StatefulTransitionError("active model is not bound to the active program")
         if len(self._state) != len(self._state_input_names):
