@@ -392,6 +392,24 @@ Mathematics: this callable implements the deterministic mapping or invariant sta
         return self._output_names
 
     @property
+    def input_names(self) -> tuple[str, ...]:
+        """Return the ordered Boolean input register names.
+
+        Mathematics: input_names is the ordered coordinate basis of the
+        transition program's finite Boolean domain.
+        """
+        return self._input_names
+
+    @property
+    def output_names(self) -> tuple[str, ...]:
+        """Return the ordered next-state output register names.
+
+        Mathematics: output_names is the ordered coordinate basis of the
+        transition program's Boolean result.
+        """
+        return self._output_names
+
+    @property
     def weights(self) -> tuple[tuple[tuple[float, ...], ...], ...]:
         """Expose immutable output-major copies of the model weight matrices.
 Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
