@@ -204,3 +204,8 @@ A bounded, no-training construction now lives in [docs/WEIGHT_SPACE_PROGRAMMING.
 ## Stateful transition trajectory bridge
 
 [The trajectory bridge](docs/STATEFUL_TRANSITION_TRAJECTORY.md) exports stateful step/revision events through the existing indexed `TrajectoryWriter`, projects the same events into E-CPU's `EventJournal`, and restores the runtime only after validating the trajectory receipts, manifest digest and original runtime replay chain. It also supports verified logical-time seek across same-tick model revisions.
+
+
+## Sparse finite-transition execution
+
+[The sparse transition realization](docs/SPARSE_TRANSITION_REALIZATION.md) converts an existing exact table, direct-DAG, or liveness-compacted ReLU transition model into a digest-bound sparse weight representation. It skips zero-weight products while preserving the dense source model and declared architecture as provenance. The E-CPU transition tests exhaustively compare dense and sparse executions across the counter, a one-row revision, and a deterministic generated Boolean program corpus. Stored parameters and structural operation counts are exposed separately; hardware speedup and runtime savings remain to be measured.

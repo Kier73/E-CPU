@@ -19,6 +19,7 @@ from mailcpu.transition_space import (
     FiniteTransitionTable,
     TransitionRow,
     TransitionSpaceError,
+    SparseTransitionReLUNetwork,
     apply_table_intervention,
     compile_compositional_transition_program,
     compile_live_compositional_transition_program,
@@ -436,4 +437,182 @@ def test_all_neural_compilers_match_a_deterministic_generated_boolean_program_co
             assert table_model.predict(row.inputs) == expected
             assert dense_model.predict(row.inputs) == expected
             assert live_model.predict(row.inputs) == expected
+
+
+def test_sparse_transition_realization_matches_all_three_dense_compiler_routes():
+    program = two_bit_counter_program()
+    override = program.with_row_output(
+        (0, 1, 1, 1),
+        (1, 0),
+        name="two-bit-counter.reset-exception.v1",
+    )
+
+    for source_program in (program, override):
+        table = source_program.to_table()
+        dense_models = (
+            compile_transition_table(table),
+            compile_compositional_transition_program(source_program),
+            compile_live_compositional_transition_program(source_program),
+        )
+        for dense in dense_models:
+            sparse = SparseTransitionReLUNetwork.from_dense(dense)
+            assert sparse.source_model_digest == dense.digest
+            assert sparse.architecture == dense.architecture
+            assert sparse.active_parameter_count == dense.active_parameter_count
+            assert sparse.stored_parameter_count <= dense.parameter_count
+            assert sparse.dense_equivalent_parameter_count == dense.parameter_count
+
+            for row in table.rows:
+                assert sparse.predict(row.inputs) == dense.predict(row.inputs)
+                assert sparse.forward(row.inputs) == dense.forward(row.inputs)
+
+            for values in ((0.25, -0.5, 1.25, 0.0), (1.0, 0.125, 0.75, -0.25)):
+                assert sparse.forward(values) == pytest.approx(dense.forward(values))
+
+
+def test_sparse_transition_snapshot_round_trip_and_source_identity():
+    program = two_bit_counter_program()
+    dense = compile_live_compositional_transition_program(program)
+    sparse = SparseTransitionReLUNetwork.from_dense(dense)
+    payload = sparse.snapshot()
+
+    restored = SparseTransitionReLUNetwork.from_snapshot(payload)
+    assert restored.digest == sparse.digest
+    assert restored.source_kind == "transition_program"
+    assert restored.source_digest == program.digest
+    assert restored.source_model_digest == dense.digest
+    assert restored.sparse_weights == sparse.sparse_weights
+    assert restored.sparse_biases == sparse.sparse_biases
+
+    tampered = copy.deepcopy(payload)
+    tampered["layers"][0]["weight_rows"][0][0][1] += 1.0
+    with pytest.raises(TransitionSpaceError, match="digest"):
+        SparseTransitionReLUNetwork.from_snapshot(tampered)
+
+    wrong_count = copy.deepcopy(payload)
+    wrong_count["stored_parameter_count"] += 1
+    with pytest.raises(TransitionSpaceError, match="counts or digest"):
+        SparseTransitionReLUNetwork.from_snapshot(wrong_count)
+
+
+def test_sparse_transition_operation_profile_counts_only_stored_products():
+    program = FiniteTransitionProgram(
+        "sparse-leaf-and-constant",
+        ("a", "b", "unused"),
+        ("copy_a", "constant_zero", "constant_one"),
+        (
+            BooleanInput("a"),
+            BooleanConstant(0),
+            BooleanConstant(1),
+        ),
+    )
+    dense = compile_live_compositional_transition_program(program)
+    sparse = SparseTransitionReLUNetwork.from_dense(dense)
+    profile = sparse.operation_profile
+
+    assert profile["dense_weight_multiply_count"] == sparse.dense_weight_slot_count
+    assert profile["dense_accumulator_addition_count"] == sparse.dense_weight_slot_count
+    assert profile["sparse_weight_multiply_count"] == sparse.stored_weight_count
+    assert profile["sparse_accumulator_addition_count"] == sum(
+        max(1, len(row))
+        for layer in sparse.sparse_weights
+        for row in layer
+    )
+    assert profile["sparse_relu_count"] == profile["dense_relu_count"]
+    assert sparse.stored_parameter_count == (
+        sparse.stored_weight_count + sparse.stored_bias_count
+    )
+    assert sparse.stored_parameter_count < sparse.dense_equivalent_parameter_count
+
+
+def test_sparse_transition_rejects_zero_duplicate_and_out_of_range_entries():
+    program = two_bit_counter_program()
+    dense = compile_live_compositional_transition_program(program)
+    common = {
+        "source_kind": "transition_program",
+        "source_digest": program.digest,
+        "source_model_digest": dense.digest,
+        "input_names": program.input_names,
+        "output_names": program.output_names,
+        "architecture": dense.architecture,
+    }
+    valid_rows = [
+        [
+            [(source_index, value) for source_index, value in enumerate(row) if value != 0.0]
+            for row in layer
+        ]
+        for layer in dense.weights
+    ]
+    valid_biases = [
+        [(index, value) for index, value in enumerate(layer) if value != 0.0]
+        for layer in dense.biases
+    ]
+
+    with pytest.raises(TransitionSpaceError, match="must not store zero"):
+        rows = copy.deepcopy(valid_rows)
+        rows[0][0].append((len(program.input_names) - 1, 0.0))
+        SparseTransitionReLUNetwork(rows, valid_biases, **common)
+
+    with pytest.raises(TransitionSpaceError, match="strictly increasing"):
+        rows = copy.deepcopy(valid_rows)
+        rows[0][0] = [(1, 1.0), (0, 1.0)]
+        SparseTransitionReLUNetwork(rows, valid_biases, **common)
+
+    with pytest.raises(TransitionSpaceError, match="out-of-range"):
+        rows = copy.deepcopy(valid_rows)
+        rows[0][0] = [(len(program.input_names), 1.0)]
+        SparseTransitionReLUNetwork(rows, valid_biases, **common)
+
+
+def test_sparse_transition_conversion_rejects_unrelated_objects():
+    with pytest.raises(TransitionSpaceError, match="supported dense"):
+        SparseTransitionReLUNetwork.from_dense(object())
+
+
+def test_generated_boolean_program_corpus_includes_sparse_execution():
+    rng = random.Random(7142026)
+    input_names = ("state_a", "state_b", "event")
+
+    def expression(depth: int):
+        if depth == 0 or rng.random() < 0.24:
+            if rng.random() < 0.18:
+                return BooleanConstant(rng.randrange(2))
+            return BooleanInput(rng.choice(input_names))
+        kind = rng.randrange(4)
+        if kind == 0:
+            return BooleanNot(expression(depth - 1))
+        if kind == 1:
+            return BooleanAnd(expression(depth - 1), expression(depth - 1))
+        if kind == 2:
+            return BooleanXor(expression(depth - 1), expression(depth - 1))
+        return BooleanSelect(
+            expression(depth - 1),
+            expression(depth - 1),
+            expression(depth - 1),
+        )
+
+    for seed in range(24):
+        rng.seed(7142026 + seed)
+        program = FiniteTransitionProgram(
+            f"sparse-generated-transition-{seed:02d}",
+            input_names,
+            ("next_a", "next_b"),
+            (expression(3), expression(3)),
+        )
+        table = program.to_table()
+        dense_models = (
+            compile_transition_table(table),
+            compile_compositional_transition_program(program),
+            compile_live_compositional_transition_program(program),
+        )
+        sparse_models = tuple(
+            SparseTransitionReLUNetwork.from_dense(model)
+            for model in dense_models
+        )
+        for row in table.rows:
+            expected = program.evaluate(row.inputs)
+            for dense, sparse in zip(dense_models, sparse_models):
+                assert dense.predict(row.inputs) == expected
+                assert sparse.predict(row.inputs) == expected
+                assert sparse.predict(row.inputs) == dense.predict(row.inputs)
 
