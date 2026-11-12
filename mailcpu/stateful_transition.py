@@ -314,7 +314,7 @@ class StatefulTransitionRuntime:
             "state": list(self._state),
             "tick": self._tick,
             "revision": self._revision,
-            "events": self.events,
+            "events": list(self.events),
             "genesis_digest": self._genesis_digest,
             "chain_head_digest": self._chain_head_digest,
         }
