@@ -9,6 +9,7 @@ import json
 import os
 import tempfile
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,79 @@ class StatefulTransitionTrajectoryError(ValueError):
     """A trajectory export, manifest, receipt chain, or runtime replay violates its contract.
 Mathematics: this callable implements the deterministic mapping or invariant stated in its contract, over the explicitly validated input domain.
 """
+
+
+@dataclass(frozen=True, slots=True)
+class StatefulTransitionCheckpoint:
+    """A verified state/model coordinate bound to one runtime event and trajectory frame.
+
+    Mathematics: the record identifies q=(state,tick,revision,program_digest,model_digest)
+    at the last committed event whose logical time equals the requested coordinate.
+    """
+    logical_time: int
+    state: tuple[int, ...]
+    revision: int
+    program_digest: str
+    model_digest: str
+    event_kind: str
+    runtime_event_sequence: int
+    runtime_event_digest: str
+    trajectory_sequence: int
+    trajectory_receipt: str
+
+    def __post_init__(self) -> None:
+        """Validate the finite state coordinate and all content-addressed provenance fields."""
+        integer_fields = (
+            self.logical_time,
+            self.revision,
+            self.runtime_event_sequence,
+            self.trajectory_sequence,
+        )
+        if any(type(value) is not int or value < 0 for value in integer_fields):
+            raise StatefulTransitionTrajectoryError(
+                "checkpoint logical time, revision, and sequence fields must be non-negative integers"
+            )
+        state = tuple(
+            int(value) if isinstance(value, bool) else value
+            for value in self.state
+        )
+        if not state or any(type(value) is not int or value not in (0, 1) for value in state):
+            raise StatefulTransitionTrajectoryError(
+                "checkpoint state must be a nonempty Boolean bit vector"
+            )
+        object.__setattr__(self, "state", state)
+        if self.event_kind not in ("step", "revision"):
+            raise StatefulTransitionTrajectoryError("checkpoint event kind is invalid")
+        for label, digest in (
+            ("program_digest", self.program_digest),
+            ("model_digest", self.model_digest),
+            ("runtime_event_digest", self.runtime_event_digest),
+            ("trajectory_receipt", self.trajectory_receipt),
+        ):
+            if (
+                not isinstance(digest, str)
+                or len(digest) != 64
+                or any(character not in "0123456789abcdef" for character in digest)
+            ):
+                raise StatefulTransitionTrajectoryError(
+                    f"checkpoint {label} must be a lowercase SHA-256 digest"
+                )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize the checkpoint's state/time coordinate and linked event provenance."""
+        return {
+            "schema": "mailcpu.stateful-transition-checkpoint.v1",
+            "logical_time": self.logical_time,
+            "state": list(self.state),
+            "revision": self.revision,
+            "program_digest": self.program_digest,
+            "model_digest": self.model_digest,
+            "event_kind": self.event_kind,
+            "runtime_event_sequence": self.runtime_event_sequence,
+            "runtime_event_digest": self.runtime_event_digest,
+            "trajectory_sequence": self.trajectory_sequence,
+            "trajectory_receipt": self.trajectory_receipt,
+        }
 
 
 def _canonical_json(value: Any) -> str:
@@ -443,3 +517,64 @@ def seek_stateful_transition_event(
         "runtime_event": _copy_json(payload["runtime_event"]),
         "trajectory_receipt": frame.receipt.hex(),
     }
+
+def seek_stateful_transition_checkpoint(
+    data_path: str | Path,
+    index_path: str | Path,
+    target_tick: int,
+) -> dict[str, Any] | None:
+    """Resolve a logical tick to the last event's exact state and active model revision.
+
+    Mathematics: if e_k is the final event with logical_time(e_k)=target_tick,
+    the checkpoint is q_k=(state_after_or_preserved(e_k), tick, revision,
+    active_program_digest, active_model_digest), bound to the event and frame receipts.
+    This is a state locator, not a fully reconstructed mutable runtime.
+    """
+    located = seek_stateful_transition_event(
+        data_path,
+        index_path,
+        target_tick,
+    )
+    if located is None:
+        return None
+    event = located["runtime_event"]
+    kind = event.get("kind")
+    if kind == "step":
+        state = event.get("state_after")
+        logical_time = event.get("tick_after")
+        revision = event.get("revision")
+        program_digest = event.get("program_digest")
+        model_digest = event.get("model_digest")
+    elif kind == "revision":
+        state = event.get("state_preserved")
+        logical_time = event.get("tick")
+        revision = event.get("revision_after")
+        program_digest = event.get("target_program_digest")
+        model_digest = event.get("target_model_digest")
+    else:
+        raise StatefulTransitionTrajectoryError(
+            "selected runtime event cannot form a state checkpoint"
+        )
+
+    if logical_time != target_tick:
+        raise StatefulTransitionTrajectoryError(
+            "selected event logical time does not match the requested checkpoint"
+        )
+    try:
+        checkpoint = StatefulTransitionCheckpoint(
+            logical_time=logical_time,
+            state=tuple(state),
+            revision=revision,
+            program_digest=program_digest,
+            model_digest=model_digest,
+            event_kind=kind,
+            runtime_event_sequence=event["sequence"],
+            runtime_event_digest=event["event_digest"],
+            trajectory_sequence=located["trajectory_sequence"],
+            trajectory_receipt=located["trajectory_receipt"],
+        )
+    except (KeyError, TypeError) as exc:
+        raise StatefulTransitionTrajectoryError(
+            "selected event lacks the fields required for a state checkpoint"
+        ) from exc
+    return checkpoint.to_dict()
