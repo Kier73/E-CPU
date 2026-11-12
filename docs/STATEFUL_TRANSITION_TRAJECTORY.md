@@ -71,3 +71,24 @@ The IFS integration workflow pinned to this bridge checked this exact behavior, 
 - Manifest digest: `402c6d3ef591ccd9fa58ffb061509ee7e425996980c61ddb9b5a77d124ea38e7`
 
 These three digests are distinct views of the same three-event history. They should not be treated as interchangeable identities.
+
+## State checkpoint lookup
+
+`seek_stateful_transition_checkpoint(data_path, index_path, target_tick)` builds on the receipt-verified last-event seek and returns a compact state/model coordinate:
+
+- logical tick;
+- Boolean state vector;
+- active model revision;
+- active typed-program digest;
+- active neural-model digest;
+- whether the selected event is a step or revision;
+- one-based runtime event sequence and runtime event digest;
+- zero-based trajectory frame sequence and trajectory receipt.
+
+At a step event, the checkpoint uses `state_after`, `tick_after`, and the program/model digests active for that step. At a revision event, it uses `state_preserved`, the unchanged tick, and the target program/model digests. The checkpoint is therefore able to distinguish two records at the same state and logical time when their active model revisions differ.
+
+For the same-tick example, the tick-1 checkpoint identifies state `01` under revision 1, even though the preceding step at tick 1 was under revision 0. The tick-2 checkpoint identifies state `10`, still under revision 1.
+
+This function is a verified **state locator**, not a restored mutable `StatefulTransitionRuntime`. Call `restore_stateful_transition_trajectory` when a replay-verified runtime object is required. The checkpoint records are suitable for time navigation, model-revision-aware indexing, and selecting a candidate origin for a later replay operation.
+
+The checkpoint's provenance is bound to both the runtime event digest and trajectory receipt. A consumer should not treat the state vector alone as a complete system identity.
