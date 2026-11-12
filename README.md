@@ -188,3 +188,7 @@ The package and CLI remain under active development. See [docs/README.md](docs/R
 ## Development principle
 
 Prefer the smallest verified capability that increases the amount of computation E-CPU can describe, interpret, navigate, or observe. Keep domain meaning separate from physical placement. Measure actual work and communication costs. Preserve ambiguity when evidence is incomplete. Compose new mechanisms from existing Ground, observer, translation, navigation, realization, and recovery contracts.
+
+## Constructive neural weight realization
+
+A bounded, no-training construction now lives in [docs/WEIGHT_SPACE_PROGRAMMING.md](docs/WEIGHT_SPACE_PROGRAMMING.md) and [mailcpu/weight_space.py](mailcpu/weight_space.py). It compiles two-input XOR/AND into an explicit 10,000-parameter 2–85–112–1 ReLU model, records active versus total parameters, and demonstrates a two-weight XOR-to-AND intervention. The tests compare it with the E-CPU reference and queue interpreters and use the existing semantic-translation contract for per-case exact checks. This is a finite constructive proof-of-mechanics, not a general neural compiler or a training replacement.
