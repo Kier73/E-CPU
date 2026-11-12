@@ -196,3 +196,7 @@ A bounded, no-training construction now lives in [docs/WEIGHT_SPACE_PROGRAMMING.
 ## Finite-state transition neural synthesis
 
 [The finite transition compiler](docs/FINITE_TRANSITION_SPACE.md) converts complete Boolean transition tables and typed Boolean expression DAGs into exact ReLU weights, produces an executable MailCPU reference program from the same finite table, and supports digest-bound local transition interventions. It includes a liveness-compacted DAG compiler that prunes input and intermediate features no longer needed by future expressions. It is exercised on a reset-dominant two-bit counter and compared against VGI and both MailCPU execution backends.
+
+## Stateful transition runtime
+
+[The stateful transition runtime](docs/STATEFUL_TRANSITION_RUNTIME.md) executes typed Boolean transition programs through their liveness-compiled ReLU realization while maintaining live state, logical ticks, model revisions, and a SHA-256-linked event history. It preserves state across compatible model revisions and verifies snapshots by replaying every recorded step and revision.
