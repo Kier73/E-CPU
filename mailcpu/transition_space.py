@@ -915,6 +915,46 @@ class FiniteTransitionProgram:
             for expression in self.output_expressions
         )
 
+    def with_row_output(
+        self,
+        inputs: Sequence[int],
+        outputs: Sequence[int],
+        *,
+        name: str | None = None,
+    ) -> "FiniteTransitionProgram":
+        """Compose a one-row override around the existing output expressions."""
+        pattern = tuple(_bit(value, "transition input") for value in inputs)
+        output_pattern = tuple(_bit(value, "transition output") for value in outputs)
+        if len(pattern) != len(self.input_names):
+            raise TransitionSpaceError("override input width does not match transition program")
+        if len(output_pattern) != len(self.output_names):
+            raise TransitionSpaceError("override output width does not match transition program")
+
+        match: BooleanExpr = BooleanConstant(1)
+        for input_name, expected_bit in zip(self.input_names, pattern):
+            literal: BooleanExpr = BooleanInput(input_name)
+            if not expected_bit:
+                literal = BooleanNot(literal)
+            match = BooleanAnd(match, literal)
+
+        current_outputs = self.evaluate(pattern)
+        expressions = tuple(
+            expression
+            if current_bit == target_bit
+            else BooleanSelect(match, BooleanConstant(target_bit), expression)
+            for expression, current_bit, target_bit in zip(
+                self.output_expressions,
+                current_outputs,
+                output_pattern,
+            )
+        )
+        return FiniteTransitionProgram(
+            name or f"{self.name}.row-override",
+            self.input_names,
+            self.output_names,
+            expressions,
+        )
+
     def to_table(self) -> FiniteTransitionTable:
         """Enumerate the compositional program over every Boolean input pattern."""
         rows = tuple(
