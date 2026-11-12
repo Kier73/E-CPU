@@ -105,6 +105,7 @@ class StatefulTransitionRuntime:
         if len(state) != len(state_names):
             raise StatefulTransitionError("initial state width does not match state registers")
 
+        self._initial_program = _copy_json(program.to_dict())
         self._program = program
         self._model = compile_live_compositional_transition_program(program)
         self._initial_state = state
@@ -319,17 +320,7 @@ class StatefulTransitionRuntime:
         }
 
     def _initial_program_payload(self) -> dict[str, Any]:
-        """Recover the initial source program from the first revision event when present."""
-        if not self._events:
-            return self._program.to_dict()
-        first_revision = next(
-            (event for event in self._events if event["kind"] == "revision"),
-            None,
-        )
-        if first_revision is None:
-            return self._program.to_dict()
-        # The genesis digest authenticates the initial program digest, so the initial
-        # source payload is retained separately on the runtime instance at construction.
+        """Return the detached initial source program retained from construction."""
         return _copy_json(self._initial_program)
 
     @classmethod
@@ -365,8 +356,6 @@ class StatefulTransitionRuntime:
         )
         if payload["genesis_digest"] != runtime._genesis_digest:
             raise StatefulTransitionError("runtime genesis digest mismatch")
-        runtime._initial_program = initial_program.to_dict()
-
         for stored_event in payload["events"]:
             if not isinstance(stored_event, Mapping) or stored_event.get("kind") not in (
                 "step",
