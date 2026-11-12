@@ -91,7 +91,8 @@ def test_trajectory_export_restores_runtime_and_validates_all_three_receipt_view
     assert restored.revision == 1
 
 
-def test_trajectory_seek_lands_on_latest_event_at_a_revision_tick(tmp_path):
+@pytest.mark.parametrize("stride", [1, 64])
+def test_trajectory_seek_lands_on_latest_event_at_a_revision_tick(tmp_path, stride):
     runtime = _runtime_with_revision()
     data_path = tmp_path / "seek.mtrj"
     index_path = tmp_path / "seek.mtrj.idx"
@@ -101,7 +102,7 @@ def test_trajectory_seek_lands_on_latest_event_at_a_revision_tick(tmp_path):
         data_path,
         index_path,
         manifest_path,
-        stride=1,
+        stride=stride,
     )
 
     at_revision = seek_stateful_transition_event(data_path, index_path, 1)
