@@ -35,13 +35,13 @@ The runtime's own replay verification is therefore still the last authority for 
 
 ## Time seek
 
-`seek_stateful_transition_event(data_path, index_path, target_tick)` verifies the trajectory before using `TrajectoryReader.seek_time`. With stride one, it returns the latest indexed event at the requested logical tick. For the sequence:
+`seek_stateful_transition_event(data_path, index_path, target_tick)` verifies the trajectory before using `TrajectoryReader.seek_time`, then scans forward through unindexed frames sharing the exact same logical time. It returns the last event at that tick for both dense and sparse index strides. For the sequence:
 
 ```
 step(tick 1) → revision(tick 1) → step(tick 2)
 ```
 
-seeking tick 1 returns the revision event, not the earlier step. This is useful when a caller needs the active model revision at a state/time coordinate.
+seeking tick 1 returns the revision event, not the earlier step, including when the index stride is 64 and the revision frame itself is not indexed. This is useful when a caller needs the active model revision at a state/time coordinate.
 
 ## Tests
 
