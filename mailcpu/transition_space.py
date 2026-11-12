@@ -1625,9 +1625,8 @@ def compile_live_compositional_transition_program(
                     if coefficient != 0.0
                 )
 
-            previous_width = max(
-                [input_width, *(index + 1 for index in carry_indices)],
-                default=input_width,
+            previous_width = (
+                hidden_widths[-1] if hidden_widths else input_width
             )
             # Include all needed indices but discard every dead input/feature coordinate.
             ordered_carry = sorted(carry_indices)
