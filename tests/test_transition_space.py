@@ -299,6 +299,8 @@ def test_compositional_relu_compiler_tracks_one_row_typed_override():
 
     assert target_model.program_digest == target_program.digest
     assert target_model.digest != source_model.digest
+    assert target_model.parameter_count < 1678
+    assert len(target_model.architecture) < 8
     changed = []
     for row in target_table.rows:
         expected = target_program.evaluate(row.inputs)
