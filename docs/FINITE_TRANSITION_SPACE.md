@@ -107,3 +107,56 @@ Complete transition table
 ```
 
 The typed program also supports `with_row_output(inputs, outputs)`, which composes a single-row conditional override around the existing outputs. The integration experiment verifies that this override's enumerated table matches an independently applied table-row edit before touching neural weights.
+
+## Direct Boolean-DAG to ReLU compilation
+
+`compile_compositional_transition_program(program)` compiles the typed source AST without using its enumerated table as the weight-construction input. The current node algebra is:
+
+- input and constant leaves;
+- NOT;
+- AND;
+- XOR;
+- conditional SELECT.
+
+A DAG traversal assigns each computed node a topological depth and shares structurally identical nodes. The network carries input and intermediate feature activations into the layer where their dependents are constructed. The exact ReLU identities are:
+
+\[
+\operatorname{NOT}(x)=\operatorname{ReLU}(1-x)
+\]
+
+\[
+\operatorname{AND}(x,y)=\operatorname{ReLU}(x+y-1)
+\]
+
+\[
+\operatorname{XOR}(x,y)=
+\operatorname{ReLU}(x+y)-2\operatorname{ReLU}(x+y-1)
+\]
+
+For a Boolean select (z?u:v), the compiler uses two mutually exclusive activations:
+
+\[
+\operatorname{ReLU}(z+u-1)+\operatorname{ReLU}(v-z).
+\]
+
+Each expression is verified over every Boolean input row after compilation. This is an algebraic exactness claim on `{0,1}^n`, not arbitrary real-valued inputs.
+
+### Literal-conjunction specialization
+
+A conjunction made only from distinct Boolean input literals, including negated literals, is recognized and flattened. Instead of a chain of AND features, it is realized as one minterm:
+
+\[
+h_r(x)=\operatorname{ReLU}\left(
+\sum_{i:r_i=1}x_i+
+\sum_{i:r_i=0}(1-x_i)
+-(n-1)
+\right).
+\]
+
+That matters for the single-row override: its input selector is a four-literal conjunction, so it can become one ReLU feature directly from the four raw input bits.
+
+### Measured result and remaining inefficiency
+
+The v3 cross-repository run tests both compilers on the reset-dominant counter and its one-row override. The baseline expression-DAG model is `4–7–11–15–2` (335 total, 54 active parameters). The edited expression-DAG model after literal-conjunction specialization is expected to be smaller than the earlier unflattened form; the pinned workflow checks this with a regression assertion as well as exhaustive semantic tests.
+
+The compiler still copies raw inputs and live intermediate features through dense identity layers. Total parameter count therefore includes many zero-valued weights; active parameter count remains the more informative measure of constructed operations. The next optimization is feature-liveness compaction so dead inputs and intermediate activations are not carried through later layers.
