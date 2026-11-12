@@ -192,3 +192,7 @@ Prefer the smallest verified capability that increases the amount of computation
 ## Constructive neural weight realization
 
 A bounded, no-training construction now lives in [docs/WEIGHT_SPACE_PROGRAMMING.md](docs/WEIGHT_SPACE_PROGRAMMING.md) and [mailcpu/weight_space.py](mailcpu/weight_space.py). It compiles two-input XOR/AND into two distinct 10,000-parameter ReLU architectures (2–85–112–1 and 2–17–254–21–1), records active versus total parameters, and demonstrates a two-weight XOR-to-AND intervention in both layouts. The tests compare them with the E-CPU reference and queue interpreters and use the existing semantic-translation contract for per-case exact checks. This is a finite constructive proof-of-mechanics, not a general neural compiler or a training replacement.
+
+## Finite-state transition neural synthesis
+
+[The finite transition-table compiler](docs/FINITE_TRANSITION_SPACE.md) converts a complete Boolean transition relation into exact ReLU minterm weights, produces an executable MailCPU reference program from the same table, and supports digest-bound local table-to-weight interventions. It is exercised on a reset-dominant two-bit counter and compared against VGI and both MailCPU execution backends.
