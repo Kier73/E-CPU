@@ -55,3 +55,19 @@ seeking tick 1 returns the revision event, not the earlier step. This is useful 
 ## Limits
 
 The binary trajectory and manifest are separate files, not a transactional distributed store. The manifest digest and the three hash chains detect inconsistent or partial modification when the manifest/head is trusted; they are not external signatures or a hardware trust anchor. The trajectory is an auditable record of already-committed runtime events, not a source of unverified state mutation.
+
+## Verified same-tick example
+
+The runtime scenario begins from state `01`:
+1. A hold step commits at logical tick 1.
+2. A compatible transition-program revision is committed at the same logical tick 1.
+3. The next step commits at logical tick 2 and moves the state to `10`.
+
+The binary trajectory therefore contains event times `[1, 1, 2]` and frame indices `[0, 1, 2]`. A stride-one seek to tick 1 returns trajectory frame 1, whose embedded runtime event sequence is 2 and kind is `revision`. A seek to tick 2 returns the following step and state `10`.
+
+The IFS integration workflow pinned to this bridge checked this exact behavior, plus 128 one-step transition cases, 2,048 recurrent trajectories, and the bridge's six focused tests. The IFS result records:
+- EventJournal head: `a89f87a56c9071617d6b3ea5ed419760af13f2ca9b39c513e9e13ce0c3e84181`
+- Trajectory receipt head: `0244151812c64df3282e8758eb476ba51b00bcb053b89393c3b53be039fc14eb`
+- Manifest digest: `402c6d3ef591ccd9fa58ffb061509ee7e425996980c61ddb9b5a77d124ea38e7`
+
+These three digests are distinct views of the same three-event history. They should not be treated as interchangeable identities.
