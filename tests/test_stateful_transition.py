@@ -190,7 +190,7 @@ def test_runtime_validates_initial_state_width_and_program_outputs():
 
 def test_new_transition_modules_have_governing_mathematics_annotations():
     root = Path(__file__).resolve().parents[1]
-    for module_name in ("transition_space.py", "stateful_transition.py"):
+    for module_name in ("weight_space.py", "transition_space.py", "stateful_transition.py"):
         module_path = root / "mailcpu" / module_name
         tree = ast.parse(module_path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
