@@ -195,4 +195,4 @@ A bounded, no-training construction now lives in [docs/WEIGHT_SPACE_PROGRAMMING.
 
 ## Finite-state transition neural synthesis
 
-[The finite transition-table compiler](docs/FINITE_TRANSITION_SPACE.md) converts a complete Boolean transition relation into exact ReLU minterm weights, produces an executable MailCPU reference program from the same table, and supports digest-bound local table-to-weight interventions. It is exercised on a reset-dominant two-bit counter and compared against VGI and both MailCPU execution backends.
+[The finite transition compiler](docs/FINITE_TRANSITION_SPACE.md) converts both complete Boolean transition tables and typed Boolean expression DAGs into exact ReLU weights, produces an executable MailCPU reference program from the same finite table, and supports digest-bound local transition interventions. It is exercised on a reset-dominant two-bit counter and compared against VGI and both MailCPU execution backends.
