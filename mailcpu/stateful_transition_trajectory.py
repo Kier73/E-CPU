@@ -12,6 +12,7 @@ from typing import Any
 
 from .journal import EventJournal
 from .stateful_transition import StatefulTransitionRuntime
+from .transition_space import FiniteTransitionProgram
 from .trajectory import TrajectoryError, TrajectoryReader, TrajectoryWriter
 
 
@@ -347,13 +348,22 @@ def restore_stateful_transition_trajectory(
         raise StatefulTransitionTrajectoryError(
             "trajectory receipt head does not match the manifest"
         )
+    try:
+        current_program_digest = FiniteTransitionProgram.from_dict(
+            snapshot["current_program"]
+        ).digest
+    except (KeyError, TypeError, ValueError) as exc:
+        raise StatefulTransitionTrajectoryError(
+            "trajectory manifest current transition program is invalid"
+        ) from exc
+
     if (
         metadata["journal_head_digest"] != _event_journal_head(events)
         or metadata["runtime_genesis_digest"] != snapshot.get("genesis_digest")
         or metadata["runtime_chain_head_digest"] != snapshot.get("chain_head_digest")
         or metadata["tick"] != snapshot.get("tick")
         or metadata["revision"] != snapshot.get("revision")
-        or metadata["program_digest"] != snapshot.get("current_program", {}).get("digest")
+        or metadata["program_digest"] != current_program_digest
         or metadata["model_digest"] != snapshot.get("current_model", {}).get("digest")
     ):
         raise StatefulTransitionTrajectoryError(
