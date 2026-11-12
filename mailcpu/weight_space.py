@@ -2,7 +2,7 @@
 
 This is a deliberately bounded constructive realization, not a trainer and not
 an arbitrary-network synthesizer. It compiles two-input XOR/AND specifications
-into a fixed 2-85-112-1 MLP and exposes a two-weight semantic intervention.
+into two distinct 10,000-parameter MLP architectures and exposes a two-weight semantic intervention.
 """
 
 from __future__ import annotations
