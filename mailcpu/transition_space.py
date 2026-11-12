@@ -930,11 +930,14 @@ class FiniteTransitionProgram:
         if len(output_pattern) != len(self.output_names):
             raise TransitionSpaceError("override output width does not match transition program")
 
-        match: BooleanExpr = BooleanConstant(1)
+        literals: list[BooleanExpr] = []
         for input_name, expected_bit in zip(self.input_names, pattern):
             literal: BooleanExpr = BooleanInput(input_name)
             if not expected_bit:
                 literal = BooleanNot(literal)
+            literals.append(literal)
+        match = literals[0]
+        for literal in literals[1:]:
             match = BooleanAnd(match, literal)
 
         current_outputs = self.evaluate(pattern)
@@ -1064,6 +1067,26 @@ def _boolean_expression_key(expression: BooleanExpr) -> str:
         sort_keys=True,
         separators=(",", ":"),
     )
+
+
+def _literal_conjunction(
+    expression: BooleanExpr,
+) -> tuple[tuple[str, int], ...] | None:
+    """Flatten an AND tree only when every leaf is a named input or its negation."""
+    if isinstance(expression, BooleanInput):
+        return ((expression.name, 1),)
+    if isinstance(expression, BooleanNot) and isinstance(expression.value, BooleanInput):
+        return ((expression.value.name, 0),)
+    if not isinstance(expression, BooleanAnd):
+        return None
+    left = _literal_conjunction(expression.left)
+    right = _literal_conjunction(expression.right)
+    if left is None or right is None:
+        return None
+    names = [name for name, _ in (*left, *right)]
+    if len(set(names)) != len(names):
+        return None
+    return left + right
 
 
 class CompositionalTransitionReLUNetwork:
@@ -1271,8 +1294,13 @@ def compile_compositional_transition_program(
             return 0
         if expression in depths:
             return depths[expression]
-        child_depths = tuple(visit(child) for child in _boolean_expression_children(expression))
-        depth = 1 + max(child_depths, default=0)
+        if isinstance(expression, BooleanAnd) and _literal_conjunction(expression) is not None:
+            depth = 1
+        else:
+            child_depths = tuple(
+                visit(child) for child in _boolean_expression_children(expression)
+            )
+            depth = 1 + max(child_depths, default=0)
         depths[expression] = depth
         nodes_by_depth.setdefault(depth, set()).add(expression)
         return depth
@@ -1346,10 +1374,26 @@ def compile_compositional_transition_program(
                 continue
 
             if isinstance(expression, BooleanAnd):
-                left, left_bias = reference(expression.left, previous_width)
-                right, right_bias = reference(expression.right, previous_width)
-                coefficients = [a + b for a, b in zip(left, right)]
-                index = add_unit(coefficients, left_bias + right_bias - 1.0)
+                literals = _literal_conjunction(expression)
+                if literals is not None:
+                    coefficients = [0.0] * previous_width
+                    positive_count = 0
+                    for input_name, expected_bit in literals:
+                        input_index = input_indices[input_name]
+                        coefficients[input_index] = 1.0 if expected_bit else -1.0
+                        positive_count += expected_bit
+                    index = add_unit(
+                        coefficients,
+                        1.0 - positive_count,
+                    )
+                else:
+                    left, left_bias = reference(expression.left, previous_width)
+                    right, right_bias = reference(expression.right, previous_width)
+                    coefficients = [a + b for a, b in zip(left, right)]
+                    index = add_unit(
+                        coefficients,
+                        left_bias + right_bias - 1.0,
+                    )
                 node_references.append((expression, (index,)))
                 continue
 
