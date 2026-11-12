@@ -204,3 +204,7 @@ A bounded, no-training construction now lives in [docs/WEIGHT_SPACE_PROGRAMMING.
 ## Stateful transition trajectory bridge
 
 [The trajectory bridge](docs/STATEFUL_TRANSITION_TRAJECTORY.md) exports stateful step/revision events through the existing indexed `TrajectoryWriter`, projects the same events into E-CPU's `EventJournal`, and restores the runtime only after validating the trajectory receipts, manifest digest and original runtime replay chain. It also supports verified logical-time seek across same-tick model revisions.
+
+## Stateful transition checkpoints
+
+The indexed trajectory bridge exposes [verified state checkpoints](docs/STATEFUL_TRANSITION_TRAJECTORY.md#state-checkpoint-lookup) at logical time coordinates. A checkpoint binds the state vector to the active transition program/model revision and both runtime-event and trajectory receipt identities. It is a time-navigation locator, not a mutable runtime restore; full replay remains available through `restore_stateful_transition_trajectory`.
