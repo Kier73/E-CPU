@@ -200,3 +200,7 @@ A bounded, no-training construction now lives in [docs/WEIGHT_SPACE_PROGRAMMING.
 ## Stateful transition runtime
 
 [The stateful transition runtime](docs/STATEFUL_TRANSITION_RUNTIME.md) executes typed Boolean transition programs through their liveness-compiled ReLU realization while maintaining live state, logical ticks, model revisions, and a SHA-256-linked event history. It preserves state across compatible model revisions and verifies snapshots by replaying every recorded step and revision.
+
+## Stateful transition trajectory bridge
+
+[The trajectory bridge](docs/STATEFUL_TRANSITION_TRAJECTORY.md) exports stateful step/revision events through the existing indexed `TrajectoryWriter`, projects the same events into E-CPU's `EventJournal`, and restores the runtime only after validating the trajectory receipts, manifest digest and original runtime replay chain. It also supports verified logical-time seek across same-tick model revisions.
