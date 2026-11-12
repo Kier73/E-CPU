@@ -203,3 +203,78 @@ def test_trajectory_seek_rejects_invalid_time_coordinates(tmp_path):
 
     with pytest.raises(StatefulTransitionTrajectoryError, match="non-negative integer"):
         seek_stateful_transition_event(data_path, index_path, -1)
+
+
+def test_state_checkpoint_returns_state_and_active_model_revision_at_logical_time(tmp_path):
+    runtime = _runtime_with_revision()
+    data_path = tmp_path / "checkpoint.mtrj"
+    index_path = tmp_path / "checkpoint.mtrj.idx"
+    manifest_path = tmp_path / "checkpoint.manifest.json"
+    export_stateful_transition_trajectory(
+        runtime,
+        data_path,
+        index_path,
+        manifest_path,
+        stride=64,
+    )
+
+    at_revision = seek_stateful_transition_checkpoint(
+        data_path,
+        index_path,
+        1,
+    )
+    assert at_revision is not None
+    assert at_revision["schema"] == "mailcpu.stateful-transition-checkpoint.v1"
+    assert at_revision["logical_time"] == 1
+    assert at_revision["state"] == [0, 1]
+    assert at_revision["revision"] == 1
+    assert at_revision["event_kind"] == "revision"
+    assert at_revision["program_digest"] == _edited_program().digest
+    assert at_revision["model_digest"] != runtime.events[0]["model_digest"]
+    assert at_revision["runtime_event_sequence"] == 2
+    assert at_revision["trajectory_sequence"] == 1
+
+    after_revision = seek_stateful_transition_checkpoint(
+        data_path,
+        index_path,
+        2,
+    )
+    assert after_revision is not None
+    assert after_revision["logical_time"] == 2
+    assert after_revision["state"] == [1, 0]
+    assert after_revision["revision"] == 1
+    assert after_revision["event_kind"] == "step"
+    assert after_revision["runtime_event_sequence"] == 3
+    assert after_revision["trajectory_sequence"] == 2
+
+    assert seek_stateful_transition_checkpoint(
+        data_path,
+        index_path,
+        0,
+    ) is None
+
+
+def test_state_checkpoint_is_bound_to_the_runtime_event_and_trajectory_receipt(tmp_path):
+    runtime = _runtime_with_revision()
+    data_path = tmp_path / "checkpoint-provenance.mtrj"
+    index_path = tmp_path / "checkpoint-provenance.mtrj.idx"
+    manifest_path = tmp_path / "checkpoint-provenance.manifest.json"
+    export_stateful_transition_trajectory(
+        runtime,
+        data_path,
+        index_path,
+        manifest_path,
+        stride=64,
+    )
+
+    checkpoint = seek_stateful_transition_checkpoint(
+        data_path,
+        index_path,
+        1,
+    )
+    assert checkpoint is not None
+    event = seek_stateful_transition_event(data_path, index_path, 1)
+    assert event is not None
+    assert checkpoint["runtime_event_digest"] == event["runtime_event"]["event_digest"]
+    assert checkpoint["trajectory_receipt"] == event["trajectory_receipt"]
+    assert checkpoint["trajectory_sequence"] == event["trajectory_sequence"]
