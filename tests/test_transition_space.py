@@ -12,6 +12,7 @@ from mailcpu.transition_space import (
     TransitionRow,
     TransitionSpaceError,
     apply_table_intervention,
+    compile_compositional_transition_program,
     compile_transition_program,
     compile_transition_table,
     pattern_to_index,
@@ -264,3 +265,61 @@ def test_typed_program_row_override_changes_only_the_selected_transition():
         if row.outputs != target_row.outputs
     ]
     assert changed_rows == [(0, 1, 1, 1)]
+
+
+def test_compositional_relu_compiler_matches_typed_counter_program():
+    program = two_bit_counter_program()
+    table = program.to_table()
+    model = compile_compositional_transition_program(program)
+
+    assert model.architecture[0] == len(table.input_names)
+    assert model.architecture[-1] == len(table.output_names)
+    assert model.parameter_count > 0
+    assert model.program_digest == program.digest
+    for row in table.rows:
+        assert model.predict(row.inputs) == program.evaluate(row.inputs)
+        assert model.predict(row.inputs) == row.outputs
+
+    restored = type(model).from_snapshot(model.snapshot())
+    assert restored.digest == model.digest
+    assert restored.architecture == model.architecture
+    assert restored.program_digest == program.digest
+
+
+def test_compositional_relu_compiler_tracks_one_row_typed_override():
+    source_program = two_bit_counter_program()
+    target_program = source_program.with_row_output(
+        (0, 1, 1, 1),
+        (1, 0),
+        name="two-bit-counter.reset-exception.v1",
+    )
+    target_table = target_program.to_table()
+    target_model = compile_compositional_transition_program(target_program)
+    source_model = compile_compositional_transition_program(source_program)
+
+    assert target_model.program_digest == target_program.digest
+    assert target_model.digest != source_model.digest
+    changed = []
+    for row in target_table.rows:
+        expected = target_program.evaluate(row.inputs)
+        assert target_model.predict(row.inputs) == expected
+        if row.inputs == (0, 1, 1, 1):
+            assert expected == (1, 0)
+        else:
+            assert expected == source_program.evaluate(row.inputs)
+        if expected != source_program.evaluate(row.inputs):
+            changed.append(row.inputs)
+    assert changed == [(0, 1, 1, 1)]
+
+
+def test_compositional_and_truth_table_neural_compilers_are_semantically_equivalent():
+    program = two_bit_counter_program()
+    table = program.to_table()
+    compositional = compile_compositional_transition_program(program)
+    enumerated = compile_transition_table(table)
+
+    assert compositional.architecture[0] == enumerated.architecture[0]
+    assert compositional.architecture[-1] == enumerated.architecture[-1]
+    for row in table.rows:
+        assert compositional.predict(row.inputs) == enumerated.predict(row.inputs)
+        assert compositional.predict(row.inputs) == table.row_for(row.inputs).outputs
