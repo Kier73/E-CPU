@@ -85,3 +85,25 @@ The cross-repository experiment adds VGI's typed equality/conditional task as a 
 ## Limits
 
 This is exact finite-domain compilation. The hidden width equals (2^n), so this realization grows exponentially with input width. It is not an efficient compiler for large Boolean functions, a learned model, a continuous-domain approximator, or a proof of general neural synthesis. A subsequent compiler should seek structured decision graphs or compositional Boolean programs whose active representation can remain sparse without enumerating every input row.
+
+## Compositional typed source program
+
+The compiler can now start one level above the table. `FiniteTransitionProgram` is a typed Boolean expression tree with input, constant, NOT, AND, XOR, and conditional-select nodes. It evaluates one input vector and can enumerate its complete finite table with `to_table()`.
+
+`two_bit_counter_program()` expresses the source law compositionally:
+
+- Reset selects the zero state.
+- Otherwise, advance selects `state_1 XOR state_0` and `NOT state_0`.
+- Otherwise, both state bits are held.
+
+The table compiler consumes the generated table, while `compile_transition_program(table)` independently lowers the table into MailCPU minterm branches. This creates the path:
+
+```
+Typed Boolean transition program
+        ↓ exhaustive finite evaluation
+Complete transition table
+        ├──→ ReLU weight compiler
+        └──→ MailCPU reference-program compiler
+```
+
+The typed program also supports `with_row_output(inputs, outputs)`, which composes a single-row conditional override around the existing outputs. The integration experiment verifies that this override's enumerated table matches an independently applied table-row edit before touching neural weights.
