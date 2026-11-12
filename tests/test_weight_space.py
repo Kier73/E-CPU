@@ -21,6 +21,8 @@ from mailcpu.semantic_translation import (
 from mailcpu.weight_space import (
     WeightSpaceError,
     boolean_gate_program,
+    ARCHITECTURE,
+    DEEP_ARCHITECTURE,
     compile_boolean_gate,
     decode_boolean_signal,
     edit_boolean_gate,
@@ -50,7 +52,7 @@ def _translation_contract(program, model, left: int, right: int) -> TranslationC
         1,
         {
             "compiler": "mailcpu.weight_space.compile_boolean_gate",
-            "architecture": [2, 85, 112, 1],
+            "architecture": list(model.architecture),
             "activation": "relu-hidden-linear-output",
         },
     )
@@ -90,6 +92,44 @@ def test_compiler_constructs_exact_10000_parameter_relu_network():
     assert model.active_parameter_count == 9
     for left, right in _cases():
         assert model.predict(left, right) == left ^ right
+
+
+def test_second_deeper_architecture_preserves_the_same_function_and_edit():
+    for architecture in (ARCHITECTURE, DEEP_ARCHITECTURE):
+        model = compile_boolean_gate("xor", architecture=architecture)
+        assert model.architecture == architecture
+        assert model.parameter_count == 10_000
+        assert model.active_parameter_count == 9
+        for left, right in _cases():
+            assert model.predict(left, right) == left ^ right
+
+        before = model.weights
+        intervention = edit_boolean_gate(model, "and")
+        after = model.weights
+        final_layer = len(architecture) - 2
+
+        assert intervention.changed_parameters == 2
+        assert [
+            (item.layer_index, item.output_index, item.input_index)
+            for item in intervention.coordinates
+        ] == [(final_layer, 0, 0), (final_layer, 0, 1)]
+        assert model.parameter_count == 10_000
+        assert model.active_parameter_count == 8
+
+        changed = [
+            (layer, output, input_index)
+            for layer, (old_matrix, new_matrix) in enumerate(zip(before, after))
+            for output, (old_row, new_row) in enumerate(zip(old_matrix, new_matrix))
+            for input_index, (old, new) in enumerate(zip(old_row, new_row))
+            if old != new
+        ]
+        assert changed == [(final_layer, 0, 0), (final_layer, 0, 1)]
+        for left, right in _cases():
+            assert model.predict(left, right) == left & right
+
+        restored = type(model).from_snapshot(model.snapshot())
+        assert restored.architecture == architecture
+        assert restored.digest == model.digest
 
 
 def test_two_parameter_intervention_changes_xor_to_and_only_on_output_coefficients():
