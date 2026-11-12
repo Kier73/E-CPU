@@ -228,6 +228,9 @@ def _expected_symbol(establishes: str) -> str | None:
         "seed_commit_quorum": "DurableSeedCommitLedger",
         "host_service": "HostServiceLifecycleAdapter",
         "subprocess_service": "SubprocessServiceSupervisor",
+        "weight_space": "DenseReLUNetwork",
+        "transition_space": "FiniteTransitionProgram",
+        "stateful_transition": "StatefulTransitionRuntime",
     }
     return mapping.get(stem)
 
