@@ -83,6 +83,7 @@ def test_runtime_snapshot_round_trip_replays_steps_and_model_revisions():
     snapshot = runtime.snapshot()
     restored = StatefulTransitionRuntime.from_snapshot(snapshot)
 
+    assert isinstance(snapshot["events"], list)
     assert snapshot["schema"] == SCHEMA
     assert restored.snapshot() == snapshot
     assert restored.state == runtime.state
