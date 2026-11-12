@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import ast
 import copy
+import importlib.util
 import itertools
+import sys
 from pathlib import Path
 
 import pytest
@@ -203,3 +205,33 @@ def test_new_transition_modules_have_governing_mathematics_annotations():
             assert "Mathematics:" in docstring, (
                 f"{module_name}:{node.lineno} {node.name} has no governing mathematics annotation"
             )
+
+
+def test_new_neural_and_runtime_invariants_resolve_in_registry():
+    root = Path(__file__).resolve().parents[1]
+    registry_path = root / "docs" / "INVARIANTS.md"
+    registry_lines = registry_path.read_text(encoding="utf-8").splitlines()
+    owned_ids = {"N-7", "N-8", "N-9", "N-10", "N-11", "N-12"}
+    owned_lines = {
+        index + 1
+        for index, line in enumerate(registry_lines)
+        if any(f"`{identifier}`" in line for identifier in owned_ids)
+    }
+
+    script_path = root / "scripts" / "verify_invariants.py"
+    spec = importlib.util.spec_from_file_location(
+        "ecpu_verify_invariants_for_transition_tests",
+        script_path,
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    problems = module.verify(registry_path)
+    unresolved = [
+        problem
+        for problem in problems
+        if problem.line in owned_lines
+    ]
+    assert unresolved == []
