@@ -160,3 +160,22 @@ That matters for the single-row override: its input selector is a four-literal c
 The v3 cross-repository run tests both compilers on the reset-dominant counter and its one-row override. The baseline expression-DAG model is `4–7–11–15–2` (335 total, 54 active parameters). The edited expression-DAG model after literal-conjunction specialization is expected to be smaller than the earlier unflattened form; the pinned workflow checks this with a regression assertion as well as exhaustive semantic tests.
 
 The compiler still copies raw inputs and live intermediate features through dense identity layers. Total parameter count therefore includes many zero-valued weights; active parameter count remains the more informative measure of constructed operations. The next optimization is feature-liveness compaction so dead inputs and intermediate activations are not carried through later layers.
+
+## Feature-liveness compaction
+
+`compile_live_compositional_transition_program(program)` is a second direct-DAG compiler. It performs a backward liveness analysis over the typed expression graph. At each depth it retains only the raw input coordinates and computed ReLU features that are direct dependencies of a later node or output. The next layer uses a projection matrix to omit dead coordinates rather than copying every preceding neuron.
+
+It keeps the same expression identities and exact Boolean-domain self-verification as the dense carry compiler. The two compilers can therefore be compared on identical source programs.
+
+For the reset-dominant counter and its single-row override, the measured dense/active parameter counts were:
+
+| Program | Dense carry DAG | Live-feature DAG |
+|---|---:|---:|
+| Baseline counter | 335 / 54 | 109 / 37 |
+| One-row override | 700 / 81 | 163 / 50 |
+
+The live compiler reduced total parameters by 67.46% on the baseline program and 76.71% on the override. These counts include all dense matrix entries, including zeros; the second number in each cell counts only nonzero parameters.
+
+The feature-liveness implementation is regression-tested for both counter programs, a program with an unused declared input, negated literals, direct input outputs, constant outputs, and leaf-only source programs. It also compares both compact models against the un-compacted DAG compiler and the complete transition table.
+
+The remaining limitation is that each layer is still stored as a dense matrix. Liveness removes dead rows and features, but the surviving layers may still contain zero coefficients. A sparse tensor/runtime representation is a distinct next step.
