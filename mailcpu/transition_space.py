@@ -2201,7 +2201,11 @@ class SparseTransitionReLUNetwork:
         )
 
     def _validate_shape(self) -> None:
-        """Validate sparse layer widths and every stored coordinate range."""
+        """Mathematics: validate that every sparse row index is in [0, layer_input_width).
+
+        Each layer also has exactly one sparse output row and at most one
+        nonzero bias entry per declared output coordinate.
+        """
         if self._source_kind not in {"transition_table", "transition_program"}:
             raise TransitionSpaceError("sparse source_kind is unsupported")
         if (
@@ -2235,47 +2239,75 @@ class SparseTransitionReLUNetwork:
 
     @property
     def source_kind(self) -> str:
-        """Return whether the source Ground was a transition table or program."""
+        """Mathematics: source_kind ∈ {transition_table, transition_program}.
+
+        Return which declared Ground representation supplies the sparse model.
+        """
         return self._source_kind
 
     @property
     def source_digest(self) -> str:
-        """Return the digest of the source transition table or typed program."""
+        """Mathematics: source_digest = SHA256(canonical(source Ground)).
+
+        Return the identity of the exact finite transition description.
+        """
         return self._source_digest
 
     @property
     def source_model_digest(self) -> str:
-        """Return the digest of the exact dense model used for sparse conversion."""
+        """Mathematics: source_model_digest = SHA256(canonical(dense model)).
+
+        Return the identity of the dense realization from which this sparse
+        representation was derived.
+        """
         return self._source_model_digest
 
     @property
     def input_names(self) -> tuple[str, ...]:
-        """Return the ordered input register names."""
+        """Mathematics: input_names is the ordered coordinate basis of {0,1}^n.
+
+        Return the transition input register names.
+        """
         return self._input_names
 
     @property
     def output_names(self) -> tuple[str, ...]:
-        """Return the ordered output register names."""
+        """Mathematics: output_names is the ordered coordinate basis of {0,1}^m.
+
+        Return the next-state output register names.
+        """
         return self._output_names
 
     @property
     def architecture(self) -> tuple[int, ...]:
-        """Return all dense-equivalent layer widths, including input and output."""
+        """Mathematics: architecture = (n_0, n_1, ..., n_L).
+
+        Return every dense-equivalent layer width, including input and output.
+        """
         return self._architecture
 
     @property
     def sparse_weights(self) -> tuple[tuple[tuple[tuple[int, float], ...], ...], ...]:
-        """Return immutable output-major nonzero (input index, weight) rows."""
+        """Mathematics: E_j contains the ordered nonzero (i,w) coordinates for output j.
+
+        Return immutable output-major sparse weight rows.
+        """
         return self._weight_rows
 
     @property
     def sparse_biases(self) -> tuple[tuple[tuple[int, float], ...], ...]:
-        """Return immutable nonzero (output index, bias) entries by layer."""
+        """Mathematics: B_l is the ordered set of nonzero (j,b_j) bias coordinates.
+
+        Return immutable sparse bias entries by layer.
+        """
         return self._bias_entries
 
     @property
     def stored_weight_count(self) -> int:
-        """Count the nonzero weight coordinates stored in all layers."""
+        """Mathematics: stored_weight_count = Σ_l Σ_j |E_j^(l)|.
+
+        Count the nonzero weight coordinates stored in all layers.
+        """
         return sum(
             len(row)
             for layer in self._weight_rows
@@ -2284,7 +2316,10 @@ class SparseTransitionReLUNetwork:
 
     @property
     def stored_bias_count(self) -> int:
-        """Count the nonzero bias coordinates stored in all layers."""
+        """Mathematics: stored_bias_count = Σ_l |B_l|.
+
+        Count the nonzero bias coordinates stored in all layers.
+        """
         return sum(len(layer) for layer in self._bias_entries)
 
     @property
@@ -2305,7 +2340,10 @@ class SparseTransitionReLUNetwork:
 
     @property
     def dense_weight_slot_count(self) -> int:
-        """Count every weight position in the equivalent dense layer matrices."""
+        """Mathematics: dense_weight_slot_count = Σ_l n_(l-1) * n_l.
+
+        Count every weight position in the equivalent dense layer matrices.
+        """
         return sum(
             input_width * output_width
             for input_width, output_width in zip(
@@ -2316,17 +2354,26 @@ class SparseTransitionReLUNetwork:
 
     @property
     def dense_equivalent_parameter_count(self) -> int:
-        """Count all dense weight and bias positions, including implicit zeros."""
+        """Mathematics: dense_equivalent_parameter_count = dense_weight_slots + Σ_l n_l.
+
+        Count all dense weight and bias positions, including implicit zeros.
+        """
         return self.dense_weight_slot_count + sum(self._architecture[1:])
 
     @property
     def active_parameter_count(self) -> int:
-        """Return the number of stored nonzero weights and biases."""
+        """Mathematics: active_parameter_count = stored_weight_count + stored_bias_count.
+
+        Return the number of stored nonzero weights and biases.
+        """
         return self.stored_parameter_count
 
     @property
     def digest(self) -> str:
-        """Return a SHA-256 identity over source provenance and sparse tensors."""
+        """Mathematics: digest = SHA256(canonical(_payload())).
+
+        Return a SHA-256 identity over source provenance and sparse tensors.
+        """
         encoded = json.dumps(
             self._payload(),
             sort_keys=True,
@@ -2410,7 +2457,10 @@ class SparseTransitionReLUNetwork:
         return tuple(int(value) for value in rounded)
 
     def _payload(self) -> dict[str, Any]:
-        """Build the canonical sparse schema payload without its digest field."""
+        """Mathematics: _payload is the canonical sparse representation excluding digest.
+
+        Build the canonical sparse schema payload without its digest field.
+        """
         return {
             "schema": self.SCHEMA,
             "source_kind": self._source_kind,
@@ -2437,7 +2487,10 @@ class SparseTransitionReLUNetwork:
         }
 
     def snapshot(self) -> dict[str, Any]:
-        """Return a detached sparse snapshot with canonical digest and count fields."""
+        """Mathematics: snapshot = _payload() ∪ {digest: SHA256(canonical(_payload()))}.
+
+        Return a detached sparse snapshot with canonical digest and count fields.
+        """
         payload = self._payload()
         payload["digest"] = self.digest
         return payload
@@ -2447,7 +2500,10 @@ class SparseTransitionReLUNetwork:
         cls,
         payload: Mapping[str, Any],
     ) -> "SparseTransitionReLUNetwork":
-        """Restore only after checking sparse coordinates, source identity, counts, and digest."""
+        """Mathematics: restore(payload) is defined only when its digest and counts recompute exactly.
+
+        Restore after checking sparse coordinates, source identity, counts, and digest.
+        """
         required = {
             "schema",
             "source_kind",
