@@ -211,3 +211,32 @@ def test_compiler_refuses_architecture_without_one_hidden_unit_per_row():
 
 if __name__ == "__main__":
     pytest.main([__file__])
+
+
+def test_compositional_transition_program_enumerates_the_complete_table():
+    program = two_bit_counter_program()
+    table = program.to_table()
+
+    assert table == two_bit_counter_table()
+    for row in table.rows:
+        assert program.evaluate(row.inputs) == row.outputs
+
+    restored = type(program).from_dict(program.to_dict())
+    assert restored.digest == program.digest
+    assert restored.to_table() == table
+
+
+def test_compositional_transition_program_rejects_undeclared_inputs():
+    from mailcpu.transition_space import (
+        BooleanInput,
+        BooleanSelect,
+        FiniteTransitionProgram,
+    )
+
+    with pytest.raises(TransitionSpaceError, match="undeclared inputs"):
+        FiniteTransitionProgram(
+            "invalid-transition",
+            ("state",),
+            ("next_state",),
+            (BooleanSelect(BooleanInput("missing"), BooleanInput("state"), BooleanInput("state")),),
+        )
