@@ -193,7 +193,7 @@ def test_projects_typed_graph_into_content_addressed_mailcpu_dag() -> None:
     manifest = projection.manifest()
     assert manifest["tensor_payload_bytes_included"] == 0
     assert manifest["execution_performed"] is False
-    assert manifest["initial_ready_frontier"] == ["projection"]
+    assert manifest["ready_frontier"] == ["projection"]
 
     projection_node = next(node for node in projection.dag.nodes if node.node_id == "projection")
     assert projection_node.dependencies == ()
