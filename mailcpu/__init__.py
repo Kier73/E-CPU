@@ -670,6 +670,11 @@ from .computation_dag import (
     CommittedComputationResult,
     NavigableComputationDAG,
 )
+from .neural_graph_bridge import (
+    NeuralGraphBridgeError,
+    NeuralGraphDAGProjection,
+    compile_neural_graph_dag,
+)
 from .program_dataflow import (
     CompiledMailCPUDataflow,
     DataflowExecutionReport,
@@ -1694,6 +1699,9 @@ __all__ = [
     "ComputationNode",
     "CommittedComputationResult",
     "NavigableComputationDAG",
+    "NeuralGraphBridgeError",
+    "NeuralGraphDAGProjection",
+    "compile_neural_graph_dag",
     "ComputationalAddress",
     "ComputationalObjectChunk",
     "ComputationalObjectError",

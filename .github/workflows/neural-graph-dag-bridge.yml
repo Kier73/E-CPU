@@ -1,0 +1,59 @@
+name: Neural graph DAG bridge
+
+on:
+  push:
+    paths:
+      - "mailcpu/neural_graph_bridge.py"
+      - "mailcpu/computation_dag.py"
+      - "mailcpu/__init__.py"
+      - "tests/test_neural_graph_bridge.py"
+      - "tests/test_computation_dag.py"
+      - ".github/workflows/neural-graph-dag-bridge.yml"
+  pull_request:
+    paths:
+      - "mailcpu/neural_graph_bridge.py"
+      - "mailcpu/computation_dag.py"
+      - "mailcpu/__init__.py"
+      - "tests/test_neural_graph_bridge.py"
+      - "tests/test_computation_dag.py"
+      - ".github/workflows/neural-graph-dag-bridge.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  projection:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out E-CPU
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install MailCPU and pytest
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . pytest
+
+      - name: Run neural graph projection tests
+        run: python -m pytest -q tests/test_neural_graph_bridge.py
+
+      - name: Run underlying computation DAG tests
+        run: python -m pytest -q tests/test_computation_dag.py
+
+      - name: Verify public bridge import
+        run: |
+          python - <<'PY'
+          from mailcpu import (
+              NeuralGraphBridgeError,
+              NeuralGraphDAGProjection,
+              compile_neural_graph_dag,
+          )
+          assert callable(compile_neural_graph_dag)
+          assert NeuralGraphBridgeError.__name__ == "NeuralGraphBridgeError"
+          assert NeuralGraphDAGProjection.__name__ == "NeuralGraphDAGProjection"
+          PY
