@@ -74,3 +74,18 @@ No model weights are copied into this projection. The graph's tensor references 
 A successful projection establishes that the canonical graph's operation dependencies can be represented by MailCPU's content-addressed DAG without dropping the typed port/tensor bindings. It does not establish that MailCPU can run the operations or reproduce the source neural model's outputs.
 
 This is a bridge from *description to navigable dependency structure*, not yet a neural runtime.
+
+
+## Live HFR-002 integration
+
+The [live projection workflow](../.github/workflows/live-hfr-neural-graph-projection.yml) checks out the pinned In-Formation-Space HFR-002 implementation at commit `4f0a78aae54aa671ac6d894665225a44b8eb70f4`, regenerates the pinned GPT-2 topology from Hub configuration and Safetensors headers, then calls `compile_neural_graph_dag` on that real graph.
+
+The integration gate asserts:
+- 150 HFR operation nodes and 337 source graph edges;
+- 161 tensor bindings (the tied token embedding is used both as the input table and as the output language-model head);
+- 2 graph input bindings and 1 graph output binding;
+- non-empty MailCPU readiness frontier;
+- successful DAG snapshot restoration with identical digest;
+- zero tensor payload bytes included and `execution_performed=false`.
+
+This makes the description-to-scheduler projection test reproducible against the actual cross-repository artifact generation path, rather than only a synthetic graph fixture.
