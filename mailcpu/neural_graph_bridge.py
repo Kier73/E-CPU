@@ -12,6 +12,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 import hashlib
 import json
+import math
 import re
 from typing import Any, Mapping
 
@@ -26,7 +27,7 @@ PROJECTION_SCHEMA = "mailcpu.neural-graph-dag-projection.v1"
 OPERATION_PAYLOAD_SCHEMA = "mailcpu.neural-graph-operation-payload.v1"
 
 _NODE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
-_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_REVISION_SHA = re.compile(r"^[0-9a-f]{40}$")
 
 
 class NeuralGraphBridgeError(ValueError):
@@ -37,7 +38,7 @@ def _validate_json(value: Any, path: str = "$") -> None:
     if value is None or isinstance(value, (str, bool, int)):
         return
     if isinstance(value, float):
-        if not __import__("math").isfinite(value):
+        if not math.isfinite(value):
             raise NeuralGraphBridgeError(f"{path} contains a non-finite number")
         return
     if isinstance(value, list):
@@ -189,10 +190,8 @@ def compile_neural_graph_dag(graph: Mapping[str, Any]) -> NeuralGraphDAGProjecti
     revision = source.get("revision")
     if not isinstance(repository, str) or not repository:
         raise NeuralGraphBridgeError("source repository identity is required")
-    if not isinstance(revision, str) or not _SHA256.fullmatch(revision):
+    if not isinstance(revision, str) or not _REVISION_SHA.fullmatch(revision):
         raise NeuralGraphBridgeError("source revision must be a pinned lowercase 40-character commit SHA")
-    if len(revision) != 40:
-        raise NeuralGraphBridgeError("source revision must be a pinned 40-character commit SHA")
 
     inputs = _unique_named(graph.get("inputs"), "name", "graph inputs")
     outputs = _unique_named(graph.get("outputs"), "name", "graph outputs")
@@ -317,7 +316,10 @@ def compile_neural_graph_dag(graph: Mapping[str, Any]) -> NeuralGraphDAGProjecti
 
     nodes: list[ComputationNode] = []
     for operation_id, operation in sorted(operations.items()):
-        bindings = sorted(incoming[(operation_id, port_name)][0] for port_name in _ports(operation, "inputs"))
+        bindings = [
+            incoming[(operation_id, port_name)][0]
+            for port_name in sorted(_ports(operation, "inputs"))
+        ]
         dependencies = sorted(
             {
                 binding["source"]["operation"]
