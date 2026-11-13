@@ -1,0 +1,95 @@
+name: Live HFR-002 neural graph projection
+
+on:
+  push:
+    paths:
+      - "mailcpu/neural_graph_bridge.py"
+      - "mailcpu/computation_dag.py"
+      - "mailcpu/__init__.py"
+      - ".github/workflows/live-hfr-neural-graph-projection.yml"
+  pull_request:
+    paths:
+      - "mailcpu/neural_graph_bridge.py"
+      - "mailcpu/computation_dag.py"
+      - "mailcpu/__init__.py"
+      - ".github/workflows/live-hfr-neural-graph-projection.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-projection:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out E-CPU
+        uses: actions/checkout@v4
+
+      - name: Check out pinned HFR-002 source
+        uses: actions/checkout@v4
+        with:
+          repository: Kier73/In-Formation-Space
+          ref: 4f0a78aae54aa671ac6d894665225a44b8eb70f4
+          path: hfr_source
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install E-CPU and HFR schema dependency
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . jsonschema
+
+      - name: Regenerate pinned GPT-2 topology with zero weight-payload reads
+        working-directory: hfr_source
+        run: >-
+          python -m experiments.external_neural_structure_reading.live_reference.run_gpt2_topology
+          --output results/gpt2-typed-topology.json
+
+      - name: Project the real HFR-002 graph into MailCPU DAG
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from mailcpu import compile_neural_graph_dag
+
+          graph = json.loads(
+              Path("hfr_source/results/gpt2-typed-topology.json").read_text(encoding="utf-8")
+          )
+          projection = compile_neural_graph_dag(graph)
+          manifest = projection.manifest()
+          dag = projection.dag
+
+          assert manifest["source_repository"] == "openai-community/gpt2"
+          assert manifest["source_revision"] == "607a30d783dfa663caf39e06633721c8d4cfcd7e"
+          assert manifest["operation_node_count"] == 150
+          assert manifest["source_graph_edge_count"] == 337
+          assert manifest["tensor_payload_bytes_included"] == 0
+          assert manifest["execution_performed"] is False
+          assert manifest["tensor_binding_count"] == 161
+          assert manifest["graph_input_binding_count"] == 2
+          assert manifest["graph_output_binding_count"] == 1
+          assert len(dag.ready_nodes()) > 0
+          assert len(dag.nodes) == 150
+          assert len(dag.nodes) <= dag.MAX_NODES
+          assert manifest["dependency_edge_count"] <= dag.MAX_EDGES
+
+          restored = type(dag).from_snapshot(projection.snapshot()["dag"])
+          assert restored.digest == dag.digest
+          assert len(restored.nodes) == 150
+
+          print({
+              "source_graph_digest": projection.graph_digest,
+              "mailcpu_dag_digest": dag.digest,
+              "operation_nodes": len(dag.nodes),
+              "source_graph_edges": manifest["source_graph_edge_count"],
+              "dependency_edges": manifest["dependency_edge_count"],
+              "tensor_bindings": manifest["tensor_binding_count"],
+              "initial_ready_frontier": manifest["ready_frontier"],
+              "tensor_payload_bytes_included": manifest["tensor_payload_bytes_included"],
+              "execution_performed": manifest["execution_performed"],
+          })
+          PY
