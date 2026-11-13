@@ -35,6 +35,7 @@ class NeuralGraphBridgeError(ValueError):
 
 
 def _validate_json(value: Any, path: str = "$") -> None:
+    """Reject values outside the finite, canonical JSON value algebra."""
     if value is None or isinstance(value, (str, bool, int)):
         return
     if isinstance(value, float):
@@ -55,6 +56,7 @@ def _validate_json(value: Any, path: str = "$") -> None:
 
 
 def _canonical(value: Any) -> bytes:
+    """Serialize one validated graph value as deterministic UTF-8 JSON bytes."""
     _validate_json(value)
     try:
         return json.dumps(
@@ -69,10 +71,12 @@ def _canonical(value: Any) -> bytes:
 
 
 def _digest(value: Any) -> str:
+    """Return the SHA-256 identity of a canonical JSON-compatible value."""
     return hashlib.sha256(_canonical(value)).hexdigest()
 
 
 def _unique_named(items: Any, name: str, label: str) -> dict[str, dict[str, Any]]:
+    """Build a unique identifier map from an array of descriptor objects."""
     if not isinstance(items, list):
         raise NeuralGraphBridgeError(f"{label} must be an array")
     result: dict[str, dict[str, Any]] = {}
@@ -89,6 +93,7 @@ def _unique_named(items: Any, name: str, label: str) -> dict[str, dict[str, Any]
 
 
 def _ports(operation: Mapping[str, Any], direction: str) -> dict[str, dict[str, Any]]:
+    """Validate and index one operation's typed input or output ports."""
     raw = operation.get(direction)
     if not isinstance(raw, list):
         raise NeuralGraphBridgeError(f"operation {operation.get('id')!r} {direction} must be an array")
@@ -136,6 +141,7 @@ class NeuralGraphDAGProjection:
     graph_output_binding_count: int
 
     def manifest(self) -> dict[str, Any]:
+        """Return a detached summary of source identity, projected DAG and bindings."""
         return {
             "schema": PROJECTION_SCHEMA,
             "source_graph_schema": NEURAL_GRAPH_SCHEMA,
@@ -156,6 +162,7 @@ class NeuralGraphDAGProjection:
         }
 
     def snapshot(self) -> dict[str, Any]:
+        """Return the projection manifest and a restorable MailCPU DAG checkpoint.""" 
         return {
             "projection": self.manifest(),
             "dag": self.dag.snapshot(),
