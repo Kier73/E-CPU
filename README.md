@@ -184,6 +184,7 @@ The package and CLI remain under active development. See [docs/README.md](docs/R
 - [Computational Fabric](docs/COMPUTATIONAL_FABRIC.md) — authenticated paths and remote realization.
 - [Persistent Computational Sessions](docs/COMPUTATIONAL_SESSIONS_AND_STATE.md) — state continuity and continuation.
 - [VGI Virtual Layer](docs/VGI_VIRTUAL_LAYER.md) — one hosted signal-state Ground and interpreter.
+- [Neural Graph Bridge](docs/NEURAL_GRAPH_BRIDGE.md) — project HFR-002 typed neural topology into MailCPU's content-addressed computation DAG without loading tensor payloads.
 
 ## Development principle
 
