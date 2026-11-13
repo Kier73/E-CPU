@@ -89,3 +89,29 @@ The integration gate asserts:
 - zero tensor payload bytes included and `execution_performed=false`.
 
 This makes the description-to-scheduler projection test reproducible against the actual cross-repository artifact generation path, rather than only a synthetic graph fixture.
+
+## Second family: BERT bidirectional encoder checkpoint
+
+The [BERT live projection workflow](../.github/workflows/live-hfr-bert-graph-projection.yml)
+checks out the pinned In-Formation-Space BERT adapter at
+`a54a7cba4ef0cd637faa21bd622ff4a301fe37a2`, regenerates its canonical
+graph using public config and Safetensors headers only, and projects it
+through the **same** `compile_neural_graph_dag` function used by GPT-2.
+
+A passing live run produced:
+
+- 184 operation nodes, under MailCPU's 256-node cap;
+- 455 canonical typed source edges projected to 242 distinct operation dependencies;
+- 207 tensor-port bindings (including the family-interpreted tied MLM embedding);
+- 4 external inputs, 2 checkpoint-present graph outputs;
+- initially ready nodes: `attention.padding_mask`, `embedding.position`,
+  `embedding.token_type`, and `embedding.word`;
+- reproducible DAG digest across snapshot reconstruction;
+- zero numerical tensor payload bytes included, and no execution performed.
+
+This is evidence for an **architecture-independent description-to-dependency
+projection**: a causal GPT-2 graph and a bidirectional BERT graph both fit the
+same structural DAG interface. It is not evidence that MailCPU has numerical
+implementations of BERT, GPT-2 or their operators. The BERT source graph
+describes both checkpoint-present MLM and NSP heads without asserting that
+both run under a particular model loader.
