@@ -150,7 +150,7 @@ class NeuralGraphDAGProjection:
             "tensor_binding_count": self.tensor_binding_count,
             "graph_input_binding_count": self.graph_input_binding_count,
             "graph_output_binding_count": self.graph_output_binding_count,
-            "initial_ready_frontier": [node.node_id for node in self.dag.ready_nodes()],
+            "ready_frontier": [node.node_id for node in self.dag.ready_nodes()],
             "tensor_payload_bytes_included": 0,
             "execution_performed": False,
         }
@@ -197,6 +197,18 @@ def compile_neural_graph_dag(graph: Mapping[str, Any]) -> NeuralGraphDAGProjecti
     outputs = _unique_named(graph.get("outputs"), "name", "graph outputs")
     tensors = _unique_named(graph.get("tensors"), "name", "tensor catalog")
     operations = _unique_named(graph.get("operations"), "id", "operations")
+    invalid_operation_ids = sorted(
+        identifier for identifier in operations
+        if not _NODE_ID.fullmatch(identifier)
+    )
+    if invalid_operation_ids:
+        raise NeuralGraphBridgeError(
+            f"operation identifiers are not valid MailCPU DAG node IDs: {invalid_operation_ids[:5]}"
+        )
+    for identifier, operation in operations.items():
+        if not isinstance(operation.get("operator"), str) or not operation["operator"]:
+            raise NeuralGraphBridgeError(f"operation {identifier!r} has no operator name")
+
     edges = graph.get("edges")
     if not isinstance(edges, list):
         raise NeuralGraphBridgeError("graph edges must be an array")
