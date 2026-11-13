@@ -290,7 +290,7 @@ def test_rejects_unpinned_revision_and_noncanonical_node_identifiers() -> None:
 
     graph = make_graph()
     graph["operations"][0]["id"] = "bad/id"
-    with pytest.raises(NeuralGraphBridgeError, match="MailCPU rejected"):
+    with pytest.raises(NeuralGraphBridgeError, match="valid MailCPU DAG node IDs"):
         compile_neural_graph_dag(graph)
 
 
