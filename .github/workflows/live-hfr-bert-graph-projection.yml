@@ -1,0 +1,92 @@
+name: Live HFR-002 BERT graph DAG projection
+
+on:
+  push:
+    paths:
+      - "mailcpu/neural_graph_bridge.py"
+      - "mailcpu/computation_dag.py"
+      - ".github/workflows/live-hfr-bert-graph-projection.yml"
+  pull_request:
+    paths:
+      - "mailcpu/neural_graph_bridge.py"
+      - "mailcpu/computation_dag.py"
+      - ".github/workflows/live-hfr-bert-graph-projection.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bert-projection:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out E-CPU
+        uses: actions/checkout@v4
+      - name: Check out pinned HFR-002 BERT compiler
+        uses: actions/checkout@v4
+        with:
+          repository: Kier73/In-Formation-Space
+          ref: a54a7cba4ef0cd637faa21bd622ff4a301fe37a2
+          path: hfr_source
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install MailCPU and graph schema dependency
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . jsonschema
+      - name: Regenerate pinned BERT graph from public config and headers only
+        working-directory: hfr_source
+        run: python -m experiments.external_neural_structure_reading.live_reference.run_bert_topology
+      - name: Project complete BERT graph into MailCPU DAG
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from mailcpu import compile_neural_graph_dag
+
+          graph = json.loads(
+              Path("hfr_source/experiments/external_neural_structure_reading/results/bert-typed-topology.json")
+              .read_text(encoding="utf-8")
+          )
+          projection = compile_neural_graph_dag(graph)
+          manifest = projection.manifest()
+          dag = projection.dag
+          assert manifest["source_repository"] == "google-bert/bert-base-uncased"
+          assert manifest["source_revision"] == "bcde001674fa61ee216714dd9cca5a5f9cfa4b12"
+          assert manifest["operation_node_count"] == 184
+          assert manifest["source_graph_edge_count"] == 455
+          assert manifest["tensor_binding_count"] == 207
+          assert manifest["graph_input_binding_count"] == 4
+          assert manifest["graph_output_binding_count"] == 2
+          assert len(dag.nodes) == 184
+          assert len(dag.nodes) <= dag.MAX_NODES
+          assert manifest["dependency_edge_count"] <= dag.MAX_EDGES
+          assert manifest["tensor_payload_bytes_included"] == 0
+          assert manifest["execution_performed"] is False
+          assert set(manifest["ready_frontier"]) == {
+              "embedding.word",
+              "embedding.position",
+              "embedding.token_type",
+              "attention.padding_mask",
+          }
+
+          recovered = type(dag).from_snapshot(projection.snapshot()["dag"])
+          assert recovered.digest == dag.digest
+          assert len(recovered.nodes) == 184
+          print(json.dumps({
+              "source_graph_digest": projection.graph_digest,
+              "dag_digest": dag.digest,
+              "operation_nodes": manifest["operation_node_count"],
+              "source_graph_edges": manifest["source_graph_edge_count"],
+              "dependencies": manifest["dependency_edge_count"],
+              "tensor_bindings": manifest["tensor_binding_count"],
+              "input_bindings": manifest["graph_input_binding_count"],
+              "output_bindings": manifest["graph_output_binding_count"],
+              "initial_ready_frontier": manifest["ready_frontier"],
+              "tensor_payload_bytes_included": manifest["tensor_payload_bytes_included"],
+              "execution_performed": manifest["execution_performed"],
+          }, sort_keys=True))
+          PY
