@@ -13,6 +13,8 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import subprocess
+import sys
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -129,6 +131,42 @@ class GroundPolicyModel:
         return cls(tuple(artifact["weights"]), artifact["bias"])
 
 
+def worker_predict(model: GroundPolicyModel, window: Sequence[int]) -> float:
+    """Run a digest-bound inference in a separate, unprivileged Python process.
+
+    E-CPU still makes all admissibility and navigation decisions in the
+    receiver process. The returned prediction has no authority.
+    """
+    request = {"kind": "mailcpu.use-system.predict.v1",
+               "model": model.snapshot(), "window": list(window)}
+    try:
+        process = subprocess.run(
+            (sys.executable, "-m", "examples.model_ground_worker"),
+            input=json.dumps(request, sort_keys=True, separators=(",", ":")),
+            capture_output=True, text=True, timeout=10, check=False, shell=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ValueError("model subprocess failed its runtime contract") from exc
+    if process.returncode != 0 or len(process.stdout) > 2048:
+        raise ValueError("model subprocess refused or exceeded response budget")
+    try:
+        response = json.loads(process.stdout)
+    except (ValueError, TypeError) as exc:
+        raise ValueError("model subprocess emitted invalid JSON") from exc
+    if not isinstance(response, dict) or set(response) != {
+        "kind", "request_digest", "model_digest", "probability"
+    }:
+        raise ValueError("model subprocess response schema mismatch")
+    if (response["kind"] != "mailcpu.use-system.prediction.v1"
+            or response["request_digest"] != _digest(request)
+            or response["model_digest"] != model.digest):
+        raise ValueError("model subprocess response identity mismatch")
+    probability = response["probability"]
+    if type(probability) not in (int, float) or not math.isfinite(probability) or not 0 <= probability <= 1:
+        raise ValueError("model subprocess probability is invalid")
+    return float(probability)
+
+
 def evidence_label(samples: Sequence[int], *, training_count: int = 24) -> bool:
     """Teacher label comes from E-CPU law recovery, never from model predictions."""
     if not 4 <= training_count < len(samples):
@@ -148,6 +186,7 @@ def operate_ground(
     context: Mapping[str, Any] | None = None,
     threshold: float = 0.5,
     force: bool = False,
+    model_worker: bool = False,
 ) -> dict[str, Any]:
     """Use model inference to request actual E-CPU Ground admission and navigation.
 
@@ -162,13 +201,15 @@ def operate_ground(
         raise ValueError("invalid observation split")
     if type(threshold) not in (int, float) or not 0 < threshold < 1:
         raise ValueError("invalid model threshold")
-    if type(force) is not bool:
-        raise ValueError("force must be boolean")
-    probability = model.predict(samples[:training_count])
+    if type(force) is not bool or type(model_worker) is not bool:
+        raise ValueError("force and model_worker must be boolean")
+    probability = (worker_predict(model, samples[:training_count]) if model_worker
+                   else model.predict(samples[:training_count]))
     result: dict[str, Any] = {
         "schema": EPISODE_SCHEMA,
         "stream_id": stream_id,
         "model_digest": model.digest,
+        "model_runtime": "isolated-subprocess" if model_worker else "in-process",
         "observation_digest": _digest(list(samples)),
         "training_count": training_count,
         "requested_coordinate": coordinate,
@@ -244,7 +285,7 @@ def run_demo() -> dict[str, Any]:
     episodes = [
         operate_ground(restored, registry, "affine-evaluation",
                        sample_stream("affine", 201), coordinate=coordinate,
-                       context=context, force=True),
+                       context=context, force=True, model_worker=True),
         operate_ground(restored, registry, "nonlinear-evaluation",
                        sample_stream("nonlinear", 207), coordinate=coordinate,
                        context=context, force=True),
@@ -266,7 +307,7 @@ def run_demo() -> dict[str, Any]:
             stream = sample_stream(kind, seed)
             executed = operate_ground(
                 restored, registry, f"eval-{kind}-{seed}", stream,
-                coordinate=coordinate, context=context,
+                coordinate=coordinate, context=context, model_worker=True,
             )
             evaluation.append({
                 "kind": kind,
