@@ -34,8 +34,11 @@ A Ground describes a symbolic state-space, and partial evidence may leave severa
 
 The dedicated SAB-008 CI checks Python 3.11 and 3.13: semantic identity across realizers, large-coordinate logarithmic port trace, fresh-interpreter behavioral qualification, refusal on malformed frames, incorrect modulus, Boolean integers, altered Ground/request/evidence, duplicate results without independent realizations, expired permissions, bad TLS server SAN, and revoked caller authority. On full E-CPU, the mTLS integration runs without skip and demands Hypervisor-authorized computation. Earlier SAB-005, SAB-004 and SAB-003 tests run as separate regressions.
 
-**Local sandbox:** 14 tests passed, 3 native-TLS cases skipped because the full E-CPU runtime was unavailable. Independent native CI is a separate unverified gate.
+**Local sandbox:** 16 tests passed, 3 native-TLS cases skipped because the full E-CPU runtime was unavailable. Independent native CI is a separate unverified gate.
 
 ## Next gate
 
 Replace simulated ports with measured physical primitives; embed the new contract in E-CPU's native Computational Fabric forwarding and quorum lineage; test two real hosts with independently powered resources, and promote only verified observations and locally admitted transformations. This work is in active development.
+## Open realizer vocabulary
+
+The semantic contract deliberately **does not enumerate valid substrate types**. A GroundRealizer exposes a method identity, an operational locus and a typed observe operation. Local policy may permit any bounded method name, including one not anticipated by this prototype. An unknown label alone produces no computation: only a locally bound realizer capable of satisfying the Ground may operate. The generic realize_under_contract entrypoint checks policy before invoking a realizer and independently revalidates the receipt afterward. Port, interpreter and federated implementations are examples, never the complete set of possible native hosts.
