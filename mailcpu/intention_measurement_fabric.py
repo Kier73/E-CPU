@@ -339,3 +339,50 @@ class MeasurementPeerClient:
             if now - last_tick >= 0.03:
                 if self.outbound.tick():
                     raise SufficiencyRefused("measurement request retries exhausted")
+                last_tick = now
+            time.sleep(0.002)
+        raise SufficiencyRefused("authenticated measurement timed out")
+
+    def resolve(self, model: FiniteGround, public_value: Any,
+                offers: Sequence[MeasurementCapability], authority_digest: str,
+                plan: Mapping[str, Any], contracts: Mapping[str, ObserverContract],
+                subject: RepresentationRef, scheduler: SchedulerReading,
+                challenge_digest: str) -> tuple[dict[str, Any], dict[str, ObserverReceipt]]:
+        """Accept only TLS-observed receipts, then invoke the native IOS-002 resolver.
+
+        The trusted receipt admission callback is generated here from *this*
+        mTLS session. Neither request contents nor a remote advertisement can
+        supply it. The result is not a portable signature or a durable grant.
+        """
+        requests = issue_measurement_requests(
+            model, public_value, offers, authority_digest, plan,
+            contracts, subject, scheduler, challenge_digest,
+        )
+        receipts: dict[str, ObserverReceipt] = {}
+        admitted: dict[str, str] = {}
+        for request in requests:
+            receipt = self._exchange(request)
+            contract = contracts[request["feature_id"]]
+            if (not verify_observer_receipt(contract, receipt)
+                    or receipt.operation_id != request["feature_id"]
+                    or receipt.input_digest != request["request_digest"]
+                    or receipt.time_frame is None
+                    or receipt.time_frame.scheduler != scheduler):
+                raise SufficiencyRefused("authenticated receipt is not bound to requested observer context")
+            receipts[request["feature_id"]] = receipt
+            admitted[request["request_digest"]] = receipt.digest
+
+        def receiver_admits(request: Mapping[str, Any], contract: ObserverContract,
+                            evidence: ObserverReceipt) -> bool:
+            return (admitted.get(request["request_digest"]) == evidence.digest
+                    and evidence.contract_digest == contract.digest)
+
+        result = resolve_observer_receipts(
+            model, public_value, offers, authority_digest, plan, contracts,
+            subject, scheduler, challenge_digest, receipts,
+            receiver_verify=receiver_admits if requests else None,
+        )
+        return result, receipts
+
+    def close(self) -> None:
+        self.transport.close()
