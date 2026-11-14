@@ -273,3 +273,69 @@ class MeasurementPeerServer:
         now = time.monotonic()
         if now - self._last_tick >= 0.03:
             self.outbound.tick()
+            self._last_tick = now
+
+    def close(self) -> None:
+        self.transport.close()
+
+
+class MeasurementPeerClient:
+    """Resolve exactly the selected observations over one authenticated peer stream."""
+
+    def __init__(self, transport: SocketTransport, local_peer_id: str,
+                 provider_peer_id: str, expected_provider_dns: str,
+                 timeout: float = 3.0, policy: ReliabilityPolicy | None = None) -> None:
+        _bound_transport(transport, local_peer_id, provider_peer_id, expected_provider_dns)
+        if type(timeout) not in (int, float) or not 0 < timeout <= 30:
+            raise SufficiencyRefused("measurement timeout must be finite and positive")
+        self.transport = transport
+        self.peer_id = local_peer_id
+        self.provider_id = provider_peer_id
+        self.timeout = float(timeout)
+        self.outbound = ReliableChannel(transport, local_peer_id, provider_peer_id,
+                                        REQUEST_CHANNEL, policy)
+        self.inbound = ReliableChannel(transport, local_peer_id, local_peer_id,
+                                       RESPONSE_CHANNEL, policy, peer=provider_peer_id)
+
+    @classmethod
+    def connect_mutual_tls(cls, endpoint_host: str, port: int,
+                           tls_context: ssl.SSLContext, local_peer_id: str,
+                           provider_peer_id: str, expected_provider_dns: str,
+                           **kwargs: Any) -> "MeasurementPeerClient":
+        """Connect after certificate-chain verification and exact server DNS SAN match."""
+        transport = connect_mutual_tls(
+            endpoint_host, port, local_peer_id, provider_peer_id, tls_context,
+            server_hostname=expected_provider_dns,
+        )
+        try:
+            return cls(transport, local_peer_id, provider_peer_id,
+                       expected_provider_dns, **kwargs)
+        except BaseException:
+            transport.close()
+            raise
+
+    def _exchange(self, request: Mapping[str, Any]) -> ObserverReceipt:
+        """Exchange one digest-correlated native receipt over peer-authenticated channels."""
+        self.outbound.process_ack()
+        self.outbound.send({"kind": REQUEST_KIND, "request": dict(request)})
+        deadline = time.monotonic() + self.timeout
+        last_tick = time.monotonic()
+        while time.monotonic() < deadline:
+            self.outbound.process_ack()
+            reply = self.inbound.receive()
+            if reply is not None:
+                _, result = reply
+                if type(result) is not dict or result.get("provider_peer") != self.provider_id or \
+                        result.get("request_digest") != request["request_digest"]:
+                    raise SufficiencyRefused("authenticated reply is not correlated to this request")
+                if result.get("kind") == ERROR_KIND:
+                    raise SufficiencyRefused("measurement host refused: " + str(result.get("reason", "")))
+                if set(result) != {"kind", "provider_peer", "feature_id", "request_digest", "receipt"} \
+                        or result["kind"] != RESPONSE_KIND or result["feature_id"] != request["feature_id"]:
+                    raise SufficiencyRefused("unexpected authenticated measurement reply")
+                receipt = ObserverReceipt.from_dict(result["receipt"])
+                return receipt
+            now = time.monotonic()
+            if now - last_tick >= 0.03:
+                if self.outbound.tick():
+                    raise SufficiencyRefused("measurement request retries exhausted")
