@@ -239,3 +239,49 @@ def test_native_mutual_tls_reliable_measurement_resolves_without_hidden_state(tm
     reads = []
     report, receipts = _run_live(tmp_path, tls_pair, read_counter=reads)
     assert len(reads) == 1
+    assert report["measurement_receipts"][0]["observer_receipt_digest"] == receipts["parity"].digest
+
+
+def test_reconnect_same_challenge_recovers_same_receipt_without_new_measurement(tmp_path, tls_pair):
+    reads = []
+    first, first_receipts = _run_live(tmp_path, tls_pair, read_counter=reads)
+    second, second_receipts = _run_live(tmp_path, tls_pair, read_counter=reads)
+    assert len(reads) == 1
+    assert first_receipts["parity"].digest == second_receipts["parity"].digest
+    assert first == second
+
+
+def test_receiver_rejects_wrong_authenticated_peer_dns_before_read(tmp_path, tls_pair):
+    server_context, client_context = tls_pair
+    listener = SocketTransport.listen("127.0.0.1", 0)
+    listener.settimeout(4)
+    errors = []
+
+    def server():
+        with_ledger = MeasurementReceiptLedger(tmp_path / "wrong-peer.sqlite")
+        try:
+            MeasurementPeerServer.accept_mutual_tls(
+                listener, server_context, "provider-b", "receiver-a",
+                "wrong-client.fabric.test", _installed(), with_ledger,
+            )
+        except Exception as exc:
+            errors.append(exc)
+        finally:
+            with_ledger.close()
+
+    thread = threading.Thread(target=server, daemon=True)
+    thread.start()
+    client = None
+    try:
+        client = MeasurementPeerClient.connect_mutual_tls(
+            "127.0.0.1", listener.getsockname()[1], client_context,
+            "receiver-a", "provider-b", "provider-b.fabric.test", timeout=1.0,
+        )
+    except Exception:
+        pass
+    finally:
+        if client:
+            client.close()
+        thread.join(timeout=5)
+        listener.close()
+    assert errors and not thread.is_alive()
