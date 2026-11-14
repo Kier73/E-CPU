@@ -137,6 +137,25 @@ def test_host_refuses_output_outside_feature_domain_before_commit(tmp_path):
     host.ledger.close()
 
 
+def test_recovered_measurement_refuses_a_new_installed_projection_domain(tmp_path):
+    """A matching durable challenge never overrides newly restricted local values."""
+    model, public, offers, plan, contracts, subject = _setup(state=3)
+    request = _requests()[0]
+    reads = []
+    host = object.__new__(MeasurementPeerServer)
+    host.installed = _installed(state=3, reads=reads)
+    host.peer_id = "provider-b"
+    host.client_id = "receiver-a"
+    host.ledger = MeasurementReceiptLedger(tmp_path / "value-revocation.sqlite")
+    response = host._respond({"kind": "mailcpu.intention.measurement.request.v1", "request": request})
+    assert len(reads) == 1 and response["feature_id"] == "parity"
+    host.installed = {"parity": replace(host.installed["parity"], allowed_values=(0,))}
+    with pytest.raises(SufficiencyRefused, match="no longer satisfies current observer admission"):
+        host._respond({"kind": "mailcpu.intention.measurement.request.v1", "request": request})
+    assert len(reads) == 1  # neither reread nor disclose stale result
+    host.ledger.close()
+
+
 @pytest.fixture
 def tls_pair(tmp_path):
     """Real CA-verified client and server certificates with pinned peer SANs."""
