@@ -15,7 +15,7 @@ The actual system call path is:
 ```text
 observed integer stream
   -> E-CPU neural-lifter features
-  -> trained logistic policy (advisory, portable checkpoint)
+  -> trained logistic policy in a separate process (advisory, portable checkpoint)
   -> request / defer Ground construction
   -> StructuralMemoryRegistry.propose_trace
   -> E-CPU recover_law and withheld witness verification
@@ -36,6 +36,7 @@ From repository root, on Python 3.11 or later:
 ```bash
 python -m examples.model_ground_os
 python -m pytest -q tests/test_model_ground_os.py
+# Isolated worker is normally invoked by the parent service, not directly.
 ```
 
 The runner trains an eight-input logistic policy from 24 streams (12 finite
@@ -70,8 +71,11 @@ checkpoints are independently revalidated before inference.
   policy agent, or trainable neural interpreter. No accelerator is required.
 - The training labels are defined by *finite* witness agreement. A successful
   Ground is not a theorem about an infinite unseen sequence.
-- The E-CPU memory service and the model currently share one process; this is
-  an actual service integration, **not** a multi-host deployment test.
+- The E-CPU memory service and the model now execute in **separate local
+  Python processes** with a bounded JSON request/response and digest
+  correlation. This is an actual process boundary, **not** an authenticated
+  network deployment or secure sandbox. The service retains admission rights;
+  the model worker has none.
 - The 8 input features were originally introduced for law-family prediction.
   This experiment tests their usefulness for ground-admission workload
   selection; it does not pre-assume useful hold-out accuracy.
