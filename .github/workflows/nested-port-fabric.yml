@@ -1,0 +1,82 @@
+name: SHN-002 nested virtual port contention
+
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/nested_port_fabric.py'
+      - 'tests/test_nested_port_fabric.py'
+      - 'docs/NESTED_PORT_FABRIC_SHN002.md'
+      - '.github/workflows/nested-port-fabric.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'mailcpu/nested_port_fabric.py'
+      - 'tests/test_nested_port_fabric.py'
+      - 'docs/NESTED_PORT_FABRIC_SHN002.md'
+      - '.github/workflows/nested-port-fabric.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  nested-port-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '${{ matrix.python }}'
+      - name: Install package and test tooling
+        run: python -m pip install -e '.[dev]'
+      - name: Run new nested-host contracts and SHN-001 / owned-network regressions
+        run: |
+          python -m pytest -q \
+            tests/test_nested_port_fabric.py \
+            tests/test_self_hosted_port_network.py \
+            tests/test_owned_network.py
+      - name: Retain one-vs-two-port performance and conservative negative control
+        run: |
+          python - <<'PY'
+          from mailcpu.nested_port_fabric import NestedPortFabric
+          from pathlib import Path
+          import json
+          cases=[]
+          for active in (True, False):
+              for lanes in (1, 2):
+                  node=NestedPortFabric(lanes, virtual_hosts=8,
+                                        active_port_observer=active)
+                  for i in range(32):
+                      node.submit(f'job{i}', 10**15+i, worker=i%8)
+                  result=node.run(512)
+                  assert result['fabric_journal_verified']
+                  assert result['external_payload_bytes']==0
+                  assert not result['parallel_cpu_execution_claimed']
+                  assert sum(result['port_grants'])==64
+                  cases.append(result)
+          assert cases[0]['outputs']==cases[1]['outputs']==cases[2]['outputs']==cases[3]['outputs']
+          assert cases[0]['simulation_ticks'] >= 64
+          assert cases[1]['simulation_ticks'] >= 32
+          assert cases[2]['interpreter_steps']==cases[3]['interpreter_steps']==64
+          Path('shn002-evidence.json').write_text(json.dumps({
+              'schema':'mailcpu.shn002-bounded-evidence.v1',
+              'cases':cases,
+              'hardware_measurement':False,
+              'test_question':'Does a second port help when output observation is offloaded vs interpreter-bound?'
+          },sort_keys=True,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps([{'lanes':r['physical_port_lanes'],
+                            'active_port_observer':r['active_port_observer'],
+                            'quanta':r['simulation_ticks'],
+                            'interpreter_steps':r['interpreter_steps']}
+                            for r in cases],sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shn002-${{ matrix.python }}-evidence
+          path: shn002-evidence.json
+          if-no-files-found: error
