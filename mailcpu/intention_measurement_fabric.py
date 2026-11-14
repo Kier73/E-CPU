@@ -126,6 +126,7 @@ class MeasurementReceiptLedger:
 
     def __init__(self, filename: str | Path) -> None:
         self._db = sqlite3.connect(str(filename), timeout=5, isolation_level=None)
+        self._db.execute("PRAGMA journal_mode=WAL")
         self._db.execute("PRAGMA synchronous=FULL")
         self._db.execute("CREATE TABLE IF NOT EXISTS measurement_completion ("
                          "challenge TEXT NOT NULL, feature TEXT NOT NULL, request TEXT NOT NULL, "
