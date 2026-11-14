@@ -178,7 +178,7 @@ class SelfOrganizingFabric:
                 if not isinstance(endpoint, MutualTLSQualificationEndpoint):
                     raise ReconciliationRefused("remote host requires the SAB-005 mutual-TLS adapter")
                 if (endpoint.server_dns != snap.endpoint.tls_server_name or
-                        endpoint.address[0] != snap.endpoint.endpoint_host):
+                        endpoint.address != (snap.endpoint.endpoint_host, snap.endpoint.port)):
                     raise ReconciliationRefused("runtime TLS identity/address differs from native directory")
             policy = self.policy_for(peer_id)
             if (not isinstance(policy, QualificationPolicy) or
