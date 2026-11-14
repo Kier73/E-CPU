@@ -52,9 +52,11 @@ jobs:
             sort_keys=True, separators=(",", ":"), allow_nan=False
           ).encode()).hexdigest()
           assert digest == doc["report_digest"]
-          assert [x["receiver"]["status"] for x in doc["cases"]] == [
-              "complete", "refused", "deferred"
-          ]
+          statuses = [x["receiver"]["status"] for x in doc["cases"]]
+          assert statuses[:3] == ["complete", "refused", "deferred"]
+          assert len(statuses) == 5
+          assert doc["trained_model_unforced"] is True
+          assert all(status in {"complete", "refused", "deferred"} for status in statuses[3:])
           assert doc["physical_independence_attested"] is False
           print("USM-004 session outcomes and report content digest verified")
           PY
