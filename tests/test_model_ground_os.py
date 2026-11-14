@@ -8,7 +8,7 @@ import pytest
 
 from examples.model_ground_os import (
     GroundPolicyModel, evidence_label, operate_ground, run_demo, sample_stream,
-    train_example_model,
+    train_example_model, worker_predict,
 )
 from mailcpu.structural_memory import StructuralMemoryRegistry
 
@@ -46,6 +46,12 @@ def test_altered_model_artifact_is_not_a_checkpoint():
         GroundPolicyModel.from_snapshot(corrupted)
     with pytest.raises(ValueError):
         GroundPolicyModel((float("nan"),) * 8)
+
+
+def test_subprocess_hosted_model_matches_reconstructed_checkpoint():
+    model = GroundPolicyModel(bias=0.7)
+    window = sample_stream("affine", 205)[:24]
+    assert worker_predict(model, window) == model.predict(window)
 
 
 def test_model_opens_real_ground_and_reads_trillion_coordinate():
@@ -102,6 +108,9 @@ def test_demo_runs_training_then_uses_host_service():
     first, second = report["episodes"]
     assert report["model"]["digest"] == report["training"]["model_digest"]
     assert first["status"] == "ground_read"
+    assert first["model_runtime"] == "isolated-subprocess"
+    assert all(item["status"] in {"ground_read", "refused_by_ecpu", "deferred_by_model"}
+               for item in report["unforced_evaluation"])
     assert report["external_comparison"]["affine_source_oracle_match"]
     assert not report["external_comparison"]["nonlinear_admitted"]
     assert second["status"] == "refused_by_ecpu"
