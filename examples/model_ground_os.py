@@ -257,9 +257,43 @@ def run_demo() -> dict[str, Any]:
         ),
         "nonlinear_admitted": episodes[1]["status"] == "ground_read",
     }
+    # Independent evaluation: these requests are NOT forced. The trained
+    # model actually decides which E-CPU Ground requests are performed.
+    # Reference labels are evaluated afterward and never fed to the controller.
+    evaluation = []
+    for seed in range(301, 305):
+        for kind in ("affine", "nonlinear"):
+            stream = sample_stream(kind, seed)
+            executed = operate_ground(
+                restored, registry, f"eval-{kind}-{seed}", stream,
+                coordinate=coordinate, context=context,
+            )
+            evaluation.append({
+                "kind": kind,
+                "stream_id": executed["stream_id"],
+                "evidence_eligible": evidence_label(stream),
+                "model_recommended": executed["model_recommended"],
+                "ground_probability": executed["ground_probability"],
+                "status": executed["status"],
+                "episode_digest": executed["episode_digest"],
+            })
+    correct = sum(item["evidence_eligible"] == item["model_recommended"]
+                  for item in evaluation)
+    evaluation_summary = {
+        "cases": len(evaluation),
+        "selection_accuracy": correct / len(evaluation),
+        "ground_reads": sum(x["status"] == "ground_read" for x in evaluation),
+        "deferrals": sum(x["status"] == "deferred_by_model" for x in evaluation),
+        "ecpu_refusals": sum(x["status"] == "refused_by_ecpu" for x in evaluation),
+        "model_false_negatives": sum(
+            x["evidence_eligible"] and not x["model_recommended"] for x in evaluation
+        ),
+    }
     report = {"schema": "mailcpu.use-system.demo.v1", "training": training,
               "model": restored.snapshot(), "episodes": episodes,
-              "external_comparison": comparison}
+              "external_comparison": comparison,
+              "unforced_evaluation": evaluation,
+              "evaluation_summary": evaluation_summary}
     return {**report, "report_digest": _digest(report)}
 
 
