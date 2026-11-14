@@ -1,0 +1,43 @@
+name: SAB-002 active Ground discovery
+
+on:
+  push:
+    paths:
+      - 'mailcpu/active_ground_discovery.py'
+      - 'mailcpu/probe_worker.py'
+      - 'tests/test_active_ground_discovery.py'
+      - 'docs/ACTIVE_GROUND_DISCOVERY_SAB002.md'
+      - '.github/workflows/active-ground-discovery.yml'
+      - 'mailcpu/substrate_bootstrap.py'
+  pull_request:
+    paths:
+      - 'mailcpu/active_ground_discovery.py'
+      - 'mailcpu/probe_worker.py'
+      - 'tests/test_active_ground_discovery.py'
+      - 'docs/ACTIVE_GROUND_DISCOVERY_SAB002.md'
+      - '.github/workflows/active-ground-discovery.yml'
+      - 'mailcpu/substrate_bootstrap.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  empirical-ground-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Verify source can import under standard library
+        run: python -m compileall -q mailcpu
+      - name: Test active probe and independently launched data/code host
+        run: python -m unittest discover -s tests -p 'test_active_ground_discovery.py' -v
+      - name: Verify SAB-001 bootstrap regressions
+        run: python -m unittest discover -s tests -p 'test_substrate_bootstrap.py' -v
