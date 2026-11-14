@@ -255,7 +255,9 @@ class NestedPortFabric:
                 job["response_frame"] = frame_id
                 if self.active_port_observer:
                     # Conditional architecture hypothesis: the active port can
-                    # observe/validate a result without interpreter dispatch.
+                    # recompute the algebraic result without interpreter dispatch.
+                    # This requires nontrivial local port computation, not
+                    # merely a passive data wire or free hash comparison.
                     self._inspect(job, "answer")
                     _require((job["value"], job["receipt"]) == _observed(job),
                              "active port refused altered result")
