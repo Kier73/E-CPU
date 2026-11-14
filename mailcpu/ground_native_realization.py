@@ -244,3 +244,77 @@ def equivalent_observations(receipts: tuple[RealizationReceipt, ...],
         raise RealizationRefused("observations are not independently realized and equivalent")
     return True
 
+
+class TwoPortArithmeticGate:
+    """A software model of an active two-port gate with only compose/apply.
+
+    A bounded logical port is not a measured chip or independent failure domain.
+    """
+    def __init__(self, port_id: str, modulus: int, *, max_frame: int = 512) -> None:
+        """Bind a fixed modulus and a bounded framed interface."""
+        self.port_id = _name(port_id, "port identity")
+        self.modulus = _integer(modulus, "gate modulus", 2, 2**31 - 1)
+        self.max_frame = _integer(max_frame, "frame size", 128, 8192)
+        self.sequence = 0
+        self.frames: list[dict[str, Any]] = []
+
+    def invoke(self, opcode: str, frame: Mapping[str, Any]) -> tuple[int, int] | int:
+        """Perform only an explicitly supported bounded arithmetic transition."""
+        data = dict(frame)
+        if len(canonical({"opcode": opcode, "payload": data})) > self.max_frame:
+            raise RealizationRefused("port frame exceeds bound")
+        m = self.modulus
+        if opcode == "compose" and set(data) == {"first", "second"}:
+            first, second = data["first"], data["second"]
+            if (not isinstance(first, list) or not isinstance(second, list)
+                    or len(first) != 2 or len(second) != 2
+                    or any(type(x) is not int or not 0 <= x < m for x in first + second)):
+                raise RealizationRefused("port composition frame malformed")
+            # Compose second AFTER first: second(first(x)).
+            output: tuple[int, int] | int = ((second[0] * first[0]) % m,
+                                              (second[0] * first[1] + second[1]) % m)
+        elif opcode == "apply" and set(data) == {"map", "input"}:
+            affine, value = data["map"], data["input"]
+            if (not isinstance(affine, list) or len(affine) != 2
+                    or any(type(x) is not int or not 0 <= x < m for x in affine)
+                    or type(value) is not int or not 0 <= value < m):
+                raise RealizationRefused("port application frame malformed")
+            output = (affine[0] * value + affine[1]) % m
+        else:
+            raise RealizationRefused("unsupported port transition")
+        self.sequence += 1
+        self.frames.append({"sequence": self.sequence, "opcode": opcode,
+                            "input_digest": digest(data), "output_digest": digest(output)})
+        return output
+
+
+class PortGroundRealizer:
+    """Navigate a mathematical orbit using only bounded gate frames and powers."""
+    method = "port"
+
+    def __init__(self, locus: str, port: TwoPortArithmeticGate) -> None:
+        """Bind a locally controlled active port model."""
+        self.locus = _name(locus, "port locus")
+        self.port = port
+
+    def observe(self, intention: GroundIntention, policy: RealizationPolicy) -> RealizationReceipt:
+        """Use O(log coordinate) compose frames rather than iterating states."""
+        policy.permits(self.locus, self.method, intention.coordinate)
+        if self.port.modulus != intention.ground.modulus:
+            raise RealizationRefused("port representation is incompatible with Ground")
+        before = len(self.port.frames)
+        n = intention.coordinate
+        product = (1, 0)
+        base = (intention.ground.a, intention.ground.c)
+        while n:
+            if n & 1:
+                product = self.port.invoke("compose", {"first": list(product), "second": list(base)})
+            base = self.port.invoke("compose", {"first": list(base), "second": list(base)})
+            n >>= 1
+        value = self.port.invoke("apply", {"map": list(product), "input": intention.ground.seed})
+        events = self.port.frames[before:]
+        return _receipt(intention, policy, locus=self.locus, method=self.method,
+                        value=value, events=events, evidence={"gate": self.port.port_id,
+                        "modulus": self.port.modulus, "first": before + 1,
+                        "last": self.port.sequence, "physical": "simulated_two_port_gate"})
+
