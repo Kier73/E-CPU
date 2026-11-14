@@ -342,6 +342,8 @@ def receiver(root: Path, *, restore: bool) -> int:
             "read_receipt_id": replayed[0]["read_receipt_id"],
             "value": replayed[0]["value"],
             "trace_digest": session.trace()["trace_digest"],
+            "session_trace": session.trace(),
+            "model_digest": state["model"]["digest"],
             "first_quorum_generation": before.generation,
             "latest_quorum_generation": after.generation,
             "receiver_process": os.getpid(),
@@ -411,11 +413,17 @@ def run_demo(root: Path) -> dict[str, Any]:
         )
         outbound, inbound = _channels(first_transport, model_side=True)
         seen = []
+        decisions = []
         for index in range(3):
             _seq, request = _receive(inbound, outbound)
             reply = decide(request)
             outbound.send(reply)
             seen.append(reply["call"]["op"])
+            decisions.append({
+                "call": reply["call"]["op"],
+                "probability": reply["probability"],
+                "request_digest": reply["request_digest"],
+            })
             if index < 2:
                 _ack(outbound)
         if seen != ["observe", "propose", "read"]:
@@ -457,8 +465,23 @@ def run_demo(root: Path) -> dict[str, Any]:
         expected = (7 + 201 + 5 * COORDINATE) % 97
         if report["value"] != expected or report["semantic_reentries"] != 0:
             raise ModelRecoveryRefused("recovered Ground diverged or replayed semantic effect")
+        independent_case = {
+            "case": {
+                "stream_id": STREAM_ID, "session_id": SESSION_ID,
+                "kind": "affine", "seed": 201,
+                "coordinate": COORDINATE, "policy": MODEL_ARTIFACT,
+            },
+            "episode": {
+                "schema": "mailcpu.model-operating-session.v1",
+                "model_digest": report["model_digest"],
+                "session": report["session_trace"],
+                "decisions": decisions,
+                "status": report["status"],
+            },
+        }
         core = {
             "schema": "mailcpu.usm005.operational-report.v1",
+            "independent_case": independent_case,
             "model_process": os.getpid(),
             "first_receiver_process": first_pid,
             "replacement_receiver_process": report["receiver_process"],
