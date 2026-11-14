@@ -18,7 +18,7 @@ from typing import Any
 
 KIND = "mailcpu.sab003.request.v1"
 REPLY = "mailcpu.sab003.reply.v1"
-KEY = re.compile(r"[a-f0-9]{32}\\Z")
+KEY = re.compile(r"[a-f0-9]{32}\Z")
 
 
 def _canonical(value: Any) -> bytes:
