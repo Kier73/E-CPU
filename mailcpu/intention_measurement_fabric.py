@@ -239,7 +239,30 @@ class MeasurementPeerServer:
                     "feature_id": feature, "request_digest": raw["request_digest"],
                     "receipt": receipt.to_dict()}
 
-        return self.ledger.complete(raw, make_response)
+        response = self.ledger.complete(raw, make_response)
+        # A durable completion is not an irrevocable capability. Recheck the
+        # recovered native receipt against today's installed observer contract
+        # and domain, even when the old request/challenge is byte-identical.
+        if (type(response) is not dict
+                or set(response) != {"kind", "provider_peer", "feature_id", "request_digest", "receipt"}
+                or response["kind"] != RESPONSE_KIND
+                or response["provider_peer"] != self.peer_id
+                or response["feature_id"] != feature
+                or response["request_digest"] != raw["request_digest"]):
+            raise SufficiencyRefused("durable measurement response identity changed")
+        try:
+            receipt = ObserverReceipt.from_dict(response["receipt"])
+        except (ValueError, TypeError, KeyError) as exc:
+            raise SufficiencyRefused("durable native observer receipt is invalid") from exc
+        scheduler = SchedulerReading(raw["scheduler"]["scheduler_id"], raw["scheduler"]["tick"])
+        if (not verify_observer_receipt(contract, receipt)
+                or receipt.operation_id != feature
+                or receipt.input_digest != raw["request_digest"]
+                or receipt.time_frame is None
+                or receipt.time_frame.scheduler != scheduler
+                or _bytes(receipt.projection) not in tuple(_bytes(item) for item in installed.allowed_values)):
+            raise SufficiencyRefused("durable measurement no longer satisfies current observer admission")
+        return response
 
     def service_once(self) -> bool:
         """Commit response to durable ledger before acknowledgement of request."""
