@@ -1,0 +1,47 @@
+name: SAB-004 qualified multi-host adaptive placement
+
+on:
+  push:
+    paths:
+      - 'mailcpu/adaptive_placement.py'
+      - 'tests/test_adaptive_placement.py'
+      - 'docs/ADAPTIVE_PLACEMENT_SAB004.md'
+      - '.github/workflows/adaptive-placement-sab004.yml'
+      - 'mailcpu/runtime_qualification.py'
+      - 'mailcpu/runtime_qualification_worker.py'
+      - 'mailcpu/substrate_bootstrap.py'
+      - 'mailcpu/law_certifier.py'
+  pull_request:
+    paths:
+      - 'mailcpu/adaptive_placement.py'
+      - 'tests/test_adaptive_placement.py'
+      - 'docs/ADAPTIVE_PLACEMENT_SAB004.md'
+      - '.github/workflows/adaptive-placement-sab004.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  composed-runtime-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Compile native E-CPU modules
+        run: python -m compileall -q mailcpu
+      - name: Test SAB-004 composition and recovery across fresh subprocesses
+        run: python -m unittest discover -s tests -p 'test_adaptive_placement.py' -v
+      - name: Test SAB-003 runtime qualification
+        run: python -m unittest discover -s tests -p 'test_runtime_qualification.py' -v
+      - name: Test SAB-002 finite-witness Ground discovery
+        run: python -m unittest discover -s tests -p 'test_active_ground_discovery.py' -v
+      - name: Test SAB-001 substrate bootstrap
+        run: python -m unittest discover -s tests -p 'test_substrate_bootstrap.py' -v
