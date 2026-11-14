@@ -33,6 +33,7 @@ from mailcpu.seed_commit_quorum import SeedCommitMembership
 from mailcpu.socket_transport import SocketTransport
 
 CONFIG_SCHEMA = "mailcpu.usm006.remote-authorities.v1"
+MODE_SCHEMA = "mailcpu.usm006.authority-mode.v1"
 OWNER_DNS = "owner-model.local"
 AUTHORITY_NAMES = {"B": "member-b.model.local", "C": "member-c.model.local"}
 
@@ -175,6 +176,7 @@ def prepare_distributed_authorities(root: Path, _model_keys: Mapping[str, Path])
     workers: dict[str, subprocess.Popen[str]] = {}
     status: dict[str, Any] = {"alive_through_receiver_replacement": False}
     config_path = checkpoint / "remote-authorities.json"
+    mode_path = checkpoint / "authority-mode.json"
 
     def stop() -> None:
         status["alive_through_receiver_replacement"] = (
@@ -208,6 +210,11 @@ def prepare_distributed_authorities(root: Path, _model_keys: Mapping[str, Path])
         membership = SeedCommitMembership(MACHINE, 1, ("A", "B", "C"), "A", 1, GENESIS)
         config = {"schema": CONFIG_SCHEMA, "membership_digest": membership.digest,
                   "owner_dns": OWNER_DNS, "members": members}
+        from examples.model_receiver_recovery import _persist
+        _persist(mode_path, json.dumps({
+            "schema": MODE_SCHEMA, "mode": "remote-mutual-tls",
+            "membership_digest": membership.digest,
+        }, sort_keys=True, separators=(",", ":")).encode("utf-8"))
         config_path.write_text(
             json.dumps(config, sort_keys=True, separators=(",", ":")) + "\n",
             encoding="utf-8",
@@ -246,7 +253,7 @@ def run_distributed_demo(root: Path) -> dict[str, Any]:
     # After authenticated workers exit, re-open the same *durable* journal
     # files offline to check they really sealed the receiver's state.
     from examples.model_receiver_recovery import ModelRecoveryStore
-    reconstructed = ModelRecoveryStore(root / "checkpoint")
+    reconstructed = ModelRecoveryStore(root / "checkpoint", offline_audit=True)
     artifact, manifest = reconstructed.load()
     if manifest.generation != 2 or artifact["phase"] != "complete":
         raise RuntimeError("offline post-service durable quorum disagrees with recovery")
