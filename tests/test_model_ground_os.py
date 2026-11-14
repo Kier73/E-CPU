@@ -57,7 +57,7 @@ def test_model_opens_real_ground_and_reads_trillion_coordinate():
                             sample, coordinate=coordinate, context=CONTEXT)
     assert result["status"] == "ground_read"
     assert result["value"] == (7 + 201 + 5 * coordinate) % 97
-    assert result["verification_class"] == "witness-grounded"
+    assert result["verification_class"] == "witness_grounded"
     assert len(result["read_receipt_id"]) == 64
     assert registry.active_version("model-controller-affine") is not None
 
