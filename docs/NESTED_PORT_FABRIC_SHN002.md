@@ -48,7 +48,7 @@ A virtual guest does not run an OS or Python worker independently. `guestK` is a
 
 ### Two distinct physical hypotheses
 
-**`active_port_observer=True`:** The port's terminal acceptance/compare is credited to an **active-port operation**; a result does not consume a second interpreter slot. This demands real port-side state/control logic in hardware. The simulator still executes that code on its own Python CPU, so this is an *accounting hypothesis*, not independent physical processing.
+**`active_port_observer=True`:** The port's terminal acceptance is credited to an **active-port operation**; a result does not consume a second interpreter slot. **The current reference check actually re-evaluates the LCG navigation and projection at the port observer** in order to reject even rehashed numeric substitution. Therefore the model assumes the physical port (or a paired local accelerator) can perform that nontrivial arithmetic, not merely transmit a signal or compare a cheap checksum. Its exact operation count and energy are **not** accounted as physical cycles. The simulator still executes that code on its own Python CPU, so this is an *accounting hypothesis*, not independent physical processing.
 
 **`active_port_observer=False`:** The sole interpreter must collect each answer as an additional operation. No port logic is assumed able to finish it. Extra message lanes may have no effect once the interpreter is saturated.
 
@@ -63,7 +63,7 @@ For a fixed workload of **32 requests over eight guests**, the deterministic loc
 | Interpreter finalizes | 1 | 64 | 0 | 64 | 65 |
 | Interpreter finalizes | 2 | 64 | 0 | 64 | 65 |
 
-These are results of the local **test harness's logical semantics** and need confirmation against the exact committed E-CPU code in GitHub Actions. They are not measurements of CPU instructions, energy, nanoseconds, or real port occupancy. In particular, the port-observer mode assumes a physical interface that can discharge completion without interpreter invocation; this requires hardware validation. The conservative result is the negative control: adding a second port **cannot remove the interpreter bottleneck**.
+These are results of the local **test harness's logical semantics**, now also reproduced by the pinned E-CPU package on GitHub Actions for Python 3.11 and 3.13 (run 43563302285). They are not measurements of CPU instructions, energy, nanoseconds, or real port occupancy. In particular, the port-observer mode assumes a physical interface that can discharge completion without interpreter invocation; this requires hardware validation. The conservative result is the negative control: adding a second port **cannot remove the interpreter bottleneck**.
 
 Each request requires exactly two port grants (query+answer). All results are checked against a bounded literal recurrence for small coordinates; large coordinates use the law-based evaluator and receipt checks. Costs track actual canonical packet payload bytes and ports visited; simulation does **not** count electrical framing, routing hardware, serialization bits, energy or Python overhead.
 
