@@ -76,6 +76,34 @@ class SemanticContractTests(unittest.TestCase):
         self.assertEqual(receipt.payload["output"], {"value": GROUND.seed})
         verify_receipt(receipt, intent, _policy("constrained-port", "port"))
 
+    def test_port_realization_various_grounds_and_distant_coordinates(self):
+        cases = [(0, 0, 2, 0, 0), (0, 1, 7, 3, 1), (1, 0, 97, 12, 91),
+                 (3, 5, 65521, 8, 10**15 + 19), (29, 71, 257, 32, 10**18)]
+        for i, (a, c, mod, seed, coordinate) in enumerate(cases):
+            intent = GroundIntention(f"case-{i}", AffineGround(a, c, mod, seed), coordinate)
+            policy = RealizationPolicy(frozenset({("port", "port")}), coordinate)
+            receipt = PortGroundRealizer("port", TwoPortArithmeticGate(f"gate-{i}", mod)).observe(intent, policy)
+            self.assertEqual(receipt.payload["output"], {"value": independent_observation(intent)})
+            self.assertLess(receipt.payload["event_count"], 160)
+
+    def test_federated_composition_across_distinct_local_interpreters(self):
+        """Exercise the logical relay-to-compute contract without claiming TLS."""
+        compute_home, compute_endpoint, compute_policy = _qualified_subprocess()
+        with compute_home, tempfile.TemporaryDirectory(prefix="sab008-relay-") as relay_home:
+            relay_endpoint = SubprocessQualificationEndpoint("relay-B", (
+                sys.executable, "-m", "mailcpu.runtime_qualification_worker", "--host", "relay-B",
+                "--directory", relay_home, "--no-compute"), timeout=6)
+            relay_policy = QualificationPolicy(frozenset({"relay-B"}), "sab008-observer", COORDINATE+500,
+                    frozenset({"observer", "framed_ipc"}), max_calls=2)
+            compute_report = qualify(compute_endpoint, compute_policy, coordinate=5, seed="sab008-interpreter-qualifier")
+            relay_report = qualify(relay_endpoint, relay_policy, coordinate=5, seed="sab008-relay-qualifier")
+            policy = _policy("fabric-sim", "federated")
+            result = FederatedGroundRealizer("fabric-sim", relay_endpoint, compute_endpoint,
+                    relay_report.payload, compute_report.payload, relay_policy, compute_policy).observe(INTENTION, policy)
+            self.assertEqual(result.payload["event_count"], 2)
+            self.assertEqual(result.payload["output"], {"value": independent_observation(INTENTION)})
+            self.assertFalse(result.payload["physical_host_attested"])
+
     def test_new_substrate_labels_do_not_require_schema_changes(self):
         arbitrary = RealizationPolicy(frozenset({("permitted-observer", "unknown-future-medium")}), COORDINATE+500)
         arbitrary.permits("permitted-observer", "unknown-future-medium", COORDINATE)
