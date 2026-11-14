@@ -155,3 +155,92 @@ class RealizationReceipt:
         """Return the digest of this complete realization record."""
         return str(self.payload["receipt_digest"])
 
+
+def _receipt(intention: GroundIntention, policy: RealizationPolicy, *,
+             locus: str, method: str, value: Any, events: list[dict[str, Any]],
+             evidence: Mapping[str, Any]) -> RealizationReceipt:
+    """Accept a realization only after exact observer-specific oracle comparison."""
+    policy.permits(locus, method, intention.coordinate)
+    if type(value) is not int or value != independent_observation(intention):
+        raise RealizationRefused("observed value contradicts the admitted Ground")
+    if not events or len(events) > policy.max_events:
+        raise RealizationRefused("observation event count is outside budget")
+    try:
+        event_bytes = canonical(events)
+        evidence_bytes = canonical(dict(evidence))
+    except (TypeError, ValueError) as exc:
+        raise RealizationRefused("realizer evidence is not canonical JSON") from exc
+    if len(event_bytes) + len(evidence_bytes) > 128 * policy.max_bytes:
+        raise RealizationRefused("observation evidence exceeds record bound")
+    record = {"schema": SCHEMA, "intention": intention.fingerprint,
+              "ground": intention.ground.fingerprint, "coordinate": intention.coordinate,
+              "observer": intention.observation, "method": method, "locus": locus,
+              "policy_digest": policy.fingerprint, "output": {"value": value},
+              "event_count": len(events), "event_digest": digest(events),
+              "events": json.loads(canonical(events)),
+              "evidence": json.loads(canonical(dict(evidence))),
+              "evidence_digest": digest(dict(evidence)),
+              "evidence_kind": "bounded_execution_and_receiver_oracle",
+              "physical_host_attested": False, "quantum_state_claimed": False,
+              "authority_from_remote_advertisement": False}
+    record["receipt_digest"] = digest(record)
+    return RealizationReceipt(record)
+
+
+def verify_receipt(receipt: RealizationReceipt | Mapping[str, Any],
+                   intention: GroundIntention, policy: RealizationPolicy) -> dict[str, Any]:
+    """Verify exact semantic identity, policy, method, and the independent oracle."""
+    x = receipt.payload if isinstance(receipt, RealizationReceipt) else receipt
+    fields = {"schema", "intention", "ground", "coordinate", "observer", "method",
+              "locus", "policy_digest", "output", "event_count", "event_digest",
+              "evidence_digest", "events", "evidence", "evidence_kind",
+              "physical_host_attested", "quantum_state_claimed",
+              "authority_from_remote_advertisement", "receipt_digest"}
+    if (not isinstance(x, Mapping) or set(x) != fields or x.get("schema") != SCHEMA
+            or x.get("intention") != intention.fingerprint
+            or x.get("ground") != intention.ground.fingerprint
+            or x.get("coordinate") != intention.coordinate
+            or x.get("observer") != intention.observation
+            or x.get("policy_digest") != policy.fingerprint
+            or x.get("evidence_kind") != "bounded_execution_and_receiver_oracle"
+            or any(x.get(key) is not False for key in
+                   ("physical_host_attested", "quantum_state_claimed", "authority_from_remote_advertisement"))
+            or type(x.get("event_count")) is not int
+            or not 1 <= x["event_count"] <= policy.max_events
+            or not isinstance(x.get("events"), list)
+            or not isinstance(x.get("evidence"), Mapping)
+            or x.get("event_digest") != digest(x["events"])
+            or x.get("evidence_digest") != digest(dict(x["evidence"]))
+            or len(x["events"]) != x["event_count"]
+            or not isinstance(x.get("output"), Mapping)
+            or set(x["output"]) != {"value"}
+            or type(x["output"]["value"]) is not int
+            or x["output"]["value"] != independent_observation(intention)):
+        raise RealizationRefused("receipt does not reproduce the admitted observation")
+    policy.permits(x["locus"], x["method"], intention.coordinate)
+    for label in ("event_digest", "evidence_digest", "receipt_digest"):
+        if (type(x.get(label)) is not str or len(x[label]) != 64
+                or any(c not in "0123456789abcdef" for c in x[label])):
+            raise RealizationRefused("receipt content digest is malformed")
+    if x["receipt_digest"] != digest({k: v for k, v in x.items() if k != "receipt_digest"}):
+        raise RealizationRefused("receipt content digest mismatch")
+    return dict(x)
+
+
+def equivalent_observations(receipts: tuple[RealizationReceipt, ...],
+                            intention: GroundIntention,
+                            policies: Mapping[str, RealizationPolicy]) -> bool:
+    """Require identical admitted meaning but distinct realizer evidence and loci."""
+    if len(receipts) < 2:
+        raise RealizationRefused("equivalence requires two distinct realizations")
+    views = []
+    for receipt in receipts:
+        method = receipt.payload.get("method")
+        if method not in policies:
+            raise RealizationRefused("unknown realization method")
+        views.append(verify_receipt(receipt, intention, policies[method]))
+    if (len({(x["method"], x["locus"]) for x in views}) != len(views)
+            or len({x["output"]["value"] for x in views}) != 1):
+        raise RealizationRefused("observations are not independently realized and equivalent")
+    return True
+
