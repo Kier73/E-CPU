@@ -109,6 +109,8 @@ class ConstructedComputationEndpoint:
                 if replay[0] != digest(dict(request)):
                     raise CompositeFormationRefused("same host nonce was reused for another request")
                 return json.loads(canonical(replay[1]))
+            if len(self._observations) >= 4096:
+                raise CompositeFormationRefused("constructed endpoint replay audit is full")
             boot = secrets.token_hex(16)
             op = request["operation"]
             reply: dict[str, Any] = {"kind": RESPONSE_KIND, "host": self.host_id,
