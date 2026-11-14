@@ -1,0 +1,46 @@
+name: SAB-005 native authenticated adaptive placement
+
+on:
+  push:
+    paths:
+      - 'mailcpu/federated_placement.py'
+      - 'mailcpu/federated_native_worker.py'
+      - 'tests/test_federated_placement.py'
+      - 'docs/FEDERATED_ADAPTIVE_PLACEMENT_SAB005.md'
+      - '.github/workflows/federated-placement-sab005.yml'
+  pull_request:
+    paths:
+      - 'mailcpu/federated_placement.py'
+      - 'mailcpu/federated_native_worker.py'
+      - 'tests/test_federated_placement.py'
+      - 'docs/FEDERATED_ADAPTIVE_PLACEMENT_SAB005.md'
+      - '.github/workflows/federated-placement-sab005.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  receiver-native-mutual-tls:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Inspect available runtime and TLS tooling
+        run: |
+          python --version
+          openssl version
+          python -m compileall -q mailcpu
+      - name: Test receiver-native, mutually authenticated peer placement
+        run: python -m unittest discover -s tests -p 'test_federated_placement.py' -v
+      - name: Verify SAB-004 adaptive placement continuity
+        run: python -m unittest discover -s tests -p 'test_adaptive_placement.py' -v
+      - name: Verify SAB-003 behavioral qualification
+        run: python -m unittest discover -s tests -p 'test_runtime_qualification.py' -v
