@@ -45,8 +45,12 @@ policy. It asks for the value at logical coordinate
 `1_000_000_000_137`, so the service must navigate rather than replay all
 preceding states. It compares this result with an independent source formula.
 
-The demo forces both evaluation requests **at the caller layer** to avoid
-concealing an E-CPU refusal behind a model confidence threshold. For ordinary
+The demo forces its two **source-oracle cross-check requests** at the caller
+layer to avoid concealing an E-CPU refusal behind a model threshold. It also
+runs eight **unforced, held-out requests**, letting the trained model choose
+whether to attempt construction. Their teacher labels are computed afterward
+for task-coverage and selection-accuracy reporting; they are not supplied to
+the controller during its decision. For ordinary
 calls, `operate_ground` obeys the policy's threshold. A trusted caller can
 override a model false negative, but the override does not bypass E-CPU
 witness or host authorization checks.
