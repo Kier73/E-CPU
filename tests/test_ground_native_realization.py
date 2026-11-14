@@ -16,7 +16,7 @@ from mailcpu.ground_native_realization import (
     AffineGround, GroundIntention, PortGroundRealizer, TwoPortArithmeticGate,
     RealizationPolicy, RealizationRefused, FixedInterpreterRealizer,
     FederatedGroundRealizer, equivalent_observations, independent_observation,
-    verify_receipt,
+    verify_receipt, realize_under_contract,
 )
 from mailcpu.runtime_qualification import (
     QualificationPolicy, SubprocessQualificationEndpoint, qualify,
@@ -75,6 +75,18 @@ class SemanticContractTests(unittest.TestCase):
             intent, _policy("constrained-port", "port"))
         self.assertEqual(receipt.payload["output"], {"value": GROUND.seed})
         verify_receipt(receipt, intent, _policy("constrained-port", "port"))
+
+    def test_new_substrate_labels_do_not_require_schema_changes(self):
+        arbitrary = RealizationPolicy(frozenset({("permitted-observer", "unknown-future-medium")}), COORDINATE+500)
+        arbitrary.permits("permitted-observer", "unknown-future-medium", COORDINATE)
+        with self.assertRaises(RealizationRefused):
+            PortGroundRealizer("constrained-port", TwoPortArithmeticGate("port-0", GROUND.modulus)).observe(INTENTION, arbitrary)
+
+    def test_generic_adapter_contract_revalidates_receipt(self):
+        policy = _policy("constrained-port", "port")
+        realizer = PortGroundRealizer("constrained-port", TwoPortArithmeticGate("port-0", GROUND.modulus))
+        receipt = realize_under_contract(realizer, INTENTION, policy)
+        self.assertEqual(receipt.payload["output"], {"value": independent_observation(INTENTION)})
 
     def test_port_rejects_bad_modulus(self):
         with self.assertRaisesRegex(RealizationRefused, "incompatible"):
