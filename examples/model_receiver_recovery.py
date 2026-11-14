@@ -82,21 +82,44 @@ def _persist(path: Path, data: bytes) -> None:
 class ModelRecoveryStore:
     """Fixed-membership durable checkpoint roots with a quorum high-water mark."""
 
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, *, offline_audit: bool = False):
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
         self.membership = SeedCommitMembership(
             MACHINE, 1, ("A", "B", "C"), "A", 1, GENESIS,
         )
-        # An authenticated remote authority configuration is receiver-owned.
-        # Default USM-005 continues using its original three local journals.
+        if type(offline_audit) is not bool:
+            raise ModelRecoveryRefused("offline_audit must be a literal boolean")
+        # Refuse silent fallback from authenticated remote authority to
+        # in-process authority if the connection configuration disappears.
         config = self.root / "remote-authorities.json"
+        marker = self.root / "authority-mode.json"
+        self._offline_audit = False
+        if marker.exists():
+            from examples.model_distributed_lineage import MODE_SCHEMA
+            try:
+                mode = json.loads(marker.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                raise ModelRecoveryRefused("authority mode marker cannot be read") from exc
+            if (type(mode) is not dict
+                    or set(mode) != {"schema", "mode", "membership_digest"}
+                    or mode["schema"] != MODE_SCHEMA
+                    or mode["mode"] != "remote-mutual-tls"
+                    or mode["membership_digest"] != self.membership.digest):
+                raise ModelRecoveryRefused("authority mode marker is invalid")
+            if not config.exists() and not offline_audit:
+                raise ModelRecoveryRefused("remote authority connection missing; local fallback forbidden")
+        elif offline_audit:
+            raise ModelRecoveryRefused("offline remote quorum audit needs a mode marker")
+        elif config.exists():
+            raise ModelRecoveryRefused("remote quorum configuration lacks a durable mode marker")
         self._remote_lineage = False
-        if config.exists():
+        if config.exists() and not offline_audit:
             from examples.model_distributed_lineage import open_distributed_lineage
             self.lineage = open_distributed_lineage(self.membership, self.root, config)
             self._remote_lineage = True
         else:
+            self._offline_audit = offline_audit
             authorities = {
                 member: RecoveryLineageAuthority(
                     self.membership, member, str(self.root / f"anchor-{member}.jsonl")
@@ -112,6 +135,8 @@ class ModelRecoveryStore:
 
     def save(self, state: Mapping[str, Any], cut: str) -> RecoveryStateManifest:
         """Seal the exact state bytes before the receiver may acknowledge it."""
+        if self._offline_audit:
+            raise ModelRecoveryRefused("offline audit mode cannot seal recovery generations")
         _validate_state(state)
         generation, predecessor = self.lineage.high_water()
         generation += 1
