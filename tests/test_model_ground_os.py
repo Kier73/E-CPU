@@ -106,3 +106,7 @@ def test_demo_runs_training_then_uses_host_service():
     assert not report["external_comparison"]["nonlinear_admitted"]
     assert second["status"] == "refused_by_ecpu"
     assert len(report["report_digest"]) == 64
+    assert report["evaluation_summary"]["cases"] == 8
+    assert len(report["unforced_evaluation"]) == 8
+    assert all((item["status"] == "deferred_by_model") == (not item["model_recommended"])
+               for item in report["unforced_evaluation"])
