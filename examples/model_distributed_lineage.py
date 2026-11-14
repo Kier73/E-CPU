@@ -226,13 +226,14 @@ def run_distributed_demo(root: Path) -> dict[str, Any]:
 
     def setup(path: Path, keys: Mapping[str, Path]) -> Callable[[], None]:
         stop, results = prepare_distributed_authorities(path, keys)
-        state.update(results)
+        state["authority_status"] = results
         return stop
 
     baseline = run_demo(root, configure_lineage=setup)
-    if not state.get("alive_through_receiver_replacement"):
+    authority_status = state["authority_status"]
+    if not authority_status.get("alive_through_receiver_replacement"):
         raise RuntimeError("remote authority processes did not survive receiver replacement")
-    pids = list(state["authority_process_ids"].values())
+    pids = list(authority_status["authority_process_ids"].values())
     if (len(set(pids)) != 2 or any(
         pid in (baseline["model_process"], baseline["first_receiver_process"],
                 baseline["replacement_receiver_process"]) for pid in pids
@@ -252,8 +253,8 @@ def run_distributed_demo(root: Path) -> dict[str, Any]:
     core = {
         "schema": "mailcpu.usm006.distributed-model-lineage-report.v1",
         "recovered_model": baseline,
-        "authenticated_authority_processes": state["authority_process_ids"],
-        "authenticated_authority_dns": state["authority_dns"],
+        "authenticated_authority_processes": authority_status["authority_process_ids"],
+        "authenticated_authority_dns": authority_status["authority_dns"],
         "authorities_survived_receiver_restart": True,
         "independent_os_authority_processes": 2,
         "single_physical_failure_domain": True,
