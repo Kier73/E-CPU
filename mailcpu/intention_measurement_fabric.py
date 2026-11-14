@@ -134,3 +134,74 @@ class MeasurementReceiptLedger:
     def complete(self, request: Mapping[str, Any], create: Callable[[], dict[str, Any]]) -> dict[str, Any]:
         """Atomically store or return the one result bound to a challenge/feature."""
         challenge, feature, request_digest = (request[k] for k in
+                                              ("challenge_digest", "feature_id", "request_digest"))
+        self._db.execute("BEGIN IMMEDIATE")
+        try:
+            row = self._db.execute(
+                "SELECT request,response FROM measurement_completion WHERE challenge=? AND feature=?",
+                (challenge, feature),
+            ).fetchone()
+            if row is not None:
+                if row[0] != request_digest:
+                    raise SufficiencyRefused("reused measurement challenge with conflicting request")
+                result = json.loads(row[1])
+            else:
+                result = create()
+                encoded = _bytes(result).decode("utf-8")
+                self._db.execute(
+                    "INSERT INTO measurement_completion(challenge,feature,request,response) VALUES(?,?,?,?)",
+                    (challenge, feature, request_digest, encoded),
+                )
+            self._db.execute("COMMIT")
+            return result
+        except BaseException:
+            self._db.execute("ROLLBACK")
+            raise
+
+    def close(self) -> None:
+        """Close the local durable completion ledger."""
+        self._db.close()
+
+
+class MeasurementPeerServer:
+    """Serve bounded feature-only measurements on a verified peer TLS connection."""
+
+    def __init__(self, transport: SocketTransport, local_peer_id: str, client_peer_id: str,
+                 expected_client_dns: str, installed: Mapping[str, HostedMeasurement],
+                 ledger: MeasurementReceiptLedger,
+                 policy: ReliabilityPolicy | None = None) -> None:
+        _bound_transport(transport, local_peer_id, client_peer_id, expected_client_dns)
+        if type(installed) is not dict or not installed or any(
+            type(feature) is not str or not isinstance(binding, HostedMeasurement)
+            or binding.contract.observation.projection_id != feature
+            for feature, binding in installed.items()
+        ):
+            raise SufficiencyRefused("measurement host binding catalogue invalid")
+        if not isinstance(ledger, MeasurementReceiptLedger):
+            raise SufficiencyRefused("measurement host requires durable local completion ledger")
+        self.installed = dict(installed)
+        self.transport = transport
+        self.peer_id = local_peer_id
+        self.client_id = client_peer_id
+        self.ledger = ledger
+        self.inbound = ReliableChannel(transport, local_peer_id, local_peer_id,
+                                       REQUEST_CHANNEL, policy, peer=client_peer_id)
+        self.outbound = ReliableChannel(transport, local_peer_id, client_peer_id,
+                                        RESPONSE_CHANNEL, policy)
+        self._last_tick = time.monotonic()
+
+    @classmethod
+    def accept_mutual_tls(cls, listener: Any, tls_context: ssl.SSLContext,
+                          local_peer_id: str, client_peer_id: str, expected_client_dns: str,
+                          installed: Mapping[str, HostedMeasurement], ledger: MeasurementReceiptLedger,
+                          **kwargs: Any) -> "MeasurementPeerServer":
+        """Accept only a CA-verified client with the configured DNS SAN."""
+        transport = accept_mutual_tls(listener, local_peer_id, client_peer_id, tls_context,
+                                      expected_peer_dns=expected_client_dns)
+        try:
+            return cls(transport, local_peer_id, client_peer_id, expected_client_dns,
+                       installed, ledger, **kwargs)
+        except BaseException:
+            transport.close()
+            raise
+
