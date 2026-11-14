@@ -11,7 +11,7 @@ from examples.model_distributed_lineage import (
     prepare_distributed_authorities, run_distributed_demo,
 )
 from examples.model_receiver_recovery import (
-    GENESIS, MACHINE, ModelRecoveryStore,
+    GENESIS, MACHINE, ModelRecoveryRefused, ModelRecoveryStore,
 )
 from examples.run_model_authenticated_experiment import ephemeral_certificates
 from mailcpu.recovery_lineage import RecoveryLineageError, RecoveryStateManifest
@@ -78,8 +78,12 @@ def test_quorum_state_remains_independently_reconstructable_after_service_exit(
     assert not (checkpoint / "remote-authorities.json").exists()
     for member in ("A", "B", "C"):
         assert (checkpoint / f"anchor-{member}.jsonl").is_file()
-    offline = ModelRecoveryStore(checkpoint)
+    with pytest.raises(ModelRecoveryRefused, match="local fallback forbidden"):
+        ModelRecoveryStore(checkpoint)
+    offline = ModelRecoveryStore(checkpoint, offline_audit=True)
     state, manifest = offline.load()
+    with pytest.raises(ModelRecoveryRefused, match="cannot seal"):
+        offline.save(state, "unauthorized-offline-attempt")
     assert manifest.generation == 2
     assert manifest.state_digest == report["offline_reconstructed_state_digest"]
     assert state["phase"] == "complete"
