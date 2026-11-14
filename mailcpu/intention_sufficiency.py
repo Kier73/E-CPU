@@ -29,19 +29,21 @@ class SufficiencyRefused(ValueError):
 
 
 def _name(value: Any, label: str) -> str:
+    """Mathematics: the safe identifier predicate accepts exactly one bounded name alphabet."""
     if type(value) is not str or _NAME.fullmatch(value) is None:
         raise SufficiencyRefused(f"invalid {label}")
     return value
 
 
 def _hash(value: Any, label: str) -> str:
+    """Mathematics: the digest predicate requires a 256-bit lowercase hexadecimal identity."""
     if type(value) is not str or _HEX.fullmatch(value) is None:
         raise SufficiencyRefused(f"invalid {label} digest")
     return value
 
 
 def _json_normalize(value: Any) -> Any:
-    """Snapshot portable, exact JSON: no float, duplicate Python key, or unsafe int."""
+    """Mathematics: Snapshot portable, exact JSON: no float, duplicate Python key, or unsafe int."""
     if value is None or type(value) is bool:
         return value
     if type(value) is int and -_SAFE_INT <= value <= _SAFE_INT:
@@ -62,16 +64,18 @@ def _json_normalize(value: Any) -> Any:
 
 
 def _bytes(value: Any) -> bytes:
+    """Mathematics: canonicalize the exact JSON algebra into sorted-key UTF-8 bytes."""
     return json.dumps(_json_normalize(value), ensure_ascii=False, sort_keys=True,
                       separators=(",", ":"), allow_nan=False).encode("utf-8")
 
 
 def _fingerprint(value: Any) -> str:
-    """E-CPU's Python sorted-key JSON digest profile, *not* RFC 8785 JCS."""
+    """Mathematics: E-CPU's Python sorted-key JSON digest profile, *not* RFC 8785 JCS."""
     return hashlib.sha256(_bytes(value)).hexdigest()
 
 
 def _decode(raw: bytes) -> Any:
+    """Mathematics: invert canonical JSON encoding to its finite value."""
     return json.loads(raw)
 
 
@@ -87,6 +91,7 @@ class FiniteState:
     @classmethod
     def create(cls, state_id: str, public: Any, target: Any,
                features: Mapping[str, Any]) -> "FiniteState":
+        """Mathematics: snapshot one finite-state row with canonical feature values."""
         _name(state_id, "state id")
         if type(features) is not dict:
             raise SufficiencyRefused("finite state features must be a mapping")
@@ -96,6 +101,7 @@ class FiniteState:
         return cls(state_id, _bytes(public), _bytes(target), pairs)
 
     def __post_init__(self) -> None:
+        """Mathematics: enforce the declared finite-model or capability invariants."""
         _name(self.state_id, "state id")
         if type(self.public_json) is not bytes or type(self.target_json) is not bytes:
             raise SufficiencyRefused("finite state requires exact encoded JSON")
@@ -114,9 +120,11 @@ class FiniteState:
 
     @property
     def features(self) -> dict[str, bytes]:
+        """Mathematics: project immutable ordered features into a detached lookup."""
         return dict(self.feature_json)
 
     def to_dict(self) -> dict[str, Any]:
+        """Mathematics: serialize this finite contract into its versioned JSON projection."""
         return {
             "state_id": self.state_id, "public": _decode(self.public_json),
             "target": _decode(self.target_json),
@@ -139,6 +147,7 @@ class FiniteGround:
     states: tuple[FiniteState, ...]
 
     def __post_init__(self) -> None:
+        """Mathematics: enforce the declared finite-model or capability invariants."""
         for k in ("ground_digest", "public_contract_digest", "intention_contract_digest", "context_digest"):
             _hash(getattr(self, k), k)
         if type(self.states) is not tuple or not 1 <= len(self.states) <= _MAX_STATES:
@@ -154,6 +163,7 @@ class FiniteGround:
             raise SufficiencyRefused("every state must define the same feature catalogue")
 
     def to_dict(self) -> dict[str, Any]:
+        """Mathematics: serialize this finite contract into its versioned JSON projection."""
         return {
             "schema": SCHEMA + ".ground", "ground_digest": self.ground_digest,
             "public_contract_digest": self.public_contract_digest,
@@ -164,6 +174,7 @@ class FiniteGround:
 
     @property
     def digest(self) -> str:
+        """Mathematics: compute the content identity of this exact model."""
         return _fingerprint(self.to_dict())
 
 
@@ -177,6 +188,7 @@ class MeasurementCapability:
     cost_units: int  # symbolic: not an assertion of measured latency or energy
 
     def __post_init__(self) -> None:
+        """Mathematics: enforce the declared finite-model or capability invariants."""
         _name(self.feature_id, "feature id")
         _hash(self.contract_digest, "measurement contract")
         _name(self.provider_id, "measurement provider")
@@ -184,11 +196,13 @@ class MeasurementCapability:
             raise SufficiencyRefused("cost_units must be a portable nonnegative integer")
 
     def to_dict(self) -> dict[str, Any]:
+        """Mathematics: serialize this finite contract into its versioned JSON projection."""
         return {"feature_id": self.feature_id, "contract_digest": self.contract_digest,
                 "provider_id": self.provider_id, "cost_units": self.cost_units}
 
 
 def _offers(model: FiniteGround, offers: Sequence[MeasurementCapability]) -> tuple[MeasurementCapability, ...]:
+    """Mathematics: accept a bounded, unique, known receiver capability catalogue."""
     if type(offers) not in (list, tuple) or len(offers) > _MAX_CAPABILITIES:
         raise SufficiencyRefused("capability catalogue exceeds bound")
     if any(not isinstance(c, MeasurementCapability) for c in offers):
@@ -201,12 +215,14 @@ def _offers(model: FiniteGround, offers: Sequence[MeasurementCapability]) -> tup
 
 
 def _seal(body: dict[str, Any], field: str) -> dict[str, Any]:
+    """Mathematics: derive a report identity from the complete report body."""
     result = dict(body)
     result[field] = _fingerprint(body)
     return result
 
 
 def _witness(states: Sequence[FiniteState], chosen: tuple[str, ...]) -> tuple[bool, tuple[str, str] | None]:
+    """Mathematics: find a pair in one observation fiber with different target values."""
     seen: dict[tuple[bytes, ...], FiniteState] = {}
     for row in states:
         key = tuple(row.features[name] for name in chosen)
@@ -220,7 +236,7 @@ def _witness(states: Sequence[FiniteState], chosen: tuple[str, ...]) -> tuple[bo
 def plan_sufficiency(model: FiniteGround, public_value: Any,
                      offers: Sequence[MeasurementCapability],
                      authority_digest: str) -> dict[str, Any]:
-    """Exact minimum-cost sufficient feature set on one observed fiber.
+    """Mathematics: Exact minimum-cost sufficient feature set on one observed fiber.
 
     Minimize (declared total cost, number of features, feature IDs). Nothing
     about the plan grants permission to invoke the selected providers.
@@ -269,7 +285,7 @@ def plan_sufficiency(model: FiniteGround, public_value: Any,
 def verify_sufficiency_plan(plan: Mapping[str, Any], model: FiniteGround,
                             public_value: Any, offers: Sequence[MeasurementCapability],
                             authority_digest: str) -> None:
-    """Replan from independently supplied pinned model and current policy."""
+    """Mathematics: Replan from independently supplied pinned model and current policy."""
     if type(plan) is not dict or plan != plan_sufficiency(model, public_value, offers, authority_digest):
         raise SufficiencyRefused("plan is stale, modified, or not minimum sufficient")
 
@@ -278,7 +294,7 @@ def resolve_sufficiency(model: FiniteGround, public_value: Any,
                         offers: Sequence[MeasurementCapability], authority_digest: str,
                         plan: Mapping[str, Any], measured: Mapping[str, Any],
                         receipt_digest: str | None = None) -> dict[str, Any]:
-    """Resolve only from complete readings under a freshly checked plan.
+    """Mathematics: Resolve only from complete readings under a freshly checked plan.
 
     A receipt *digest* does not authenticate its issuer. The caller must admit
     the receiver-owned measurement receipt before invoking this function.
@@ -317,7 +333,7 @@ def verify_sufficiency_resolution(resolution: Mapping[str, Any], model: FiniteGr
                                   public_value: Any, offers: Sequence[MeasurementCapability],
                                   authority_digest: str, plan: Mapping[str, Any],
                                   measured: Mapping[str, Any], receipt_digest: str | None = None) -> None:
-    """Reconstruct the complete result without trusting the received report."""
+    """Mathematics: Reconstruct the complete result without trusting the received report."""
     expected = resolve_sufficiency(model, public_value, offers, authority_digest,
                                    plan, measured, receipt_digest)
     if type(resolution) is not dict or resolution != expected:
