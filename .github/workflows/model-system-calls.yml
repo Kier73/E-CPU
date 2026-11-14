@@ -1,0 +1,62 @@
+name: USM-002 model-issued E-CPU system calls
+
+on:
+  push:
+    paths:
+      - 'examples/model_ground_os.py'
+      - 'examples/model_ground_worker.py'
+      - 'examples/model_system_calls.py'
+      - 'examples/model_system_worker.py'
+      - 'tests/test_model_system_calls.py'
+      - 'docs/MODEL_SYSTEM_CALLS_USM002.md'
+      - '.github/workflows/model-system-calls.yml'
+  pull_request:
+    paths:
+      - 'examples/model_ground_os.py'
+      - 'examples/model_ground_worker.py'
+      - 'examples/model_system_calls.py'
+      - 'examples/model_system_worker.py'
+      - 'tests/test_model_system_calls.py'
+      - 'docs/MODEL_SYSTEM_CALLS_USM002.md'
+      - '.github/workflows/model-system-calls.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  model-operating-session:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install E-CPU and test runner
+        run: python -m pip install -e . pytest
+      - name: Exercise model-to-OS process path and refusals
+        run: python -m pytest -q tests/test_model_ground_os.py tests/test_model_system_calls.py
+      - name: Execute the actual system-call sessions
+        run: python -m examples.model_system_calls > usm002-report.json
+      - name: Check journal ordering and return evidence
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from examples.model_system_calls import verify_system_call_trace
+          doc = json.loads(Path("usm002-report.json").read_text())
+          assert len(doc["episodes"]) == 2
+          for item in doc["episodes"]:
+              assert verify_system_call_trace(item["session"])
+              assert item["status"] in {"complete", "deferred", "refused"}
+              assert item["session"]["events"][0]["call"]["op"] == "observe"
+          print("USM-002 model-issued E-CPU calls retained with reconstructable evidence")
+          PY
+      - name: Retain operating trace
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: usm002-model-issued-ecpu-syscalls
+          path: usm002-report.json
+          if-no-files-found: warn
