@@ -31,27 +31,32 @@ class SelfHostedPortError(ValueError):
 
 
 def _canonical(value: object) -> bytes:
+    """Encode a JSON value in stable UTF-8 bytes for exact message identity."""
     return json.dumps(value, sort_keys=True, separators=(",", ":"),
                       allow_nan=False).encode("utf-8")
 
 
 def _digest(value: object) -> str:
+    """Hash a canonical observer event or packet under SHA-256."""
     return hashlib.sha256(_canonical(value)).hexdigest()
 
 
 def _require(condition: bool, reason: str) -> None:
+    """Fail closed when a bounded self-hosted operation violates policy."""
     if not condition:
         raise SelfHostedPortError(reason)
 
 
 def _packet(job_id: str, coordinate: int, phase: str, value: int | None,
             trace: list[str]) -> dict[str, Any]:
+    """Build one typed immutable-by-convention packet description."""
     return {"schema": PACKET_SCHEMA, "job_id": job_id,
             "coordinate": coordinate, "phase": phase, "value": value,
             "trace": list(trace)}
 
 
 def _decode(raw: bytes) -> dict[str, Any]:
+    """Validate a canonical received byte packet without executing it."""
     _require(type(raw) is bytes and 0 < len(raw) <= MAX_PACKET_BYTES,
              "oversized or empty internal frame")
     try:
@@ -102,6 +107,7 @@ class SelfHostedPortNetwork:
               ("project-core", 4, 5))
 
     def __init__(self, physical_ports: int, *, queue_limit: int = 2) -> None:
+        """Provision three internal observer-hosts under a 1/2-port exterior budget."""
         _require(type(physical_ports) is int and physical_ports in (1, 2),
                  "experiment admits exactly one or two physical boundary ports")
         _require(type(queue_limit) is int and 1 <= queue_limit <= 32,
@@ -125,13 +131,16 @@ class SelfHostedPortNetwork:
 
     @staticmethod
     def _navigated(coordinate: int) -> int:
+        """Observe the LCG orbit at a coordinate using an existing E-CPU law."""
         return lcg_navigate(5, 1, MODULUS, 7, coordinate)
 
     @staticmethod
     def _projected(value: int) -> int:
+        """Project the received state through a second active observer-host."""
         return (3 * value + 11) % MODULUS
 
     def _expected_packets(self) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+        """Derive the only valid three packet states and receipt sequence."""
         _require(self.job_id is not None and self.coordinate is not None,
                  "no admitted internal request")
         first = _packet(self.job_id, self.coordinate, "request", None, [])
@@ -147,6 +156,7 @@ class SelfHostedPortNetwork:
         return first, second, third
 
     def submit(self, job_id: str, coordinate: int) -> None:
+        """Admit one finite coordinate and transmit it onto the owned internal fabric."""
         _require(self.phase == "idle", "only one in-flight request is admitted")
         _require(type(job_id) is str and _JOB_ID.fullmatch(job_id) is not None,
                  "invalid request identity")
@@ -162,6 +172,7 @@ class SelfHostedPortNetwork:
 
     def _take_expected(self, receiver: int, expected_source: int,
                        packet: dict[str, Any]):
+        """Observe the queued frame without consuming a malformed request."""
         frame = self.fabric.peek(self.addresses[receiver])
         _require(frame is not None, "expected internal frame is not ready")
         _require(frame.source == self.addresses[expected_source] and
@@ -205,6 +216,7 @@ class SelfHostedPortNetwork:
         return self.phase
 
     def run(self) -> dict[str, Any]:
+        """Dispatch at most three virtual-host quanta until the result is accepted."""
         for _ in range(3):
             if self.phase == "done":
                 break
@@ -213,6 +225,7 @@ class SelfHostedPortNetwork:
         return self.report()
 
     def report(self) -> dict[str, Any]:
+        """Return the observed value and explicitly accounted logical resources."""
         _require(self.phase == "done" and self.result is not None,
                  "no completed observation")
         return {"schema": SCHEMA, "job_id": self.job_id,
@@ -230,6 +243,7 @@ class SelfHostedPortNetwork:
                 "hardware_port_emulation_verified": False}
 
     def snapshot(self) -> dict[str, Any]:
+        """Capture internal topology, FIFO bytes, receipts, and dispatch cursor."""
         return {"schema": SCHEMA, "physical_ports": self.physical_ports,
                 "phase": self.phase, "job_id": self.job_id,
                 "coordinate": self.coordinate, "history": list(self.history),
@@ -239,10 +253,12 @@ class SelfHostedPortNetwork:
                 "fabric": self.fabric.snapshot()}
 
     def _validate_restored(self) -> None:
+        """Reject a restored network that violates topology, receipt, or cost invariants."""
         expected = SelfHostedPortNetwork(self.physical_ports, queue_limit=self.fabric.queue_limit)
         _require(self.fabric.namespaces() == expected.fabric.namespaces() and
                  self.fabric.links() == expected.fabric.links(), "restored topology changed")
         def config(interfaces):
+            """Project the immutable virtual-interface contract independently of queue occupancy."""
             return tuple(tuple((k, item[k]) for k in
                                ("namespace", "interface", "mtu", "queue_limit", "link_id", "up"))
                          for item in interfaces)
@@ -292,6 +308,7 @@ class SelfHostedPortNetwork:
 
     @classmethod
     def from_snapshot(cls, payload: dict[str, Any]) -> SelfHostedPortNetwork:
+        """Reconstruct a chip model from a checked owned-network checkpoint."""
         _require(type(payload) is dict and set(payload) == {
             "schema", "physical_ports", "phase", "job_id", "coordinate", "history",
             "result", "interpreter_quanta", "internal_payload_bytes",
