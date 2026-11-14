@@ -205,3 +205,71 @@ class MeasurementPeerServer:
             transport.close()
             raise
 
+    def _respond(self, payload: Any) -> dict[str, Any]:
+        """Apply receiver-local authority before returning a feature-only receipt."""
+        raw = _parse_request(payload)
+        feature = raw["feature_id"]
+        installed = self.installed.get(feature)
+        if installed is None:
+            raise SufficiencyRefused("feature not installed on receiver-owned host")
+        contract = installed.contract
+        if (raw["model_digest"] != installed.model_digest
+                or raw["contract_digest"] != contract.digest
+                or raw["subject"] != contract.subject.to_dict()):
+            raise SufficiencyRefused("request does not match admitted Ground or observer contract")
+        if raw["authority_digest"] != installed.authority_now():
+            raise SufficiencyRefused("measurement receiver authority changed")
+        if installed.admit(raw, self.client_id) is not True:
+            raise SufficiencyRefused("receiver Hypervisor/capability policy refused observation")
+
+        def make_response() -> dict[str, Any]:
+            """Read one permitted projection and bind it to the native contract."""
+            value = installed.read(raw)
+            if _bytes(value) not in tuple(_bytes(item) for item in installed.allowed_values):
+                raise SufficiencyRefused("host measurement is outside permitted projection domain")
+            if len(_bytes(value)) > installed.max_projection_bytes:
+                raise SufficiencyRefused("host measurement exceeded byte ceiling")
+            scheduler = SchedulerReading(raw["scheduler"]["scheduler_id"], raw["scheduler"]["tick"])
+            receipt = ObserverReceipt.issue(
+                contract, operation_id=feature, input_digest=raw["request_digest"],
+                projection_value=value,
+                time_frame=TemporalFrame(contract.observer_id, scheduler=scheduler),
+            )
+            return {"kind": RESPONSE_KIND, "provider_peer": self.peer_id,
+                    "feature_id": feature, "request_digest": raw["request_digest"],
+                    "receipt": receipt.to_dict()}
+
+        return self.ledger.complete(raw, make_response)
+
+    def service_once(self) -> bool:
+        """Commit response to durable ledger before acknowledgement of request."""
+        self.outbound.process_ack()
+        if self.outbound.available_window < 1:
+            self._tick_if_due()
+            return False
+        handled = False
+
+        def commit(_sequence: int, payload: Any) -> None:
+            nonlocal handled
+            handled = True
+            try:
+                response = self._respond(payload)
+            except (SufficiencyRefused, ValueError, TypeError, KeyError) as exc:
+                # Refusal is an authenticated response, never a measurement.
+                request_digest = ""
+                if type(payload) is dict and type(payload.get("request")) is dict:
+                    candidate = payload["request"].get("request_digest")
+                    if type(candidate) is str and len(candidate) == 64:
+                        request_digest = candidate
+                response = {"kind": ERROR_KIND, "provider_peer": self.peer_id,
+                            "request_digest": request_digest, "reason": str(exc)}
+            self.outbound.send(response)
+
+        received = self.inbound.receive(commit=commit)
+        self._tick_if_due()
+        return handled or received is not None
+
+    def _tick_if_due(self) -> None:
+        now = time.monotonic()
+        if now - self._last_tick >= 0.03:
+            self.outbound.tick()
