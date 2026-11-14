@@ -318,3 +318,115 @@ class PortGroundRealizer:
                         "modulus": self.port.modulus, "first": before + 1,
                         "last": self.port.sequence, "physical": "simulated_two_port_gate"})
 
+
+class FixedInterpreterRealizer:
+    """Observe through a separately running, fixed-vocabulary interpreter."""
+    method = "interpreter"
+
+    def __init__(self, locus: str, endpoint: QualificationEndpoint,
+                 report: Mapping[str, Any], qualification: QualificationPolicy) -> None:
+        """Bind an already qualified local process interface (not remote authority)."""
+        self.locus = _name(locus, "interpreter locus")
+        self.endpoint = endpoint
+        self.report = dict(report)
+        self.qualification = qualification
+        if self.endpoint.host_id != self.locus:
+            raise RealizationRefused("interpreter endpoint identity mismatch")
+
+    def observe(self, intention: GroundIntention, policy: RealizationPolicy) -> RealizationReceipt:
+        """Revalidate qualification before executing the known mathematical opcode."""
+        policy.permits(self.locus, self.method, intention.coordinate)
+        try:
+            verify_report(self.report, self.qualification, coordinate=self.report["coordinate"])
+            if (self.report["host"] != self.locus
+                    or "computational_fragment" not in self.report["verified_roles"]
+                    or not self.report["coordinate"] <= intention.coordinate <= self.report["expires_at"]):
+                raise RealizationRefused("interpreter qualification is unavailable or expired")
+            request = _request(self.locus, "affine_mod", intention.ground.input(intention.coordinate), intention.fingerprint, 1)
+            response = self.endpoint.exchange(request, max_bytes=policy.max_bytes)
+            _check_response(request, response)
+        except (QualificationRefused, KeyError, TypeError) as exc:
+            raise RealizationRefused("interpreter observation could not be admitted") from exc
+        if not response["ok"] or set(response["result"]) != {"value"}:
+            raise RealizationRefused("interpreter refused or malformed observation")
+        return _receipt(intention, policy, locus=self.locus, method=self.method,
+                        value=response["result"]["value"],
+                        events=[{"request_digest": digest(request), "response_digest": digest(response)}],
+                        evidence={"qualification": self.report["report_digest"],
+                                  "boot": response["boot"], "fresh_process": self.endpoint.separate_process_per_exchange})
+
+
+def _request(host: str, operation: str, payload: Mapping[str, Any], context: str, sequence: int) -> dict[str, Any]:
+    """Build one fixed SAB-003 request with a correlation token."""
+    token = digest({"host": host, "op": operation, "input": dict(payload),
+                    "intention": context, "sequence": sequence})[:32]
+    return {"kind": REQUEST_KIND, "host": host, "nonce": token,
+            "operation": operation, "payload": dict(payload)}
+
+
+class FederatedGroundRealizer:
+    """Compose two pinned endpoint hops: exact frame relay, then remote compute.
+
+    The relay and compute endpoints are separately authenticated by their
+    underlying mTLS adapters in SAB-005; the receiver's own Hypervisor must
+    approve its fixed operator. This is *not* ComputationalFabricForwarding.
+    """
+    method = "federated"
+
+    def __init__(self, locus: str, relay: QualificationEndpoint,
+                 compute: QualificationEndpoint, relay_report: Mapping[str, Any],
+                 compute_report: Mapping[str, Any],
+                 relay_policy: QualificationPolicy, compute_policy: QualificationPolicy) -> None:
+        """Bind distinct, already qualified and pinned transport endpoints."""
+        self.locus = _name(locus, "federated locus")
+        if relay.host_id == compute.host_id:
+            raise RealizationRefused("federated roles require distinct receiver identities")
+        self.relay, self.compute = relay, compute
+        self.relay_report, self.compute_report = dict(relay_report), dict(compute_report)
+        self.relay_policy, self.compute_policy = relay_policy, compute_policy
+
+    def observe(self, intention: GroundIntention, policy: RealizationPolicy) -> RealizationReceipt:
+        """Check both role proofs and carry canonical bytes through an active relay."""
+        policy.permits(self.locus, self.method, intention.coordinate)
+        for endpoint, report, qual, role in (
+            (self.relay, self.relay_report, self.relay_policy, "framed_ipc"),
+            (self.compute, self.compute_report, self.compute_policy, "computational_fragment"),
+        ):
+            try:
+                verify_report(report, qual, coordinate=report["coordinate"])
+                if (report["host"] != endpoint.host_id or role not in report["verified_roles"]
+                        or not report["coordinate"] <= intention.coordinate <= report["expires_at"]):
+                    raise RealizationRefused("federated endpoint qualification expired")
+            except (QualificationRefused, KeyError, TypeError) as exc:
+                raise RealizationRefused("federated role qualification rejected") from exc
+        payload = intention.ground.input(intention.coordinate)
+        wire = canonical(payload)
+        if len(wire) > 1024:
+            raise RealizationRefused("federated relay payload exceeds fixed ABI")
+        transfer = _request(self.relay.host_id, "transfer", {"bytes_hex": wire.hex()}, intention.fingerprint, 1)
+        try:
+            transferred = self.relay.exchange(transfer, max_bytes=policy.max_bytes)
+            _check_response(transfer, transferred)
+            if not transferred["ok"] or transferred["result"] != {"bytes_hex": wire.hex()}:
+                raise RealizationRefused("relay did not preserve the exact semantic bytes")
+            decoded = json.loads(bytes.fromhex(transferred["result"]["bytes_hex"]))
+            if canonical(decoded) != wire:
+                raise RealizationRefused("relay bytes are not canonical")
+            compute = _request(self.compute.host_id, "affine_mod", decoded, intention.fingerprint, 2)
+            computed = self.compute.exchange(compute, max_bytes=policy.max_bytes)
+            _check_response(compute, computed)
+        except (QualificationRefused, ValueError, TypeError, KeyError, OSError) as exc:
+            raise RealizationRefused("federated communication or compute refused") from exc
+        if not computed["ok"] or set(computed["result"]) != {"value"}:
+            raise RealizationRefused("federated compute host returned no admitted result")
+        events = [{"peer": self.relay.host_id, "request_digest": digest(transfer),
+                   "response_digest": digest(transferred)},
+                  {"peer": self.compute.host_id, "request_digest": digest(compute),
+                   "response_digest": digest(computed)}]
+        return _receipt(intention, policy, locus=self.locus, method=self.method,
+                        value=computed["result"]["value"], events=events,
+                        evidence={"relay_qualification": self.relay_report["report_digest"],
+                                  "compute_qualification": self.compute_report["report_digest"],
+                                  "relay_peer": self.relay.host_id, "compute_peer": self.compute.host_id,
+                                  "native_transport": type(self.compute).__name__,
+                                  "independent_physical_hosts_attested": False})
