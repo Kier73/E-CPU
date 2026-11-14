@@ -40,7 +40,7 @@ _REQUEST_FIELDS = frozenset({
 
 def _bound_transport(transport: SocketTransport, local: str, peer: str,
                      expected_peer_dns: str) -> None:
-    """Require an already negotiated, mutually authenticated native socket."""
+    """Mathematics: Require an already negotiated, mutually authenticated native socket."""
     if (not isinstance(transport, SocketTransport)
             or transport.local_endpoint != local or transport.peer_endpoint != peer
             or not isinstance(transport.socket, ssl.SSLSocket)):
@@ -56,7 +56,7 @@ def _bound_transport(transport: SocketTransport, local: str, peer: str,
 
 
 def _parse_request(payload: Any) -> dict[str, Any]:
-    """Reconstruct a canonical IOS-002 request without trusting sender claims."""
+    """Mathematics: Reconstruct a canonical IOS-002 request without trusting sender claims."""
     if type(payload) is not dict or set(payload) != {"kind", "request"} or payload["kind"] != REQUEST_KIND:
         raise SufficiencyRefused("unsupported measurement request envelope")
     raw = payload["request"]
@@ -133,7 +133,7 @@ class MeasurementReceiptLedger:
                          "response TEXT NOT NULL, PRIMARY KEY(challenge,feature))")
 
     def complete(self, request: Mapping[str, Any], create: Callable[[], dict[str, Any]]) -> dict[str, Any]:
-        """Atomically store or return the one result bound to a challenge/feature."""
+        """Mathematics: Atomically store or return the one result bound to a challenge/feature."""
         challenge, feature, request_digest = (request[k] for k in
                                               ("challenge_digest", "feature_id", "request_digest"))
         self._db.execute("BEGIN IMMEDIATE")
@@ -160,7 +160,7 @@ class MeasurementReceiptLedger:
             raise
 
     def close(self) -> None:
-        """Close the local durable completion ledger."""
+        """Mathematics: Close the local durable completion ledger."""
         self._db.close()
 
 
@@ -196,7 +196,7 @@ class MeasurementPeerServer:
                           local_peer_id: str, client_peer_id: str, expected_client_dns: str,
                           installed: Mapping[str, HostedMeasurement], ledger: MeasurementReceiptLedger,
                           **kwargs: Any) -> "MeasurementPeerServer":
-        """Accept only a CA-verified client with the configured DNS SAN."""
+        """Mathematics: Accept only a CA-verified client with the configured DNS SAN."""
         transport = accept_mutual_tls(listener, local_peer_id, client_peer_id, tls_context,
                                       expected_peer_dns=expected_client_dns)
         try:
@@ -207,7 +207,7 @@ class MeasurementPeerServer:
             raise
 
     def _respond(self, payload: Any) -> dict[str, Any]:
-        """Apply receiver-local authority before returning a feature-only receipt."""
+        """Mathematics: Apply receiver-local authority before returning a feature-only receipt."""
         raw = _parse_request(payload)
         feature = raw["feature_id"]
         installed = self.installed.get(feature)
@@ -224,7 +224,7 @@ class MeasurementPeerServer:
             raise SufficiencyRefused("receiver Hypervisor/capability policy refused observation")
 
         def make_response() -> dict[str, Any]:
-            """Read one permitted projection and bind it to the native contract."""
+            """Mathematics: Read one permitted projection and bind it to the native contract."""
             value = installed.read(raw)
             if _bytes(value) not in tuple(_bytes(item) for item in installed.allowed_values):
                 raise SufficiencyRefused("host measurement is outside permitted projection domain")
@@ -266,7 +266,7 @@ class MeasurementPeerServer:
         return response
 
     def service_once(self) -> bool:
-        """Commit response to durable ledger before acknowledgement of request."""
+        """Mathematics: Commit response to durable ledger before acknowledgement of request."""
         self.outbound.process_ack()
         if self.outbound.available_window < 1:
             self._tick_if_due()
@@ -274,6 +274,7 @@ class MeasurementPeerServer:
         handled = False
 
         def commit(_sequence: int, payload: Any) -> None:
+            """Mathematics: publish a correlated durable response before consuming and ACKing its request sequence."""
             nonlocal handled
             handled = True
             try:
@@ -294,12 +295,14 @@ class MeasurementPeerServer:
         return handled or received is not None
 
     def _tick_if_due(self) -> None:
+        """Mathematics: advance the bounded reliable-response retry coordinate only after a finite monotonic interval."""
         now = time.monotonic()
         if now - self._last_tick >= 0.03:
             self.outbound.tick()
             self._last_tick = now
 
     def close(self) -> None:
+        """Mathematics: release the owned transport or ledger resource without admitting a new operation."""
         self.transport.close()
 
 
@@ -326,7 +329,7 @@ class MeasurementPeerClient:
                            tls_context: ssl.SSLContext, local_peer_id: str,
                            provider_peer_id: str, expected_provider_dns: str,
                            **kwargs: Any) -> "MeasurementPeerClient":
-        """Connect after certificate-chain verification and exact server DNS SAN match."""
+        """Mathematics: Connect after certificate-chain verification and exact server DNS SAN match."""
         transport = connect_mutual_tls(
             endpoint_host, port, local_peer_id, provider_peer_id, tls_context,
             server_hostname=expected_provider_dns,
@@ -339,7 +342,7 @@ class MeasurementPeerClient:
             raise
 
     def _exchange(self, request: Mapping[str, Any]) -> ObserverReceipt:
-        """Exchange one digest-correlated native receipt over peer-authenticated channels."""
+        """Mathematics: Exchange one digest-correlated native receipt over peer-authenticated channels."""
         self.outbound.process_ack()
         self.outbound.send({"kind": REQUEST_KIND, "request": dict(request)})
         deadline = time.monotonic() + self.timeout
@@ -372,7 +375,7 @@ class MeasurementPeerClient:
                 plan: Mapping[str, Any], contracts: Mapping[str, ObserverContract],
                 subject: RepresentationRef, scheduler: SchedulerReading,
                 challenge_digest: str) -> tuple[dict[str, Any], dict[str, ObserverReceipt]]:
-        """Accept only TLS-observed receipts, then invoke the native IOS-002 resolver.
+        """Mathematics: Accept only TLS-observed receipts, then invoke the native IOS-002 resolver.
 
         The trusted receipt admission callback is generated here from *this*
         mTLS session. Neither request contents nor a remote advertisement can
@@ -398,6 +401,7 @@ class MeasurementPeerClient:
 
         def receiver_admits(request: Mapping[str, Any], contract: ObserverContract,
                             evidence: ObserverReceipt) -> bool:
+            """Mathematics: accept only the exact peer-observed receipt bound to the current request and observer contract."""
             return (admitted.get(request["request_digest"]) == evidence.digest
                     and evidence.contract_digest == contract.digest)
 
@@ -409,4 +413,5 @@ class MeasurementPeerClient:
         return result, receipts
 
     def close(self) -> None:
+        """Mathematics: release the owned transport or ledger resource without admitting a new operation."""
         self.transport.close()
