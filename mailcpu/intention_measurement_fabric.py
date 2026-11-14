@@ -69,3 +69,68 @@ def _parse_request(payload: Any) -> dict[str, Any]:
         _hash(raw[field], field)
     if type(raw["feature_id"]) is not str or not raw["feature_id"]:
         raise SufficiencyRefused("measurement feature identity missing")
+    if type(raw["subject"]) is not dict:
+        raise SufficiencyRefused("measurement subject is invalid")
+    RepresentationRef.from_dict(raw["subject"])
+    tick = raw["scheduler"]
+    if type(tick) is not dict or set(tick) != {"scheduler_id", "tick"}:
+        raise SufficiencyRefused("measurement scheduler fields differ")
+    SchedulerReading(tick["scheduler_id"], tick["tick"])
+    if _fingerprint({key: value for key, value in raw.items() if key != "request_digest"}) != raw["request_digest"]:
+        raise SufficiencyRefused("measurement request digest changed")
+    return raw
+
+
+@dataclass(frozen=True)
+class HostedMeasurement:
+    """Receiver-installed observer binding and live, receiver-owned policy gate.
+
+    ``read`` receives only the correlation request. The private state is
+    retained in a closure or local substrate; it must not be serialized.
+    ``admit`` is a locally owned hook to the existing authority system, NOT
+    a permission imported from a remote directory advertisement.
+    """
+
+    contract: ObserverContract
+    model_digest: str
+    authority_now: Callable[[], str]
+    admit: Callable[[Mapping[str, Any], str], bool]
+    read: Callable[[Mapping[str, Any]], Any]
+    allowed_values: tuple[Any, ...]
+    max_projection_bytes: int = 512
+
+    def __post_init__(self) -> None:
+        if not lsinstance(self.contract, ObserverContract):
+            raise SufficiencyRefused("hosted measurement requires native observer contract")
+        _hash(self.model_digest, "hosted model")
+        if any(not callable(x) for x in (self.authority_now, self.admit, self.read)):
+            raise SufficiencyRefused("measurement needs locally provisioned authority, admission and read")
+        if type(self.allowed_values) is not tuple or not 1 <= len(self.allowed_values) <= 256:
+            raise SufficiencyRefused("measurement allowed-value domain must be finite")
+        if type(self.max_projection_bytes) is not int or not 1 <= self.max_projection_bytes <= 8192:
+            raise SufficiencyRefused("measurement payload ceiling invalid")
+        # Values are verified against a finite, locally declared feature domain.
+        canon = tuple(_bytes(value) for value in self.allowed_values)
+        if len(set(canon)) != len(canon) or any(len(item) > self.max_projection_bytes for item in canon):
+            raise SufficiencyRefused("measurement domain duplicates or exceeds payload bound")
+
+
+class MeasurementReceiptLedger:
+    """Persist completed read-only measurements before channel acknowledgement.
+
+    A restarted host reuses a stored receipt for an identical request, and
+    rejects a conflicting request that reuses (challenge, feature). A crash
+    *during* a read before commit may repeat a read: installed readers must
+    be deterministic, side-effect-free observations.
+    """
+
+    def __init__(self, filename: str | Path) -> None:
+        self._db = sqlite3.connect(str(filename), timeout=5, isolation_level=None)
+        self._db.execute("PRAGMA synchronous=FULL")
+        self._db.execute("CREATE TABLE IF NOT EXISTS measurement_completion ("
+                         "challenge TEXT NOT NULL, feature TEXT NOT NULL, request TEXT NOT NULL, "
+                         "response TEXT NOT NULL, PRIMARY KEY(challenge,feature))")
+
+    def complete(self, request: Mapping[str, Any], create: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+        """Atomically store or return the one result bound to a challenge/feature."""
+        challenge, feature, request_digest = (request[k] for k in
