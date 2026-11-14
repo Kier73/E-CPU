@@ -288,6 +288,9 @@ def receiver(root: Path, *, restore: bool) -> int:
         if state["incoming_channel"]["next_receive_sequence"] != 3:
             raise ModelRecoveryRefused("first receiver checkpoint already acknowledged the lost read")
         session = _restore(state)
+        initial_registry_digest = _digest(session.registry.snapshot())
+        initial_event_count = len(session.events)
+        initial_trace_digest = session.trace()["trace_digest"]
         outbound = ReliableChannel.from_snapshot(state["outgoing_channel"], transport)
         incoming = ReliableChannel.from_snapshot(state["incoming_channel"], transport)
         # Resend the exact unanswered stage prompt so the model can ACK
@@ -296,10 +299,8 @@ def receiver(root: Path, *, restore: bool) -> int:
         if pending_prompts:
             for sequence in pending_prompts:
                 outbound.retransmit(sequence)
-        semantic_reentries = 0
         replayed = []
         def replay_commit(sequence: int, reply: Any) -> None:
-            nonlocal semantic_reentries
             if (sequence != 3
                     or _digest(reply) != _digest(state["committed_reply"])
                     or reply["call"] != session.events[-1]["call"]):
@@ -310,6 +311,11 @@ def receiver(root: Path, *, restore: bool) -> int:
         delivered_seq, _ = _receive(incoming, outbound, commit=replay_commit)
         if delivered_seq != 3 or len(replayed) != 1:
             raise ModelRecoveryRefused("committed model operation was not replayed")
+        semantic_reentries = len(session.events) - initial_event_count
+        if (semantic_reentries != 0
+                or session.trace()["trace_digest"] != initial_trace_digest
+                or _digest(session.registry.snapshot()) != initial_registry_digest):
+            raise ModelRecoveryRefused("retried request repeated an E-CPU semantic effect")
         next_state = _capture(
             session, incoming, outbound,
             state["committed_reply"], state["committed_result"],
