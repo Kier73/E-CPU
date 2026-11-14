@@ -111,6 +111,7 @@ class NestedPortFabric:
     def __init__(self, physical_ports: int, *, virtual_hosts: int = 8,
                  queue_limit: int = 2, active_port_observer: bool = True,
                  max_jobs: int = 64):
+        """Create one chip-local network with finite interpreter and lane budgets."""
         _require(type(physical_ports) is int and physical_ports in (1, 2),
                  "physical port lanes must be one or two")
         _require(type(virtual_hosts) is int and 2 <= virtual_hosts <= 24,
