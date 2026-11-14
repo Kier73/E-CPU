@@ -1,0 +1,39 @@
+name: SAB-001 substrate-adaptive observer bootstrap
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'mailcpu/substrate_bootstrap.py'
+      - 'tests/test_substrate_bootstrap.py'
+      - 'docs/SUBSTRATE_ADAPTIVE_BOOTSTRAP.md'
+      - '.github/workflows/substrate-adaptive-bootstrap.yml'
+  pull_request:
+    paths:
+      - 'mailcpu/substrate_bootstrap.py'
+      - 'tests/test_substrate_bootstrap.py'
+      - 'docs/SUBSTRATE_ADAPTIVE_BOOTSTRAP.md'
+      - '.github/workflows/substrate-adaptive-bootstrap.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  adaptive-observer-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '${{ matrix.python }}'
+      - run: python -m pip install 'pytest>=8,<10'
+      - name: Run adaptable bootstrap and actual E-CPU owned-network integration
+        run: python -m pytest tests/test_substrate_bootstrap.py -v -rs
+      - name: Preserve E-CPU owned-network and law navigation regressions
+        run: python -m pytest tests/test_owned_network.py tests/test_state_space_navigation_experiment.py -q
