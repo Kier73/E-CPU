@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
-from typing import Any, Mapping
+from typing import Any, Mapping, Protocol
 
 from .runtime_qualification import (
     REQUEST_KIND, QualificationEndpoint, QualificationPolicy, QualificationRefused,
@@ -128,7 +128,7 @@ class RealizationPolicy:
         for pair in self.allowed:
             if (not isinstance(pair, tuple) or len(pair) != 2
                     or _name(pair[0], "locus") != pair[0]
-                    or pair[1] not in {"port", "interpreter", "federated"}):
+                    or _name(pair[1], "method") != pair[1]):
                 raise RealizationRefused("invalid local realizer permission")
 
     def permits(self, locus: str, method: str, coordinate: int) -> None:
@@ -243,6 +243,28 @@ def equivalent_observations(receipts: tuple[RealizationReceipt, ...],
             or len({x["output"]["value"] for x in views}) != 1):
         raise RealizationRefused("observations are not independently realized and equivalent")
     return True
+
+
+class GroundRealizer(Protocol):
+    """Substrate-independent adapter interface; methods are not enumerated."""
+
+    method: str
+    locus: str
+
+    def observe(self, intention: GroundIntention, policy: RealizationPolicy) -> RealizationReceipt:
+        """Return a receiver-verifiable observation using locally bound transitions."""
+        ...
+
+
+def realize_under_contract(realizer: GroundRealizer, intention: GroundIntention,
+                           policy: RealizationPolicy) -> RealizationReceipt:
+    """Admit a new typed realizer without modifying the Ground contract."""
+    policy.permits(realizer.locus, realizer.method, intention.coordinate)
+    record = realizer.observe(intention, policy)
+    verify_receipt(record, intention, policy)
+    if record.payload["method"] != realizer.method or record.payload["locus"] != realizer.locus:
+        raise RealizationRefused("realizer receipt did not name its bound implementation")
+    return record
 
 
 class TwoPortArithmeticGate:
