@@ -295,7 +295,11 @@ class FederatedTests(unittest.TestCase):
         self._stop("calc-slow")
         self._stop("port-relay")
         self._launch("store-b")
+        # SAB-004 validates the original decision's complete replica membership
+        # before reading any surviving copy. Retain the inactive store-a binding
+        # as metadata; the active availability set contains ONLY store-b.
         survivors = {
+            "store-a": qualified["store-a"],
             "store-b": QualifiedHost(
                 self.endpoints["store-b"], qualified["store-b"].report,
                 qualified["store-b"].policy,
