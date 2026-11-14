@@ -215,7 +215,7 @@ def _validate_state(payload: Any) -> None:
             or payload["ground_revision"] != 1):
         raise ModelRecoveryRefused("checkpoint Ground revision disagrees with last read")
     if (payload["incoming_channel"].get("channel") != CALL_CHANNEL
-            or payload["incoming_channel"].get("next_receive_sequence") != 3
+            or payload["incoming_channel"].get("next_receive_sequence") not in (3, 4)
             or payload["outgoing_channel"].get("next_sequence") != 4):
         raise ModelRecoveryRefused("checkpoint does not preserve the unacknowledged read cut")
 
@@ -285,6 +285,8 @@ def receiver(root: Path, *, restore: bool) -> int:
             )
             raise ModelRecoveryRefused("first receiver unexpectedly survived the crash cut")
         state, before = store.load()
+        if state["incoming_channel"]["next_receive_sequence"] != 3:
+            raise ModelRecoveryRefused("first receiver checkpoint already acknowledged the lost read")
         session = _restore(state)
         outbound = ReliableChannel.from_snapshot(state["outgoing_channel"], transport)
         incoming = ReliableChannel.from_snapshot(state["incoming_channel"], transport)
@@ -317,6 +319,9 @@ def receiver(root: Path, *, restore: bool) -> int:
         done = {
             "kind": DONE_SCHEMA, "session_id": session.session_id,
             "trace_digest": session.trace()["trace_digest"], "phase": session.phase,
+            "value": replayed[0]["value"],
+            "read_receipt_id": replayed[0]["read_receipt_id"],
+            "ground_digest": session.ground_digest,
         }
         outbound.send(done)
         _ack(outbound)
@@ -438,7 +443,10 @@ def run_demo(root: Path) -> dict[str, Any]:
         if replacement.returncode != 0:
             raise ModelRecoveryRefused("replacement receiver refused: " + err[-500:])
         report = json.loads((root / "recovered-report.json").read_text(encoding="utf-8"))
-        if done["trace_digest"] != report["trace_digest"] or done["phase"] != "complete":
+        if (done["trace_digest"] != report["trace_digest"] or done["phase"] != "complete"
+                or done["value"] != report["value"]
+                or done["read_receipt_id"] != report["read_receipt_id"]
+                or done["ground_digest"] != report["ground_digest"]):
             raise ModelRecoveryRefused("model and recovered receiver disagree on final Ground")
         expected = (7 + 201 + 5 * COORDINATE) % 97
         if report["value"] != expected or report["semantic_reentries"] != 0:
@@ -450,7 +458,7 @@ def run_demo(root: Path) -> dict[str, Any]:
             "replacement_receiver_process": report["receiver_process"],
             "first_receiver_exit": first_exit,
             "model_unchanged_process": True,
-            "read_pending_at_crash": 3 in model_outbound["pending"],
+            "read_pending_at_crash": "3" in model_outbound["pending"],
             "authenticated_reconnect": True,
             "model_calls": seen,
             "result": report,
