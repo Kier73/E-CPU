@@ -80,3 +80,80 @@ def test_native_request_canonical_digest_reconstruction_and_mutations():
     assert _parse_request({"kind": "mailcpu.intention.measurement.request.v1", "request": req}) == req
     changed = {**req, "feature_id": "full-state"}
     with pytest.raises(SufficiencyRefused, match="digest changed"):
+        _parse_request({"kind": "mailcpu.intention.measurement.request.v1", "request": changed})
+    with pytest.raises(SufficiencyRefused, match="field set"):
+        _parse_request({"kind": "mailcpu.intention.measurement.request.v1", "request": {**req, "private_phase": 3}})
+
+
+def test_ledger_recovery_reuses_receipt_and_refuses_cross_request_challenge(tmp_path):
+    filename = tmp_path / "measurement-authority.sqlite"
+    req = _requests()[0]
+    produced = []
+
+    def produce():
+        produced.append(1)
+        return {"kind": "test", "receipt_digest": "a" * 64}
+
+    ledger = MeasurementReceiptLedger(filename)
+    first = ledger.complete(req, produce)
+    second = ledger.complete(req, produce)
+    assert first == second and len(produced) == 1
+    ledger.close()
+    recovered = MeasurementReceiptLedger(filename)
+    assert recovered.complete(req, produce) == first and len(produced) == 1
+    conflicted = {**req, "request_digest": "b" * 64}
+    with pytest.raises(SufficiencyRefused, match="conflicting request"):
+        recovered.complete(conflicted, produce)
+    assert len(produced) == 1
+    recovered.close()
+
+
+def test_host_denies_changed_live_authority_without_read(tmp_path):
+    """Receiver admission must be rechecked; no request/receipt may authorize itself."""
+    from mailcpu.intention_measurement_fabric import MeasurementPeerServer
+    reads = []
+    host = object.__new__(MeasurementPeerServer)
+    host.installed = _installed(reads=reads, authority=lambda: "d" * 64)
+    host.peer_id = "provider-b"
+    host.client_id = "receiver-a"
+    host.ledger = MeasurementReceiptLedger(tmp_path / "auth.sqlite")
+    with pytest.raises(SufficiencyRefused, match="authority changed"):
+        host._respond({"kind": "mailcpu.intention.measurement.request.v1", "request": _requests()[0]})
+    assert reads == []
+    host.ledger.close()
+
+
+def test_host_refuses_output_outside_feature_domain_before_commit(tmp_path):
+    reads = []
+    host = object.__new__(MeasurementPeerServer)
+    model, public, offers, plan, contracts, subject = _setup()
+    binding = _installed(reads=reads)["parity"]
+    host.installed = {"parity": replace(binding, read=lambda request: {"hidden_state": 3})}
+    host.peer_id = "provider-b"
+    host.client_id = "receiver-a"
+    host.ledger = MeasurementReceiptLedger(tmp_path / "invalid.sqlite")
+    with pytest.raises(SufficiencyRefused, match="outside permitted projection"):
+        host._respond({"kind": "mailcpu.intention.measurement.request.v1", "request": _requests()[0]})
+    host.ledger.close()
+
+
+@pytest.fixture
+def tls_pair(tmp_path):
+    """Real CA-verified client and server certificates with pinned peer SANs."""
+    if shutil.which("openssl") is None:
+        pytest.skip("openssl executable unavailable")
+
+    def cmd(*args):
+        p = subprocess.run(["openssl", *args], cwd=tmp_path, capture_output=True, text=True)
+        if p.returncode:
+            raise RuntimeError(p.stderr)
+
+    ca_key, ca_cert = tmp_path / "ca.key", tmp_path / "ca.pem"
+    cmd("req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", str(ca_key),
+        "-out", str(ca_cert), "-days", "1", "-subj", "/CN=IOS Test CA",
+        "-addext", "basicConstraints=critical,CA:TRUE",
+        "-addext", "keyUsage=critical,keyCertSign,cRLSign")
+    certs = {}
+    for name, dns in (("provider", "provider-b.fabric.test"), ("receiver", "receiver-a.fabric.test")):
+        key, csr, cert, ext = (tmp_path / f"{name}.{suffix}" for suffix in ("key", "csr", "pem", "ext"))
+        cmd("req", "-new", "-newkey", "rsa:2048", "-nodes", "-keyout", str(key),
