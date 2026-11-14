@@ -48,6 +48,15 @@ def test_live_model_process_survives_receiver_hard_kill(recovered_session):
     assert report["result"]["first_quorum_generation"] == 1
     assert report["result"]["latest_quorum_generation"] == 2
     assert report["quorum_anchor_failure_domains"] == 1
+    exported = report["independent_case"]
+    assert exported["case"]["policy"] == "high-request"
+    assert [decision["call"] for decision in exported["episode"]["decisions"]] == [
+        "observe", "propose", "read"
+    ]
+    assert verify_system_call_trace(exported["episode"]["session"])
+    assert exported["episode"]["session"]["events"][-1]["output"]["value"] == (
+        7 + 201 + 5 * (10**12 + 137)
+    ) % 97
 
 
 def test_structural_ground_and_reliable_ack_cursor_restore_together(recovered_session):
