@@ -5,6 +5,7 @@ on:
     paths:
       - 'examples/model_system_worker.py'
       - 'examples/model_authenticated_fabric.py'
+      - 'examples/run_model_authenticated_experiment.py'
       - 'tests/test_model_authenticated_fabric.py'
       - 'docs/MODEL_AUTHENTICATED_FABRIC_USM004.md'
       - '.github/workflows/model-authenticated-fabric.yml'
@@ -38,6 +39,25 @@ jobs:
           python -m pytest -q
           tests/test_model_system_calls.py
           tests/test_model_authenticated_fabric.py
+      - name: Operate real authenticated model and receiver processes
+        run: python -m examples.run_model_authenticated_experiment --output usm004-report.json
+      - name: Independently inspect retained local operating result
+        run: |
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          doc = json.loads(Path("usm004-report.json").read_text())
+          digest = hashlib.sha256(json.dumps(
+            {k: v for k, v in doc.items() if k != "report_digest"},
+            sort_keys=True, separators=(",", ":"), allow_nan=False
+          ).encode()).hexdigest()
+          assert digest == doc["report_digest"]
+          assert [x["receiver"]["status"] for x in doc["cases"]] == [
+              "complete", "refused", "deferred"
+          ]
+          assert doc["physical_independence_attested"] is False
+          print("USM-004 session outcomes and report content digest verified")
+          PY
       - name: Retain experiment contract and dependency identities
         if: always()
         run: |
@@ -60,5 +80,7 @@ jobs:
         if: always()
         with:
           name: usm004-authenticated-model-runner
-          path: usm004-runner-environment.json
+          path: |
+            usm004-runner-environment.json
+            usm004-report.json
           if-no-files-found: warn
