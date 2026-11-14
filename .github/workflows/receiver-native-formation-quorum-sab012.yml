@@ -1,0 +1,52 @@
+name: SAB-012 receiver-native formation and quorum continuity
+
+on:
+  push:
+    paths:
+      - 'mailcpu/receiver_formed_native.py'
+      - 'mailcpu/receiver_formed_quorum.py'
+      - 'tests/test_receiver_formed_native.py'
+      - 'tests/test_receiver_formed_quorum.py'
+      - 'docs/RECEIVER_NATIVE_FORMATION_QUORUM_SAB012.md'
+      - '.github/workflows/receiver-native-formation-quorum-sab012.yml'
+  pull_request:
+    paths:
+      - 'mailcpu/receiver_formed_native.py'
+      - 'mailcpu/receiver_formed_quorum.py'
+      - 'tests/test_receiver_formed_native.py'
+      - 'tests/test_receiver_formed_quorum.py'
+      - 'docs/RECEIVER_NATIVE_FORMATION_QUORUM_SAB012.md'
+      - '.github/workflows/receiver-native-formation-quorum-sab012.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  receiver-native-formation-and-quorum:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Check actual E-CPU native runtime and tooling
+        run: |
+          python --version
+          openssl version
+          node --version
+          python -m compileall -q mailcpu
+          python -c 'from mailcpu import HeadlessOS, RecoveryLineageCoordinator, RecoveryLineageAuthority, SeedCommitMembership; assert HeadlessOS is not None'
+      - name: Test native receiver-formed Hypervisor and pinned mutual TLS
+        run: python -m unittest discover -s tests -p 'test_receiver_formed_native.py' -v
+      - name: Test constructed receiver, authenticated relay/storage, majority lineage recovery
+        run: python -m unittest discover -s tests -p 'test_receiver_formed_quorum.py' -v
+      - name: Regress SAB-011 constructed composite hosts
+        run: python -m unittest discover -s tests -p 'test_composite_host_formation.py' -v
+      - name: Regress SAB-010 primitive construction
+        run: python -m unittest discover -s tests -p 'test_capability_construction.py' -v
