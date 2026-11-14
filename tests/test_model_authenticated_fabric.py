@@ -166,6 +166,21 @@ def test_remote_model_cannot_grant_receiver_admission(tmp_path, temp_certificate
     )
 
 
+def test_trained_model_operates_over_authenticated_fabric_without_override(
+    tmp_path, temp_certificates
+):
+    result = operate(tmp_path, temp_certificates, policy="trained")
+    report = _assert_transport_completed(result)
+    assert report["status"] in {"complete", "refused", "deferred"}
+    operations = [item["call"]["op"] for item in report["session"]["events"]]
+    assert operations[0] == "observe"
+    assert operations[1] in {"propose", "stop"}
+    if report["status"] == "complete":
+        assert report["session"]["events"][-1]["output"]["value"] == (
+            7 + 201 + 5 * (10**12 + 137)
+        ) % 97
+
+
 def test_wrong_peer_certificate_identity_never_reaches_ground(tmp_path, temp_certificates):
     result = operate(tmp_path, temp_certificates, client_role="intruder")
     assert result["receiver_returncode"] != 0
