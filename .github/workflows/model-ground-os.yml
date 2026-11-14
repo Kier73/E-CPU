@@ -4,12 +4,14 @@ on:
   push:
     paths:
       - 'examples/model_ground_os.py'
+      - 'examples/model_ground_worker.py'
       - 'tests/test_model_ground_os.py'
       - 'docs/MODEL_OPERATED_GROUND_OS.md'
       - '.github/workflows/model-ground-os.yml'
   pull_request:
     paths:
       - 'examples/model_ground_os.py'
+      - 'examples/model_ground_worker.py'
       - 'tests/test_model_ground_os.py'
       - 'docs/MODEL_OPERATED_GROUND_OS.md'
       - '.github/workflows/model-ground-os.yml'
