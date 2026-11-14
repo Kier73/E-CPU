@@ -1,0 +1,46 @@
+name: SAB-010 capability-to-construction compiler
+
+on:
+  push:
+    paths:
+      - 'mailcpu/capability_construction.py'
+      - 'tests/test_capability_construction.py'
+      - 'docs/CAPABILITY_CONSTRUCTION_SAB010.md'
+      - '.github/workflows/capability-construction-sab010.yml'
+      - 'mailcpu/active_host_formation.py'
+      - 'mailcpu/ground_native_realization.py'
+  pull_request:
+    paths:
+      - 'mailcpu/capability_construction.py'
+      - 'tests/test_capability_construction.py'
+      - 'docs/CAPABILITY_CONSTRUCTION_SAB010.md'
+      - '.github/workflows/capability-construction-sab010.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  formed-capability-algebra:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Compile Python modules
+        run: python -m compileall -q mailcpu
+      - name: Validate primitive-to-host construction and adversarial cases
+        run: python -m unittest discover -s tests -p 'test_capability_construction.py' -v
+      - name: Regress active formation into code-and-data receivers
+        run: python -m unittest discover -s tests -p 'test_active_host_formation.py' -v
+      - name: Regress Ground-native cross-substrate realization
+        run: python -m unittest discover -s tests -p 'test_ground_native_realization.py' -v
