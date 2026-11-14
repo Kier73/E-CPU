@@ -1,0 +1,43 @@
+name: SAB-003 portable runtime qualification
+
+on:
+  push:
+    paths:
+      - 'mailcpu/runtime_qualification.py'
+      - 'mailcpu/runtime_qualification_worker.py'
+      - 'tests/test_runtime_qualification.py'
+      - 'docs/RUNTIME_QUALIFICATION_SAB003.md'
+      - '.github/workflows/runtime-qualification.yml'
+  pull_request:
+    paths:
+      - 'mailcpu/runtime_qualification.py'
+      - 'mailcpu/runtime_qualification_worker.py'
+      - 'tests/test_runtime_qualification.py'
+      - 'docs/RUNTIME_QUALIFICATION_SAB003.md'
+      - '.github/workflows/runtime-qualification.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qualification-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Check package syntax
+        run: python -m compileall -q mailcpu
+      - name: Qualify fixed external code-and-data processes with adversarial tests
+        run: python -m unittest discover -s tests -p 'test_runtime_qualification.py' -v
+      - name: Regress active Ground discovery
+        run: python -m unittest discover -s tests -p 'test_active_ground_discovery.py' -v
+      - name: Regress substrate-adaptive bootstrap
+        run: python -m unittest discover -s tests -p 'test_substrate_bootstrap.py' -v
