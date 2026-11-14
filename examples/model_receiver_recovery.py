@@ -88,13 +88,27 @@ class ModelRecoveryStore:
         self.membership = SeedCommitMembership(
             MACHINE, 1, ("A", "B", "C"), "A", 1, GENESIS,
         )
-        authorities = {
-            member: RecoveryLineageAuthority(
-                self.membership, member, str(self.root / f"anchor-{member}.jsonl")
-            )
-            for member in self.membership.member_ids
-        }
-        self.lineage = RecoveryLineageCoordinator(self.membership, authorities)
+        # An authenticated remote authority configuration is receiver-owned.
+        # Default USM-005 continues using its original three local journals.
+        config = self.root / "remote-authorities.json"
+        self._remote_lineage = False
+        if config.exists():
+            from examples.model_distributed_lineage import open_distributed_lineage
+            self.lineage = open_distributed_lineage(self.membership, self.root, config)
+            self._remote_lineage = True
+        else:
+            authorities = {
+                member: RecoveryLineageAuthority(
+                    self.membership, member, str(self.root / f"anchor-{member}.jsonl")
+                )
+                for member in self.membership.member_ids
+            }
+            self.lineage = RecoveryLineageCoordinator(self.membership, authorities)
+
+    def close(self) -> None:
+        """Close authenticated remote authority channels if this store owns any."""
+        if self._remote_lineage:
+            self.lineage.close()
 
     def save(self, state: Mapping[str, Any], cut: str) -> RecoveryStateManifest:
         """Seal the exact state bytes before the receiver may acknowledge it."""
@@ -353,6 +367,7 @@ def receiver(root: Path, *, restore: bool) -> int:
         )
         return 0
     finally:
+        store.close()
         if transport is not None and not transport.closed:
             transport.close()
         listener.close()
@@ -390,8 +405,15 @@ def _spawn(root: Path, restore: bool) -> tuple[subprocess.Popen[str], int]:
     return child, port
 
 
-def run_demo(root: Path) -> dict[str, Any]:
-    """Prove one model host survives a hard receiver kill and resumes by TLS."""
+def run_demo(
+    root: Path, *,
+    configure_lineage: Any = None,
+) -> dict[str, Any]:
+    """Prove one model host survives a hard receiver kill and resumes by TLS.
+
+    A receiver-owned optional setup hook can provision E-CPU's existing remote
+    quorum services. The default USM-005 experiment remains unchanged.
+    """
     root.mkdir(parents=True, exist_ok=True)
     # Same-model process throughout this function, never restarted.
     temporary = root / "certificates"
@@ -402,6 +424,7 @@ def run_demo(root: Path) -> dict[str, Any]:
         if target is not None:
             target.write_bytes(key.read_bytes())
     cert_paths = _paths(root)
+    cleanup_lineage = configure_lineage(root, keys) if configure_lineage is not None else None
     first = replacement = None
     first_transport = second_transport = None
     try:
@@ -503,6 +526,8 @@ def run_demo(root: Path) -> dict[str, Any]:
             if child is not None and child.poll() is None:
                 child.kill()
                 child.communicate(timeout=5)
+        if cleanup_lineage is not None:
+            cleanup_lineage()
 
 
 def main() -> int:
