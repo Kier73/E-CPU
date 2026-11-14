@@ -184,6 +184,15 @@ class FormationBridgeTests(unittest.TestCase):
         finally:
             self.compute_a.compiler.authority=original
 
+    def test_prepared_checkpoint_without_decision_is_not_recovered(self):
+        """Data alone cannot advance SAB-004's existing acceptance predicate."""
+        unfinished = CompositeIntent("sab011-uncommitted",5,7,65521,19,N)
+        c = self.controller()
+        data = checkpoint_record(unfinished,expected_result(unfinished))
+        c.placement._store("store-a",unfinished,data)
+        with self.assertRaises(PlacementRefused):
+            c.resume(unfinished,active_hosts=("store-a",),coordinate=8)
+
     def test_wrong_ground_conflicts_with_immutable_checkpoint(self):
         c=self.controller()
         active=tuple(x for x in self.hosts if x!="compute-a")
