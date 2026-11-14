@@ -27,20 +27,24 @@ class NestedPortError(ValueError):
 
 
 def _require(condition: bool, message: str) -> None:
+    """Refuse a malformed or over-budget operation before admitting a transition."""
     if not condition:
         raise NestedPortError(message)
 
 
 def _canonical(value: Any) -> bytes:
+    """Serialize one finite object canonically to bind operation identity."""
     return json.dumps(value, sort_keys=True, separators=(",", ":"),
                       ensure_ascii=False, allow_nan=False).encode("utf-8")
 
 
 def _hash(value: Any) -> str:
+    """Identify one canonical value using an unkeyed SHA-256 digest."""
     return hashlib.sha256(_canonical(value)).hexdigest()
 
 
 def _packet(job: dict[str, Any], *, kind: str) -> dict[str, Any]:
+    """Produce the exact allowed query or answer envelope for one virtual job."""
     return {
         "schema": WIRE, "kind": kind, "job_id": job["job_id"],
         "worker": job["worker"], "lane": job["lane"],
@@ -51,6 +55,7 @@ def _packet(job: dict[str, Any], *, kind: str) -> dict[str, Any]:
 
 
 def _decode(raw: bytes) -> dict[str, Any]:
+    """Admit only canonical, bounded, role-consistent application packets."""
     _require(type(raw) is bytes and 0 < len(raw) <= MAX_PACKET, "invalid frame length")
     try:
         doc = json.loads(raw.decode("utf-8"))
@@ -80,6 +85,7 @@ def _decode(raw: bytes) -> dict[str, Any]:
 
 
 def _observed(job: dict[str, Any]) -> tuple[int, str]:
+    """Evaluate the admitted LCG Ground and issue its unsigned result digest."""
     # Independent logical worker description: state orbit then projection.
     value = SelfHostedPortNetwork._projected(
         SelfHostedPortNetwork._navigated(job["coordinate"]))
@@ -167,13 +173,8 @@ class NestedPortFabric:
 
     @property
     def complete(self) -> bool:
+        """Report whether all admitted virtual-host jobs have concluded."""
         return bool(self.jobs) and all(job["phase"] == "done" for job in self.jobs)
-
-    def _find_job(self, job_id: str) -> dict[str, Any]:
-        for job in self.jobs:
-            if job["job_id"] == job_id:
-                return job
-        raise NestedPortError("unknown job")
 
     def _inspect(self, job: dict[str, Any], kind: str) -> None:
         """Check source, route, exact packet, and content before dequeue."""
@@ -224,6 +225,7 @@ class NestedPortFabric:
         return False
 
     def _lane_step(self, lane: int) -> bool:
+        """Spend at most one grant on this lane using bounded round-robin."""
         if not self.jobs:
             return False
         n = len(self.jobs)
@@ -280,6 +282,7 @@ class NestedPortFabric:
                 "outstanding": sum(job["phase"] != "done" for job in self.jobs)}
 
     def run(self, max_ticks: int = 512) -> dict[str, Any]:
+        """Run up to a finite number of quanta, refusing an incomplete result."""
         _require(type(max_ticks) is int and 1 <= max_ticks <= 100_000,
                  "finite scheduler budget required")
         _require(bool(self.jobs), "no submitted work")
@@ -291,6 +294,7 @@ class NestedPortFabric:
         return self.report()
 
     def report(self) -> dict[str, Any]:
+        """Return only completed observations with separate physical budgets."""
         _require(self.complete, "cannot report unfinished network")
         return {"schema": SCHEMA, "physical_port_lanes": self.physical_ports,
                 "virtual_hosts": self.virtual_hosts,
@@ -359,6 +363,7 @@ class NestedPortFabric:
         return node
 
     def _verify_restored(self) -> None:
+        """Recheck exact topology, queue frames, receipts, and costs on restore."""
         reference = NestedPortFabric(self.physical_ports, virtual_hosts=self.virtual_hosts,
                                      queue_limit=self.queue_limit,
                                      active_port_observer=self.active_port_observer,
@@ -366,6 +371,7 @@ class NestedPortFabric:
         _require(self.fabric.namespaces() == reference.fabric.namespaces() and
                  self.fabric.links() == reference.fabric.links(), "restored topology differs")
         def config(items: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
+            """Project immutable per-interface admission attributes."""
             return [{k: item[k] for k in ("namespace", "interface", "mtu",
                                          "queue_limit", "link_id", "up")} for item in items]
         _require(config(self.fabric.interfaces()) == config(reference.fabric.interfaces()),
