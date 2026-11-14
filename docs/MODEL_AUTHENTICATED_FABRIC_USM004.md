@@ -70,6 +70,9 @@ It covers:
 - A deliberately high-confidence model requesting a nonlinear Ground, with
   E-CPU free to refuse.
 - A model whose policy chooses to stop after observing.
+- Two **unforced trained-model** operating sessions, with separate affine
+  and nonlinear sources. The training result does not override receiver
+  evidence and can produce a proposal or a deferral.
 - A request made without host admission authority.
 - A certificate issued by the same test CA but with the wrong client DNS SAN:
   authentication must stop before any Ground-service call.
