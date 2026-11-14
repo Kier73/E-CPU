@@ -212,6 +212,12 @@ class SelfOrganizingTests(unittest.TestCase):
         with self.assertRaisesRegex(ReconciliationRefused, "TLS identity"):
             self.fabric().compile(self.intent, coordinate=13)
 
+    def test_runtime_port_must_match_native_directory(self) -> None:
+        """A same-host same-SAN alternate port is a distinct service and refused."""
+        self.endpoints["calc-fast"].address = ("127.0.0.1", 444)
+        with self.assertRaisesRegex(ReconciliationRefused, "TLS identity/address"):
+            self.fabric().compile(self.intent, coordinate=13)
+
     def test_expired_local_grant_forbids_recompilation(self) -> None:
         """Fresh peer evidence is insufficient without locally valid operation grants."""
         f = self.fabric()
