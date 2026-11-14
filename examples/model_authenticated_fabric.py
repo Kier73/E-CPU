@@ -163,6 +163,7 @@ def receiver_session(
     endpoint *before* an operation's transport acknowledgement is emitted.
     Crash-durable recovery is a separate milestone.
     """
+    negotiated_tls_version = transport.socket.version()
     registry = StructuralMemoryRegistry(
         admission_policy=None if deny_admission else
         lambda p: p.spec.domain == "model-operated-observed-orbit" and p.spec.context == CONTEXT
@@ -213,7 +214,7 @@ def receiver_session(
         "protocol": PROTOCOL,
         "transport": "mailcpu-mutual-tls-socket-reliable-channel",
         "peer_dns_verified": MODEL_DNS,
-        "tls_version": transport.socket.version(),
+        "tls_version": negotiated_tls_version,
         "receiver_process": os.getpid(),
         "session": trace,
         "exchanges": exchanges,
@@ -224,6 +225,7 @@ def receiver_session(
 
 def model_host_session(transport: SocketTransport) -> dict[str, Any]:
     """An unprivileged model host receives observations and issues remote calls."""
+    negotiated_tls_version = transport.socket.version()
     outbound, inbound = _channels(transport, model_side=True)
     requests_processed = 0
     final = None
@@ -254,7 +256,7 @@ def model_host_session(transport: SocketTransport) -> dict[str, Any]:
         "protocol": PROTOCOL,
         "model_process": os.getpid(),
         "receiver_dns_verified": RECEIVER_DNS,
-        "tls_version": transport.socket.version(),
+        "tls_version": negotiated_tls_version,
         "requests_processed": requests_processed,
         "final": final,
     }
