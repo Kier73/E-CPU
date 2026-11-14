@@ -118,10 +118,16 @@ def run() -> dict[str, object]:
             run_case(root, certs, kind="affine", policy="high-request"),
             run_case(root, certs, kind="nonlinear", policy="high-request"),
             run_case(root, certs, kind="affine", policy="low-request"),
+            run_case(root, certs, kind="affine", policy="trained"),
+            run_case(root, certs, kind="nonlinear", policy="trained"),
         ]
     statuses = [x["receiver"]["status"] for x in results]
-    if statuses != ["complete", "refused", "deferred"]:
-        raise RuntimeError("unexpected independent model/E-CPU operation outcomes")
+    if statuses[:3] != ["complete", "refused", "deferred"]:
+        raise RuntimeError("unexpected independent model/E-CPU control outcomes")
+    if any(status not in {"complete", "refused", "deferred"} for status in statuses[3:]):
+        raise RuntimeError("trained model did not produce an admitted system-call outcome")
+    if statuses[4] == "complete":
+        raise RuntimeError("trained model admitted an invalid nonlinear Ground")
     first = results[0]["receiver"]["session"]
     coordinate = first["requested_coordinate"]
     expected = (7 + 201 + 5 * coordinate) % 97
@@ -134,6 +140,12 @@ def run() -> dict[str, object]:
         "ephemeral_test_certificates": True,
         "cases": results,
         "oracle_checked": True,
+        "trained_model_unforced": True,
+        "trained_model_outcomes": [
+            {"kind": x["kind"], "status": x["receiver"]["status"],
+             "model_digest": x["receiver"]["model_digest"]}
+            for x in results[3:]
+        ],
     }
     return {**core, "report_digest": _digest(core)}
 
