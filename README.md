@@ -8,6 +8,25 @@ The goal is for computational meaning, logical state, and accepted results to be
 
 The physical processor is a realizer of computation, not the definition of the computation.
 
+
+## Foremost capability: form computational environments from available substrates
+
+**E-CPU must be able to actively form the computational environment it needs, not only discover one that already exists.** At first bootstrap, no CPU, Python process, operating system, virtual machine, network protocol, or specific host topology is a privileged native substrate. A *host* is an identifiable observer: a locus with an admitted information relation. It may begin as a port, interpreter, queue, sensor, storage medium, process, service, or composition of such resources. The substrate provides mechanisms; E-CPU gives admitted mechanisms a computational organization.
+
+The intended bootstrap is **observe → qualify → construct → admit → navigate → verify → retain/recover**:
+
+1. **Observe and qualify** what the receiving environment can actually distinguish, transform, transport, retain, or interpret, including the bounds and provenance of those observations.
+2. **Construct or impose a realization** when the environment supports it: install a bounded interpreter seed, configure an active port or queue, compose multiple observer-host fragments, or construct a higher-level operator from verified primitive transitions. Do not require a preinstalled E-CPU-specific handler.
+3. **Admit locally, then navigate** the desired Ground and intention under receiver-owned authority. Route and capability advertisements do not grant execution rights; an authorized receiving environment may be configured to acquire new capabilities, but mere reachability or reception does not authorize deployment.
+4. **Verify observations and preserve continuity** independently of placement. The Ground and intention identify the computation; implementations, physical work, costs, receipts, and recoverable state remain separately accountable as substrates change.
+
+**Ground-native** refers to a valid operation or observation within an admitted Computational Ground. **Implementation-native** refers only to the mechanism presently used to realize it. E-CPU should make the first independent of the second: its Python package, MailCPU instruction machine, TLS fabric, and Hypervisor implementations are *realizers*, not requirements for every future E-CPU bootstrap.
+
+This is a **foremost development objective**, not a claim that every receptive medium can execute code. A passive carrier may contribute transport; a writable medium may retain a formed seed; an active observer with sufficient permitted transitions may become an execution locus. Whether a resource can be formed into a given role must be demonstrated by actual transitions, bounded observation, and current authority. General active formation across arbitrary physical substrates remains in development.
+
+See [Communication Host Model](docs/COMMUNICATION_HOST_MODEL.md), [Computational State-Space Architecture](docs/COMPUTATIONAL_STATE_SPACE_ARCHITECTURE.md), and [Substrate-adaptive bootstrap](docs/SUBSTRATE_ADAPTIVE_BOOTSTRAP.md). The SAB-008 and SAB-009 experiments extend this direction through Ground-native realization and authorized code-and-data host formation.
+
+
 ## The intention
 
 A finite description can denote a very large or infinite family of states and operations. A recurrence can describe a sequence without storing each term. A transition grammar can describe many possible paths without enumerating them. A mathematical domain can be represented through its laws and supported observations.
@@ -134,6 +153,7 @@ The larger architecture is in development through these connected efforts:
 - **Navigation strategy selection:** select direct evaluation, inversion, indexing, formal analysis, or explicit traversal based on the admitted Ground and requested observation.
 - **Compositional verification:** verify complete paths across translations, state transitions, observers, and hosts.
 - **Network-wide semantic resolution:** locate compatible Grounds, state descriptions, observers, translators, and physical realizers across the fabric.
+- **Active host formation (foremost):** derive suitable execution/observation roles from qualified primitive operations; construct needed E-CPU runtime fragments on authorized receiving surfaces, then independently validate, repair, and recover the formed environment.
 - **General model computation:** develop actual tensor and model-operation Grounds, including stateful model sessions, then demonstrate useful workloads through E-CPU.
 
 The current foundations are substantial, but the complete general description-to-observation path is still in active development. Current implementation and evidence are distinguished in the specifications rather than implied by the architectural goal.
