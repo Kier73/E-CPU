@@ -62,8 +62,15 @@ journals and verifies that generation 2 is the high-water.
 
 The existing USM-005 default mode, using in-process journals, remains
 available unchanged for regression and comparison. Remote mode is enabled
-by a strictly validated **receiver-owned configuration file** under the
-recovery checkpoint directory.
+by a strictly validated **receiver-owned configuration file** and a durable
+authority-mode marker under the checkpoint directory.
+
+The marker prevents an important downgrade: deleting or losing the remote
+connection configuration must **not** make an operating receiver silently
+fall back to local member journals. After the authority services stop, the
+experiment can explicitly reopen the journals in `offline_audit=True` mode
+to inspect their history. That audit mode is strictly read-only and refuses
+new generation seals; it is not a substitute for a live remote quorum.
 
 ## Reproduction
 
@@ -75,8 +82,9 @@ python -m examples.model_distributed_lineage demo --output usm006-report.json
 The tests verify remote service identity, distinct OS process identities,
 survival across receiver replacement, native model/E-CPU effect continuity,
 post-shutdown durable quorum reconstruction, rejection of a changed configured
-DNS identity, and fail-closed quorum commitment when both remote authorities
-are absent. This last case is intentionally negative: A alone cannot
+DNS identity, refusal to downgrade a remote authority into local quorum, a
+read-only audit path, and fail-closed quorum commitment when both remote
+authorities are absent. This last case is intentionally negative: A alone cannot
 commit a recovery manifest.
 
 ## Explicit evidence boundaries
