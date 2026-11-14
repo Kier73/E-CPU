@@ -4,6 +4,7 @@ from __future__ import annotations
 from copy import deepcopy
 
 import pytest
+from mailcpu.owned_network import OwnedNetworkError
 
 from mailcpu.self_hosted_port_network import (
     MAX_COORDINATE, MODULUS, SelfHostedPortError, SelfHostedPortNetwork,
@@ -138,7 +139,6 @@ def test_invalid_snapshot_topology_and_physical_port_limits():
     bad = deepcopy(snap)
     bad["fabric"]["links"].pop()
     with pytest.raises((SelfHostedPortError, OwnedNetworkError, KeyError, ValueError)):
-        from mailcpu.owned_network import OwnedNetworkError
         SelfHostedPortNetwork.from_snapshot(bad)
     bad = deepcopy(snap)
     bad["physical_ports"] = 3
