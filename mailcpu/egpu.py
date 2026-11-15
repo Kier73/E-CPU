@@ -11,6 +11,7 @@ from typing import Any, Mapping, Sequence
 
 from .classifier import HypervisorArbitrationEvent, HypervisorRequest
 from .transit_simt import TransitSIMTError, TransitSIMTHost
+from .tensor_stream import TensorStreamError, compile_matmul_tile
 
 _OPERATION = "execute deterministic CPU E-GPU method"
 _RESOURCE = "/gpu/egpu"
@@ -19,6 +20,7 @@ _METHODS = {
     "simt.kernel": ("simt.execute",),
     "vector.add": ("simt.execute",),
     "vector.multiply": ("simt.execute",),
+    "tensor.matmul.tile": ("simt.execute",),
     "vector.sum": ("reduce.tree",),
     "workgroup.shared_kernel": ("workgroup.execute", "shared.memory"),
 }
@@ -173,6 +175,8 @@ class EGPUHost:
             result = self._vector(event, method)
         elif method == "vector.sum":
             result = self._reduce(request.payload)
+        elif method == "tensor.matmul.tile":
+            result = self._tensor_tile(event, request.payload)
         elif method == "workgroup.shared_kernel":
             result = self._workgroup_kernel(event, request.payload)
         else:
@@ -313,6 +317,19 @@ class EGPUHost:
             raise EGPUError(f"SIMT execution refused: {exc}") from exc
 
 
+    def _tensor_tile(
+        self,
+        event: HypervisorArbitrationEvent,
+        payload: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Mathematics: compile a bounded matrix product tile into SIMT multiply-accumulate lanes."""
+
+        try:
+            lanes, inputs, program, budget = compile_matmul_tile(payload, self.simt_host)
+        except TensorStreamError as exc:
+            raise EGPUError(f"tensor tile refused: {exc}") from exc
+        return self._run_simt(event, lanes, inputs, program, budget)
+
     def _workgroup_kernel(
         self,
         event: HypervisorArbitrationEvent,
@@ -365,7 +382,7 @@ class EGPUHost:
     def _verify_result(self, method: str, payload: Mapping[str, Any], result: Mapping[str, Any]) -> None:
         """Mathematics: compare vector and reduction results with scalar definitions and recompute backend state digests."""
 
-        if method in {"simt.kernel", "vector.add", "vector.multiply", "workgroup.shared_kernel"}:
+        if method in {"simt.kernel", "vector.add", "vector.multiply", "workgroup.shared_kernel", "tensor.matmul.tile"}:
             fields = ["lanes", "steps", "registers", "outputs", "mask_trace", "barriers"]
             if method == "workgroup.shared_kernel":
                 fields.extend(("shared_memory", "shared_epochs"))
@@ -384,6 +401,20 @@ class EGPUHost:
             expected = [a * b for a, b in zip(payload["left"], payload["right"])]
             if result["outputs"].get("result") != expected:
                 raise EGPUError("vector multiplication failed its scalar reference check")
+        elif method == "tensor.matmul.tile":
+            rows, cols, depth = payload["shape"]
+            expected = list(payload["accumulate"])
+            for k in range(depth):
+                for row in range(rows):
+                    for col in range(cols):
+                        i = row * cols + col
+                        expected[i] += (
+                            payload["left"][row * depth + k]
+                            * payload["right"][k * cols + col]
+                        )
+                        self._integer_bound(expected[i])
+            if result["outputs"].get("result") != expected:
+                raise EGPUError("tensor matrix tile failed its independent integer oracle")
         elif method == "vector.sum":
             state = {k: result[k] for k in ("sum", "levels", "work_units", "trace")}
             if result.get("state_digest") != _digest(state):
