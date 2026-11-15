@@ -37,6 +37,9 @@ transition through the existing distributed lineage coordinator.
 Two candidates are permitted to request the same Ground result. Only the
 first native majority-committed claimant becomes the authorized logical
 publisher. The other receives `superseded` and no publication payload.
+The winner also receives a stable `urn:sha256:` publication identity bound
+to its read receipt, Ground trace, owner, and quorum manifest. Replaying the
+same request must return that exact identity without minting generation 4.
 
 The actual sequence is:
 
