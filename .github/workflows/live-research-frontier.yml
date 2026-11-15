@@ -1,0 +1,75 @@
+name: USM-009 E-CPU direct research frontier
+
+on:
+  push:
+    paths:
+      - 'examples/research_frontier.py'
+      - 'examples/research_frontier_worker.py'
+      - 'examples/research_frontier_config.json'
+      - 'tests/test_research_frontier.py'
+      - 'docs/LIVE_RESEARCH_FRONTIER_USM009.md'
+      - '.github/workflows/live-research-frontier.yml'
+  pull_request:
+    paths:
+      - 'examples/research_frontier.py'
+      - 'examples/research_frontier_worker.py'
+      - 'examples/research_frontier_config.json'
+      - 'tests/test_research_frontier.py'
+      - 'docs/LIVE_RESEARCH_FRONTIER_USM009.md'
+      - '.github/workflows/live-research-frontier.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+jobs:
+  navigate-actual-research-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install E-CPU's existing navigation runtime
+        run: python -m pip install -e . pytest
+      - name: Verify model/refusal and native DAG frontier behavior
+        run: python -m pytest -q tests/test_research_frontier.py
+      - name: Observe actual GitHub model-operation PR and workflow evidence
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          python -m examples.research_frontier
+          --live
+          --evidence-output usm009-source-observation.json
+          --output usm009-research-result.json
+      - name: Repeat the exact observation offline and compare the decision
+        run: |
+          python -m examples.research_frontier \
+            --snapshot usm009-source-observation.json \
+            --output usm009-replayed-result.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          a = json.loads(Path("usm009-research-result.json").read_text())
+          b = json.loads(Path("usm009-replayed-result.json").read_text())
+          assert a == b, "recovered research decision diverged from source"
+          assert a["merge_authorized"] is False
+          assert a["github_state_mutated"] is False
+          assert a["graph_snapshot"]["format"] == "mailcpu-navigable-computation-dag-v1"
+          print("E-CPU directly prioritized:", a["selected_pr"]["id"])
+          print("Allowed research next action:", a["recommended_action"])
+          print("Observed source time:", a["observed_at"])
+          PY
+      - name: Retain actual source and reconstructed research guidance
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: usm009-ecpu-assists-own-development
+          path: |
+            usm009-source-observation.json
+            usm009-research-result.json
+            usm009-replayed-result.json
+          if-no-files-found: warn
