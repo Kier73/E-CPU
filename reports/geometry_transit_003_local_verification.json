@@ -1,0 +1,26 @@
+{
+  "schema": "geometry-transit-003-local-verification.v1",
+  "date": "2026-11-15",
+  "code_compilation": "passed",
+  "vgi_focus_test_suites": [
+    "test_geometry_first.py",
+    "test_polynomial_lift.py",
+    "test_sparse_polynomial.py",
+    "test_program_law.py",
+    "test_typed_operator_navigation.py",
+    "test_invariant_blocks.py",
+    "test_similarity_blocks.py",
+    "test_structural_memory.py"
+  ],
+  "vgi_test_result": {"passed": 81, "subtests_passed": 14, "failed": 0},
+  "math_environment": "isolated VGI geometry-first research files plus API-compatible local ModularAffineMap stand-in, NOT full VGI repository CI",
+  "receiver_math_controls": [
+    {"initial": [2, 4, 8, 16, 32, 64], "logical_tick": "1000000000000000000000000000011", "result": [8, 84, 58, 6, 91, 8]},
+    {"initial": [5, 10, 15, 20, 25, 30], "logical_tick": "1000000000000000000000000000017", "result": [58, 84, 94, 37, 2, 68]}
+  ],
+  "same_result_from": ["VGI certified similarity-memory state_at", "independent dense operator powering"],
+  "full_ecpu_package_installed": false,
+  "physical_transit_crash_recovery_executed": false,
+  "github_actions_queued": true,
+  "proof_scope": "Verified mathematical controls and source compilation only; full native E-CPU effect-replay and fresh-operation recovery claims await CI"
+}
