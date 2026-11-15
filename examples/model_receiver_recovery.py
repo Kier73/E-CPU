@@ -82,22 +82,61 @@ def _persist(path: Path, data: bytes) -> None:
 class ModelRecoveryStore:
     """Fixed-membership durable checkpoint roots with a quorum high-water mark."""
 
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, *, offline_audit: bool = False):
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
         self.membership = SeedCommitMembership(
             MACHINE, 1, ("A", "B", "C"), "A", 1, GENESIS,
         )
-        authorities = {
-            member: RecoveryLineageAuthority(
-                self.membership, member, str(self.root / f"anchor-{member}.jsonl")
-            )
-            for member in self.membership.member_ids
-        }
-        self.lineage = RecoveryLineageCoordinator(self.membership, authorities)
+        if type(offline_audit) is not bool:
+            raise ModelRecoveryRefused("offline_audit must be a literal boolean")
+        # Refuse silent fallback from authenticated remote authority to
+        # in-process authority if the connection configuration disappears.
+        config = self.root / "remote-authorities.json"
+        marker = self.root / "authority-mode.json"
+        self._offline_audit = False
+        if marker.exists():
+            from examples.model_distributed_lineage import MODE_SCHEMA
+            try:
+                mode = json.loads(marker.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                raise ModelRecoveryRefused("authority mode marker cannot be read") from exc
+            if (type(mode) is not dict
+                    or set(mode) != {"schema", "mode", "membership_digest"}
+                    or mode["schema"] != MODE_SCHEMA
+                    or mode["mode"] != "remote-mutual-tls"
+                    or mode["membership_digest"] != self.membership.digest):
+                raise ModelRecoveryRefused("authority mode marker is invalid")
+            if not config.exists() and not offline_audit:
+                raise ModelRecoveryRefused("remote authority connection missing; local fallback forbidden")
+        elif offline_audit:
+            raise ModelRecoveryRefused("offline remote quorum audit needs a mode marker")
+        elif config.exists():
+            raise ModelRecoveryRefused("remote quorum configuration lacks a durable mode marker")
+        self._remote_lineage = False
+        if config.exists() and not offline_audit:
+            from examples.model_distributed_lineage import open_distributed_lineage
+            self.lineage = open_distributed_lineage(self.membership, self.root, config)
+            self._remote_lineage = True
+        else:
+            self._offline_audit = offline_audit
+            authorities = {
+                member: RecoveryLineageAuthority(
+                    self.membership, member, str(self.root / f"anchor-{member}.jsonl")
+                )
+                for member in self.membership.member_ids
+            }
+            self.lineage = RecoveryLineageCoordinator(self.membership, authorities)
+
+    def close(self) -> None:
+        """Close authenticated remote authority channels if this store owns any."""
+        if self._remote_lineage:
+            self.lineage.close()
 
     def save(self, state: Mapping[str, Any], cut: str) -> RecoveryStateManifest:
         """Seal the exact state bytes before the receiver may acknowledge it."""
+        if self._offline_audit:
+            raise ModelRecoveryRefused("offline audit mode cannot seal recovery generations")
         _validate_state(state)
         generation, predecessor = self.lineage.high_water()
         generation += 1
@@ -353,6 +392,7 @@ def receiver(root: Path, *, restore: bool) -> int:
         )
         return 0
     finally:
+        store.close()
         if transport is not None and not transport.closed:
             transport.close()
         listener.close()
@@ -390,8 +430,15 @@ def _spawn(root: Path, restore: bool) -> tuple[subprocess.Popen[str], int]:
     return child, port
 
 
-def run_demo(root: Path) -> dict[str, Any]:
-    """Prove one model host survives a hard receiver kill and resumes by TLS."""
+def run_demo(
+    root: Path, *,
+    configure_lineage: Any = None,
+) -> dict[str, Any]:
+    """Prove one model host survives a hard receiver kill and resumes by TLS.
+
+    A receiver-owned optional setup hook can provision E-CPU's existing remote
+    quorum services. The default USM-005 experiment remains unchanged.
+    """
     root.mkdir(parents=True, exist_ok=True)
     # Same-model process throughout this function, never restarted.
     temporary = root / "certificates"
@@ -402,6 +449,7 @@ def run_demo(root: Path) -> dict[str, Any]:
         if target is not None:
             target.write_bytes(key.read_bytes())
     cert_paths = _paths(root)
+    cleanup_lineage = configure_lineage(root, keys) if configure_lineage is not None else None
     first = replacement = None
     first_transport = second_transport = None
     try:
@@ -503,6 +551,8 @@ def run_demo(root: Path) -> dict[str, Any]:
             if child is not None and child.poll() is None:
                 child.kill()
                 child.communicate(timeout=5)
+        if cleanup_lineage is not None:
+            cleanup_lineage()
 
 
 def main() -> int:

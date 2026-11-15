@@ -1,0 +1,71 @@
+name: USM-006 native distributed model recovery lineage
+
+on:
+  push:
+    paths:
+      - 'examples/model_receiver_recovery.py'
+      - 'examples/model_distributed_lineage.py'
+      - 'tests/test_model_distributed_lineage.py'
+      - 'docs/MODEL_DISTRIBUTED_LINEAGE_USM006.md'
+      - '.github/workflows/model-distributed-lineage.yml'
+  pull_request:
+    paths:
+      - 'examples/model_receiver_recovery.py'
+      - 'examples/model_distributed_lineage.py'
+      - 'tests/test_model_distributed_lineage.py'
+      - 'docs/MODEL_DISTRIBUTED_LINEAGE_USM006.md'
+      - '.github/workflows/model-distributed-lineage.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  distributed-model-recovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Confirm real TLS fixture tools
+        run: openssl version
+      - name: Install native E-CPU runtime and tests
+        run: python -m pip install -e . pytest
+      - name: Exercise parent receiver-crash and native remote-lineage services
+        run: >-
+          python -m pytest -q
+          tests/test_model_receiver_recovery.py
+          tests/test_model_distributed_lineage.py
+      - name: Operate full model over real TLS and remote quorum processes
+        run: >-
+          python -m examples.model_distributed_lineage demo
+          --output usm006-report.json
+      - name: Independently inspect retained distributed-lineage report
+        run: |
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          doc = json.loads(Path("usm006-report.json").read_text())
+          canonical = json.dumps(
+              {k: v for k,v in doc.items() if k != "report_digest"},
+              sort_keys=True, separators=(",", ":"), allow_nan=False
+          ).encode()
+          assert doc["report_digest"] == hashlib.sha256(canonical).hexdigest()
+          assert doc["independent_os_authority_processes"] == 2
+          assert doc["single_physical_failure_domain"] is True
+          assert doc["authorities_survived_receiver_restart"] is True
+          assert doc["offline_reconstructed_quorum_generation"] == 2
+          baseline = doc["recovered_model"]
+          assert baseline["result"]["semantic_reentries"] == 0
+          assert baseline["model_unchanged_process"] is True
+          assert baseline["source_oracle_match"] is True
+          print("USM-006 native mTLS authority model recovery evidence checked")
+          PY
+      - name: Retain E-CPU distributed model recovery evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: usm006-native-distributed-lineage
+          path: usm006-report.json
+          if-no-files-found: error
