@@ -1,0 +1,454 @@
+"""SAB-008: one Ground-native observation across multiple substrate realizers.
+
+The semantics are defined by a Ground and observer predicate, not by a machine
+architecture. Every realizer has a receiver-owned binding and explicit policy.
+Content digests check integrity, never the identity or honesty of remote hosts.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+import json
+from typing import Any, Mapping, Protocol
+
+from .runtime_qualification import (
+    REQUEST_KIND, QualificationEndpoint, QualificationPolicy, QualificationRefused,
+    _check_response, affine_expected, canonical, digest, verify_report,
+)
+
+SCHEMA = "mailcpu.sab008.ground-native-realization.v1"
+MAX_COORDINATE = 10**18
+
+
+class RealizationRefused(ValueError):
+    """A resource, observation, authority, frame, or evidence is inadmissible."""
+
+
+def _integer(value: Any, name: str, minimum: int = 0, maximum: int = MAX_COORDINATE) -> int:
+    """Require a strict bounded integer; Boolean values are not coordinates."""
+    if type(value) is not int or not minimum <= value <= maximum:
+        raise RealizationRefused(f"invalid {name}")
+    return value
+
+
+def _name(value: Any, name: str) -> str:
+    """Accept only short explicit host or request identifiers."""
+    if (type(value) is not str or not 1 <= len(value) <= 100
+            or any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._:-" for c in value)):
+        raise RealizationRefused(f"invalid {name}")
+    return value
+
+
+@dataclass(frozen=True)
+class AffineGround:
+    """Host-independent finite law: x(t+1) = (a*x(t)+c) mod modulus."""
+
+    a: int
+    c: int
+    modulus: int
+    seed: int
+
+    def __post_init__(self) -> None:
+        """Validate every parameter inside the bounded integer Ground."""
+        _integer(self.modulus, "modulus", 2, 2**31 - 1)
+        for field in ("a", "c", "seed"):
+            _integer(getattr(self, field), field, 0, self.modulus - 1)
+
+    @property
+    def fingerprint(self) -> str:
+        """Identify mathematical meaning without naming a realizer or substrate."""
+        return digest({"schema": SCHEMA + ".ground", "family": "affine_mod",
+                       "a": self.a, "c": self.c, "mod": self.modulus, "seed": self.seed})
+
+    def input(self, coordinate: int) -> dict[str, int]:
+        """Construct a canonical, host-independent evaluation input."""
+        _integer(coordinate, "coordinate")
+        return {"a": self.a, "c": self.c, "mod": self.modulus,
+                "x0": self.seed, "coordinate": coordinate}
+
+
+@dataclass(frozen=True)
+class GroundIntention:
+    """A single requested observer projection at a coordinate in a Ground."""
+
+    request_id: str
+    ground: AffineGround
+    coordinate: int
+    observation: str = "value"
+
+    def __post_init__(self) -> None:
+        """Exclude physical placement from semantic identity."""
+        _name(self.request_id, "request identity")
+        if not isinstance(self.ground, AffineGround):
+            raise RealizationRefused("intention requires a typed Ground")
+        _integer(self.coordinate, "coordinate")
+        if self.observation != "value":
+            raise RealizationRefused("unsupported observer projection")
+
+    @property
+    def fingerprint(self) -> str:
+        """Bind exact law, observation, logical coordinate, and request identity."""
+        return digest({"schema": SCHEMA + ".intention", "request": self.request_id,
+                       "ground": self.ground.fingerprint, "coordinate": self.coordinate,
+                       "observation": self.observation})
+
+
+def independent_observation(intention: GroundIntention) -> int:
+    """Verify by binary affine composition independently of the chosen realizer."""
+    p, q, mul, add, n = 1, 0, intention.ground.a, intention.ground.c, intention.coordinate
+    modulus = intention.ground.modulus
+    while n:
+        if n & 1:
+            p, q = (p * mul) % modulus, (q * mul + add) % modulus
+        mul, add = (mul * mul) % modulus, (add * (mul + 1)) % modulus
+        n >>= 1
+    value = (p * intention.ground.seed + q) % modulus
+    other = affine_expected(intention.ground.a, intention.ground.c,
+                            modulus, intention.ground.seed, intention.coordinate)
+    if value != other:
+        raise RealizationRefused("Ground evaluators disagree")
+    return value
+
+
+@dataclass(frozen=True)
+class RealizationPolicy:
+    """Local permission to request an operation; not remote Hypervisor authority."""
+
+    allowed: frozenset[tuple[str, str]]
+    expires_at: int
+    max_events: int = 256
+    max_bytes: int = 4096
+
+    def __post_init__(self) -> None:
+        """Ensure permits are exact and observations are bounded."""
+        _integer(self.expires_at, "permission expiry")
+        _integer(self.max_events, "event budget", 1, 2048)
+        _integer(self.max_bytes, "frame budget", 256, 8192)
+        if not isinstance(self.allowed, frozenset) or not self.allowed:
+            raise RealizationRefused("local permission set is empty")
+        for pair in self.allowed:
+            if (not isinstance(pair, tuple) or len(pair) != 2
+                    or _name(pair[0], "locus") != pair[0]
+                    or _name(pair[1], "method") != pair[1]):
+                raise RealizationRefused("invalid local realizer permission")
+
+    def permits(self, locus: str, method: str, coordinate: int) -> None:
+        """Refuse missing or expired exact local permission before touching a host."""
+        if (locus, method) not in self.allowed or coordinate > self.expires_at:
+            raise RealizationRefused("realizer is not permitted at requested coordinate")
+
+    @property
+    def fingerprint(self) -> str:
+        """Bind the local grant independently of host-supplied advertisements."""
+        return digest({"allowed": [list(p) for p in sorted(self.allowed)],
+                       "expiry": self.expires_at, "max_events": self.max_events,
+                       "max_bytes": self.max_bytes})
+
+
+@dataclass(frozen=True)
+class RealizationReceipt:
+    """One internally consistent observation, not a cryptographically signed claim."""
+
+    payload: dict[str, Any]
+
+    @property
+    def fingerprint(self) -> str:
+        """Return the digest of this complete realization record."""
+        return str(self.payload["receipt_digest"])
+
+
+def _receipt(intention: GroundIntention, policy: RealizationPolicy, *,
+             locus: str, method: str, value: Any, events: list[dict[str, Any]],
+             evidence: Mapping[str, Any]) -> RealizationReceipt:
+    """Accept a realization only after exact observer-specific oracle comparison."""
+    policy.permits(locus, method, intention.coordinate)
+    if type(value) is not int or value != independent_observation(intention):
+        raise RealizationRefused("observed value contradicts the admitted Ground")
+    if not events or len(events) > policy.max_events:
+        raise RealizationRefused("observation event count is outside budget")
+    try:
+        event_bytes = canonical(events)
+        evidence_bytes = canonical(dict(evidence))
+    except (TypeError, ValueError) as exc:
+        raise RealizationRefused("realizer evidence is not canonical JSON") from exc
+    if len(event_bytes) + len(evidence_bytes) > 128 * policy.max_bytes:
+        raise RealizationRefused("observation evidence exceeds record bound")
+    record = {"schema": SCHEMA, "intention": intention.fingerprint,
+              "ground": intention.ground.fingerprint, "coordinate": intention.coordinate,
+              "observer": intention.observation, "method": method, "locus": locus,
+              "policy_digest": policy.fingerprint, "output": {"value": value},
+              "event_count": len(events), "event_digest": digest(events),
+              "events": json.loads(canonical(events)),
+              "evidence": json.loads(canonical(dict(evidence))),
+              "evidence_digest": digest(dict(evidence)),
+              "evidence_kind": "bounded_execution_and_receiver_oracle",
+              "physical_host_attested": False, "quantum_state_claimed": False,
+              "authority_from_remote_advertisement": False}
+    record["receipt_digest"] = digest(record)
+    return RealizationReceipt(record)
+
+
+def verify_receipt(receipt: RealizationReceipt | Mapping[str, Any],
+                   intention: GroundIntention, policy: RealizationPolicy) -> dict[str, Any]:
+    """Verify exact semantic identity, policy, method, and the independent oracle."""
+    x = receipt.payload if isinstance(receipt, RealizationReceipt) else receipt
+    fields = {"schema", "intention", "ground", "coordinate", "observer", "method",
+              "locus", "policy_digest", "output", "event_count", "event_digest",
+              "evidence_digest", "events", "evidence", "evidence_kind",
+              "physical_host_attested", "quantum_state_claimed",
+              "authority_from_remote_advertisement", "receipt_digest"}
+    if (not isinstance(x, Mapping) or set(x) != fields or x.get("schema") != SCHEMA
+            or x.get("intention") != intention.fingerprint
+            or x.get("ground") != intention.ground.fingerprint
+            or x.get("coordinate") != intention.coordinate
+            or x.get("observer") != intention.observation
+            or x.get("policy_digest") != policy.fingerprint
+            or x.get("evidence_kind") != "bounded_execution_and_receiver_oracle"
+            or any(x.get(key) is not False for key in
+                   ("physical_host_attested", "quantum_state_claimed", "authority_from_remote_advertisement"))
+            or type(x.get("event_count")) is not int
+            or not 1 <= x["event_count"] <= policy.max_events
+            or not isinstance(x.get("events"), list)
+            or not isinstance(x.get("evidence"), Mapping)
+            or x.get("event_digest") != digest(x["events"])
+            or x.get("evidence_digest") != digest(dict(x["evidence"]))
+            or len(x["events"]) != x["event_count"]
+            or not isinstance(x.get("output"), Mapping)
+            or set(x["output"]) != {"value"}
+            or type(x["output"]["value"]) is not int
+            or x["output"]["value"] != independent_observation(intention)):
+        raise RealizationRefused("receipt does not reproduce the admitted observation")
+    policy.permits(x["locus"], x["method"], intention.coordinate)
+    for label in ("event_digest", "evidence_digest", "receipt_digest"):
+        if (type(x.get(label)) is not str or len(x[label]) != 64
+                or any(c not in "0123456789abcdef" for c in x[label])):
+            raise RealizationRefused("receipt content digest is malformed")
+    if x["receipt_digest"] != digest({k: v for k, v in x.items() if k != "receipt_digest"}):
+        raise RealizationRefused("receipt content digest mismatch")
+    return dict(x)
+
+
+def equivalent_observations(receipts: tuple[RealizationReceipt, ...],
+                            intention: GroundIntention,
+                            policies: Mapping[str, RealizationPolicy]) -> bool:
+    """Require identical admitted meaning but distinct realizer evidence and loci."""
+    if len(receipts) < 2:
+        raise RealizationRefused("equivalence requires two distinct realizations")
+    views = []
+    for receipt in receipts:
+        method = receipt.payload.get("method")
+        if method not in policies:
+            raise RealizationRefused("unknown realization method")
+        views.append(verify_receipt(receipt, intention, policies[method]))
+    if (len({(x["method"], x["locus"]) for x in views}) != len(views)
+            or len({x["output"]["value"] for x in views}) != 1):
+        raise RealizationRefused("observations are not independently realized and equivalent")
+    return True
+
+
+class GroundRealizer(Protocol):
+    """Substrate-independent adapter interface; methods are not enumerated."""
+
+    method: str
+    locus: str
+
+    def observe(self, intention: GroundIntention, policy: RealizationPolicy) -> RealizationReceipt:
+        """Return a receiver-verifiable observation using locally bound transitions."""
+        ...
+
+
+def realize_under_contract(realizer: GroundRealizer, intention: GroundIntention,
+                           policy: RealizationPolicy) -> RealizationReceipt:
+    """Admit a new typed realizer without modifying the Ground contract."""
+    policy.permits(realizer.locus, realizer.method, intention.coordinate)
+    record = realizer.observe(intention, policy)
+    verify_receipt(record, intention, policy)
+    if record.payload["method"] != realizer.method or record.payload["locus"] != realizer.locus:
+        raise RealizationRefused("realizer receipt did not name its bound implementation")
+    return record
+
+
+class TwoPortArithmeticGate:
+    """A software model of an active two-port gate with only compose/apply.
+
+    A bounded logical port is not a measured chip or independent failure domain.
+    """
+    def __init__(self, port_id: str, modulus: int, *, max_frame: int = 512) -> None:
+        """Bind a fixed modulus and a bounded framed interface."""
+        self.port_id = _name(port_id, "port identity")
+        self.modulus = _integer(modulus, "gate modulus", 2, 2**31 - 1)
+        self.max_frame = _integer(max_frame, "frame size", 128, 8192)
+        self.sequence = 0
+        self.frames: list[dict[str, Any]] = []
+
+    def invoke(self, opcode: str, frame: Mapping[str, Any]) -> tuple[int, int] | int:
+        """Perform only an explicitly supported bounded arithmetic transition."""
+        data = dict(frame)
+        if len(canonical({"opcode": opcode, "payload": data})) > self.max_frame:
+            raise RealizationRefused("port frame exceeds bound")
+        m = self.modulus
+        if opcode == "compose" and set(data) == {"first", "second"}:
+            first, second = data["first"], data["second"]
+            if (not isinstance(first, list) or not isinstance(second, list)
+                    or len(first) != 2 or len(second) != 2
+                    or any(type(x) is not int or not 0 <= x < m for x in first + second)):
+                raise RealizationRefused("port composition frame malformed")
+            # Compose second AFTER first: second(first(x)).
+            output: tuple[int, int] | int = ((second[0] * first[0]) % m,
+                                              (second[0] * first[1] + second[1]) % m)
+        elif opcode == "apply" and set(data) == {"map", "input"}:
+            affine, value = data["map"], data["input"]
+            if (not isinstance(affine, list) or len(affine) != 2
+                    or any(type(x) is not int or not 0 <= x < m for x in affine)
+                    or type(value) is not int or not 0 <= value < m):
+                raise RealizationRefused("port application frame malformed")
+            output = (affine[0] * value + affine[1]) % m
+        else:
+            raise RealizationRefused("unsupported port transition")
+        self.sequence += 1
+        self.frames.append({"sequence": self.sequence, "opcode": opcode,
+                            "input_digest": digest(data), "output_digest": digest(output)})
+        return output
+
+
+class PortGroundRealizer:
+    """Navigate a mathematical orbit using only bounded gate frames and powers."""
+    method = "port"
+
+    def __init__(self, locus: str, port: TwoPortArithmeticGate) -> None:
+        """Bind a locally controlled active port model."""
+        self.locus = _name(locus, "port locus")
+        self.port = port
+
+    def observe(self, intention: GroundIntention, policy: RealizationPolicy) -> RealizationReceipt:
+        """Use O(log coordinate) compose frames rather than iterating states."""
+        policy.permits(self.locus, self.method, intention.coordinate)
+        if self.port.modulus != intention.ground.modulus:
+            raise RealizationRefused("port representation is incompatible with Ground")
+        before = len(self.port.frames)
+        n = intention.coordinate
+        product = (1, 0)
+        base = (intention.ground.a, intention.ground.c)
+        while n:
+            if n & 1:
+                product = self.port.invoke("compose", {"first": list(product), "second": list(base)})
+            base = self.port.invoke("compose", {"first": list(base), "second": list(base)})
+            n >>= 1
+        value = self.port.invoke("apply", {"map": list(product), "input": intention.ground.seed})
+        events = self.port.frames[before:]
+        return _receipt(intention, policy, locus=self.locus, method=self.method,
+                        value=value, events=events, evidence={"gate": self.port.port_id,
+                        "modulus": self.port.modulus, "first": before + 1,
+                        "last": self.port.sequence, "physical": "simulated_two_port_gate"})
+
+
+class FixedInterpreterRealizer:
+    """Observe through a separately running, fixed-vocabulary interpreter."""
+    method = "interpreter"
+
+    def __init__(self, locus: str, endpoint: QualificationEndpoint,
+                 report: Mapping[str, Any], qualification: QualificationPolicy) -> None:
+        """Bind an already qualified local process interface (not remote authority)."""
+        self.locus = _name(locus, "interpreter locus")
+        self.endpoint = endpoint
+        self.report = dict(report)
+        self.qualification = qualification
+        if self.endpoint.host_id != self.locus:
+            raise RealizationRefused("interpreter endpoint identity mismatch")
+
+    def observe(self, intention: GroundIntention, policy: RealizationPolicy) -> RealizationReceipt:
+        """Revalidate qualification before executing the known mathematical opcode."""
+        policy.permits(self.locus, self.method, intention.coordinate)
+        try:
+            verify_report(self.report, self.qualification, coordinate=self.report["coordinate"])
+            if (self.report["host"] != self.locus
+                    or "computational_fragment" not in self.report["verified_roles"]
+                    or not self.report["coordinate"] <= intention.coordinate <= self.report["expires_at"]):
+                raise RealizationRefused("interpreter qualification is unavailable or expired")
+            request = _request(self.locus, "affine_mod", intention.ground.input(intention.coordinate), intention.fingerprint, 1)
+            response = self.endpoint.exchange(request, max_bytes=policy.max_bytes)
+            _check_response(request, response)
+        except (QualificationRefused, KeyError, TypeError) as exc:
+            raise RealizationRefused("interpreter observation could not be admitted") from exc
+        if not response["ok"] or set(response["result"]) != {"value"}:
+            raise RealizationRefused("interpreter refused or malformed observation")
+        return _receipt(intention, policy, locus=self.locus, method=self.method,
+                        value=response["result"]["value"],
+                        events=[{"request_digest": digest(request), "response_digest": digest(response)}],
+                        evidence={"qualification": self.report["report_digest"],
+                                  "boot": response["boot"], "fresh_process": self.endpoint.separate_process_per_exchange})
+
+
+def _request(host: str, operation: str, payload: Mapping[str, Any], context: str, sequence: int) -> dict[str, Any]:
+    """Build one fixed SAB-003 request with a correlation token."""
+    token = digest({"host": host, "op": operation, "input": dict(payload),
+                    "intention": context, "sequence": sequence})[:32]
+    return {"kind": REQUEST_KIND, "host": host, "nonce": token,
+            "operation": operation, "payload": dict(payload)}
+
+
+class FederatedGroundRealizer:
+    """Compose two pinned endpoint hops: exact frame relay, then remote compute.
+
+    The relay and compute endpoints are separately authenticated by their
+    underlying mTLS adapters in SAB-005; the receiver's own Hypervisor must
+    approve its fixed operator. This is *not* ComputationalFabricForwarding.
+    """
+    method = "federated"
+
+    def __init__(self, locus: str, relay: QualificationEndpoint,
+                 compute: QualificationEndpoint, relay_report: Mapping[str, Any],
+                 compute_report: Mapping[str, Any],
+                 relay_policy: QualificationPolicy, compute_policy: QualificationPolicy) -> None:
+        """Bind distinct, already qualified and pinned transport endpoints."""
+        self.locus = _name(locus, "federated locus")
+        if relay.host_id == compute.host_id:
+            raise RealizationRefused("federated roles require distinct receiver identities")
+        self.relay, self.compute = relay, compute
+        self.relay_report, self.compute_report = dict(relay_report), dict(compute_report)
+        self.relay_policy, self.compute_policy = relay_policy, compute_policy
+
+    def observe(self, intention: GroundIntention, policy: RealizationPolicy) -> RealizationReceipt:
+        """Check both role proofs and carry canonical bytes through an active relay."""
+        policy.permits(self.locus, self.method, intention.coordinate)
+        for endpoint, report, qual, role in (
+            (self.relay, self.relay_report, self.relay_policy, "framed_ipc"),
+            (self.compute, self.compute_report, self.compute_policy, "computational_fragment"),
+        ):
+            try:
+                verify_report(report, qual, coordinate=report["coordinate"])
+                if (report["host"] != endpoint.host_id or role not in report["verified_roles"]
+                        or not report["coordinate"] <= intention.coordinate <= report["expires_at"]):
+                    raise RealizationRefused("federated endpoint qualification expired")
+            except (QualificationRefused, KeyError, TypeError) as exc:
+                raise RealizationRefused("federated role qualification rejected") from exc
+        payload = intention.ground.input(intention.coordinate)
+        wire = canonical(payload)
+        if len(wire) > 1024:
+            raise RealizationRefused("federated relay payload exceeds fixed ABI")
+        transfer = _request(self.relay.host_id, "transfer", {"bytes_hex": wire.hex()}, intention.fingerprint, 1)
+        try:
+            transferred = self.relay.exchange(transfer, max_bytes=policy.max_bytes)
+            _check_response(transfer, transferred)
+            if not transferred["ok"] or transferred["result"] != {"bytes_hex": wire.hex()}:
+                raise RealizationRefused("relay did not preserve the exact semantic bytes")
+            decoded = json.loads(bytes.fromhex(transferred["result"]["bytes_hex"]))
+            if canonical(decoded) != wire:
+                raise RealizationRefused("relay bytes are not canonical")
+            compute = _request(self.compute.host_id, "affine_mod", decoded, intention.fingerprint, 2)
+            computed = self.compute.exchange(compute, max_bytes=policy.max_bytes)
+            _check_response(compute, computed)
+        except (QualificationRefused, ValueError, TypeError, KeyError, OSError) as exc:
+            raise RealizationRefused("federated communication or compute refused") from exc
+        if not computed["ok"] or set(computed["result"]) != {"value"}:
+            raise RealizationRefused("federated compute host returned no admitted result")
+        events = [{"peer": self.relay.host_id, "request_digest": digest(transfer),
+                   "response_digest": digest(transferred)},
+                  {"peer": self.compute.host_id, "request_digest": digest(compute),
+                   "response_digest": digest(computed)}]
+        return _receipt(intention, policy, locus=self.locus, method=self.method,
+                        value=computed["result"]["value"], events=events,
+                        evidence={"relay_qualification": self.relay_report["report_digest"],
+                                  "compute_qualification": self.compute_report["report_digest"],
+                                  "relay_peer": self.relay.host_id, "compute_peer": self.compute.host_id,
+                                  "native_transport": type(self.compute).__name__,
+                                  "independent_physical_hosts_attested": False})

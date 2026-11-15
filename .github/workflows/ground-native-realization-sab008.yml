@@ -1,0 +1,46 @@
+name: SAB-008 Ground-native substrate-neutral realization
+
+on:
+  push:
+    paths:
+      - 'mailcpu/ground_native_realization.py'
+      - 'tests/test_ground_native_realization.py'
+      - 'docs/GROUND_NATIVE_REALIZATION_SAB008.md'
+      - '.github/workflows/ground-native-realization-sab008.yml'
+  pull_request:
+    paths:
+      - 'mailcpu/ground_native_realization.py'
+      - 'tests/test_ground_native_realization.py'
+      - 'docs/GROUND_NATIVE_REALIZATION_SAB008.md'
+      - '.github/workflows/ground-native-realization-sab008.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ground-native-realization:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Confirm Python and ephemeral TLS tooling
+        run: |
+          python --version
+          openssl version
+          python -m compileall -q mailcpu
+      - name: Test semantic contract and live native-TLS realizers
+        run: python -m unittest discover -s tests -p 'test_ground_native_realization.py' -v
+      - name: Regress SAB-005 mTLS Hypervisor realization
+        run: python -m unittest discover -s tests -p 'test_federated_placement.py' -v
+      - name: Regress SAB-004 adaptive host placement
+        run: python -m unittest discover -s tests -p 'test_adaptive_placement.py' -v
+      - name: Regress SAB-003 behavioral qualification
+        run: python -m unittest discover -s tests -p 'test_runtime_qualification.py' -v
