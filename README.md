@@ -20,6 +20,8 @@ See [The Internet Is the Computer](docs/THE_INTERNET_IS_THE_COMPUTER.md) for the
 
 [PATH-GROUND-001](docs/PATH_GROUND_001_COMMUNICATION_OBSERVATION.md) is the first evidence-scoped test: a live local TCP path is observed as both byte-stream transport and bounded endpoint timing, while a separately labeled numerical transfer kernel exercises calibration and held-out refusal. This **does not** claim computation inside physical optical fiber; it supplies the observation contract for such a future experiment.
 
+[TENSOR-PATH-001](docs/TENSOR_COMPUTATION_PATHS.md) extends E-GPU with bounded SIMT integer matrix tiles **and a distinct path-native tensor FIR operator**. A receiver-bound characterized path supplies each convolution response directly; SIMT is not invoked on that route. The synthetic reference proves the interface and verification logic, while physical in-medium tensor computation still requires independent instrument evidence. 
+
 
 ## Foremost capability: form computational environments from available substrates
 
