@@ -135,7 +135,8 @@ def observe_live(config: Mapping[str, Any]) -> dict[str, Any]:
         observations.append({
             **item,
             "url": pr["html_url"], "head_sha": head_sha,
-            "base": pr["base"]["ref"], "state": pr["state"],
+            "base": pr["base"]["ref"], "head_ref": branch,
+            "state": pr["state"],
             "merged": pr["merged_at"] is not None,
             "runs": recorded,
         })
@@ -168,7 +169,7 @@ def validate_evidence(evidence: Any, config: Mapping[str, Any] | None = None) ->
     for item in evidence["items"]:
         require(isinstance(item, dict) and set(item) == {
             "id", "repo", "number", "requires", "required_workflows",
-            "url", "head_sha", "base", "state", "merged", "runs"
+            "url", "head_sha", "base", "head_ref", "state", "merged", "runs"
         }, "malformed source PR observation")
         key = item["id"]
         require(type(key) is str and IDENTITY.fullmatch(key) is not None and key not in ids,
@@ -182,6 +183,7 @@ def validate_evidence(evidence: Any, config: Mapping[str, Any] | None = None) ->
                 and type(item["number"]) is int and item["number"] > 0
                 and type(item["head_sha"]) is str and SHA.fullmatch(item["head_sha"]) is not None
                 and type(item["base"]) is str and item["base"]
+                and type(item["head_ref"]) is str and item["head_ref"]
                 and item["state"] in {"open", "closed"}
                 and type(item["merged"]) is bool
                 and (not item["merged"] or item["state"] == "closed"),
@@ -217,6 +219,13 @@ def validate_evidence(evidence: Any, config: Mapping[str, Any] | None = None) ->
     ), "source research dependency is unresolved")
     if expected is not None:
         require(set(expected) == ids, "missing configured research observation")
+    indexed = {item["id"]: item for item in evidence["items"]}
+    for item in evidence["items"]:
+        for dependency in item["requires"]:
+            parent = indexed[dependency]
+            if parent["repo"] == item["repo"]:
+                require(item["base"] == parent["head_ref"],
+                        "stacked PR base does not match configured predecessor branch")
     return list(evidence["items"])
 
 
