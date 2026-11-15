@@ -61,6 +61,7 @@ jobs:
           assert doc['publication']['quorum_generation'] == 3
           assert doc['publication']['native_quorum_verified'] is True
           assert doc['publication']['logical_publication_only'] is True
+          assert doc['publication']['idempotent_winner_replay_checked'] is True
           assert sorted(c['status'] for c in doc['publication']['candidate_claims']) == [
               'authorized', 'superseded'
           ]
