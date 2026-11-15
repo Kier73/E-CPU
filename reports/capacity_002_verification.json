@@ -1,0 +1,29 @@
+{
+  "date": "2026-11-15",
+  "environment": {
+    "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+    "python": "3.13.5"
+  },
+  "focused_local_tests": {
+    "failed": 0,
+    "passed": 29,
+    "suite": "tests/test_network_state_capacity.py"
+  },
+  "foreign_path_evidence_distinct": true,
+  "ground_digest": "62184c8292b3d8fcdb0ab5f23d8375caa362f3f94d90703136a653d782c839bf",
+  "local_affine_fgraph_adapter": "TEST-ONLY API-compatible Brent and fgraph Law fixture",
+  "local_neural_compiler": "TEST-ONLY numeric ReLU minterm realization, NOT native E-CPU compositional compiler",
+  "model_result": "exact 256/256 global states in local compatible numeric ReLU",
+  "native_ecpu_repository_ci": "not_run",
+  "native_neural_compiler": "not_run",
+  "nonclaims": [
+    "arbitrary unobserved network state",
+    "physical internet or optical computation",
+    "foreign host execution of E-CPU instructions",
+    "model training",
+    "actual native E-CPU neural compiler validation",
+    "host authorization by digest"
+  ],
+  "schema": "mailcpu.capacity-002-verification.v1",
+  "scope": "finite closed synchronous ring of four 2-input observer functions and four one-tick in-transit slots; observation protocol bound to local snapshots"
+}
