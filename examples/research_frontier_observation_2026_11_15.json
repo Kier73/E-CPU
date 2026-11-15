@@ -1,0 +1,346 @@
+{
+  "schema": "mailcpu.research-frontier-evidence.v1",
+  "source": "github-api-https",
+  "observed_at": "2026-11-15T00:32:07.853Z",
+  "items": [
+    {
+      "id": "ecpu-138",
+      "repo": "Kier73/E-CPU",
+      "number": 138,
+      "requires": [],
+      "required_workflows": [
+        "verify",
+        "USM-001 model-operated E-CPU"
+      ],
+      "url": "https://github.com/Kier73/E-CPU/pull/138",
+      "head_sha": "4443bb278afc32300bffb52ede874df4a02eff4b",
+      "head_ref": "use-system/model-ground-os-001",
+      "base": "main",
+      "state": "open",
+      "merged": false,
+      "runs": [
+        {
+          "workflow": "USM-001 model-operated E-CPU",
+          "id": 43649815778,
+          "head_sha": "4443bb278afc32300bffb52ede874df4a02eff4b",
+          "status": "queued",
+          "conclusion": null,
+          "url": "https://github.com/Kier73/E-CPU/actions/runs/43649815778",
+          "created_at": "2026-11-14T22:46:14Z"
+        },
+        {
+          "workflow": "verify",
+          "id": 43649815811,
+          "head_sha": "4443bb278afc32300bffb52ede874df4a02eff4b",
+          "status": "queued",
+          "conclusion": null,
+          "url": "https://github.com/Kier73/E-CPU/actions/runs/43649815811",
+          "created_at": "2026-11-14T22:46:14Z"
+        }
+      ]
+    },
+    {
+      "id": "ecpu-139",
+      "repo": "Kier73/E-CPU",
+      "number": 139,
+      "requires": [
+        "ecpu-138"
+      ],
+      "required_workflows": [
+        "verify",
+        "USM-002 model-issued E-CPU system calls"
+      ],
+      "url": "https://github.com/Kier73/E-CPU/pull/139",
+      "head_sha": "8d1a5be2337ae948cd84ea94f278de73b4ceb163",
+      "head_ref": "use-system/model-syscalls-002",
+      "base": "use-system/model-ground-os-001",
+      "state": "open",
+      "merged": false,
+      "runs": [
+        {
+          "workflow": "USM-002 model-issued E-CPU system calls",
+          "id": 43650788335,
+          "head_sha": "8d1a5be2337ae948cd84ea94f278de73b4ceb163",
+          "status": "queued",
+          "conclusion": null,
+          "url": "https://github.com/Kier73/E-CPU/actions/runs/43650788335",
+          "created_at": "2026-11-14T22:57:53Z"
+        },
+        {
+          "workflow": "verify",
+          "id": 43650788309,
+          "head_sha": "8d1a5be2337ae948cd84ea94f278de73b4ceb163",
+          "status": "queued",
+          "conclusion": null,
+          "url": "https://github.com/Kier73/E-CPU/actions/runs/43650788309",
+          "created_at": "2026-11-14T22:57:53Z"
+        }
+      ]
+    },
+    {
+      "id": "ecpu-140",
+      "repo": "Kier73/E-CPU",
+      "number": 140,
+      "requires": [
+        "ecpu-139"
+      ],
+      "required_workflows": [
+        "verify",
+        "USM-004 authenticated model-operated E-CPU"
+      ],
+      "url": "https://github.com/Kier73/E-CPU/pull/140",
+      "head_sha": "a5c3c547544b4776b993045e3d99774bd3fcaa0a",
+      "head_ref": "use-system/model-authenticated-fabric-004",
+      "base": "use-system/model-syscalls-002",
+      "state": "open",
+      "merged": false,
+      "runs": [
+        {
+          "workflow": "USM-004 authenticated model-operated E-CPU",
+          "id": 43652177998,
+          "head_sha": "a5c3c547544b4776b993045e3d99774bd3fcaa0a",
+          "status": "queued",
+          "conclusion": null,
+          "url": "https://github.com/Kier73/E-CPU/actions/runs/43652177998",
+          "created_at": "2026-11-14T23:13:51Z"
+        },
+        {
+          "workflow": "verify",
+          "id": 43652177911,
+          "head_sha": "a5c3c547544b4776b993045e3d99774bd3fcaa0a",
+          "status": "queued",
+          "conclusion": null,
+          "url": "https://github.com/Kier73/E-CPU/actions/runs/43652177911",
+          "created_at": "2026-11-14T23:13:51Z"
+        }
+      ]
+    },
+    {
+      "id": "ecpu-141",
+      "repo": "Kier73/E-CPU",
+      "number": 141,
+      "requires": [
+        "ecpu-140"
+      ],
+      "required_workflows": [
+        "verify",
+        "USM-005 model receiver recovery before lost ACK"
+      ],
+      "url": "https://github.com/Kier73/E-CPU/pull/141",
+      "head_sha": "4c30c7144927bd707071e668e785078043eb50b8",
+      "head_ref": "use-system/model-recovery-005",
+      "base": "use-system/model-authenticated-fabric-004",
+      "state": "open",
+      "merged": false,
+      "runs": [
+        {
+          "workflow": "USM-005 model receiver recovery before lost ACK",
+          "id": 43653311706,
+          "head_sha": "4c30c7144927bd707071e668e785078043eb50b8",
+          "status": "queued",
+          "conclusion": null,
+          "url": "https://github.com/Kier73/E-CPU/actions/runs/43653311706",
+          "created_at": "2026-11-14T23:27:14Z"
+        },
+        {
+          "workflow": "verify",
+          "id": 43653311806,
+          "head_sha": "4c30c7144927bd707071e668e785078043eb50b8",
+          "status": "queued",
+          "conclusion": null,
+          "url": "https://github.com/Kier73/E-CPU/actions/runs/43653311806",
+          "created_at": "2026-11-14T23:27:14Z"
+        }
+      ]
+    },
+    {
+      "id": "ecpu-142",
+      "repo": "Kier73/E-CPU",
+      "number": 142,
+      "requires": [
+        "ecpu-141"
+      ],
+      "required_workflows": [
+        "verify",
+        "USM-006 native distributed model recovery lineage"
+      ],
+      "url": "https://github.com/Kier73/E-CPU/pull/142",
+      "head_sha": "84f42cffad6548bb772940ffd80331dcb76db122",
+      "head_ref": "use-system/model-distributed-lineage-006",
+      "base": "use-system/model-recovery-005",
+      "state": "open",
+      "merged": false,
+      "runs": [
+        {
+          "workflow": "USM-006 native distributed model recovery lineage",
+          "id": 43655033814,
+          "head_sha": "84f42cffad6548bb772940ffd80331dcb76db122",
+          "status": "queued",
+          "conclusion": null,
+          "url": "https://github.com/Kier73/E-CPU/actions/runs/43655033814",
+          "created_at": "2026-11-14T23:48:09Z"
+        },
+        {
+          "workflow": "verify",
+          "id": 43655033832,
+          "head_sha": "84f42cffad6548bb772940ffd80331dcb76db122",
+          "status": "queued",
+          "conclusion": null,
+          "url": "https://github.com/Kier73/E-CPU/actions/runs/43655033832",
+          "created_at": "2026-11-14T23:48:09Z"
+        }
+      ]
+    },
+    {
+      "id": "ecpu-143",
+      "repo": "Kier73/E-CPU",
+      "number": 143,
+      "requires": [
+        "ecpu-142"
+      ],
+      "required_workflows": [
+        "verify",
+        "USM-008 quorum-fenced model Ground publication"
+      ],
+      "url": "https://github.com/Kier73/E-CPU/pull/143",
+      "head_sha": "519da02462c3f71244773450567a1c95af6d22d3",
+      "head_ref": "use-system/model-quorum-publication-008",
+      "base": "use-system/model-distributed-lineage-006",
+      "state": "open",
+      "merged": false,
+      "runs": [
+        {
+          "workflow": "USM-008 quorum-fenced model Ground publication",
+          "id": 43656842805,
+          "head_sha": "519da02462c3f71244773450567a1c95af6d22d3",
+          "status": "queued",
+          "conclusion": null,
+          "url": "https://github.com/Kier73/E-CPU/actions/runs/43656842805",
+          "created_at": "2026-11-15T00:10:22Z"
+        },
+        {
+          "workflow": "verify",
+          "id": 43656842857,
+          "head_sha": "519da02462c3f71244773450567a1c95af6d22d3",
+          "status": "queued",
+          "conclusion": null,
+          "url": "https://github.com/Kier73/E-CPU/actions/runs/43656842857",
+          "created_at": "2026-11-15T00:10:22Z"
+        }
+      ]
+    },
+    {
+      "id": "ifs-229",
+      "repo": "Kier73/In-Formation-Space",
+      "number": 229,
+      "requires": [],
+      "required_workflows": [
+        "Encounter envelope tests",
+        "USM-003 independently reconstructed model-operated E-CPU"
+      ],
+      "url": "https://github.com/Kier73/In-Formation-Space/pull/229",
+      "head_sha": "ce4ed270f422ed5312974d23e0aac55f1244c41b",
+      "head_ref": "use-system/model-op-independent-001",
+      "base": "main",
+      "state": "open",
+      "merged": false,
+      "runs": [
+        {
+          "workflow": "Encounter envelope tests",
+          "id": 43651237044,
+          "head_sha": "ce4ed270f422ed5312974d23e0aac55f1244c41b",
+          "status": "queued",
+          "conclusion": null,
+          "url": "https://github.com/Kier73/In-Formation-Space/actions/runs/43651237044",
+          "created_at": "2026-11-14T23:03:02Z"
+        },
+        {
+          "workflow": "USM-003 independently reconstructed model-operated E-CPU",
+          "id": 43651237055,
+          "head_sha": "ce4ed270f422ed5312974d23e0aac55f1244c41b",
+          "status": "queued",
+          "conclusion": null,
+          "url": "https://github.com/Kier73/In-Formation-Space/actions/runs/43651237055",
+          "created_at": "2026-11-14T23:03:02Z"
+        }
+      ]
+    },
+    {
+      "id": "ifs-231",
+      "repo": "Kier73/In-Formation-Space",
+      "number": 231,
+      "requires": [
+        "ifs-229"
+      ],
+      "required_workflows": [
+        "Encounter envelope tests",
+        "USM-005 independent observer of recovered model Ground"
+      ],
+      "url": "https://github.com/Kier73/In-Formation-Space/pull/231",
+      "head_sha": "e36304aee9ae89d85dca73265a631c8ed3128034",
+      "head_ref": "use-system/model-recovery-independent-005",
+      "base": "use-system/model-op-independent-001",
+      "state": "open",
+      "merged": false,
+      "runs": [
+        {
+          "workflow": "Encounter envelope tests",
+          "id": 43653510499,
+          "head_sha": "e36304aee9ae89d85dca73265a631c8ed3128034",
+          "status": "queued",
+          "conclusion": null,
+          "url": "https://github.com/Kier73/In-Formation-Space/actions/runs/43653510499",
+          "created_at": "2026-11-14T23:29:44Z"
+        },
+        {
+          "workflow": "USM-005 independent observer of recovered model Ground",
+          "id": 43653510478,
+          "head_sha": "e36304aee9ae89d85dca73265a631c8ed3128034",
+          "status": "queued",
+          "conclusion": null,
+          "url": "https://github.com/Kier73/In-Formation-Space/actions/runs/43653510478",
+          "created_at": "2026-11-14T23:29:44Z"
+        }
+      ]
+    },
+    {
+      "id": "ifs-232",
+      "repo": "Kier73/In-Formation-Space",
+      "number": 232,
+      "requires": [
+        "ifs-231"
+      ],
+      "required_workflows": [
+        "Encounter envelope tests",
+        "USM-007 fenced model result publication via existing IFS route epochs"
+      ],
+      "url": "https://github.com/Kier73/In-Formation-Space/pull/232",
+      "head_sha": "5058123e0cec87c2500fe16955ce828c8a82dbc9",
+      "head_ref": "use-system/model-route-fencing-007",
+      "base": "use-system/model-recovery-independent-005",
+      "state": "open",
+      "merged": false,
+      "runs": [
+        {
+          "workflow": "Encounter envelope tests",
+          "id": 43655822123,
+          "head_sha": "5058123e0cec87c2500fe16955ce828c8a82dbc9",
+          "status": "queued",
+          "conclusion": null,
+          "url": "https://github.com/Kier73/In-Formation-Space/actions/runs/43655822123",
+          "created_at": "2026-11-14T23:58:02Z"
+        },
+        {
+          "workflow": "USM-007 fenced model result publication via existing IFS route epochs",
+          "id": 43655822257,
+          "head_sha": "5058123e0cec87c2500fe16955ce828c8a82dbc9",
+          "status": "queued",
+          "conclusion": null,
+          "url": "https://github.com/Kier73/In-Formation-Space/actions/runs/43655822257",
+          "created_at": "2026-11-14T23:58:02Z"
+        }
+      ]
+    }
+  ],
+  "evidence_digest": "3a37b6920cc719e7fde30af022df4947c98e5224b0f2a037b02d3d1384290988"
+}
