@@ -1,0 +1,66 @@
+name: SHN-001 self-hosted port network
+
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/self_hosted_port_network.py'
+      - 'tests/test_self_hosted_port_network.py'
+      - 'docs/SELF_HOSTED_PORT_NETWORK.md'
+      - '.github/workflows/self-hosted-port-network.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'mailcpu/self_hosted_port_network.py'
+      - 'tests/test_self_hosted_port_network.py'
+      - 'docs/SELF_HOSTED_PORT_NETWORK.md'
+      - '.github/workflows/self-hosted-port-network.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  owned-fabric-and-navigation:
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.13']
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '${{ matrix.python }}'
+      - name: Install E-CPU and test dependencies
+        run: python -m pip install -e '.[dev]'
+      - name: Exercise self-hosted ports and existing network/navigation contracts
+        run: |
+          python -m pytest -q \
+            tests/test_self_hosted_port_network.py \
+            tests/test_owned_network.py \
+            tests/test_state_space_navigation_experiment.py
+      - name: Export one- and two-port observations without physical I/O
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          from mailcpu.self_hosted_port_network import SelfHostedPortNetwork
+          records = []
+          for ports in (1, 2):
+              chip = SelfHostedPortNetwork(ports)
+              chip.submit('self-hosted-probe', 10**15 + 137)
+              record = chip.run()
+              assert record['interpreter_quanta'] == 3
+              assert record['external_payload_bytes'] == 0
+              assert record['journal_verified'] is True
+              records.append(record)
+          assert records[0]['observed_value'] == records[1]['observed_value']
+          Path('self-hosted-port-evidence.json').write_text(
+              json.dumps({'schema':'mailcpu.shn001-evidence.v1','cases':records}, indent=2, sort_keys=True)+'\n')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shn001-${{ matrix.python }}-evidence
+          path: self-hosted-port-evidence.json
+          if-no-files-found: error
