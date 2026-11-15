@@ -6,6 +6,7 @@ on:
       - 'examples/research_frontier.py'
       - 'examples/research_frontier_worker.py'
       - 'examples/research_frontier_config.json'
+      - 'examples/research_frontier_observation_2026_11_15.json'
       - 'tests/test_research_frontier.py'
       - 'docs/LIVE_RESEARCH_FRONTIER_USM009.md'
       - '.github/workflows/live-research-frontier.yml'
@@ -14,6 +15,7 @@ on:
       - 'examples/research_frontier.py'
       - 'examples/research_frontier_worker.py'
       - 'examples/research_frontier_config.json'
+      - 'examples/research_frontier_observation_2026_11_15.json'
       - 'tests/test_research_frontier.py'
       - 'docs/LIVE_RESEARCH_FRONTIER_USM009.md'
       - '.github/workflows/live-research-frontier.yml'
@@ -37,6 +39,24 @@ jobs:
         run: python -m pip install -e . pytest
       - name: Verify model/refusal and native DAG frontier behavior
         run: python -m pytest -q tests/test_research_frontier.py
+      - name: Use E-CPU to reconstruct the time-pinned real research observation
+        run: >-
+          python -m examples.research_frontier
+          --snapshot examples/research_frontier_observation_2026_11_15.json
+          --output usm009-archived-observation-result.json
+      - name: Require the frozen source to produce an actionable, non-merging decision
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("usm009-archived-observation-result.json").read_text())
+          assert report["selected_pr"]["id"] == "ecpu-138"
+          assert report["selected_pr"]["check_status"] == "stalled_queued"
+          assert report["recommended_action"] == "investigate_queued_runner"
+          assert report["merge_authorized"] is False
+          assert report["github_state_mutated"] is False
+          print("E-CPU selected its own real verification root from archived evidence")
+          PY
       - name: Observe actual GitHub model-operation PR and workflow evidence
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -70,6 +90,7 @@ jobs:
           name: usm009-ecpu-assists-own-development
           path: |
             usm009-source-observation.json
+            usm009-archived-observation-result.json
             usm009-research-result.json
             usm009-replayed-result.json
           if-no-files-found: warn
