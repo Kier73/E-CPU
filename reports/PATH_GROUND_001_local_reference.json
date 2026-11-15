@@ -1,0 +1,132 @@
+{
+  "next_measurement": "replace software FIR reference with instrument-acquired optical-path input/output; retain heldouts, environment controls and explicit equipment/receiver cost accounting",
+  "provenance": {
+    "external_network_used": false,
+    "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+    "python": "3.13.5",
+    "repository": "Kier73/E-CPU"
+  },
+  "schema": "mailcpu.path-ground-001.reference-report.v1",
+  "tcp_experiment": {
+    "clock_domain": "one_process_monotonic_ns",
+    "declared_duration_envelope": {
+      "nominal_ns": 111531,
+      "reason": "held-out or calibration timing rejects declared duration envelope",
+      "status": "refused",
+      "tolerance_ns": 25000
+    },
+    "elapsed_ns": {
+      "max": 1618734,
+      "median": 76991.5,
+      "min": 54428
+    },
+    "first_probe": {
+      "byte_count": 301,
+      "channel": {
+        "carries": [
+          "bytes"
+        ],
+        "channel_id": "localhost.tcp.001",
+        "estimated_quanta": 1,
+        "evidence_digest": "09eaff7dce9a29ab98995e8d7b113f9c7be7f90695458bead2ee5aa3ec17f658",
+        "expires_at": 1000,
+        "max_payload_bytes": 65536,
+        "observed_at": 10,
+        "source": "local.sender",
+        "target": "local.observer"
+      },
+      "clock_domain": "one_process_monotonic_ns",
+      "elapsed_ns": 185982,
+      "input_sha256": "22e6d6daa27b99cef54e34650cc385ba9c9e05dab271172abd5a5a2d0eb7865d",
+      "logical_observed_at": 20,
+      "observation_digest": "a6614e581b3f897023c361e7c846a07531719b91b2afa7b3c17d002578b96b96",
+      "output_sha256": "22e6d6daa27b99cef54e34650cc385ba9c9e05dab271172abd5a5a2d0eb7865d",
+      "payload_equal": true,
+      "recv_calls": 1,
+      "schema": "mailcpu.path-ground-probe.v1.tcp",
+      "scope": "local_kernel_stack_including_endpoint_scheduling",
+      "send_calls": 4,
+      "service": "os_tcp_loopback_byte_stream"
+    },
+    "input_bytes": 301,
+    "native_e_cpu_carrier_path_witness": {
+      "context_digest": "4d10733ae39caf942191744f1293d81e5c0c0cb236771ea610f6af8df250490a",
+      "destination": "local.observer",
+      "ground": {
+        "content_digest": "38c9667523edcc71c2efe6033c60b16da25e151bed5be585d250c25e09b33035",
+        "schema_version": 1,
+        "type_id": "path.byte-ground"
+      },
+      "input_ref": {
+        "content_digest": "eb17f4f506f90a2e82505210f0095648b9a8fe559590262f39f5f18c33c87556",
+        "schema_version": 1,
+        "type_id": "bytes"
+      },
+      "observed_at": 51,
+      "output_ref": {
+        "content_digest": "eb17f4f506f90a2e82505210f0095648b9a8fe559590262f39f5f18c33c87556",
+        "schema_version": 1,
+        "type_id": "bytes"
+      },
+      "path_digest": "c58a07f60f8cbc6f9f93cab33867b7b19b5a41bb421c7b19202833f80111745f",
+      "receiver_policy_digest": "13e355136f5f50a81f2a613a2761cdfe6715454238181a0303051d66e9436191",
+      "schema": "mailcpu.observer-host-path.v1",
+      "source": "local.sender",
+      "stages": [
+        {
+          "evidence_digest": "09eaff7dce9a29ab98995e8d7b113f9c7be7f90695458bead2ee5aa3ec17f658",
+          "input_ref": {
+            "content_digest": "eb17f4f506f90a2e82505210f0095648b9a8fe559590262f39f5f18c33c87556",
+            "schema_version": 1,
+            "type_id": "bytes"
+          },
+          "mode": "carrier",
+          "ordinal": 0,
+          "output_ref": {
+            "content_digest": "eb17f4f506f90a2e82505210f0095648b9a8fe559590262f39f5f18c33c87556",
+            "schema_version": 1,
+            "type_id": "bytes"
+          },
+          "source": "local.sender",
+          "stage_digest": "89bacfd2627b2dd6039537ccd7c936ae50ba993282f4256d934661d42a6020b0",
+          "target": "local.observer"
+        }
+      ],
+      "verification_scope": "receiver_callbacks_not_external_attestation"
+    },
+    "observed_recv_call_range": [
+      1,
+      2
+    ],
+    "probe_identity_digest": "e76aa35c092865a5ab6da3a7495ec2850a939b45bce3728c80b5e881751f3222",
+    "probes": 32,
+    "received_bytes_match": true,
+    "status": "live_os_loopback_observation",
+    "what_this_does_not_prove": "optical transfer, physically independent host, pure fiber time-of-flight, stable delay law, or E-CPU executing in the medium",
+    "what_this_proves": "32 locally verified ordered byte streams and corresponding endpoint elapsed time intervals",
+    "write_calls_per_probe": 4
+  },
+  "transfer_experiment": {
+    "held_out_count": 3,
+    "status": "software_reference_not_physical_measurement",
+    "what_this_does_not_prove": "any actual fiber performed this FIR transformation",
+    "what_this_proves": "bounded LTI candidate fits exact impulse, shift, and three independent held-out synthetic probes",
+    "witness": {
+      "candidate_digest": "39de7e3d27271b91e804672cb0c225c3f520d3c0efa03783185f92273bab410c",
+      "environment_digest": "f0028fa1f042408efcd1e5bea46857cde6ad76ee209a3a410f18987141ee5784",
+      "evidence_digest": "10407193578fc522824694ebf31101ada5e4907384e88016152f622600c0afb1",
+      "kernel": [
+        0.625,
+        0.25,
+        -0.125
+      ],
+      "mechanism": "software_fir_reference",
+      "observation_count": 5,
+      "observed_dimension": 9,
+      "schema": "mailcpu.path-ground-probe.v1.transfer-ground",
+      "scope": "empirically_checked_probes_not_universal_law",
+      "tolerance": 1e-12,
+      "worst_holdout_abs_error": 0.0
+    }
+  }
+}

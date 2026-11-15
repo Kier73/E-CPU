@@ -1,0 +1,37 @@
+name: PATH-GROUND-001 path-observation regression
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/path_ground_probe.py'
+      - 'tests/test_path_ground_probe.py'
+      - 'examples/run_path_ground_probe.py'
+      - 'docs/PATH_GROUND_001_COMMUNICATION_OBSERVATION.md'
+      - '.github/workflows/path-ground-observation.yml'
+  push:
+    paths:
+      - 'mailcpu/path_ground_probe.py'
+      - 'tests/test_path_ground_probe.py'
+      - 'examples/run_path_ground_probe.py'
+      - 'docs/PATH_GROUND_001_COMMUNICATION_OBSERVATION.md'
+      - '.github/workflows/path-ground-observation.yml'
+permissions:
+  contents: read
+jobs:
+  real-local-network-and-ground:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ['3.11', '3.13']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install E-CPU from checkout
+        run: python -m pip install -e .
+      - name: Use native E-CPU types; exercise actual loopback TCP
+        run: python -m unittest discover -s tests -p 'test_path_ground_probe.py' -v
+      - name: Measure path and characterize separate synthetic kernel
+        run: python -m examples.run_path_ground_probe
