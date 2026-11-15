@@ -10,6 +10,8 @@ on:
       - 'mailcpu/transit_vgi_similarity.py'
       - 'tests/test_vgi_similarity_host.py'
       - 'tests/test_vgi_similarity_transit_recovery.py'
+      - 'tests/test_vgi_similarity_native_transit_recovery.py'
+      - 'tests/helpers/vgi_similarity_native_continuity_worker.py'
       - 'tests/helpers/vgi_similarity_continuity_worker.py'
       - 'examples/vgi_similarity_transfer_process.py'
       - '.github/workflows/vgi-similarity-transit.yml'
@@ -23,6 +25,8 @@ on:
       - 'mailcpu/transit_vgi_similarity.py'
       - 'tests/test_vgi_similarity_host.py'
       - 'tests/test_vgi_similarity_transit_recovery.py'
+      - 'tests/test_vgi_similarity_native_transit_recovery.py'
+      - 'tests/helpers/vgi_similarity_native_continuity_worker.py'
       - 'tests/helpers/vgi_similarity_continuity_worker.py'
       - 'examples/vgi_similarity_transfer_process.py'
       - '.github/workflows/vgi-similarity-transit.yml'
@@ -52,4 +56,4 @@ jobs:
           python examples/vgi_similarity_transfer_process.py negative
       - name: Test real E-CPU Virtual Layer and post-commit Transit recovery
         run: |
-          python -m pytest -q -v tests/test_vgi_similarity_host.py tests/test_vgi_similarity_native_memory.py tests/test_vgi_similarity_transit_recovery.py
+          python -m pytest -q -v tests/test_vgi_similarity_host.py tests/test_vgi_similarity_native_memory.py tests/test_vgi_similarity_transit_recovery.py tests/test_vgi_similarity_native_transit_recovery.py
