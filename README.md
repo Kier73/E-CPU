@@ -14,6 +14,8 @@ The physical processor is a realizer of computation, not the definition of the c
 
 **Host = observer; path = architecture.** A host can be any identified locus with a declared information operation. Several such loci and their connecting media may jointly realize a Ground without any one locus containing the whole E-CPU. This does **not** imply that passive links run arbitrary programs, that signal distortion is automatically useful computation, or that public network infrastructure can be used without permission. Mathematical laws, measured physical effects, receiver authority, and recovery evidence must each be established independently.
 
+**Capacity precedes recognition.** An information path may already support a realizable transition, observation, or retention relation before it has ever encountered an E-CPU description. E-CPU does not need to install itself everywhere to make that capacity mathematically addressable: it can discover a relation, construct its Ground, and navigate what its verified structure permits. Admission and authority determine which effects can be accepted; they do not create the underlying relationship. See [Latent Path Capacity](docs/LATENT_PATH_CAPACITY.md) for the formal distinction, communication-state model and executable experiment.
+
 See [The Internet Is the Computer](docs/THE_INTERNET_IS_THE_COMPUTER.md) for the full proposition, its relation to E-CPU's existing observer/path systems, and a falsifiable experimental programme.
 
 
