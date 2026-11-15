@@ -462,6 +462,7 @@ def _spawn(root: Path, restore: bool) -> tuple[subprocess.Popen[str], int]:
 def run_demo(
     root: Path, *,
     configure_lineage: Any = None,
+    publication_hook: Any = None,
 ) -> dict[str, Any]:
     """Prove one model host survives a hard receiver kill and resumes by TLS.
 
@@ -571,6 +572,11 @@ def run_demo(
             "source_oracle_match": True,
             "quorum_anchor_failure_domains": 1,
         }
+        if publication_hook is not None:
+            # Publication requires the verified read receipt and happens while
+            # the original authenticated recovery authorities remain online.
+            publication = publication_hook(root, core)
+            core = {**core, "quorum_publication": publication}
         return {**core, "report_digest": _digest(core)}
     finally:
         for transport in (first_transport, second_transport):
