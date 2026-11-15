@@ -9,6 +9,7 @@ on:
       - 'examples/research_frontier_observation_2026_11_15.json'
       - 'tests/test_research_frontier.py'
       - 'docs/LIVE_RESEARCH_FRONTIER_USM009.md'
+      - 'docs/LIVE_RESEARCH_FIRST_OBSERVATION_USM009.md'
       - '.github/workflows/live-research-frontier.yml'
   pull_request:
     paths:
@@ -18,6 +19,7 @@ on:
       - 'examples/research_frontier_observation_2026_11_15.json'
       - 'tests/test_research_frontier.py'
       - 'docs/LIVE_RESEARCH_FRONTIER_USM009.md'
+      - 'docs/LIVE_RESEARCH_FIRST_OBSERVATION_USM009.md'
       - '.github/workflows/live-research-frontier.yml'
   workflow_dispatch:
 
