@@ -1,0 +1,109 @@
+{
+  "schema": "mailcpu.research-frontier-config.v1",
+  "items": [
+    {
+      "id": "ecpu-138",
+      "repo": "Kier73/E-CPU",
+      "number": 138,
+      "requires": [],
+      "required_workflows": [
+        "verify",
+        "USM-001 model-operated E-CPU"
+      ]
+    },
+    {
+      "id": "ecpu-139",
+      "repo": "Kier73/E-CPU",
+      "number": 139,
+      "requires": [
+        "ecpu-138"
+      ],
+      "required_workflows": [
+        "verify",
+        "USM-002 model-issued E-CPU system calls"
+      ]
+    },
+    {
+      "id": "ecpu-140",
+      "repo": "Kier73/E-CPU",
+      "number": 140,
+      "requires": [
+        "ecpu-139"
+      ],
+      "required_workflows": [
+        "verify",
+        "USM-004 authenticated model-operated E-CPU"
+      ]
+    },
+    {
+      "id": "ecpu-141",
+      "repo": "Kier73/E-CPU",
+      "number": 141,
+      "requires": [
+        "ecpu-140"
+      ],
+      "required_workflows": [
+        "verify",
+        "USM-005 model receiver recovery before lost ACK"
+      ]
+    },
+    {
+      "id": "ecpu-142",
+      "repo": "Kier73/E-CPU",
+      "number": 142,
+      "requires": [
+        "ecpu-141"
+      ],
+      "required_workflows": [
+        "verify",
+        "USM-006 native distributed model recovery lineage"
+      ]
+    },
+    {
+      "id": "ecpu-143",
+      "repo": "Kier73/E-CPU",
+      "number": 143,
+      "requires": [
+        "ecpu-142"
+      ],
+      "required_workflows": [
+        "verify",
+        "USM-008 quorum-fenced model Ground publication"
+      ]
+    },
+    {
+      "id": "ifs-229",
+      "repo": "Kier73/In-Formation-Space",
+      "number": 229,
+      "requires": [],
+      "required_workflows": [
+        "Encounter envelope tests",
+        "USM-003 independently reconstructed model-operated E-CPU"
+      ]
+    },
+    {
+      "id": "ifs-231",
+      "repo": "Kier73/In-Formation-Space",
+      "number": 231,
+      "requires": [
+        "ifs-229"
+      ],
+      "required_workflows": [
+        "Encounter envelope tests",
+        "USM-005 independent observer of recovered model Ground"
+      ]
+    },
+    {
+      "id": "ifs-232",
+      "repo": "Kier73/In-Formation-Space",
+      "number": 232,
+      "requires": [
+        "ifs-231"
+      ],
+      "required_workflows": [
+        "Encounter envelope tests",
+        "USM-007 fenced model result publication via existing IFS route epochs"
+      ]
+    }
+  ]
+}
