@@ -1,0 +1,72 @@
+name: USM-005 model receiver recovery before lost ACK
+
+on:
+  push:
+    paths:
+      - 'examples/model_receiver_recovery.py'
+      - 'examples/model_authenticated_fabric.py'
+      - 'tests/test_model_receiver_recovery.py'
+      - 'docs/MODEL_RECEIVER_RECOVERY_USM005.md'
+      - '.github/workflows/model-receiver-recovery.yml'
+  pull_request:
+    paths:
+      - 'examples/model_receiver_recovery.py'
+      - 'examples/model_authenticated_fabric.py'
+      - 'tests/test_model_receiver_recovery.py'
+      - 'docs/MODEL_RECEIVER_RECOVERY_USM005.md'
+      - '.github/workflows/model-receiver-recovery.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  model-receiver-crash-recovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Validate native TLS test prerequisite
+        run: openssl version
+      - name: Install the native MailCPU runtime and test runner
+        run: python -m pip install -e . pytest
+      - name: Exercise model operation and receiver hard-crash restoration
+        run: >-
+          python -m pytest -q
+          tests/test_model_system_calls.py
+          tests/test_model_authenticated_fabric.py
+          tests/test_model_receiver_recovery.py
+      - name: Execute standalone hard-crash model operating experiment
+        run: python -m examples.model_receiver_recovery demo --output usm005-report.json
+      - name: Independently inspect operator evidence report
+        run: |
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          evidence = json.loads(Path("usm005-report.json").read_text())
+          core = {k: v for k, v in evidence.items() if k != "report_digest"}
+          digest = hashlib.sha256(json.dumps(
+              core, sort_keys=True, separators=(",", ":"), allow_nan=False
+          ).encode("utf-8")).hexdigest()
+          assert digest == evidence["report_digest"]
+          assert evidence["first_receiver_exit"] == 86
+          assert evidence["model_unchanged_process"] is True
+          assert evidence["read_pending_at_crash"] is True
+          assert evidence["model_calls"] == ["observe", "propose", "read"]
+          assert evidence["result"]["events"] == 3
+          assert evidence["result"]["semantic_reentries"] == 0
+          assert evidence["result"]["first_quorum_generation"] == 1
+          assert evidence["result"]["latest_quorum_generation"] == 2
+          assert evidence["source_oracle_match"] is True
+          assert evidence["quorum_anchor_failure_domains"] == 1
+          print("USM-005 durable receiver replacement report verified")
+          PY
+      - name: Retain operation continuity artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: usm005-model-survives-receiver-recovery
+          path: usm005-report.json
+          if-no-files-found: error

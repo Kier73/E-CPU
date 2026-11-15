@@ -156,6 +156,7 @@ def receiver_session(
     stream_id: str,
     deny_admission: bool = False,
     allowed_ops: frozenset[str] = frozenset({"observe", "propose", "read"}),
+    after_commit: Any = None,
 ) -> dict[str, Any]:
     """Operate E-CPU's actual registry from a mutually authenticated peer.
 
@@ -187,6 +188,8 @@ def receiver_session(
             validated = _validate_response(request, reply)
             # Admission and the Ground read are owned exclusively by receiver.
             response = session.apply(validated["call"])
+            if after_commit is not None:
+                after_commit(session, inbound, outbound, validated, response)
             accepted.append({"reply": validated, "result": response})
 
         response_sequence, _payload = _receive(inbound, outbound, commit=commit)
