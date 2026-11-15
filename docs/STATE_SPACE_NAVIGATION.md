@@ -37,6 +37,10 @@ A verified description establishes facts about this denotation and its declared 
 
 This distinction is important for E-CPU: the useful capacity is the set of states and transformations that the declared algebra can express and validate, not a stored list of every possible state.
 
+### Capacity precedes recognition
+
+An information-bearing path may already exhibit a transition, retention or observation relation before E-CPU has encountered it. The *latent capacity* is not identical to the finite trace with which an observer discovers the relation, and the absence of a named E-CPU service does not imply the absence of a realizable computation. A suitable Ground makes a verified part of that capacity addressable; receiver admission determines which concrete effects are permitted. See [Latent Path Capacity](LATENT_PATH_CAPACITY.md) for a finite whole-domain example and the distinction between mathematical Ground identity and path-evidence identity.
+
 ## 2. Capacity is not a trace
 
 Given an initial state \(s_0\), a navigation policy \(\pi\), and a finite budget \(B\), the observer produces a trace

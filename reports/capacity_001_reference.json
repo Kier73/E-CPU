@@ -1,0 +1,47 @@
+{
+  "caveats": [
+    "Paths are pre-existing software-defined test relations, not live internet routes.",
+    "Exhaustive finite-domain verification establishes the modeled relation at a declared snapshot, not future stability.",
+    "Logical-time navigation is algebraic; no path traverses 10^30 states.",
+    "The external path's provenance and receiver authorization are separately owned.",
+    "A self-consistent certificate without independent path observations does not prove an external host's behavior."
+  ],
+  "navigated_without_trajectory_replay": true,
+  "no_host_knows_ecpu": true,
+  "paths": [
+    {
+      "discovery_ns": 167711,
+      "evidence_digest": "69568422031d5ecd3b7d64129628445b1004b1af5be52695159c4221534b1d46",
+      "ground_digest": "19253a59273273aa91e449ddd4039324a3918be9f83364744b0874d210a7bc70",
+      "increment": 46,
+      "independent_dense_oracle": true,
+      "initial": 39,
+      "live_reverification": true,
+      "logical_tick": "1000000000000000000000000000011",
+      "multiplier": 21,
+      "navigation_ns": 23676,
+      "path_id": "anonymous-dual-stage",
+      "path_probes": 101,
+      "result": 40
+    },
+    {
+      "discovery_ns": 121409,
+      "evidence_digest": "e2965b6c8c9aa2d1984aeac2857a89f7d56c45a42436a0960a817b1da5d8e8af",
+      "ground_digest": "19253a59273273aa91e449ddd4039324a3918be9f83364744b0874d210a7bc70",
+      "increment": 46,
+      "independent_dense_oracle": true,
+      "initial": 39,
+      "live_reverification": true,
+      "logical_tick": "1000000000000000000000000000011",
+      "multiplier": 21,
+      "navigation_ns": 18545,
+      "path_id": "alternate-dual-stage",
+      "path_probes": 101,
+      "result": 40
+    }
+  ],
+  "schema": "mailcpu.capacity-recognition.reference.v1",
+  "scope": "declared_finite_snapshot_not_external_attestation",
+  "status": "bounded_exact_opaque_path_recognition",
+  "total_probes_for_two_certificates": 202
+}
