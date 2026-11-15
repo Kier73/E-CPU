@@ -46,7 +46,7 @@ In the initial **isolated Python 3.13 compatibility harness** (standing in for n
 
 The timing-envelope decision (accepted or refused) is retained in the JSON report; it depends on the measured jitter and the declared 25,000 ns tolerance, and is **not** a physical propagation certification.
 
-The dedicated repository CI workflow runs the **real E-CPU classes** on Python 3.11 and 3.13 on Linux and Windows. These remain pending until CI executes; local API-compatible tests do not establish integrated behavior on every platform.
+The dedicated repository CI workflow runs the **real E-CPU classes** on Python 3.11 and 3.13 on Linux and Windows. To actively reuse rather than duplicate existing infrastructure, it also runs the native `test_transit_path_modes`, `test_transit_path_binding`, `test_observer_path_evidence`, and `test_observer_orbit` suites. These remain pending until CI executes; local API-compatible tests do not establish integrated behavior on every platform.
 
 ## Next physical-path work
 
