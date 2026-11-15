@@ -8,6 +8,14 @@ The goal is for computational meaning, logical state, and accepted results to be
 
 The physical processor is a realizer of computation, not the definition of the computation.
 
+## Foundational proposition: the internet is the computer
+
+**E-CPU is not intended merely to distribute computation across conventional machines. It aims to discover, describe, form, and navigate computation within the information architecture that already constitutes the internet.** Communication paths, signal propagation, ports, queues, observers, and interfaces can provide lawful information relations; a processor is one possible realizer, not a privileged computational unit. A path may carry unchanged digital bytes while transforming a physical signal under another Ground. The computational role is defined by an **admitted, observable relation**, not by whether the component looks like a CPU.
+
+**Host = observer; path = architecture.** A host can be any identified locus with a declared information operation. Several such loci and their connecting media may jointly realize a Ground without any one locus containing the whole E-CPU. This does **not** imply that passive links run arbitrary programs, that signal distortion is automatically useful computation, or that public network infrastructure can be used without permission. Mathematical laws, measured physical effects, receiver authority, and recovery evidence must each be established independently.
+
+See [The Internet Is the Computer](docs/THE_INTERNET_IS_THE_COMPUTER.md) for the full proposition, its relation to E-CPU's existing observer/path systems, and a falsifiable experimental programme.
+
 
 ## Foremost capability: form computational environments from available substrates
 
