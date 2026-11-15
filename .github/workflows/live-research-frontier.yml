@@ -11,6 +11,7 @@ on:
       - 'tests/test_research_frontier.py'
       - 'tests/test_research_proof_obligations.py'
       - 'docs/LIVE_RESEARCH_FRONTIER_USM009.md'
+      - 'docs/FORMAL_RESEARCH_OBLIGATIONS_USM010.md'
       - 'docs/LIVE_RESEARCH_FIRST_OBSERVATION_USM009.md'
       - '.github/workflows/live-research-frontier.yml'
   pull_request:
@@ -23,6 +24,7 @@ on:
       - 'tests/test_research_frontier.py'
       - 'tests/test_research_proof_obligations.py'
       - 'docs/LIVE_RESEARCH_FRONTIER_USM009.md'
+      - 'docs/FORMAL_RESEARCH_OBLIGATIONS_USM010.md'
       - 'docs/LIVE_RESEARCH_FIRST_OBSERVATION_USM009.md'
       - '.github/workflows/live-research-frontier.yml'
   workflow_dispatch:
