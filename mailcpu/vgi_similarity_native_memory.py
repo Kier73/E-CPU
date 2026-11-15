@@ -15,7 +15,9 @@ import json
 from typing import Any, Mapping
 
 from .law_certifier import Law
-from .structural_memory import StructuralMemoryRegistry, StructuralMemoryVersion
+from .structural_memory import (
+    StructuralMemoryRegistry, StructuralMemoryVersion, StructuralMemoryReadReceipt,
+)
 from .vgi_similarity_host import (
     MAX_RECORD_BYTES, PinnedSimilarityCatalogue, PinnedSimilarityRecord,
     SimilarityHostError, _reconstruct, _sha,
@@ -232,6 +234,23 @@ class NativeSimilarityCatalogue(PinnedSimilarityCatalogue):
         """Return authoritative revision provenance after the local read check."""
         self._read_authorized()
         version = self._version()
+        # Native provenance is an actual journalled read, not merely a
+        # metadata lookup. It certifies the index coordinate 0, NOT the
+        # similarity relation (already independently rechecked by VGI).
+        try:
+            read = self.operating_system.structural_memory.read_revision(
+                self.pin.memory_id, self.pin.revision, 0, context=version.spec.context,
+            )
+        except Exception as exc:
+            raise SimilarityHostError(f"native structural-memory read refused: {exc}") from exc
+        if (not isinstance(read, StructuralMemoryReadReceipt)
+            or read.memory_id != version.spec.memory_id
+            or read.revision != version.spec.revision
+            or read.spec_digest != version.spec.digest
+            or read.certificate_digest != version.certificate.digest
+            or read.context_digest != version.spec.context_digest
+            or read.coordinate != 0 or read.value != 0):
+            raise SimilarityHostError("native read receipt differs from pinned revision")
         return {
             "schema": NATIVE_SCHEMA,
             "memory_id": version.spec.memory_id,
@@ -241,6 +260,7 @@ class NativeSimilarityCatalogue(PinnedSimilarityCatalogue):
             "certificate_digest": version.certificate.digest,
             "context_digest": version.spec.context_digest,
             "admitted_proposal_id": version.admitted_proposal_id,
+            "index_read_receipt": read.to_dict(),
             "mathematical_memory_sha256": self.pin.memory_sha256,
             "graph_fingerprint": self.pin.graph_fingerprint,
             "index_law_scope": "revision_coordinate_only_not_similarity_proof",

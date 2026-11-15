@@ -75,6 +75,15 @@ Both these permissions are required:
   the native pinned revision. The adapter checks the live worker PID and the
   worker's actual capabilities, never trusting a peer's asserted grant.
 
+The effect additionally carries an E-CPU **journalled structural-memory read
+receipt** for index coordinate zero, obtained through the registry's own
+`read_revision` operation after VGI's navigation. Its spec/certificate/context
+identities are checked against the pinned revision. The native read receipt
+certifies only the index-coordinate relation, not the VGI matrix proof.
+When a committed E-CPU effect is replayed, the expected result is the original
+read receipt with no second handler entry or native read. That full replay
+claim still requires the existing dedicated Transit CI test to pass.
+
 A historical revision remains independently addressable under an explicitly
 pinned native identity. Strict active-head-only resolution is also available
 (`require_active=True`). Rebinding changed matrix operands requires VGI's

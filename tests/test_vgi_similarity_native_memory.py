@@ -135,6 +135,11 @@ def test_native_revision_operator_requires_both_rights_and_binds_provenance():
     assert effect["native_structural_memory"]["revision"] == 1
     assert effect["native_structural_memory"]["spec_digest"] == pin.spec_digest
     assert effect["native_structural_memory"]["certificate_digest"] == pin.certificate_digest
+    native_read = effect["native_structural_memory"]["index_read_receipt"]
+    assert native_read["value"] == 0 and native_read["coordinate"] == 0
+    assert native_read["spec_digest"] == pin.spec_digest
+    assert native_read["certificate_digest"] == pin.certificate_digest
+    assert len(native_read["receipt_id"]) == 64
     assert effect["computation_ground"]["memory_sha256"] == pin.memory_sha256
     assert effect["navigation"]["inner"]["result"]["values"] == list(
         PreparedTemporalOperator.from_chain(graph).state_at(initial, workload.input_value["logical_tick"]).result.values
@@ -144,6 +149,9 @@ def test_native_revision_operator_requires_both_rights_and_binds_provenance():
     assert replay.replayed is True
     assert replay.effect == first.effect
     assert calls == [workload.workload_id]
+    # The native index read is journalled once; ledger replay does not reread.
+    kinds = [item.kind for item in host.environment.kernel.journal.records()]
+    assert kinds.count("structural_memory.read_revision") == 1
     assert host.environment.kernel.journal.verify()
     no_read = NativeSimilarityCatalogue(host, bad, pin)
     with pytest.raises(SimilarityHostError, match="read capability"):
