@@ -32,7 +32,9 @@ GITHUB_REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 STATUS_TO_ACTION = {
     "failed": "investigate_failure",
     "missing": "collect_verification",
-    "queued": "run_verification",
+    "queued": "monitor_queued_verification",
+    "stalled_queued": "investigate_queued_runner",
+    "cancelled": "reassess_cancelled_verification",
     "in_progress": "inspect_running_verification",
     "verified": "review_verified_change",
 }
@@ -229,8 +231,11 @@ def validate_evidence(evidence: Any, config: Mapping[str, Any] | None = None) ->
     return list(evidence["items"])
 
 
-def check_status(item: Mapping[str, Any]) -> tuple[str, int]:
+def check_status(
+    item: Mapping[str, Any], observed_at: str | None = None,
+) -> tuple[str, int]:
     """No absent, skipped, neutral, cancelled or queued run ever means green."""
+    from datetime import datetime
     observed = {run["workflow"]: run for run in item["runs"]}
     required = item["required_workflows"]
     present = [observed[name] for name in required if name in observed]
@@ -245,6 +250,19 @@ def check_status(item: Mapping[str, Any]) -> tuple[str, int]:
         return "failed", complete
     if any(run["status"] == "in_progress" for run in present):
         return "in_progress", complete
+    pending = [run for run in present if run["status"] != "completed"]
+    if pending and observed_at is not None:
+        try:
+            now = datetime.fromisoformat(observed_at.replace("Z", "+00:00"))
+            ages = [(
+                now - datetime.fromisoformat(run["created_at"].replace("Z", "+00:00"))
+            ).total_seconds() for run in pending]
+            if any(age >= 30 * 60 for age in ages):
+                return "stalled_queued", complete
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ResearchFrontierRefused("invalid queue age observation timestamps") from exc
+    if not pending and any(run["conclusion"] == "cancelled" for run in present):
+        return "cancelled", complete
     return "queued", complete
 
 
@@ -254,7 +272,10 @@ def build_research_dag(evidence: Mapping[str, Any]) -> tuple[
     """Reuse native E-CPU predecessor readiness for *real* PR observations."""
     items = validate_evidence(evidence)
     records = {item["id"]: item for item in items}
-    statuses = {key: check_status(item)[0] for key, item in records.items()}
+    statuses = {
+        key: check_status(item, evidence["observed_at"])[0]
+        for key, item in records.items()
+    }
     nodes = [
         ComputationNode(
             node_id=item["id"], revision=1,
@@ -317,7 +338,7 @@ def _adviser_prompt(
         if item["state"] == "closed" and not item["merged"]:
             # A closed, unmerged PR is not a runnable or mergeable operation.
             continue
-        status, count = check_status(item)
+        status, count = check_status(item, evidence["observed_at"])
         frontier.append({
             "id": node.node_id, "status": status,
             "descendants": _descendants(node.node_id, records),
@@ -399,6 +420,7 @@ def operate(
             "id": selected["id"], "url": selected_record["url"],
             "head_sha": selected_record["head_sha"],
             "check_status": statuses[selected["id"]],
+            "workflow_runs": selected_record["runs"],
         },
         "recommended_action": advice["action"],
         "merge_authorized": False,
