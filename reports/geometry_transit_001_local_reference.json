@@ -1,0 +1,59 @@
+{
+  "ci": "pending for real E-CPU and pinned VGI PR31",
+  "e_cpu_integration_code": "compiled; handler smoke tested against API-compatible Virtual Layer stub, NOT actual mailcpu runtime",
+  "e_cpu_runtime_available_locally": false,
+  "experiment_environment": "container-local subprocesses over loopback TCP",
+  "generated_at_utc": "2026-11-15T14:30:52.812189+00:00",
+  "limitations": [
+    "Producer and receiver are distinct OS processes inside a single local sandbox, not two networked physical machines.",
+    "Loopback TCP is unauthenticated; the laboratory controller supplies expected digests out-of-band.",
+    "Standalone restore reconstructs and recomputes the pure mathematical effect; it does not replay a committed E-CPU Transit ledger.",
+    "Full E-CPU Hypervisor, ReliableChannel, recovery-lineage and bundle integration tests are committed as tests but could not execute locally without the E-CPU package.",
+    "The default E-CPU optional VGI dependency points to an older revision; dedicated CI pins feature revision 30732bc4ba42c9555ab30fad21eb7b3778fb966b.",
+    "No actual mTLS, federated peer authentication, hardware remote execution, or physical host attestation is claimed."
+  ],
+  "local_tests": ".......................................................... [ 66%]\n.............................                                            [100%]\n87 passed, 14 subtests passed in 11.45s",
+  "negative": {
+    "expected_ground_fingerprint": "8821d88c557160e911e1d5826a3e9aacec89dba341fc97b26667321c2af6bae8",
+    "receiver_error": "vgi.typed_operator_navigation.TypedOperatorError: malformed memory JSON",
+    "receiver_exit_code": 1,
+    "tampered_transfer_rejected": true
+  },
+  "positive": {
+    "block_sizes": [
+      2,
+      2,
+      2
+    ],
+    "certificate_fingerprint": "2ce713db508abf80fa34c736a45a921b437acb6d87bff431b5ae220a53e52c4b",
+    "different_receiver_process": true,
+    "discovery_ms_single": 140.276,
+    "experiment": "GEOMETRY-TRANSIT-001",
+    "graph_fingerprint": "8821d88c557160e911e1d5826a3e9aacec89dba341fc97b26667321c2af6bae8",
+    "logical_tick": "1000000000000000000000000000011",
+    "mathematical_state_recomputed_after_death": true,
+    "memory_sha256": "a7eaecfcb0df938922d20061aa464d4213ec8ad1da542130d6712bb5bf4c597d",
+    "no_basis_rediscovery": true,
+    "original_receiver_verification_ms_single": 13.307,
+    "producer_pid": 2809,
+    "receiver_pid": 2819,
+    "record_bytes": 1634,
+    "recovered_pid": 2829,
+    "recovered_receiver_verification_ms_single": 12.294,
+    "restored_receipt_digest": "83ad705f71b6962d22a38d6c904ce59f0875af96c11b69bd27f987ac6c697ae0",
+    "result": [
+      12,
+      45,
+      86,
+      21,
+      30,
+      50
+    ],
+    "result_matches_dense_reference": true,
+    "stored_cut_digest": "83ad705f71b6962d22a38d6c904ce59f0875af96c11b69bd27f987ac6c697ae0",
+    "transit_effect_replay_verified": false
+  },
+  "python_version": "3.13.5",
+  "schema": "geometry-transit-001.local-reference.v1",
+  "underlying_vgi_fixture": "GEOMETRY-FIRST-008 sources under geometry_eighth_work; API-compatible local affine shim, not installed official VGI"
+}
