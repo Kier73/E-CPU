@@ -46,7 +46,7 @@ def advise(prompt: dict[str, Any]) -> dict[str, Any]:
             raise ValueError("invalid research frontier candidate")
         if (type(item["id"]) is not str or item["id"] in identifiers
                 or item["status"] not in {
-                    "queued", "missing", "failed", "verified", "in_progress"
+                    "queued", "stalled_queued", "cancelled", "missing", "failed", "verified", "in_progress"
                 }
                 or any(type(item[k]) is not int or item[k] < 0
                        for k in ("descendants", "required_checks", "completed_checks"))
@@ -55,8 +55,8 @@ def advise(prompt: dict[str, Any]) -> dict[str, Any]:
         identifiers.add(item["id"])
         # Higher impact on blocked descendants receives priority; a real
         # failing run is prioritized over a queued check at equal impact.
-        scores = {"failed": 30, "missing": 20, "queued": 15,
-                  "in_progress": 10, "verified": 0}
+        scores = {"failed": 30, "stalled_queued": 28, "missing": 20,
+                  "cancelled": 18, "queued": 15, "in_progress": 10, "verified": 0}
         score = 100 * item["descendants"] + scores[item["status"]]
         choices.append((score, item["id"]))
     score, selected = sorted(choices, key=lambda row: (-row[0], row[1]))[0]
@@ -64,7 +64,9 @@ def advise(prompt: dict[str, Any]) -> dict[str, Any]:
     proposed_action = {
         "failed": "investigate_failure",
         "missing": "collect_verification",
-        "queued": "run_verification",
+        "queued": "monitor_queued_verification",
+        "stalled_queued": "investigate_queued_runner",
+        "cancelled": "reassess_cancelled_verification",
         "in_progress": "inspect_running_verification",
         "verified": "review_verified_change",
     }[item["status"]]
