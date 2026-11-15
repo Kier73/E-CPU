@@ -1,0 +1,58 @@
+name: USM-001 model-operated E-CPU
+
+on:
+  push:
+    paths:
+      - 'examples/model_ground_os.py'
+      - 'examples/model_ground_worker.py'
+      - 'tests/test_model_ground_os.py'
+      - 'docs/MODEL_OPERATED_GROUND_OS.md'
+      - '.github/workflows/model-ground-os.yml'
+  pull_request:
+    paths:
+      - 'examples/model_ground_os.py'
+      - 'examples/model_ground_worker.py'
+      - 'tests/test_model_ground_os.py'
+      - 'docs/MODEL_OPERATED_GROUND_OS.md'
+      - '.github/workflows/model-ground-os.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  operational-use:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install E-CPU with test runner
+        run: python -m pip install -e . pytest
+      - name: Exercise actual Ground policy and service integration
+        run: python -m pytest -q tests/test_model_ground_os.py
+      - name: Train controller and operate E-CPU memory service
+        run: python -m examples.model_ground_os > usm001-report.json
+      - name: Independently check output contract
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("usm001-report.json").read_text())
+          assert report["training"]["examples"] == 24
+          assert report["external_comparison"]["affine_source_oracle_match"] is True
+          assert report["external_comparison"]["nonlinear_admitted"] is False
+          assert report["episodes"][0]["status"] == "ground_read"
+          assert report["episodes"][0]["requested_coordinate"] == 10**12 + 137
+          assert report["episodes"][1]["status"] == "refused_by_ecpu"
+          print("verified actual E-CPU admission, navigation and refusal")
+          PY
+      - name: Retain complete operational evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: usm001-model-operating-ecpu
+          path: usm001-report.json
+          if-no-files-found: warn
