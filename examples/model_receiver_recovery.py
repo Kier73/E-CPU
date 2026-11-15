@@ -39,6 +39,7 @@ from mailcpu.socket_transport import SocketTransport
 from mailcpu.structural_memory import StructuralMemoryRegistry
 
 SCHEMA = "mailcpu.usm005.model-recovery-checkpoint.v1"
+PUBLICATION_SCHEMA = "mailcpu.usm008.model-recovery-published-checkpoint.v1"
 PROTOCOL = "mailcpu.model-recovery.v1"
 MACHINE = "model-ground-recovery"
 GENESIS = hashlib.sha256(b"mailcpu-usm005-lineage-genesis-v1").hexdigest()
@@ -219,8 +220,43 @@ def _validate_state(payload: Any) -> None:
         "ground_revision", "ground_digest", "registry", "outgoing_channel",
         "incoming_channel", "committed_reply", "committed_result",
     }
-    if not isinstance(payload, dict) or set(payload) != expected or payload["schema"] != SCHEMA:
+    if not isinstance(payload, dict):
         raise ModelRecoveryRefused("invalid receiver checkpoint schema")
+    published = payload.get("schema") == PUBLICATION_SCHEMA
+    if (payload.get("schema") not in (SCHEMA, PUBLICATION_SCHEMA)
+            or set(payload) != (expected | {"publication_claim"} if published else expected)):
+        raise ModelRecoveryRefused("invalid receiver checkpoint schema")
+    if published:
+        claim = payload["publication_claim"]
+        allowed_claim = {
+            "schema", "owner_id", "source_report_digest", "trace_digest",
+            "ground_digest", "read_receipt_id", "value", "coordinate",
+            "model_digest", "predecessor_manifest_digest",
+        }
+        if (not isinstance(claim, dict) or set(claim) != allowed_claim
+                or claim["schema"] != "mailcpu.usm008.model-publication-claim.v1"
+                or claim["owner_id"] not in ("replacement-a", "replacement-b")
+                or claim["ground_digest"] != payload["ground_digest"]
+                or claim["read_receipt_id"] != payload["committed_result"].get("read_receipt_id")
+                or claim["value"] != payload["committed_result"].get("value")
+                or claim["coordinate"] != payload["coordinate"]
+                or claim["model_digest"] != payload["model"].get("digest")
+                or claim["trace_digest"] != payload["head"] and (
+                    claim["trace_digest"] != _digest({
+                        **{key: value for key, value in {
+                            "schema": "mailcpu.model-syscall-trace.v1",
+                            "session_id": payload["session_id"],
+                            "stream_id": payload["stream_id"],
+                            "observation_digest": _digest(payload["observations"]),
+                            "training_count": payload["training_count"],
+                            "requested_coordinate": payload["coordinate"],
+                            "phase": payload["phase"],
+                            "events": payload["events"],
+                            "head": payload["head"],
+                        }.items()}
+                    })
+                )):
+            raise ModelRecoveryRefused("published receiver checkpoint claim is not bound to Ground")
     model = GroundPolicyModel.from_snapshot(payload["model"])
     if (payload["session_id"] != SESSION_ID
             or payload["stream_id"] != STREAM_ID
