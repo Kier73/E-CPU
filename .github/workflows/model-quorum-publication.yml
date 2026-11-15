@@ -1,0 +1,75 @@
+name: USM-008 quorum-fenced model Ground publication
+
+on:
+  push:
+    paths:
+      - 'examples/model_receiver_recovery.py'
+      - 'examples/model_quorum_publication.py'
+      - 'tests/test_model_quorum_publication.py'
+      - 'docs/MODEL_QUORUM_PUBLICATION_USM008.md'
+      - '.github/workflows/model-quorum-publication.yml'
+  pull_request:
+    paths:
+      - 'examples/model_receiver_recovery.py'
+      - 'examples/model_quorum_publication.py'
+      - 'tests/test_model_quorum_publication.py'
+      - 'docs/MODEL_QUORUM_PUBLICATION_USM008.md'
+      - '.github/workflows/model-quorum-publication.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-quorum-model-publisher:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Check real TLS test prerequisites
+        run: openssl version
+      - name: Install existing MailCPU and test runner
+        run: python -m pip install -e . pytest
+      - name: Regress existing receiver recovery and shared native authority
+        run: >-
+          python -m pytest -q
+          tests/test_model_receiver_recovery.py
+          tests/test_model_distributed_lineage.py
+          tests/test_model_quorum_publication.py
+      - name: Let the model navigate a Ground and choose a quorum-fenced publisher
+        run: >-
+          python -m examples.model_quorum_publication demo
+          --output usm008-publication.json
+      - name: Audit exact single-owner result and restored Ground
+        run: |
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          doc = json.loads(Path('usm008-publication.json').read_text())
+          digest = hashlib.sha256(json.dumps(
+              {k:v for k,v in doc.items() if k != 'report_digest'},
+              sort_keys=True, separators=(',', ':'), allow_nan=False
+          ).encode()).hexdigest()
+          assert doc['report_digest'] == digest
+          assert doc['single_physical_failure_domain'] is True
+          assert doc['physical_independence_verified'] is False
+          assert doc['offline_quorum_generation'] == 3
+          assert doc['offline_ground_reconstructed'] is True
+          assert doc['publication']['quorum_generation'] == 3
+          assert doc['publication']['native_quorum_verified'] is True
+          assert doc['publication']['logical_publication_only'] is True
+          assert sorted(c['status'] for c in doc['publication']['candidate_claims']) == [
+              'authorized', 'superseded'
+          ]
+          assert doc['recovered_model']['result']['semantic_reentries'] == 0
+          print('USM-008 native quorum selected one authorized Ground publisher')
+          PY
+      - name: Retain source and publication authority evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: usm008-quorum-model-ground-publication
+          path: usm008-publication.json
+          if-no-files-found: error
