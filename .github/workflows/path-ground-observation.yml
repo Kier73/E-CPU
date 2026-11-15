@@ -30,8 +30,10 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install E-CPU from checkout
-        run: python -m pip install -e .
+        run: python -m pip install -e ".[dev]"
       - name: Use native E-CPU types; exercise actual loopback TCP
         run: python -m unittest discover -s tests -p 'test_path_ground_probe.py' -v
+      - name: Existing E-CPU observer and path regressions
+        run: python -m pytest -q tests/test_transit_path_modes.py tests/test_transit_path_binding.py tests/test_observer_path_evidence.py tests/test_observer_orbit.py
       - name: Measure path and characterize separate synthetic kernel
         run: python -m examples.run_path_ground_probe
