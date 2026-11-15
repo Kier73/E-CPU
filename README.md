@@ -16,6 +16,8 @@ The physical processor is a realizer of computation, not the definition of the c
 
 **Capacity precedes recognition.** An information path may already support a realizable transition, observation, or retention relation before it has ever encountered an E-CPU description. E-CPU does not need to install itself everywhere to make that capacity mathematically addressable: it can discover a relation, construct its Ground, and navigate what its verified structure permits. Admission and authority determine which effects can be accepted; they do not create the underlying relationship. See [Latent Path Capacity](docs/LATENT_PATH_CAPACITY.md) for the formal distinction, communication-state model and executable experiment.
 
+[CAPACITY-002 — Network-State Capacity and Neural Realization](docs/NETWORK_STATE_CAPACITY_AND_NEURAL_REALIZATION.md) extends that recognition from one path relation to the combined state of multiple observer loci and in-transit queues. It reconstructs a closed finite transition from independently observed local relations, navigates it through E-CPU's existing functional-graph law, and compiles the same Ground into the existing finite Boolean/ReLU neural realizer with exhaustive verification. The model supplies an alternative realization, **not** the Ground's authority.
+
 See [The Internet Is the Computer](docs/THE_INTERNET_IS_THE_COMPUTER.md) for the full proposition, its relation to E-CPU's existing observer/path systems, and a falsifiable experimental programme.
 
 

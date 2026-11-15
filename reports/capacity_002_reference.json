@@ -1,0 +1,61 @@
+{
+  "external_path_invocations_during_navigation": 0,
+  "external_physical_network_test": false,
+  "full_ecpu_runtime_verified": false,
+  "global_state_bits": 8,
+  "global_state_count": 256,
+  "ground_digest": "62184c8292b3d8fcdb0ab5f23d8375caa362f3f94d90703136a653d782c839bf",
+  "initial_state": [
+    1,
+    0,
+    1,
+    1,
+    0,
+    1,
+    0,
+    0
+  ],
+  "local_navigation_including_finite_orbit_preparation_ns": 203095,
+  "local_recognition_ns": [
+    407016,
+    81121
+  ],
+  "logical_coordinate": "1000000000000000000000000000011",
+  "neural": {
+    "architecture": [
+      8,
+      256,
+      8
+    ],
+    "global_rows_verified": 256,
+    "ground_digest": "62184c8292b3d8fcdb0ab5f23d8375caa362f3f94d90703136a653d782c839bf",
+    "model_digest": "8a260aac6acb6d1cbc43b1be1662ffe8be598fc0f2a280ecc6e43f25b500da91",
+    "note": "compiled exact Boolean realization; not a trained model or execution authority",
+    "parameters": 4360,
+    "program_digest": "2c76b0d67c704ec0e20e6e680855a93b58612fc3165611ec79bcd318e7cde72b",
+    "verification": "checked over every global state"
+  },
+  "orbit_digest": "0873c8f74e8aeb4160efc1d562f1390cbe4cb40e6c2a8da415bf5d8a56acba6d",
+  "orbit_period": 12,
+  "orbit_preperiod": 0,
+  "path_digests": [
+    "41e61210ae92e1d3a2be3356df890c4c4d9ea68d9ce26876a580dc88b794abac",
+    "2b69183753d3127bef4c1c01d50557892348727a338d5d3ad3b38bd226304368"
+  ],
+  "result": [
+    1,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0
+  ],
+  "same_ground_distinct_path": true,
+  "schema": "mailcpu.capacity-002-reference.v1",
+  "scope": "finite software observer/network-state experiment",
+  "sites": 4,
+  "total_local_probe_calls_including_repeats": 32,
+  "unique_local_rows_observed": 16
+}
