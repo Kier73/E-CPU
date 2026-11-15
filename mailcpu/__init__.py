@@ -345,6 +345,8 @@ from .navigable_computation_checkpoint import (
 )
 from .transit_simt import TransitSIMTError, TransitSIMTHost, TransitSIMTSharedMemoryHost
 from .egpu import EGPUError, EGPUHost, EGPUOperationalLocus
+from .tensor_stream import TensorStreamError, compile_matmul_tile, execute_tiled_matmul
+from .path_tensor import PathTensorError, PathTensorHost
 from .transit_worker import TransitComputeWorker
 from .transit_orbit import (
     TransitOrbitReceipt,
@@ -994,6 +996,11 @@ from .observed_orbit_pipeline import (
 )
 
 __all__ = [
+    "TensorStreamError",
+    "compile_matmul_tile",
+    "execute_tiled_matmul",
+    "PathTensorError",
+    "PathTensorHost",
     "OperationTimingError",
     "OperationTimingProbe",
     "OperationTimingSample",
