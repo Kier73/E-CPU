@@ -539,11 +539,11 @@ class TransitSIMTHost:
                 self._require_name(destination, "register")
                 self._require_name(source, "register")
                 registers.update((destination, source))
-            elif opcode in {"add", "sub", "mul", "mac", "lt"}:
-                destination, left, right = args
+            elif opcode in {"add", "sub", "mul", "lt", "mac"}:
+                # MAC has four registers; arithmetic and LT have three.
                 for name in args:
                     self._require_name(name, "register")
-                registers.update((destination, left, right))
+                registers.update(args)
             elif opcode == "if":
                 (predicate_name,) = args
                 self._require_name(predicate_name, "predicate register")
