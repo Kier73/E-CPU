@@ -1,0 +1,88 @@
+name: USM-004 authenticated model-operated E-CPU
+
+on:
+  push:
+    paths:
+      - 'examples/model_system_worker.py'
+      - 'examples/model_authenticated_fabric.py'
+      - 'examples/run_model_authenticated_experiment.py'
+      - 'tests/test_model_authenticated_fabric.py'
+      - 'docs/MODEL_AUTHENTICATED_FABRIC_USM004.md'
+      - '.github/workflows/model-authenticated-fabric.yml'
+  pull_request:
+    paths:
+      - 'examples/model_system_worker.py'
+      - 'examples/model_authenticated_fabric.py'
+      - 'tests/test_model_authenticated_fabric.py'
+      - 'docs/MODEL_AUTHENTICATED_FABRIC_USM004.md'
+      - '.github/workflows/model-authenticated-fabric.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  actual-authenticated-model-operations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Check test-certificate generation prerequisite
+        run: openssl version
+      - name: Install MailCPU and pytest
+        run: python -m pip install -e . pytest
+      - name: Run model syscall and mTLS process integration
+        run: >-
+          python -m pytest -q
+          tests/test_model_system_calls.py
+          tests/test_model_authenticated_fabric.py
+      - name: Operate real authenticated model and receiver processes
+        run: python -m examples.run_model_authenticated_experiment --output usm004-report.json
+      - name: Independently inspect retained local operating result
+        run: |
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          doc = json.loads(Path("usm004-report.json").read_text())
+          digest = hashlib.sha256(json.dumps(
+            {k: v for k, v in doc.items() if k != "report_digest"},
+            sort_keys=True, separators=(",", ":"), allow_nan=False
+          ).encode()).hexdigest()
+          assert digest == doc["report_digest"]
+          statuses = [x["receiver"]["status"] for x in doc["cases"]]
+          assert statuses[:3] == ["complete", "refused", "deferred"]
+          assert len(statuses) == 5
+          assert doc["trained_model_unforced"] is True
+          assert all(status in {"complete", "refused", "deferred"} for status in statuses[3:])
+          assert doc["physical_independence_attested"] is False
+          print("USM-004 session outcomes and report content digest verified")
+          PY
+      - name: Retain experiment contract and dependency identities
+        if: always()
+        run: |
+          python - <<'PY'
+          import json, platform, ssl, subprocess
+          from pathlib import Path
+          evidence = {
+            "schema": "mailcpu.usm004.runner-environment.v1",
+            "python": platform.python_version(),
+            "tls": ssl.OPENSSL_VERSION,
+            "commit": subprocess.run(["git", "rev-parse", "HEAD"],
+                                     check=True, text=True, capture_output=True).stdout.strip(),
+            "test_result": "see job steps; this environment record is not a pass assertion",
+          }
+          Path("usm004-runner-environment.json").write_text(
+            json.dumps(evidence, sort_keys=True, indent=2) + "\n"
+          )
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: usm004-authenticated-model-runner
+          path: |
+            usm004-runner-environment.json
+            usm004-report.json
+          if-no-files-found: warn
