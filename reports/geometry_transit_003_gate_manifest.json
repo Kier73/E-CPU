@@ -1,0 +1,22 @@
+{
+  "schema": "geometry-transit-003-source-gate.v1",
+  "target_repo": "Kier73/E-CPU",
+  "upstream_dependency": "Kier73/E-CPU#146",
+  "vgi_dependency_commit": "30732bc4ba42c9555ab30fad21eb7b3778fb966b",
+  "code_compiled_locally": true,
+  "full_ecpu_runtime_available_locally": false,
+  "native_transit_recovery_executed_locally": false,
+  "expected_assertions": [
+    "native pinned revision admitted by receiver host policy",
+    "actual native read receipt included in original committed effect",
+    "receiver killed after committed checkpoint sealed by quorum authorities",
+    "original mathematical record file absent before fresh process restore",
+    "reconstructed mathematical record comes from checkpointed E-CPU registry",
+    "unchanged pending request returns identical committed effect via E-CPU replay",
+    "zero backend entries after receiver restart",
+    "one committed execution and one replay in recovered journal",
+    "fresh second workload is executed once after restore from native registry with source file absent",
+    "VGI discovery method is disabled during fresh reconstructed navigation",
+    "one old effect replay and one new committed effect produce two total journalled native reads"
+  ]
+}
