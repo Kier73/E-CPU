@@ -1,0 +1,35 @@
+{
+  "actual_tcp_loopback": "yes",
+  "focused_tests_failed": 0,
+  "focused_tests_passed": 24,
+  "harness": "API-compatible local stand-in for native E-CPU ChannelObservation, RepresentationRef and the carrier-only ObserverPath dependencies",
+  "local_test_command": "PYTHONPATH=/mnt/data/ecpu_path_harness python -m unittest discover -s /mnt/data/ecpu_path_harness/tests -p test_path_ground_probe.py -q",
+  "native_ecpu_repo_ci": "not_executed",
+  "physical_optical_hardware": "none",
+  "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+  "python": "3.13.5",
+  "schema": "mailcpu.path-ground-001.local-verification.v1",
+  "separate_physical_machines": "none",
+  "software_fir_kernel": [
+    0.625,
+    0.25,
+    -0.125
+  ],
+  "source_sha256": {
+    "examples/run_path_ground_probe.py": "d3b31a90fbf85a3ad33edb1453e48a0ef0d8adf0b97fb44147c9c22efa9a2355",
+    "mailcpu/path_ground_probe.py": "eb3d950329178de089235d1b9a80298a691e75d05ab75b49a2d343bc042bc831",
+    "tests/test_path_ground_probe.py": "103bf14e511c03450c31a9086437a70b042497879654b8f46a67de80b7e3a3cd"
+  },
+  "stable_duration_envelope": {
+    "nominal_ns": 111531,
+    "reason": "held-out or calibration timing rejects declared duration envelope",
+    "status": "refused",
+    "tolerance_ns": 25000
+  },
+  "transfer_holdout_count": 3,
+  "transport_endpoint_span_ns": {
+    "max": 1618734,
+    "median": 76991.5,
+    "min": 54428
+  }
+}
