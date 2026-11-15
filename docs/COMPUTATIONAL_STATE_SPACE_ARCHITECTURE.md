@@ -162,7 +162,7 @@ The path can therefore look like:
 
 The same semantic operation may be realized on different physical hosts without changing its identity, provided the selected implementations preserve the admitted Ground, state, and observation contracts.
 
-Network propagation alone does not perform computation. Information becomes an admitted computational path when its interpreters and transitions are declared, authorized, resourced, observed, and connected by compatible contracts.
+An information path may already possess a lawful state or transition relation before E-CPU encounters it. The capacity to realize a mathematical transformation is distinct from our recognition and admission of that capacity: no E-CPU interpreter must already be installed on every participating locus. Communication and propagation are part of the architecture, but movement of bytes alone does not certify an arbitrary requested semantic effect. The path becomes an **admitted E-CPU computational path** when the relevant relations are described, checked, resourced, and composed under compatible receiver-owned contracts. See [Latent Path Capacity](LATENT_PATH_CAPACITY.md).
 
 ## 6. The computational path, ordered
 
