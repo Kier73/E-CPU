@@ -33,7 +33,7 @@ from examples.model_distributed_lineage import (
 )
 from examples.model_ground_os import _digest, sample_stream
 from examples.model_receiver_recovery import (
-    COORDINATE, ModelRecoveryRefused, ModelRecoveryStore,
+    COORDINATE, ModelRecoveryRefused, ModelRecoveryStore, PUBLICATION_SCHEMA,
     _canonical_bytes, _persist, run_demo,
 )
 from examples.model_system_calls import verify_system_call_trace
@@ -213,6 +213,7 @@ class QuorumPublicationGate:
         self.ground = verified_ground(recovered)
         self.store = ModelRecoveryStore(root / "checkpoint")
         latest_state, self.before = self.store.load()
+        self.unpublished_state = latest_state
         if self.before.generation != 2:
             raise ModelPublicationRefused("model result must have recovery generation two")
         if latest_state["phase"] != "complete":
@@ -220,8 +221,6 @@ class QuorumPublicationGate:
         if latest_state["events"][-1]["output"]["read_receipt_id"] != self.ground["read_receipt_id"]:
             raise ModelPublicationRefused("native recovery state differs from source report")
         self.expected_previous = self.before.digest
-        self.claim_path = root / "publication-claim-3.json"
-        self.manifest_path = root / "publication-manifest-3.json"
         self._closed = False
 
     def close(self) -> None:
@@ -231,21 +230,16 @@ class QuorumPublicationGate:
 
     def _read_committed_claim(self) -> tuple[dict[str, Any], RecoveryStateManifest]:
         """Verify exact latest quorum state, not just the presence of local files."""
-        if not self.claim_path.is_file() or not self.manifest_path.is_file():
-            raise ModelPublicationRefused("committed publication claim record unavailable")
-        claim_bytes = self.claim_path.read_bytes()
-        manifest = RecoveryStateManifest.from_snapshot(json.loads(
-            self.manifest_path.read_text(encoding="utf-8")
-        ))
-        manifest.verify_payload(claim_bytes)
-        self.store.lineage.verify_state(manifest)
-        state = json.loads(claim_bytes)
-        if not isinstance(state, dict) or set(state) != {
-            "schema", "owner_id", "source_report_digest", "trace_digest",
-            "ground_digest", "read_receipt_id", "value", "coordinate",
-            "model_digest", "predecessor_manifest_digest",
-        } or state != _claim(state.get("owner_id"), self.ground, self.expected_previous):
-            raise ModelPublicationRefused("quorum claim payload was not bound to Ground")
+        # The publication claim is part of a fully restorable version-two
+        # recovery state, not an unrelated non-recoverable manifest.
+        stored, manifest = self.store.load()
+        if stored.get("schema") != PUBLICATION_SCHEMA:
+            raise ModelPublicationRefused("latest quorum state has no published owner")
+        state = stored.get("publication_claim")
+        if not isinstance(state, dict) or state != _claim(
+            state.get("owner_id"), self.ground, self.expected_previous
+        ):
+            raise ModelPublicationRefused("quorum claim differs from original Ground")
         if state["owner_id"] not in CANDIDATES:
             raise ModelPublicationRefused("quorum winner is not an admitted candidate")
         if (manifest.generation != 3
@@ -272,23 +266,14 @@ class QuorumPublicationGate:
             if previous != self.before.digest:
                 raise ModelPublicationRefused("model recovery root changed under publication")
             claim = _claim(owner_id, self.ground, previous)
-            payload = _canonical_bytes(claim)
-            manifest = RecoveryStateManifest(
-                machine_id=self.store.membership.system_id,
-                incarnation=self.store.membership.incarnation,
-                owner_id=self.store.membership.owner_id,
-                owner_term=self.store.membership.owner_term,
-                membership_digest=self.store.membership.digest,
-                generation=3,
-                predecessor_digest=previous,
-                state_digest=hashlib.sha256(payload).hexdigest(),
-                capture_cut=CLOSE_CUT,
-            )
-            _persist(self.claim_path, payload)
-            _persist(self.manifest_path, _canonical_bytes(manifest.snapshot()))
-            # No successful result may escape until the native majority has
-            # fsynced its identical prepare/commit decision.
-            self.store.lineage.seal(manifest)
+            promoted = {
+                **self.unpublished_state,
+                "schema": PUBLICATION_SCHEMA,
+                "publication_claim": claim,
+            }
+            # Reuse native ModelRecoveryStore.save(): this writes a complete
+            # recoverable checkpoint, then seals the same lineage generation.
+            self.store.save(promoted, CLOSE_CUT)
         elif generation != 3:
             raise ModelPublicationRefused("publication authority is at an unknown generation")
         committed, manifest = self._read_committed_claim()
@@ -475,7 +460,10 @@ def run_quorum_publication(root: Path) -> dict[str, Any]:
     report = {
         "schema": REPORT_SCHEMA,
         "recovered_model": {
-            k:v for k,v in recovered.items() if k != "quorum_publication"
+            **{k:v for k,v in recovered.items() if k not in ("quorum_publication", "report_digest")},
+            "report_digest": _digest({
+                k:v for k,v in recovered.items() if k not in ("quorum_publication", "report_digest")
+            }),
         },
         "publication": chosen,
         "authority_os_processes": status["authority_status"]["authority_process_ids"],
