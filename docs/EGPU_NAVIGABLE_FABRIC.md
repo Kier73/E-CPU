@@ -11,6 +11,8 @@ The E-GPU is a composite logical host. It resolves a method through a directed g
 | simt.kernel | dispatch → SIMT → verify | Existing bounded SIMT instruction algebra |
 | vector.sum | dispatch → tree reduction → verify | Pairwise reduction with odd-lane carry |
 | workgroup.shared_kernel | dispatch → workgroup → shared memory → verify | A bounded lane program with invocation-scoped shared buffers and barrier-published visibility |
+| tensor.matmul.tile | dispatch → SIMT → verify | Bounded signed-integer row-major matrix multiply-accumulate tile |
+| tensor.path.fir | dispatch → characterized path transfer → verify | Receiver-bound, calibrated FIR convolution on streamed tensor frames (no SIMT kernel; only available when a path realizer is bound) |
 
 The first three use TransitSIMTHost. The reduction method records a tree-shaped level trace but the current Python evaluator is sequential; no GPU parallel speedup is claimed. The workgroup method extends the existing SIMT reference interpreter with bounded shared buffers, single-writer epochs, and converged barrier publication.
 
@@ -76,3 +78,7 @@ Place that router inside TransitComputeWorker. The receiver authority process mu
 This implementation does not provide physical GPU discovery, a driver, GPU ISA execution, vendor scheduling, occupancy, GPU memory semantics, asynchronous streams, concurrent workgroups, atomics, shared-memory visibility, or CPU/accelerator address-space transfer. It makes no measured energy, latency, bandwidth, or speedup claim.
 
 Next gates: cross-workgroup coordination; typed memory transfer and completion receipts; an independent workgroup semantic oracle; a hardware or faithful emulator adapter; and hard-process-termination tests using the new shared-workgroup backend.
+
+## Tensor pathways
+
+See [TENSOR_COMPUTATION_PATHS.md](TENSOR_COMPUTATION_PATHS.md) for the new exact `MAC` SIMT instruction, bounded tiled matrix contraction and an alternate receiver-bound path transformation. The latter does not ask a conventional remote processor to perform the convolution: an independently characterized transfer path provides the output observation. The first callback is a software reference, not demonstrated physical optical computation; path attributes and mechanisms require independent evidence. The E-GPU's path-substrate locus is a separate route capability, and no physical throughput benefit is claimed without measurement.
