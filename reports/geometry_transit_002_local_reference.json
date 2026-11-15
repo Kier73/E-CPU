@@ -1,0 +1,41 @@
+{
+  "schema": "mailcpu.geometry-transit-002.local-reference.v1",
+  "observation_date": "2026-11-15",
+  "runtime": "API-compatible E-CPU registry simulator plus actual local VGI geometry implementation",
+  "actual_ECPU_installed": false,
+  "github_CI_verified": false,
+  "native_registry_or_real_HeadlessOS_verified": false,
+  "smoke_status": "passed",
+  "mathematical_ground": "F_101^6 similarity basis from GEOMETRY-FIRST-008",
+  "initial": [
+    2,
+    4,
+    8,
+    16,
+    32,
+    64
+  ],
+  "logical_time": "1000000000000000000000000000011",
+  "result": [
+    8,
+    84,
+    58,
+    6,
+    91,
+    8
+  ],
+  "native_revision_count_exercised": 2,
+  "negative_controls": [
+    "foreign mathematical memory digest",
+    "missing native historical revision",
+    "superseded active-only revision",
+    "receiver missing structural-memory read capability",
+    "changed operand requires new revision",
+    "native version parent lineage retained",
+    "native index read receipt binds spec and certificate digests"
+  ],
+  "new_actual_ECPU_tests_added": 7,
+  "actual_Transit_ledger_replay": "not executed locally",
+  "limitations": "The registry stand-in only checks interface compatibility. All actual E-CPU registry, Hypervisor, journal, separate-process restoration and post-commit Transit tests require GitHub Actions or a provisioned E-CPU machine.",
+  "native_index_read_receipt_in_compatibility_smoke": true
+}

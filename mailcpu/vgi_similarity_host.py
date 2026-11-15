@@ -170,6 +170,13 @@ def make_vgi_similarity_operator(
             "navigation": receipt.to_dict(),
             "method": "verified_basis_memory_without_rediscovery",
         }
+        # Native E-CPU authorities can attach the exact checkpointed revision
+        # lineage. Legacy pinned catalogues still return their previous schema.
+        native_anchor = getattr(catalogue, "native_anchor", None)
+        if native_anchor is not None:
+            if not callable(native_anchor):
+                raise SimilarityHostError("native structural provenance provider is invalid")
+            outcome["native_structural_memory"] = native_anchor()
         return {**outcome, "effect_digest": _digest(outcome)}
 
     return spec, handle
@@ -211,6 +218,7 @@ def vgi_similarity_implementation_fingerprint(implementation_type: type | None =
     mailcpu_dir = Path(__file__).resolve().parent
     paths = {
         "mailcpu/vgi_similarity_host.py": Path(__file__).resolve(),
+        "mailcpu/vgi_similarity_native_memory.py": mailcpu_dir / "vgi_similarity_native_memory.py",
         "mailcpu/transit_vgi_similarity.py": mailcpu_dir / "transit_vgi_similarity.py",
     }
     for name in ("affine.py", "typed_operator_navigation.py", "similarity_blocks.py", "structural_memory.py"):
