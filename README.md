@@ -24,7 +24,9 @@ The intended bootstrap is **observe → qualify → construct → admit → navi
 
 This is a **foremost development objective**, not a claim that every receptive medium can execute code. A passive carrier may contribute transport; a writable medium may retain a formed seed; an active observer with sufficient permitted transitions may become an execution locus. Whether a resource can be formed into a given role must be demonstrated by actual transitions, bounded observation, and current authority. General active formation across arbitrary physical substrates remains in development.
 
-See [Communication Host Model](docs/COMMUNICATION_HOST_MODEL.md), [Computational State-Space Architecture](docs/COMPUTATIONAL_STATE_SPACE_ARCHITECTURE.md), and [Substrate-adaptive bootstrap](docs/SUBSTRATE_ADAPTIVE_BOOTSTRAP.md). The SAB-008 and SAB-009 experiments extend this direction through Ground-native realization and authorized code-and-data host formation.
+See [Communication Host Model](docs/COMMUNICATION_HOST_MODEL.md), [Computational State-Space Architecture](docs/COMPUTATIONAL_STATE_SPACE_ARCHITECTURE.md), and [Substrate-adaptive bootstrap](docs/SUBSTRATE_ADAPTIVE_BOOTSTRAP.md).
+
+[Observer-host path cohesion](docs/OBSERVER_HOST_PATH_COHESION.md) now connects existing channel observations and native observer receipts into an independently checked path witness. Passive carriers cannot silently claim to transform information; observer-host transitions require exact representation and Ground continuity plus receiver-owned admission. This is path-level evidence, not a new authority or a claim of physical-host independence. The SAB-008 and SAB-009 experiments extend this direction through Ground-native realization and authorized code-and-data host formation.
 
 
 ## The intention
