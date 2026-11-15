@@ -39,6 +39,7 @@ from mailcpu.socket_transport import SocketTransport
 from mailcpu.structural_memory import StructuralMemoryRegistry
 
 SCHEMA = "mailcpu.usm005.model-recovery-checkpoint.v1"
+PUBLICATION_SCHEMA = "mailcpu.usm008.model-recovery-published-checkpoint.v1"
 PROTOCOL = "mailcpu.model-recovery.v1"
 MACHINE = "model-ground-recovery"
 GENESIS = hashlib.sha256(b"mailcpu-usm005-lineage-genesis-v1").hexdigest()
@@ -219,7 +220,11 @@ def _validate_state(payload: Any) -> None:
         "ground_revision", "ground_digest", "registry", "outgoing_channel",
         "incoming_channel", "committed_reply", "committed_result",
     }
-    if not isinstance(payload, dict) or set(payload) != expected or payload["schema"] != SCHEMA:
+    if not isinstance(payload, dict):
+        raise ModelRecoveryRefused("invalid receiver checkpoint schema")
+    published = payload.get("schema") == PUBLICATION_SCHEMA
+    if (payload.get("schema") not in (SCHEMA, PUBLICATION_SCHEMA)
+            or set(payload) != (expected | {"publication_claim"} if published else expected)):
         raise ModelRecoveryRefused("invalid receiver checkpoint schema")
     model = GroundPolicyModel.from_snapshot(payload["model"])
     if (payload["session_id"] != SESSION_ID
@@ -250,6 +255,30 @@ def _validate_state(payload: Any) -> None:
     trace["trace_digest"] = _digest(trace)
     if not verify_system_call_trace(trace):
         raise ModelRecoveryRefused("checkpoint operation journal cannot be reconstructed")
+    if published:
+        claim = payload["publication_claim"]
+        claim_fields = {
+            "schema", "owner_id", "source_report_digest", "trace_digest",
+            "ground_digest", "read_receipt_id", "value", "coordinate",
+            "model_digest", "predecessor_manifest_digest",
+        }
+        def valid_hash(value: Any) -> bool:
+            return (type(value) is str and len(value) == 64
+                    and all(c in "0123456789abcdef" for c in value))
+        if (not isinstance(claim, dict) or set(claim) != claim_fields
+                or claim["schema"] != "mailcpu.usm008.model-publication-claim.v1"
+                or claim["owner_id"] not in ("replacement-a", "replacement-b")
+                or claim["trace_digest"] != trace["trace_digest"]
+                or claim["ground_digest"] != payload["ground_digest"]
+                or claim["read_receipt_id"] != payload["committed_result"].get("read_receipt_id")
+                or claim["value"] != payload["committed_result"].get("value")
+                or claim["coordinate"] != payload["coordinate"]
+                or claim["model_digest"] != payload["model"].get("digest")
+                or not valid_hash(claim["source_report_digest"])
+                or not valid_hash(claim["predecessor_manifest_digest"])):
+            raise ModelRecoveryRefused("published receiver claim differs from Ground")
+        if payload["incoming_channel"].get("next_receive_sequence") != 4:
+            raise ModelRecoveryRefused("published Ground must have consumed the replay ACK cut")
     if (events[-1]["output"].get("ground_digest") != payload["ground_digest"]
             or payload["ground_revision"] != 1):
         raise ModelRecoveryRefused("checkpoint Ground revision disagrees with last read")
@@ -433,6 +462,7 @@ def _spawn(root: Path, restore: bool) -> tuple[subprocess.Popen[str], int]:
 def run_demo(
     root: Path, *,
     configure_lineage: Any = None,
+    publication_hook: Any = None,
 ) -> dict[str, Any]:
     """Prove one model host survives a hard receiver kill and resumes by TLS.
 
@@ -542,6 +572,11 @@ def run_demo(
             "source_oracle_match": True,
             "quorum_anchor_failure_domains": 1,
         }
+        if publication_hook is not None:
+            # Publication requires the verified read receipt and happens while
+            # the original authenticated recovery authorities remain online.
+            publication = publication_hook(root, core)
+            core = {**core, "quorum_publication": publication}
         return {**core, "report_digest": _digest(core)}
     finally:
         for transport in (first_transport, second_transport):
