@@ -96,7 +96,7 @@ def test_real_stacked_topology_uses_native_ecpu_dag_and_model_worker():
     validate_evidence(evidence, config)
     result = operate(evidence)
     assert result["selected_pr"]["id"] == "ecpu-138"
-    assert result["recommended_action"] == "run_verification"
+    assert result["recommended_action"] == "monitor_queued_verification"
     assert result["merge_authorized"] is False
     assert result["github_state_mutated"] is False
     assert result["source"] == "fixture"
@@ -206,7 +206,20 @@ def test_no_omitted_or_neutral_workflow_is_green():
     })
     assert check_status(parent)[0] == "failed"
     parent["runs"][-1]["conclusion"] = "cancelled"
-    assert check_status(parent)[0] == "queued"
+    assert check_status(parent)[0] == "cancelled"
+
+
+def test_aged_hosted_queue_becomes_an_investigation_not_a_duplicate_dispatch():
+    """A genuinely old queued workflow creates a useful research blocker."""
+    _config, evidence = observation()
+    evidence["observed_at"] = "2026-11-15T01:00:00Z"
+    reseal(evidence)
+    report = operate(evidence)
+    assert report["selected_pr"]["id"] == "ecpu-138"
+    assert report["recommended_action"] == "investigate_queued_runner"
+    assert report["selected_pr"]["check_status"] == "stalled_queued"
+    assert len(report["selected_pr"]["workflow_runs"]) == 2
+    assert verify_research_report(evidence, report)
 
 
 def test_report_tampering_and_model_digest_mismatch_are_detected():
