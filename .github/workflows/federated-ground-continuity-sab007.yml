@@ -1,0 +1,43 @@
+name: SAB-007 native fabric Ground continuity
+
+on:
+  push:
+    paths:
+      - 'mailcpu/federated_ground_continuity.py'
+      - 'tests/test_federated_ground_continuity.py'
+      - 'docs/FEDERATED_GROUND_CONTINUITY_SAB007.md'
+      - '.github/workflows/federated-ground-continuity-sab007.yml'
+  pull_request:
+    paths:
+      - 'mailcpu/federated_ground_continuity.py'
+      - 'tests/test_federated_ground_continuity.py'
+      - 'docs/FEDERATED_GROUND_CONTINUITY_SAB007.md'
+      - '.github/workflows/federated-ground-continuity-sab007.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-ground-recovery:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install test runner and inspect source
+        run: |
+          python -m pip install pytest
+          python -m compileall -q mailcpu
+      - name: Native Ground bridge and majority recovery
+        run: python -m pytest tests/test_federated_ground_continuity.py -v
+      - name: Existing native multi-hop mTLS/receiver-Hypervisor integration
+        run: python -m pytest tests/test_computational_fabric.py -k 'test_federated_workload_forwards_over_two_authenticated_hops_and_replays_once' -v
+      - name: Existing native forwarding receipt and quorum lineage regressions
+        run: python -m pytest tests/test_computational_fabric_forwarding.py tests/test_recovery_lineage.py -q
