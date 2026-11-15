@@ -457,6 +457,23 @@ def run_quorum_publication(root: Path) -> dict[str, Any]:
     chosen = recovered["quorum_publication"]
     if chosen["quorum_generation"] != 3:
         raise ModelPublicationRefused("publication was not majority-authorized")
+    # The original remote services are stopped. This is explicitly a
+    # read-only *audit* of the same majority-anchored native checkpoint
+    # history; it cannot mint a new publication generation.
+    auditor = ModelRecoveryStore(root / "checkpoint", offline_audit=True)
+    final_state, final_manifest = auditor.load()
+    if (final_manifest.generation != 3
+            or final_state.get("schema") != PUBLICATION_SCHEMA
+            or final_state["publication_claim"]["owner_id"] != chosen["publication_owner"]
+            or final_state["events"][-1]["output"]["value"] != chosen["publication_value"]):
+        raise ModelPublicationRefused("offline quorum journal disagrees with authorized publisher")
+    from examples.model_receiver_recovery import _restore
+    reconstructed = _restore(final_state)
+    if (reconstructed.registry.read_revision(
+        reconstructed.stream_id, reconstructed.ground_revision,
+        reconstructed.coordinate, context=reconstructed.context,
+    ).value != chosen["publication_value"]):
+        raise ModelPublicationRefused("published quorum Ground cannot be independently navigated")
     report = {
         "schema": REPORT_SCHEMA,
         "recovered_model": {
@@ -467,6 +484,9 @@ def run_quorum_publication(root: Path) -> dict[str, Any]:
         },
         "publication": chosen,
         "authority_os_processes": status["authority_status"]["authority_process_ids"],
+        "offline_quorum_generation": final_manifest.generation,
+        "offline_quorum_state_digest": final_manifest.state_digest,
+        "offline_ground_reconstructed": True,
         "single_physical_failure_domain": True,
         "physical_independence_verified": False,
     }
