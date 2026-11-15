@@ -50,6 +50,12 @@ readiness and authority checks.
 python -m pip install -e . pytest
 python -m pytest -q tests/test_research_frontier.py
 
+# Start with an exact real source observation archived on Nov 15, 2026 UTC.
+# No network access or GitHub token is required for this replay.
+python -m examples.research_frontier \
+  --snapshot examples/research_frontier_observation_2026_11_15.json \
+  --output archived-research-frontier.json
+
 # Fetch actual current public evidence (18 read-only GitHub API requests
 # for the current 9 PRs; optional GITHUB_TOKEN avoids anonymous rate caps):
 python -m examples.research_frontier --live \
@@ -63,7 +69,14 @@ python -m examples.research_frontier \
 ```
 
 The data source is always clearly labelled `github-api-https` or
-`fixture`. An offline fixture is **not** a current GitHub status.
+`fixture`. The checked-in snapshot
+`examples/research_frontier_observation_2026_11_15.json` is a
+**real time-pinned GitHub observation** at 2026-11-15 00:32:07 UTC,
+containing all nine PR HEAD hashes and two required workflow runs each.
+Its canonical evidence digest is
+`3a37b6920cc719e7fde30af022df4947c98e5224b0f2a037b02d3d1384290988`.
+It is valuable for reproduction, but is **not live status** after its
+capture timestamp. An offline fixture is **not** a current GitHub status.
 A SHA-256 digest proves that a report has not changed since observation; it
 does not make an untrusted JSON export a GitHub-signed attestation.
 
