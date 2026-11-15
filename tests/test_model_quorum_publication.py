@@ -46,6 +46,7 @@ def test_two_distinct_tls_candidates_fenced_by_one_existing_quorum(completed_pub
     assert chosen["quorum_generation"] == 3
     assert chosen["native_quorum_verified"] is True
     assert chosen["logical_publication_only"] is True
+    assert chosen["idempotent_winner_replay_checked"] is True
     claims = chosen["candidate_claims"]
     assert set(x["owner_id"] for x in claims) == set(CANDIDATES)
     assert sorted(x["status"] for x in claims) == ["authorized", "superseded"]
