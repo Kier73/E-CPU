@@ -1,0 +1,23 @@
+{
+  "schema": "mailcpu.capacity-recognition.local-verification.v1",
+  "verification_date": "2026-11-15",
+  "scope": "bounded finite software-defined information paths, not native E-CPU execution",
+  "focused_tests": 17,
+  "focused_failures": 0,
+  "test_suite": "tests/test_latent_path_capacity.py",
+  "local_harness": "The law_certifier import is provided by a test-only API-compatible lcg_navigate shim; the E-CPU repository version is exercised by GitHub CI, not this local run.",
+  "two_path_result": {
+    "modulus": 101,
+    "affine_multiplier": 21,
+    "affine_increment": 46,
+    "different_path_provenance": true,
+    "same_ground_digest": true,
+    "full_domain_probes_per_path": 101,
+    "initial": 39,
+    "logical_tick": "1000000000000000000000000000011",
+    "result": 40,
+    "negative_controls": ["changed path at input 88", "nonlinear quadratic path", "changed observation context", "modified certificate evidence", "expired/changed snapshot marker", "wrong modular domain", "invalid numeric and schema fields"],
+    "independent_controls": ["short repeated path traversal", "finite orbit cycle detection for huge logical tick", "separate affine monoid exponentiation"]
+  },
+  "not_verified": ["E-CPU native full package runtime", "physical communication medium", "unknown third-party host behavior", "universal host capacity", "host authority or external attestation"]
+}
