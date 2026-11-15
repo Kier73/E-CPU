@@ -1,0 +1,48 @@
+name: SAB-011 constructed persistent composite host
+
+on:
+  push:
+    paths:
+      - 'mailcpu/composite_host_formation.py'
+      - 'tests/test_composite_host_formation.py'
+      - 'docs/CONSTRUCTED_COMPOSITE_HOST_SAB011.md'
+      - '.github/workflows/constructed-composite-host-sab011.yml'
+  pull_request:
+    paths:
+      - 'mailcpu/composite_host_formation.py'
+      - 'tests/test_composite_host_formation.py'
+      - 'docs/CONSTRUCTED_COMPOSITE_HOST_SAB011.md'
+      - '.github/workflows/constructed-composite-host-sab011.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  constructed-composite-continuity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 22
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Inspect interpreter and TLS environment
+        run: |
+          python --version
+          openssl version
+          python -m compileall -q mailcpu
+      - name: Form composite Ground and test mTLS/replica recovery
+        run: python -m unittest discover -s tests -p 'test_composite_host_formation.py' -v
+      - name: Regress primitive construction
+        run: python -m unittest discover -s tests -p 'test_capability_construction.py' -v
+      - name: Regress active receiver-host formation
+        run: python -m unittest discover -s tests -p 'test_active_host_formation.py' -v
+      - name: Regress Ground-native realization
+        run: python -m unittest discover -s tests -p 'test_ground_native_realization.py' -v
+      - name: Regress adaptive placement and durability
+        run: python -m unittest discover -s tests -p 'test_adaptive_placement.py' -v
