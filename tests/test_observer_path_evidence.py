@@ -201,3 +201,15 @@ def test_receiver_policy_identity_is_part_of_path_identity():
         verify_carrier=lambda _:True, verify_observer=lambda _:True)
     assert old.ground == newer.ground
     assert old.path_digest != newer.path_digest
+
+
+def test_identity_preserving_active_transform_is_still_an_observer_host():
+    hops, ground, context = _f()
+    # An admitted transformation may happen to return the original bytes.
+    # Its operational role comes from the verified contract, not from change.
+    transform = replace(hops[1], mode="transform")
+    result = _accept((hops[0], transform))
+    assert result.stages[-1]["mode"] == "transform"
+    assert result.output_ref == result.input_ref
+    assert check_observer_path_receipt(result, (hops[0], transform),
+        verify_carrier=lambda _: True, verify_observer=lambda _: True)
