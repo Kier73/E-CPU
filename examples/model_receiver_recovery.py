@@ -226,37 +226,6 @@ def _validate_state(payload: Any) -> None:
     if (payload.get("schema") not in (SCHEMA, PUBLICATION_SCHEMA)
             or set(payload) != (expected | {"publication_claim"} if published else expected)):
         raise ModelRecoveryRefused("invalid receiver checkpoint schema")
-    if published:
-        claim = payload["publication_claim"]
-        allowed_claim = {
-            "schema", "owner_id", "source_report_digest", "trace_digest",
-            "ground_digest", "read_receipt_id", "value", "coordinate",
-            "model_digest", "predecessor_manifest_digest",
-        }
-        if (not isinstance(claim, dict) or set(claim) != allowed_claim
-                or claim["schema"] != "mailcpu.usm008.model-publication-claim.v1"
-                or claim["owner_id"] not in ("replacement-a", "replacement-b")
-                or claim["ground_digest"] != payload["ground_digest"]
-                or claim["read_receipt_id"] != payload["committed_result"].get("read_receipt_id")
-                or claim["value"] != payload["committed_result"].get("value")
-                or claim["coordinate"] != payload["coordinate"]
-                or claim["model_digest"] != payload["model"].get("digest")
-                or claim["trace_digest"] != payload["head"] and (
-                    claim["trace_digest"] != _digest({
-                        **{key: value for key, value in {
-                            "schema": "mailcpu.model-syscall-trace.v1",
-                            "session_id": payload["session_id"],
-                            "stream_id": payload["stream_id"],
-                            "observation_digest": _digest(payload["observations"]),
-                            "training_count": payload["training_count"],
-                            "requested_coordinate": payload["coordinate"],
-                            "phase": payload["phase"],
-                            "events": payload["events"],
-                            "head": payload["head"],
-                        }.items()}
-                    })
-                )):
-            raise ModelRecoveryRefused("published receiver checkpoint claim is not bound to Ground")
     model = GroundPolicyModel.from_snapshot(payload["model"])
     if (payload["session_id"] != SESSION_ID
             or payload["stream_id"] != STREAM_ID
@@ -286,6 +255,30 @@ def _validate_state(payload: Any) -> None:
     trace["trace_digest"] = _digest(trace)
     if not verify_system_call_trace(trace):
         raise ModelRecoveryRefused("checkpoint operation journal cannot be reconstructed")
+    if published:
+        claim = payload["publication_claim"]
+        claim_fields = {
+            "schema", "owner_id", "source_report_digest", "trace_digest",
+            "ground_digest", "read_receipt_id", "value", "coordinate",
+            "model_digest", "predecessor_manifest_digest",
+        }
+        def valid_hash(value: Any) -> bool:
+            return (type(value) is str and len(value) == 64
+                    and all(c in "0123456789abcdef" for c in value))
+        if (not isinstance(claim, dict) or set(claim) != claim_fields
+                or claim["schema"] != "mailcpu.usm008.model-publication-claim.v1"
+                or claim["owner_id"] not in ("replacement-a", "replacement-b")
+                or claim["trace_digest"] != trace["trace_digest"]
+                or claim["ground_digest"] != payload["ground_digest"]
+                or claim["read_receipt_id"] != payload["committed_result"].get("read_receipt_id")
+                or claim["value"] != payload["committed_result"].get("value")
+                or claim["coordinate"] != payload["coordinate"]
+                or claim["model_digest"] != payload["model"].get("digest")
+                or not valid_hash(claim["source_report_digest"])
+                or not valid_hash(claim["predecessor_manifest_digest"])):
+            raise ModelRecoveryRefused("published receiver claim differs from Ground")
+        if payload["incoming_channel"].get("next_receive_sequence") != 4:
+            raise ModelRecoveryRefused("published Ground must have consumed the replay ACK cut")
     if (events[-1]["output"].get("ground_digest") != payload["ground_digest"]
             or payload["ground_revision"] != 1):
         raise ModelRecoveryRefused("checkpoint Ground revision disagrees with last read")
