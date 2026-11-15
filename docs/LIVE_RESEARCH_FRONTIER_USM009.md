@@ -78,9 +78,14 @@ first frontier is the two unmerged roots:
 - IFS PR #229, whose dependencies include the independent receiver
   reconstruction and competing route-epoch publisher experiments.
 
-The model can recommend investigating or verifying one of them. Only a
-complete current source observation determines which action is actually
-admissible. If source statuses change, rerun the observer rather than using
+The model can recommend investigating or verifying one of them. As an
+initial **live evidence review on November 15, 2026 UTC**, E-CPU PR #138's
+USM-001 run (43649815778) remained queued from 22:46 UTC on November 14,
+and IFS PR #229's USM-003 run (43651237055) remained queued from 23:03 UTC.
+Their corresponding jobs had no assigned runner in the retrieved records.
+The observed state supports investigating runner availability, but not
+asserting its cause. Only a complete current source observation determines
+which action is actually admissible. If source statuses change, rerun the observer rather than using
 this documentation as an availability or check-status claim.
 
 ## Verification and safety contract
@@ -88,6 +93,14 @@ this documentation as an availability or check-status claim.
 - Missing workflow or HEAD mismatch is not a green run.
 - Status `completed/success` is required for **every** configured workflow.
 - Failed, skipped, neutral and canceled runs do not grant verification.
+- A newly queued run means `monitor_queued_verification`. An unfinished run
+  already queued for 30 minutes or more at the **observed source timestamp**
+  means `investigate_queued_runner`, rather than dispatching duplicate
+  jobs. Canceled runs without a live replacement mean
+  `reassess_cancelled_verification`. These are diagnostic classifications,
+  not a conclusion about why GitHub has not assigned a runner.
+- The selected report includes the exact run IDs and GitHub URLs to help
+  the developer inspect the current blocker.
 - Exact real branch parents must match the declared local dependency
   edges, refusing invented graph connections.
 - Closed-but-unmerged PRs are excluded from the actionable frontier.
