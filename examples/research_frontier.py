@@ -314,6 +314,9 @@ def _adviser_prompt(
     frontier = []
     for node in graph.ready_nodes():
         item = records[node.node_id]
+        if item["state"] == "closed" and not item["merged"]:
+            # A closed, unmerged PR is not a runnable or mergeable operation.
+            continue
         status, count = check_status(item)
         frontier.append({
             "id": node.node_id, "status": status,
@@ -375,12 +378,13 @@ def operate(
             "model requested an operation not authorized by its actual CI state")
     require(type(advice["score"]) is int, "adviser returned an invalid ranking score")
     selected_record = records[selected["id"]]
+    actionable = {entry["id"] for entry in prompt["frontier"]}
     blocked = [{
         "id": key,
         "waiting_for": [dep for dep in item["requires"] if dep not in graph.committed_nodes],
-    } for key, item in sorted(records.items()) if key not in {
-        node.node_id for node in graph.ready_nodes()
-    } and key not in graph.committed_nodes]
+        "closed_unmerged": item["state"] == "closed" and not item["merged"],
+    } for key, item in sorted(records.items())
+        if key not in actionable and key not in graph.committed_nodes]
     # This output is *advice*, never a merge, workflow dispatch or authorization.
     core = {
         "schema": REPORT,
