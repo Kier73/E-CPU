@@ -101,8 +101,6 @@ class ObserverPathStage:
                 raise ObserverPathError("observer identity differs from the occupied locus")
             if self.mode == "observe" and self.input_ref != self.output_ref:
                 raise ObserverPathError("read-only observation cannot claim a content transformation")
-            if self.mode == "transform" and self.input_ref == self.output_ref:
-                raise ObserverPathError("use observe for identity-preserving operations")
 
     def to_dict(self) -> dict[str, Any]:
         return {
