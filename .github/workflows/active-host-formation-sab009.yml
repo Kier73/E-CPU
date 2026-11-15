@@ -1,0 +1,47 @@
+name: SAB-009 active formation of Ground-native hosts
+
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/active_host_formation.py'
+      - 'tests/test_active_host_formation.py'
+      - 'docs/ACTIVE_HOST_FORMATION_SAB009.md'
+      - '.github/workflows/active-host-formation-sab009.yml'
+      - 'mailcpu/ground_native_realization.py'
+  push:
+    paths:
+      - 'mailcpu/active_host_formation.py'
+      - 'tests/test_active_host_formation.py'
+      - 'docs/ACTIVE_HOST_FORMATION_SAB009.md'
+      - '.github/workflows/active-host-formation-sab009.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  active-formation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Show runtime versions
+        run: |
+          python --version
+          node --version
+      - name: Compile E-CPU modules
+        run: python -m compileall -q mailcpu
+      - name: Form empty Python and JavaScript receivers with E-CPU seeds
+        run: python -m unittest discover -s tests -p 'test_active_host_formation.py' -v
+      - name: Verify inherited Ground-native realization contracts
+        run: python -m unittest discover -s tests -p 'test_ground_native_realization.py' -v
