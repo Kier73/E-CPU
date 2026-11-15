@@ -279,6 +279,12 @@ class QuorumPublicationGate:
         committed, manifest = self._read_committed_claim()
         winner = committed["owner_id"]
         admitted = winner == owner_id
+        publication_id = "urn:sha256:" + _digest({
+            "source_trace": self.ground["trace_digest"],
+            "read_receipt": committed["read_receipt_id"],
+            "quorum_manifest": manifest.digest,
+            "authorized_owner": winner,
+        })
         outcome = {
             "schema": VERDICT_SCHEMA,
             "owner_id": owner_id,
@@ -295,6 +301,7 @@ class QuorumPublicationGate:
                 "coordinate": committed["coordinate"],
                 "owner_id": owner_id,
                 "owner_generation": 3,
+                "publication_id": publication_id,
             } if admitted else None),
         }
         return {**outcome, "verdict_digest": _digest(outcome)}
@@ -422,6 +429,16 @@ def run_quorum_publication(root: Path) -> dict[str, Any]:
             claim, manifest = gate._read_committed_claim()
             if successful[0]["owner_id"] != claim["owner_id"]:
                 raise ModelPublicationRefused("client winner differs from committed quorum root")
+            # Replaying an identical authenticated intention must return one
+            # stable publication identity, not a second native quorum slot.
+            winning_request = {
+                "schema": REQUEST_SCHEMA, "owner_id": claim["owner_id"], **gate.ground,
+            }
+            replay = gate.decide(claim["owner_id"], winning_request)
+            if (replay["publication"] != successful[0]["publication"]
+                    or replay["manifest_digest"] != manifest.digest
+                    or gate.store.lineage.high_water() != (3, manifest.digest)):
+                raise ModelPublicationRefused("same semantic result did not replay idempotently")
             if any(
                 item["candidate_process"] == os.getpid() for item in all_clients
             ) or len(set(item["candidate_process"] for item in all_clients)) != 2:
@@ -437,6 +454,7 @@ def run_quorum_publication(root: Path) -> dict[str, Any]:
                 "quorum_generation": manifest.generation,
                 "native_quorum_verified": True,
                 "logical_publication_only": True,
+                "idempotent_winner_replay_checked": True,
             }
         finally:
             gate.close()
