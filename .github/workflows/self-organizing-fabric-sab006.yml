@@ -1,0 +1,56 @@
+name: SAB-006 self-organizing federated Grounds
+
+on:
+  push:
+    paths:
+      - 'mailcpu/self_organizing_fabric.py'
+      - 'tests/test_self_organizing_fabric.py'
+      - 'docs/SELF_ORGANIZING_FEDERATED_GROUNDS_SAB006.md'
+      - '.github/workflows/self-organizing-fabric-sab006.yml'
+      - 'mailcpu/computational_fabric.py'
+      - 'mailcpu/computational_fabric_discovery.py'
+      - 'mailcpu/federated_placement.py'
+      - 'mailcpu/adaptive_placement.py'
+  pull_request:
+    paths:
+      - 'mailcpu/self_organizing_fabric.py'
+      - 'tests/test_self_organizing_fabric.py'
+      - 'docs/SELF_ORGANIZING_FEDERATED_GROUNDS_SAB006.md'
+      - '.github/workflows/self-organizing-fabric-sab006.yml'
+      - 'mailcpu/computational_fabric.py'
+      - 'mailcpu/computational_fabric_discovery.py'
+      - 'mailcpu/federated_placement.py'
+      - 'mailcpu/adaptive_placement.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  directory-to-placement:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Check runtime and Python syntax
+        run: |
+          python --version
+          openssl version
+          python -m compileall -q mailcpu
+      - name: Test SAB-006 active directory reconciliation and fail-closed re-placement
+        run: python -m unittest discover -s tests -p 'test_self_organizing_fabric.py' -v
+      - name: Test real SAB-005 mutual-TLS and receiver-native Hypervisor regression
+        run: python -m unittest discover -s tests -p 'test_federated_placement.py' -v
+      - name: Test SAB-004 state placement and recovery regressions
+        run: python -m unittest discover -s tests -p 'test_adaptive_placement.py' -v
+      - name: Test native authenticated directory ingress, leases and anti-rollback
+        run: |
+          python -m pip install pytest
+          python -m pytest -q tests/test_computational_fabric.py -k 'directory_requires_direct_peer_identity_and_monotonic_revisions or directory_leases_expire_on_receiver_monotonic_time or directory_checkpoint_preserves_anti_rollback_and_requires_fresh_peer_observation or mutual_tls_peer_client_discovers_and_merges_remote_host_snapshot'
