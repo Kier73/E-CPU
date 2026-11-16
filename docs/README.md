@@ -4,6 +4,7 @@ Index of specification documents. Documents use defined terms from `GLOSSARY.md`
 
 ## Model Weight Grounds
 
+- [MWS-002 — Generative Weight Grounds](GENERATIVE_WEIGHT_GROUND_MWS002.md) reconstructs the same exact model snapshot point from admitted Structural Memory laws, sparse exact-bit edits, stored parameters, or reversible tensor index permutations. It reuses MWS-001 and the existing page store; functional equivalence and authority remain separately verified.
 - [MWS-001 — Snapshot-indexed Model Weight Grounds](MODEL_WEIGHT_GROUND_MWS001.md) defines model-family parameter spaces and exact snapshot coordinates, streams Safetensors parameters through the existing `ComputationalObjectStore`, and distinguishes bit-exact weight identity from functional equivalence or training provenance. Contains an executable two-instance, 10,000-parameter reconstruction experiment.
 
 ## Reading order
