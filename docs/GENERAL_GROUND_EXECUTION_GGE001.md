@@ -2,6 +2,51 @@
 
 **Status:** cross-repository architectural synthesis and implementation plan; **not** a claim of universal native execution or a newly verified runtime. Inspected E-CPU main at 6fd416facdb2aefd6fc7d66a06b014e3d31b5a52, In-Formation-Space main at c9716242725be65937fda1dd7b6cb778ca1def91, VGI main at e6e1900782aeede18a4de9046511bbba234dbc6e, E-CPU-Virtual-Processor main at 60cd5cc2e0f27fef0d06170af41cb7cb372e3b60; VP-002/003 were inspected as **open draft branches**, not mainline.
 
+## Integration correction — the pipeline already exists
+
+**Finding after inspecting mainline implementation and tests:** GGE-001 must **not** create a new universal Ground interpreter or a parallel `G` authority layer. The proposed nine-part record below is a *conceptual inventory of existing contracts*, **not** a schema to impose on E-CPU. The first work item is an **adapter/integration test**, not a new core abstraction.
+
+The existing end-to-end mechanism is `mailcpu.observed_orbit_pipeline`, which already provides:
+
+1. `ObservationTraceBuilder` / `ObservedOrbitTrace` for identified observations and source/temporal evidence.
+2. `ObservationGroundBuilder` plus `StructuralMemoryRegistry` for witness-bound proposals, admission and law-backed reads.
+3. `DescriptionSelectionStage` / `select_composed_description` for advisory selection of a composed state description.
+4. `IntentionInterpretation` / `NavigationPlan` for bound direct or inverse queries.
+5. `VerifiedGroundRealizer` / `VerifiedComposedGroundRealizer` for receiver-local Hypervisor authorization, realization, and checkable observer/read receipts.
+
+On E-CPU main, `tests/test_observed_orbit_pipeline.py` contains **actual integration test functions** named `test_verified_realization_runs_inside_receiver_hypervisor_and_checks_host_capability` and `test_composed_description_selection_flows_into_hypervisor_verified_realization`. The former checks permission denial and authorized Ground navigation; the latter links predictive description selection to Hypervisor-verified composition. This is an implemented scoped path, not a hypothetical sequence.
+
+Other already-implemented integration adapters supply the rest of the path:
+
+| Existing E-CPU entrypoint | Capability to reuse | Exact evidence |
+| --- | --- | --- |
+| `mailcpu.observer_orbit.ContextualOrbitNavigator` | Ground-bound direct/inverse coordinate and value navigation | `examples/state_space_navigation_experiment.py` |
+| `mailcpu.computation_dag.NavigableComputationDAG` | Content-addressed dependency frontiers and commit/reconstruction | `tests/test_navigable_computation.py`, `tests/test_neural_graph_bridge.py` |
+| `mailcpu.neural_graph_bridge.compile_neural_graph_dag` | Typed neural graph to existing DAG; **no numeric execution by itself** | `docs/NEURAL_GRAPH_BRIDGE.md` |
+| `mailcpu.virtual_layer.VirtualLayerRuntime`, `OperatorSpec`, `OperatorRegistry` | Receiver-bound, Hypervisor-authorized numerical/other operations and replay | `tests/test_computational_execution.py` |
+| `mailcpu.computational_execution.ComputationalExecutionAdmissionCoordinator` | Revalidate route and implementation identity before invocation | `tests/test_computational_execution.py` |
+| `mailcpu.computational_objects.ComputationalObjectStore` | Verified, content-addressed byte object and bounded page reads | `docs/TRANSIT_BYTE_OBJECTS.md` |
+| `mailcpu.ground_native_realization.GroundRealizer` | Same Ground and observation across alternative substrate realizers | `tests/test_ground_native_realization.py` |
+| `mailcpu.composed_ground.ComposedVirtualGroundNavigator` | Compose pinned law components into one observed structured state | `tests/test_composed_ground.py` |
+| Existing recovery-lineage and federated execution mechanisms | Durable state, host requalification and replay fencing | `docs/COMPUTATIONAL_OBJECTS_AND_TIME.md`, recovery-lineage docs |
+
+There is already one **numerical neural** precedent outside the core: In-Formation-Space `experiments/tensor_cut_realization/native_admission.py` executes parameter-bearing tensor cuts through the actual E-CPU Virtual Layer and Hypervisor, with independent aggregation checks. The Virtual Processor VP-003 draft adds weight-backed sparse MoE sublayer execution and a query gateway; its hosted verification and status must not be inferred from source presence. VGI `vgi.neural_topology` can retain typed proof obligations without falsely reporting the neural arithmetic as proven.
+
+**Revised GGE-001 first gate:** Build a **three-case composition experiment using only these existing public APIs**: (a) exact affine direct/inverse observation, (b) selected composed-state observation, and (c) numerical neural operator under `VirtualLayerRuntime` with independently verified output. All three must produce a common query-facing *envelope* in E-CPU-Virtual-Processor; the envelope is an adapter, **not** a competing Ground or authority. Kill and restart the observer between the first and second query, verify unchanged Ground identity and a retained receipt, then test refusal of a stale revision and missing compute capability.
+
+**Falsifiers:** If the numerical neural operation cannot bind its declared Ground and input representation to `VirtualLayerWorkload`, if its output cannot be referenced by a dependent DAG node, or if post-recovery query identity does not survive, record those specific missing adapters. Do not infer a missing universal execution architecture from a missing integration test. Equally, do not claim all tensor families or all LLM operations are already numerically implemented simply because E-CPU can host a typed operator.
+
+### Recommended direct reproductions
+
+```sh
+python -m pytest -q tests/test_observed_orbit_pipeline.py tests/test_composed_ground.py
+python -m pytest -q tests/test_ground_native_realization.py tests/test_navigable_computation.py
+python -m pytest -q tests/test_neural_graph_bridge.py tests/test_computational_execution.py
+python -m examples.state_space_navigation_experiment
+```
+
+The first experiment should **measure what E-CPU already does**, not replace it with an untested new dispatcher.
+
 ## 1. Objective: executable computational structures, not an emulator collection
 
 E-CPU should accept any **effectively described, computable** structure with specified observation semantics, and seek a qualifying realization through its own Ground, path, and observer architecture. Model size, tensor shape, instruction-set family, and host topology must not become arbitrary limits of the *semantic address space*. Finite execution and verification work are allocated, selected and measured separately for each query.
