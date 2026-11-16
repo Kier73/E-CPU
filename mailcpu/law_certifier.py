@@ -543,6 +543,10 @@ class Law:
         if fam == "lcg":
             return lcg_navigate(p["a"], p["c"], p["mod"], p["x0"], t_int)
 
+        if fam == "lens64":
+            from .lens_ground import navigate_lens
+            return navigate_lens(p, t_int)
+
         if fam == "gf2":
             c_coef = p["C"]
             init = p["init"]
@@ -628,6 +632,10 @@ class Law:
                 if cand is not None:
                     return cand
             return find_coordinate_lcg(a, c, m, x0, target, max_order=max_order)
+
+        if fam == "lens64":
+            from .lens_ground import find_lens
+            return find_lens(p, target)
 
         if fam == "gf2":
             return find_coordinate_gf2_bit(p["C"], p["init"], target)
