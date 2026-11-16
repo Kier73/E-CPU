@@ -8,6 +8,8 @@ The goal is for computational meaning, logical state, and accepted results to be
 
 The physical processor is a realizer of computation, not the definition of the computation.
 
+**Modern AI as Computational Grounds:** [AGA-001](docs/AI_COMPUTATIONAL_GROUND_ATLAS.md) maps 108 AI structures—from data preparation and neural graphs through training, inference, retrieval, agents, and recovery—into typed representations, transition relations, requested observations, navigational strategies, dependencies, and verification obligations. [Inspect the source-anchored atlas](mailcpu/ai_ground_atlas.v1.json) using `python -m mailcpu.ai_ground_atlas list`. This is a catalog of *Ground descriptions*, not automatic admission or a claim that all associated computations already execute natively. It is intended to prevent redundant model-by-model emulation by reusing and qualifying E-CPU's existing Ground, observer-host, and path machinery first.
+
 ## Foundational proposition: the internet is the computer
 
 **E-CPU is not intended merely to distribute computation across conventional machines. It aims to discover, describe, form, and navigate computation within the information architecture that already constitutes the internet.** Communication paths, signal propagation, ports, queues, observers, and interfaces can provide lawful information relations; a processor is one possible realizer, not a privileged computational unit. A path may carry unchanged digital bytes while transforming a physical signal under another Ground. The computational role is defined by an **admitted, observable relation**, not by whether the component looks like a CPU.
