@@ -85,6 +85,7 @@ jobs:
           assert x['numeric_result']['dag_complete']
           assert x['numeric_result']['independent_reference_checked']
           assert x['numeric_result']['layer_math_executed']
+          assert x['weight_binding']['hfr_source_ranges_verified']
           assert not x['full_model_forward_executed']
           assert not x['weight_data_embedded_in_report']
           print('Pinned selected pretrained tensors used by real E-CPU neural operators.')
