@@ -62,7 +62,9 @@ def _trace():
     )
     for index in range(50):
         logical_time = 100 + index * 2
-        value = 30 + index * 3
+        # Include an observed modular wrap; an unwrapped straight line is
+        # only a FITTED candidate under the current law-certification contract.
+        value = (30 + index * 3) % 97
         for source in sources:
             consensus.ingest(
                 TimingObservation(
@@ -143,7 +145,7 @@ def test_observation_stream_builds_a_digest_bound_ground_and_round_trips_latency
     assert trace.samples[-1].coordinate == 49
     assert trace.samples[0].logical_time == 100
     assert trace.samples[-1].logical_time == 198
-    assert trace.values == tuple(30 + 3 * index for index in range(50))
+    assert trace.values == tuple((30 + 3 * index) % 97 for index in range(50))
 
     first_latency = trace.samples[0].latency
     assert first_latency is not None
@@ -157,6 +159,18 @@ def test_observation_stream_builds_a_digest_bound_ground_and_round_trips_latency
     assert restored.digest == trace.digest
     assert restored.context_binding["trace_digest"] == trace.digest
     assert restored.context_binding["temporal_evidence_digest"] == trace.temporal_evidence_digest
+
+
+def test_unwrapped_progression_is_not_admitted_as_an_unknown_modular_ground() -> None:
+    """Mathematics: linear traces without a witnessed modulus remain FITTED, not a GROUND."""
+    from mailcpu.law_certifier import recover_law
+
+    law = recover_law(
+        tuple(30 + 3 * index for index in range(30)),
+        tuple(30 + 3 * index for index in range(30, 50)),
+    )
+    assert law.family == "int"
+    assert law.verdict == "FITTED"
 
 
 def test_temporal_path_trace_measures_local_latency_without_erasing_scheduler_time():
