@@ -838,6 +838,7 @@ class ObservationGroundBuilder:
         scheduler_id: str,
         domain: str = "observed-orbit",
         context_extensions: Mapping[str, Any] | None = None,
+        allow_lens: bool = False,
     ) -> GroundConstructionPlan:
         """Recover a deterministic law from training samples and withheld stream samples."""
         if not isinstance(trace, ObservedOrbitTrace):
@@ -875,6 +876,7 @@ class ObservationGroundBuilder:
             trace.values[training_count:],
             domain=domain,
             context=context,
+            allow_lens=allow_lens,
         )
         return GroundConstructionPlan(
             proposal=proposal,
