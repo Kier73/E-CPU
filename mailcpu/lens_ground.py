@@ -35,13 +35,14 @@ INVERSE = {
 
 
 def _word(value: int, label: str) -> int:
+    """Mathematics: restrict words to the finite ring [0, 2^64)."""
     if type(value) is not int or not 0 <= value < MODULUS:
         raise ValueError(f"{label} must be an unsigned 64-bit integer")
     return value
 
 
 def transform(value: int, frame: str) -> int:
-    """Apply an explicitly whitelisted bijection to one unsigned word."""
+    """Mathematics: apply a fixed permutation P of the ring of 64-bit words."""
     v = _word(value, "lens value")
     if frame not in INVERSE:
         raise ValueError(f"unsupported lens frame {frame!r}")
@@ -63,21 +64,21 @@ def transform(value: int, frame: str) -> int:
 
 
 def forward_frames(value: int, frames: Sequence[str]) -> int:
-    """Observed value -> affine-law value."""
+    """Mathematics: compute the ordered frame composition P(x)."""
     for frame in frames:
         value = transform(value, frame)
     return value
 
 
 def backward_frames(value: int, frames: Sequence[str]) -> int:
-    """Affine-law value -> observed value."""
+    """Mathematics: apply inverse permutations in reverse order to form P^-1(y)."""
     for frame in reversed(frames):
         value = transform(value, INVERSE[frame])
     return value
 
 
 def validate_lens_parameters(params: Mapping[str, Any], order: int = 1) -> None:
-    """Validate the exact serializable ABI before Ground reconstruction."""
+    """Mathematics: admit only finite, canonically bounded 64-bit affine frame descriptors."""
     if not isinstance(params, Mapping) or set(params) != {"width", "frames", "a", "c", "x0"}:
         raise ValueError("lens64 requires exactly width, frames, a, c, x0")
     if type(params["width"]) is not int or params["width"] != WIDTH or order != 1:
@@ -95,7 +96,7 @@ def validate_lens_parameters(params: Mapping[str, Any], order: int = 1) -> None:
 
 
 def navigate_lens(params: Mapping[str, Any], coordinate: int) -> int:
-    """Evaluate P^-1(F(t)) without materializing intermediate orbit states."""
+    """Mathematics: evaluate P^-1(F(t)) in O(log t) modular operations."""
     validate_lens_parameters(params)
     if type(coordinate) is not int or coordinate < 0:
         raise Refused("lens64 coordinate must be a non-negative integer")
@@ -104,7 +105,7 @@ def navigate_lens(params: Mapping[str, Any], coordinate: int) -> int:
 
 
 def find_lens(params: Mapping[str, Any], target: int) -> int | None:
-    """Bounded inverse: modular increment or full-period 2-adic affine only."""
+    """Mathematics: solve F(t)=P(target) with O(1) modular inverse or O(64) 2-adic lift."""
     validate_lens_parameters(params)
     if type(target) is not int or not 0 <= target < MODULUS:
         return None
@@ -121,6 +122,9 @@ def recover_lens_law(
     window: Sequence[int], truth: Sequence[int], *, max_depth: int = 2,
 ) -> Law:
     """Infer a framed affine law from training, then check each reserved probe.
+
+    Mathematics: search depth <= 2 in a finite permutation library, fit affine
+    coefficients on W only, and require exact equality on each T witness.
 
     Models are constructed exclusively from the training window. The withheld
     suffix is used to select a fully agreeing model, not to fit coefficients.
