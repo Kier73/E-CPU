@@ -548,12 +548,14 @@ def test_claim_bound_envelope_round_trip_and_relay_preserve_exact_ticket(tmp_pat
             tuple(lane.node_id for lane in request.lanes[1:]),
         ),
     )[0]
-    # Use the exact one-lane child address from the real partition plan.
+    # split_binary_frontier_request returns a typed child request, not a
+    # BinaryFrontierPartition carrying a nested request/address pair.
+    child_address = _address(partition)
     store = _claim_store(tmp_path)
     spec = {
         "parent_request_digest": request.digest,
-        "child_request_digest": partition.request.digest,
-        "address_digest": partition.address.digest,
+        "child_request_digest": partition.digest,
+        "address_digest": child_address.digest,
         "operator_spec": base.operator_spec,
         "computational_ground_fingerprint": GROUND,
         "owner_peer_id": "peer-b",
@@ -561,9 +563,9 @@ def test_claim_bound_envelope_round_trip_and_relay_preserve_exact_ticket(tmp_pat
         "implementation_fingerprint": _IMPLEMENTATIONS["peer-b"],
     }
     ticket = store.create(**spec)
-    route = _route("peer-b", partition.address)
+    route = _route("peer-b", child_address)
     envelope = ComputationalFabricForwardingEnvelope.begin(
-        partition.address,
+        child_address,
         route,
         origin_channel="claim-bound-envelope-test",
         origin_sequence=17,
