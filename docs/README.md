@@ -2,6 +2,10 @@
 
 Index of specification documents. Documents use defined terms from `GLOSSARY.md`.
 
+## AI computational Grounds
+
+[AI Computational Ground Atlas — AGA-001](AI_COMPUTATIONAL_GROUND_ATLAS.md) catalogs 108 modern AI computational structures as pinned, queryable Ground descriptions with observation, navigation, and evidence obligations. It reuses the existing E-CPU Ground and authority architecture; catalog entries do not themselves grant Ground admission or execution rights.
+
 ## Reading order
 
 | Order | Document | Read it for |
