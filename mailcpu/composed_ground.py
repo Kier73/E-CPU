@@ -37,6 +37,7 @@ _FORWARD_COMPLEXITY = {
     "fgraph": "O(1)",
     "lcg": "O(log n)",
     "gf2": "O(L^3 log n)",
+    "lens64": "O(log n) plus two value frames",
 }
 _TEMPLATE_TYPE = "mailcpu.virtual-state-template"
 
