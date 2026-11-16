@@ -537,9 +537,9 @@ def test_cpu_and_egpu_compare_handlers_share_the_same_sign_semantics() -> None:
 def test_remote_compare_refuses_a_dispatcher_with_the_wrong_operator_contract() -> None:
     """Mathematics: a binary result cannot be admitted under another operation's declared semantics."""
     program = assemble(
-        "set left 8\\n"
-        "set right 3\\n"
-        "compare relation left right\\n"
+        "set left 8\n"
+        "set right 3\n"
+        "compare relation left right\n"
         "halt"
     )
     plan = MailCPUDataflowCompiler().compile_program(program)
