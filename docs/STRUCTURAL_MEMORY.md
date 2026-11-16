@@ -26,7 +26,8 @@ The first registry admits only four existing deterministic law families:
 | gf2 | Linear recurrence over GF(2) | Existing guarded LFSR jump |
 | fgraph | Finite orbit with a pre-period and cycle | Existing guarded orbit projection |
 
-The registry rejects kreg, mixtures, arbitrary callables, generated Python, FITTED, and TAPE laws in this stage. Those are not declared invalid mathematical objects; they are simply outside this E0 admission contract.
+LENS-001 adds a separately opt-in fifth family, `lens64`, which composes one or two whitelisted, invertible 64-bit value frames with the existing modular affine law. `StructuralMemoryRegistry.propose_trace(..., allow_lens=True)` tries this fallback only after the original certifier returns TAPE; `ObservationGroundBuilder.propose` exposes the same opt-in. The descriptor is schema-validated, reconstructable, and subject to existing witnesses, admissions, guarded reads, and snapshot checks. See [LENS-001](LENS_GROUND_001.md).
+\nThe registry rejects kreg, mixtures, arbitrary callables, generated Python, FITTED, and TAPE laws in this stage. Those are not declared invalid mathematical objects; they are simply outside this E0 admission contract.
 
 The generator registry validates each family's exact parameter shape before reconstructing a Law. This avoids turning a memory description into an unrestricted code-execution mechanism.
 
