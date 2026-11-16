@@ -1,0 +1,39 @@
+name: MWS-001 model weight Ground navigation
+
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/model_weight_ground.py'
+      - 'tests/test_model_weight_ground*.py'
+      - 'examples/model_weight_ground_demo.py'
+      - 'docs/MODEL_WEIGHT_GROUND_MWS001.md'
+      - '.github/workflows/model-weight-ground.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'mailcpu/model_weight_ground.py'
+      - 'tests/test_model_weight_ground*.py'
+      - 'examples/model_weight_ground_demo.py'
+      - 'docs/MODEL_WEIGHT_GROUND_MWS001.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-model-weight-ground:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install -e '.[dev]'
+      - name: Weight-address tests and E-CPU model reconstruction
+        run: python -m pytest -q tests/test_model_weight_ground.py tests/test_model_weight_ground_demo.py
+      - name: Run exact model snapshot demo
+        run: python examples/model_weight_ground_demo.py
