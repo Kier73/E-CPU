@@ -1,0 +1,2422 @@
+{
+  "schema": "mailcpu.ai-ground-atlas.v1",
+  "purpose": "Open-world inventory of contemporary AI computational structures translated into E-CPU semantic Ground intentions, not automatically admitted executable Grounds.",
+  "admission_rule": "Catalogue entries are source-anchored Ground descriptions. All have ground_admission=catalogued_only; only receiver-owned E-CPU Ground/Virtual Layer admission can authorize execution.",
+  "pin_policy": "All source references are pinned to inspected public commits. VP2/3/4 refs are stacked draft PRs; do not treat as mainline.",
+  "open_world": true,
+  "coverage_scope": "Modern AI data-to-model-to-learning-to-inference-to-agent-to-operation workflows and shared semantics; new families must be appended as new typed descriptions, not silently mapped to the wrong law.",
+  "sources": {
+    "ECPU": {
+      "repo": "Kier73/E-CPU",
+      "ref": "6fd416facdb2aefd6fc7d66a06b014e3d31b5a52"
+    },
+    "IFS": {
+      "repo": "Kier73/In-Formation-Space",
+      "ref": "c9716242725be65937fda1dd7b6cb778ca1def91"
+    },
+    "VGI": {
+      "repo": "Kier73/Virtual-Ground-Interpreter",
+      "ref": "e6e1900782aeede18a4de9046511bbba234dbc6e"
+    },
+    "VP1": {
+      "repo": "Kier73/E-CPU-Virtual-Processor",
+      "ref": "60cd5cc2e0f27fef0d06170af41cb7cb372e3b60"
+    },
+    "VP2": {
+      "repo": "Kier73/E-CPU-Virtual-Processor",
+      "ref": "51af5137c1650312e2ded217c8f39fe439b20db7"
+    },
+    "VP3": {
+      "repo": "Kier73/E-CPU-Virtual-Processor",
+      "ref": "8181ecc1b7a9bfdd7ed293c0d3af165f2db398ec"
+    },
+    "VP4": {
+      "repo": "Kier73/E-CPU-Virtual-Processor",
+      "ref": "61781f011be8c6aef29e1cb2fed2f09d73c49177"
+    }
+  },
+  "stages": {
+    "interpretation": "Meaning, observation, authority and Ground admission",
+    "data": "Data, preprocessing and sensory representation",
+    "model": "Model architecture and parameter representation",
+    "inference": "Forward numerical and sequence transitions",
+    "learning": "Optimization, updates and training state",
+    "retrieval": "Retrieval and knowledge-assisted computation",
+    "agency": "Agentic computation and external effects",
+    "operations": "Service, distribution, recovery and evaluation"
+  },
+  "navigation_modes": [
+    "composed_projection",
+    "direct_law",
+    "evidence_search",
+    "explicit_evaluation",
+    "inverse_navigation",
+    "qualified_realization",
+    "state_continuation",
+    "symbolic_factorization"
+  ],
+  "entries": [
+    {
+      "id": "ground.source",
+      "name": "Provenance and byte identity",
+      "stage": "interpretation",
+      "representation": "Content digests, source revision, source range and provenance",
+      "transition_relation": "Bind source to canonical identity independently of hosting location",
+      "observation_projection": "Exact source and byte-range identity",
+      "navigation": "composed_projection",
+      "dependencies": [],
+      "source_anchors": [
+        "ECPU:mailcpu/computational_objects.py",
+        "ECPU:mailcpu/semantic_translation.py"
+      ],
+      "realization_status": "mainline_scoped",
+      "realization_scope": "Related source implements a bounded version of this relation, not a universal AI Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "ground.semantics",
+      "name": "Typed computational meaning",
+      "stage": "interpretation",
+      "representation": "Computational Ground interpretation and typed representation",
+      "transition_relation": "Interpret source and state under declared semantics and translation contracts",
+      "observation_projection": "Canonical Ground and schema fingerprint",
+      "navigation": "composed_projection",
+      "dependencies": [
+        "ground.source"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/semantic_translation.py",
+        "VGI:virtual_ground_interpreter/vgi/ground.py"
+      ],
+      "realization_status": "mainline_scoped",
+      "realization_scope": "Related source implements a bounded version of this relation, not a universal AI Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "ground.observer",
+      "name": "Observer and observation contract",
+      "stage": "interpretation",
+      "representation": "Observation projection, context, subject and temporal coordinate",
+      "transition_relation": "Map admitted state to only the requested observables",
+      "observation_projection": "Observer receipt and projection digest",
+      "navigation": "direct_law",
+      "dependencies": [
+        "ground.semantics"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/observer_orbit.py",
+        "ECPU:mailcpu/observed_orbit_pipeline.py"
+      ],
+      "realization_status": "mainline_scoped",
+      "realization_scope": "Related source implements a bounded version of this relation, not a universal AI Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "ground.intention",
+      "name": "Intention and target predicate",
+      "stage": "interpretation",
+      "representation": "Typed request, requested projection, target coordinate or predicate",
+      "transition_relation": "Interpret and bind intention without granting execution authority",
+      "observation_projection": "Intention digest and explicit unresolved interpretation",
+      "navigation": "evidence_search",
+      "dependencies": [
+        "ground.observer"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/observed_orbit_pipeline.py",
+        "ECPU:mailcpu/intention_sufficiency.py"
+      ],
+      "realization_status": "mainline_scoped",
+      "realization_scope": "Related source implements a bounded version of this relation, not a universal AI Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "ground.transition",
+      "name": "Admitted transition law and invariants",
+      "stage": "interpretation",
+      "representation": "State, transition family, witnesses, context and allowed horizon",
+      "transition_relation": "State(t+1)=T_G(State(t),input); direct evaluation only for proven families",
+      "observation_projection": "Certificate scope, candidate state and unknown transitions",
+      "navigation": "direct_law",
+      "dependencies": [
+        "ground.semantics",
+        "ground.observer"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/law_certifier.py",
+        "ECPU:mailcpu/structural_memory.py",
+        "VGI:virtual_ground_interpreter/vgi/ground.py"
+      ],
+      "realization_status": "mainline_scoped",
+      "realization_scope": "Related source implements a bounded version of this relation, not a universal AI Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "ground.composition",
+      "name": "Composed Virtual Ground",
+      "stage": "interpretation",
+      "representation": "Typed component addresses, dependencies and shared scheduler identity",
+      "transition_relation": "Compose independently pinned state projections preserving their interpretation",
+      "observation_projection": "Composed state projection and component receipts",
+      "navigation": "composed_projection",
+      "dependencies": [
+        "ground.transition"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/composed_ground.py",
+        "ECPU:mailcpu/observed_orbit_pipeline.py"
+      ],
+      "realization_status": "mainline_scoped",
+      "realization_scope": "Related source implements a bounded version of this relation, not a universal AI Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "ground.authority",
+      "name": "Receiver-controlled capability",
+      "stage": "interpretation",
+      "representation": "Process capabilities, source policy, workload, resource and revision",
+      "transition_relation": "Allow, review or deny each effect at receiver-local Hypervisor",
+      "observation_projection": "Authorization verdict and effect receipt",
+      "navigation": "qualified_realization",
+      "dependencies": [
+        "ground.semantics"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/virtual_layer.py",
+        "ECPU:mailcpu/computational_execution.py"
+      ],
+      "realization_status": "mainline_scoped",
+      "realization_scope": "Related source implements a bounded version of this relation, not a universal AI Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "effectful",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "ground.realization",
+      "name": "Substrate-independent Ground realization",
+      "stage": "interpretation",
+      "representation": "Ground intention, qualified method, observer-host policy, transport evidence",
+      "transition_relation": "Realizer implements same observation relation only after binding and verification",
+      "observation_projection": "Verified observation plus actual realizer identity",
+      "navigation": "qualified_realization",
+      "dependencies": [
+        "ground.transition",
+        "ground.authority"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/ground_native_realization.py",
+        "ECPU:mailcpu/computational_fabric.py"
+      ],
+      "realization_status": "mainline_scoped",
+      "realization_scope": "Related source implements a bounded version of this relation, not a universal AI Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "ground.evidence",
+      "name": "Evidence status and proof obligations",
+      "stage": "interpretation",
+      "representation": "Source witnesses, exact or numerical invariants, context and counterexamples",
+      "transition_relation": "Promote an observation only when the declared scope is independently checked",
+      "observation_projection": "Verdict: verified-scoped, partial, unknown, contradicted",
+      "navigation": "evidence_search",
+      "dependencies": [
+        "ground.observer",
+        "ground.realization"
+      ],
+      "source_anchors": [
+        "VGI:virtual_ground_interpreter/vgi/proof.py",
+        "VGI:virtual_ground_interpreter/vgi/exact.py",
+        "ECPU:mailcpu/observed_orbit_pipeline.py"
+      ],
+      "realization_status": "mainline_scoped",
+      "realization_scope": "Related source implements a bounded version of this relation, not a universal AI Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "ground.lineage",
+      "name": "Committed state and recovery lineage",
+      "stage": "interpretation",
+      "representation": "Checkpoint identity, predecessor, journal cut, ownership and quorum",
+      "transition_relation": "Commit successor state iff previous authoritative lineage is current",
+      "observation_projection": "Recovered state identity; stale or forked history rejected",
+      "navigation": "state_continuation",
+      "dependencies": [
+        "ground.authority",
+        "ground.evidence"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/computational_session.py",
+        "ECPU:mailcpu/recovery_lineage.py"
+      ],
+      "realization_status": "mainline_scoped",
+      "realization_scope": "Related source implements a bounded version of this relation, not a universal AI Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "stateful",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "data.acquisition",
+      "name": "Data and event acquisition",
+      "stage": "data",
+      "representation": "Authenticated source events, files, streams, coordinates",
+      "transition_relation": "Acquire permitted source observations and retain evidence by time and identity",
+      "observation_projection": "Authorized sample or content-addressed event",
+      "navigation": "evidence_search",
+      "dependencies": [
+        "ground.source",
+        "ground.observer"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/observed_orbit_pipeline.py",
+        "ECPU:mailcpu/computational_objects.py"
+      ],
+      "realization_status": "mainline_scoped",
+      "realization_scope": "Related source implements a bounded version of this relation, not a universal AI Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "effectful",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "data.dataset",
+      "name": "Dataset membership and partition",
+      "stage": "data",
+      "representation": "Ordered examples, provenance, split policy and dataset revision",
+      "transition_relation": "Select examples under a declared membership and partition relation",
+      "observation_projection": "Sample set, split identity, source lineage",
+      "navigation": "composed_projection",
+      "dependencies": [
+        "data.acquisition"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/computational_objects.py",
+        "ECPU:mailcpu/computation_dag.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "data.schema",
+      "name": "Data typing and schema validation",
+      "stage": "data",
+      "representation": "Fields, modality, ranges, missing/unknown values and encoded type",
+      "transition_relation": "Decode or refuse a record under exact schema",
+      "observation_projection": "Typed record and validation outcome",
+      "navigation": "composed_projection",
+      "dependencies": [
+        "data.acquisition",
+        "ground.semantics"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/semantic_translation.py",
+        "VGI:virtual_ground_interpreter/vgi/ground.py"
+      ],
+      "realization_status": "mainline_scoped",
+      "realization_scope": "Related source implements a bounded version of this relation, not a universal AI Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "data.normalization",
+      "name": "Preprocessing and normalization",
+      "stage": "data",
+      "representation": "Reference feature/statistic fields and normalization policy",
+      "transition_relation": "Map input to normalized representation; preserve invertibility claims only if valid",
+      "observation_projection": "Normalized data with policy identity",
+      "navigation": "symbolic_factorization",
+      "dependencies": [
+        "data.schema"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/semantic_translation.py",
+        "VGI:virtual_ground_interpreter/vgi/exact.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "data.tokenizer",
+      "name": "Text tokenization and vocabulary",
+      "stage": "data",
+      "representation": "Vocabulary, BPE/Unigram merges, Unicode policy, special IDs",
+      "transition_relation": "Encode text to token IDs and decode under pinned tokenizer rules",
+      "observation_projection": "Token sequence, offsets and roundtrip evidence",
+      "navigation": "composed_projection",
+      "dependencies": [
+        "data.schema"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/computational_objects.py",
+        "VP3:vp/query.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "data.visual_encoding",
+      "name": "Image patch and visual tokenization",
+      "stage": "data",
+      "representation": "Image geometry, color/patch projection, visual encoder contract",
+      "transition_relation": "Convert frames to typed patches/features under declared preprocessing",
+      "observation_projection": "Patch coordinates and visual token/feature digests",
+      "navigation": "composed_projection",
+      "dependencies": [
+        "data.schema"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/computational_objects.py",
+        "ECPU:mailcpu/neural_graph_bridge.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "data.audio_encoding",
+      "name": "Acoustic feature and audio tokenization",
+      "stage": "data",
+      "representation": "Sample rate, waveform, STFT/mel/codebook contract",
+      "transition_relation": "Transform audio samples to typed acoustic frames or discrete tokens",
+      "observation_projection": "Frame/time coordinate and acoustic feature identity",
+      "navigation": "composed_projection",
+      "dependencies": [
+        "data.schema"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/computational_objects.py",
+        "VGI:virtual_ground_interpreter/vgi/ground.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "data.video_encoding",
+      "name": "Video and temporal multimodal frames",
+      "stage": "data",
+      "representation": "Time-stamped image/audio events, frame order and synchronization relation",
+      "transition_relation": "Project a video into multimodal time-indexed observations",
+      "observation_projection": "Frame/time/causal projection",
+      "navigation": "state_continuation",
+      "dependencies": [
+        "data.visual_encoding",
+        "data.audio_encoding"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/observed_orbit_pipeline.py",
+        "ECPU:mailcpu/computational_fabric.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "data.augmentation",
+      "name": "Data augmentation and corruption",
+      "stage": "data",
+      "representation": "Source example, stochastic transform, RNG seed and permission",
+      "transition_relation": "Apply declared perturbation or augmentation to one example",
+      "observation_projection": "Augmented example and reproducible transform witness",
+      "navigation": "qualified_realization",
+      "dependencies": [
+        "data.normalization"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/semantic_translation.py",
+        "ECPU:mailcpu/virtual_layer.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "data.batch",
+      "name": "Training/inference batch selection",
+      "stage": "data",
+      "representation": "Sample indices, padding, bucket policy, device-independent batch shape",
+      "transition_relation": "Assemble a typed batch; avoid silently duplicating or dropping records",
+      "observation_projection": "Batch membership, masks and shape",
+      "navigation": "composed_projection",
+      "dependencies": [
+        "data.dataset",
+        "data.schema"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/computation_dag.py",
+        "ECPU:mailcpu/semantic_translation.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "data.privacy",
+      "name": "Private, regulated and licensed data constraints",
+      "stage": "data",
+      "representation": "Access rights, retention, consent/licence labels, disclosure scope",
+      "transition_relation": "Authorize data reads and disclosures; refuse unauthorized projections",
+      "observation_projection": "Audit evidence without exposing private payload",
+      "navigation": "qualified_realization",
+      "dependencies": [
+        "data.acquisition",
+        "ground.authority"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/virtual_layer.py",
+        "ECPU:mailcpu/computational_objects.py"
+      ],
+      "realization_status": "mainline_scoped",
+      "realization_scope": "Related source implements a bounded version of this relation, not a universal AI Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "effectful",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "model.architecture",
+      "name": "Neural computation topology",
+      "stage": "model",
+      "representation": "Typed operator graph, symbolic dimensions, ports, edges, layer semantics",
+      "transition_relation": "Resolve dependency graph under admitted operator contract",
+      "observation_projection": "Graph fingerprint and valid ready frontier",
+      "navigation": "composed_projection",
+      "dependencies": [
+        "ground.composition",
+        "data.schema"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/neural_graph_bridge.py",
+        "IFS:experiments/external_neural_structure_reading/neural_graph_ir.py",
+        "VGI:virtual_ground_interpreter/vgi/neural_topology.py"
+      ],
+      "realization_status": "research_scoped",
+      "realization_scope": "Related source implements or investigates a bounded prototype; cross-host proof and generalization are not established.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "model.tensor",
+      "name": "Typed tensor geometry",
+      "stage": "model",
+      "representation": "Rank, shape, dtype, stride, sparse layout, quantization and byte identity",
+      "transition_relation": "Map logical coordinates to exact tensor slices and declared arithmetic semantics",
+      "observation_projection": "Tensor element/slice or type error",
+      "navigation": "composed_projection",
+      "dependencies": [
+        "ground.source",
+        "data.schema"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/computational_objects.py",
+        "IFS:experiments/tensor_cut_realization/native_admission.py",
+        "VP3:vp/neural_inference.py"
+      ],
+      "realization_status": "research_scoped",
+      "realization_scope": "Related source implements or investigates a bounded prototype; cross-host proof and generalization are not established.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "model.parameters",
+      "name": "Model parameter identity",
+      "stage": "model",
+      "representation": "Immutable weights, optimizer-independent model version, tensor index",
+      "transition_relation": "Bind named trained parameters to verified content identities and layouts",
+      "observation_projection": "Exact parameter set, missing/tampered tensor refusal",
+      "navigation": "composed_projection",
+      "dependencies": [
+        "model.tensor",
+        "model.architecture"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/computational_objects.py",
+        "VP3:vp/qwen_snapshot.py",
+        "IFS:experiments/external_neural_structure_reading/neural_graph_ir.py"
+      ],
+      "realization_status": "research_scoped",
+      "realization_scope": "Related source implements or investigates a bounded prototype; cross-host proof and generalization are not established.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "model.quantization",
+      "name": "Quantized representation and dequantization",
+      "stage": "model",
+      "representation": "Quantized values, scales, zero points, rounding and error budget",
+      "transition_relation": "Interpret compressed coefficients as a numerical operator input",
+      "observation_projection": "Numeric range and bounded-error projection",
+      "navigation": "symbolic_factorization",
+      "dependencies": [
+        "model.tensor"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/computational_objects.py",
+        "VP3:vp/neural_inference.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "model.precision",
+      "name": "Floating-point and numerical behavior",
+      "stage": "model",
+      "representation": "Precision, accumulation order, overflow/NaN semantics and tolerance",
+      "transition_relation": "Evaluate or transform numbers only under declared error contract",
+      "observation_projection": "Numeric result and precision-bound evidence",
+      "navigation": "qualified_realization",
+      "dependencies": [
+        "model.tensor",
+        "ground.evidence"
+      ],
+      "source_anchors": [
+        "IFS:experiments/tensor_cut_realization/native_admission.py",
+        "VP3:vp/neural_inference.py"
+      ],
+      "realization_status": "research_scoped",
+      "realization_scope": "Related source implements or investigates a bounded prototype; cross-host proof and generalization are not established.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "model.embedding",
+      "name": "Embedding table and feature projection",
+      "stage": "model",
+      "representation": "Token/patch identifiers, embedding tensor and positional context",
+      "transition_relation": "Return selected embedding rows or encoded vectors",
+      "observation_projection": "Vector coordinates, dtype and model identity",
+      "navigation": "composed_projection",
+      "dependencies": [
+        "data.tokenizer",
+        "model.parameters"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/computational_objects.py",
+        "ECPU:mailcpu/neural_graph_bridge.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "model.position",
+      "name": "Position and relative coordinate encoding",
+      "stage": "model",
+      "representation": "Token/frame position, RoPE basis, offset and head coordinates",
+      "transition_relation": "Rotate/project tensor features according to pinned positional law",
+      "observation_projection": "Position-encoded tensor and coordinate contract",
+      "navigation": "direct_law",
+      "dependencies": [
+        "model.tensor",
+        "ground.transition"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/neural_graph_bridge.py",
+        "VP2:vp/moe.py"
+      ],
+      "realization_status": "research_scoped",
+      "realization_scope": "Related source implements or investigates a bounded prototype; cross-host proof and generalization are not established.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "model.adapter",
+      "name": "Low-rank adapters and model deltas",
+      "stage": "model",
+      "representation": "Base model, adaptation factors, merge policy and revision",
+      "transition_relation": "Represent adapted weights as base plus admitted low-rank update",
+      "observation_projection": "Merged or on-demand operator effect; base identity preserved",
+      "navigation": "symbolic_factorization",
+      "dependencies": [
+        "model.parameters"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/computational_objects.py",
+        "IFS:experiments/procedural_neural_formation/README.md"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "model.sparsity",
+      "name": "Sparse connectivity and parameter selection",
+      "stage": "model",
+      "representation": "Expert/tag identities, masks, sparse ranges and routing topology",
+      "transition_relation": "Select only eligible activated components while preserving full semantic graph",
+      "observation_projection": "Selected parameter addresses and sparse witness",
+      "navigation": "composed_projection",
+      "dependencies": [
+        "model.architecture",
+        "model.parameters"
+      ],
+      "source_anchors": [
+        "VP2:vp/moe.py",
+        "VP3:vp/neural_inference.py"
+      ],
+      "realization_status": "research_scoped",
+      "realization_scope": "Related source implements or investigates a bounded prototype; cross-host proof and generalization are not established.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "model.latent",
+      "name": "Latent space and generative representation",
+      "stage": "model",
+      "representation": "Latent coordinates, codebooks, decoder meaning, uncertainty",
+      "transition_relation": "Project between admitted latent values and observable data",
+      "observation_projection": "Latent observation and reconstruction certificate",
+      "navigation": "composed_projection",
+      "dependencies": [
+        "model.embedding",
+        "ground.observer"
+      ],
+      "source_anchors": [
+        "VGI:virtual_ground_interpreter/vgi/ground.py",
+        "IFS:experiments/procedural_neural_formation/README.md"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "model.compile",
+      "name": "Semantic-to-network construction",
+      "stage": "model",
+      "representation": "Accepted function/transition specification, architecture certificate",
+      "transition_relation": "Construct parameterized neural realization from exact source relation if proved",
+      "observation_projection": "Equivalent model certificate under an explicitly scoped source domain",
+      "navigation": "symbolic_factorization",
+      "dependencies": [
+        "ground.transition",
+        "model.architecture"
+      ],
+      "source_anchors": [
+        "IFS:experiments/semantic_neural_compilation/compiler.py",
+        "ECPU:mailcpu/weight_space.py"
+      ],
+      "realization_status": "research_scoped",
+      "realization_scope": "Only bounded exact ReLU constructions and finite gate examples are demonstrated; not synthesis of arbitrary frontier models.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "forward.matmul",
+      "name": "Linear/tensor contraction",
+      "stage": "inference",
+      "representation": "Tensor operands, axes, rounding and summation order",
+      "transition_relation": "Y_ij=sum_k X_ik W_kj under declared numeric algebra",
+      "observation_projection": "Output tensor, residual/error or exact witness",
+      "navigation": "symbolic_factorization",
+      "dependencies": [
+        "model.tensor",
+        "model.precision"
+      ],
+      "source_anchors": [
+        "IFS:experiments/tensor_cut_realization/native_admission.py",
+        "ECPU:mailcpu/egpu.py",
+        "VP3:vp/neural_inference.py"
+      ],
+      "realization_status": "research_scoped",
+      "realization_scope": "Related source implements or investigates a bounded prototype; cross-host proof and generalization are not established.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "forward.activation",
+      "name": "Pointwise nonlinearities",
+      "stage": "inference",
+      "representation": "Activation family (SiLU/GELU/ReLU), parameter precision",
+      "transition_relation": "Apply phi(x) pointwise under declared numerical law",
+      "observation_projection": "Activated values and error certificate",
+      "navigation": "qualified_realization",
+      "dependencies": [
+        "forward.matmul"
+      ],
+      "source_anchors": [
+        "IFS:experiments/tensor_cut_realization/native_admission.py",
+        "VP3:vp/neural_inference.py"
+      ],
+      "realization_status": "research_scoped",
+      "realization_scope": "Related source implements or investigates a bounded prototype; cross-host proof and generalization are not established.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "forward.normalization",
+      "name": "RMSNorm/LayerNorm and scaling",
+      "stage": "inference",
+      "representation": "Tensor reduction axes, variance/epsilon, norm parameters",
+      "transition_relation": "Y=(X-mean)/sqrt(var+eps)*gamma+beta or declared RMS variant",
+      "observation_projection": "Normalized tensor under stated precision",
+      "navigation": "symbolic_factorization",
+      "dependencies": [
+        "model.parameters",
+        "model.precision"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/neural_graph_bridge.py",
+        "VGI:virtual_ground_interpreter/vgi/exact.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "forward.qkv",
+      "name": "Attention Q/K/V projections",
+      "stage": "inference",
+      "representation": "Hidden states and Q/K/V tensor references, GQA head grouping",
+      "transition_relation": "Q=XWq, K=XWk, V=XWv with declared head dimensions",
+      "observation_projection": "Q,K,V projections and provenance",
+      "navigation": "composed_projection",
+      "dependencies": [
+        "forward.matmul",
+        "model.architecture"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/neural_graph_bridge.py",
+        "VP2:vp/moe.py"
+      ],
+      "realization_status": "research_scoped",
+      "realization_scope": "Typed Q/K/V structural paths exist; end-to-end source-weighted attention execution is not verified in VP-004.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "forward.attention",
+      "name": "Causal/bidirectional attention",
+      "stage": "inference",
+      "representation": "Q,K,V, mask, scale, attention window and cache semantics",
+      "transition_relation": "softmax(QK^T/sqrt(d)+mask)V with finite numeric policy",
+      "observation_projection": "Attention output and numerical conformance receipt",
+      "navigation": "symbolic_factorization",
+      "dependencies": [
+        "forward.qkv",
+        "forward.normalization"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/neural_graph_bridge.py",
+        "VGI:virtual_ground_interpreter/vgi/neural_topology.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "forward.rope",
+      "name": "Rotary positional transform",
+      "stage": "inference",
+      "representation": "Absolute/relative coordinates, frequencies and Q/K head tensors",
+      "transition_relation": "Apply orthogonal pair rotation under exact position policy",
+      "observation_projection": "Position-correct Q,K values",
+      "navigation": "direct_law",
+      "dependencies": [
+        "model.position",
+        "forward.qkv"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/neural_graph_bridge.py",
+        "VP2:vp/moe.py"
+      ],
+      "realization_status": "research_scoped",
+      "realization_scope": "Qwen graph/frontier declares RoPE but a complete numeric RoPE kernel is not demonstrated.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "forward.residual",
+      "name": "Residual composition",
+      "stage": "inference",
+      "representation": "Source tensor, branch tensor, dtype, shape and accumulation",
+      "transition_relation": "Y=X+F(X) with explicit shape and precision semantics",
+      "observation_projection": "Output and dependency provenance",
+      "navigation": "composed_projection",
+      "dependencies": [
+        "forward.activation"
+      ],
+      "source_anchors": [
+        "IFS:experiments/tensor_cut_realization/native_admission.py",
+        "ECPU:mailcpu/neural_graph_bridge.py"
+      ],
+      "realization_status": "research_scoped",
+      "realization_scope": "Related source implements or investigates a bounded prototype; cross-host proof and generalization are not established.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "forward.moe_route",
+      "name": "Sparse mixture-of-experts routing",
+      "stage": "inference",
+      "representation": "Router weights, logits, top-k ordering, routing policy",
+      "transition_relation": "Choose expert indices and normalization without enumerating all expert weights",
+      "observation_projection": "Selected expert addresses and exact routing receipt",
+      "navigation": "evidence_search",
+      "dependencies": [
+        "model.sparsity",
+        "forward.matmul"
+      ],
+      "source_anchors": [
+        "VP2:vp/moe.py",
+        "VP3:vp/neural_inference.py"
+      ],
+      "realization_status": "research_scoped",
+      "realization_scope": "Related source implements or investigates a bounded prototype; cross-host proof and generalization are not established.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "forward.moe_expert",
+      "name": "Selected expert neural realization",
+      "stage": "inference",
+      "representation": "Admitted router selection, gate/up/down tensors and hidden vector",
+      "transition_relation": "sum_e alpha_e * down_e(SiLU(gate_e(x))*up_e(x))",
+      "observation_projection": "Verified sparse expert output, actual selected weights and numeric receipt",
+      "navigation": "qualified_realization",
+      "dependencies": [
+        "forward.moe_route",
+        "forward.activation",
+        "forward.matmul"
+      ],
+      "source_anchors": [
+        "VP3:vp/neural_inference.py",
+        "VP3:vp/native_inference.py",
+        "IFS:experiments/tensor_cut_realization/native_admission.py"
+      ],
+      "realization_status": "research_scoped",
+      "realization_scope": "Related source implements or investigates a bounded prototype; cross-host proof and generalization are not established.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "forward.encoder",
+      "name": "Encoder bidirectional representation",
+      "stage": "inference",
+      "representation": "Encoder graph, masks, input features, pooling contract",
+      "transition_relation": "Evaluate permitted bidirectional attention/FFN dependency graph",
+      "observation_projection": "Sequence features or pooled vector",
+      "navigation": "composed_projection",
+      "dependencies": [
+        "forward.attention",
+        "forward.residual"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/neural_graph_bridge.py",
+        "VGI:virtual_ground_interpreter/vgi/neural_topology.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "forward.multimodal_fusion",
+      "name": "Cross-attention and modality fusion",
+      "stage": "inference",
+      "representation": "Text/vision/audio token alignment, fusion maps, modality masks",
+      "transition_relation": "Project and cross-attend typed features under shared task Ground",
+      "observation_projection": "Fused features and cross-modal observation",
+      "navigation": "composed_projection",
+      "dependencies": [
+        "data.video_encoding",
+        "forward.attention"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/neural_graph_bridge.py",
+        "VGI:virtual_ground_interpreter/vgi/neural_topology.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "forward.logits",
+      "name": "Vocabulary or label projection",
+      "stage": "inference",
+      "representation": "Final hidden vector, projection weights, vocabulary mapping",
+      "transition_relation": "Logits=H*W^T with declared bias/temperature policies",
+      "observation_projection": "Output vocabulary or class scores",
+      "navigation": "qualified_realization",
+      "dependencies": [
+        "forward.matmul",
+        "model.embedding"
+      ],
+      "source_anchors": [
+        "VP3:vp/query.py",
+        "VP3:vp/neural_inference.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "forward.sampling",
+      "name": "Token selection and decoding policy",
+      "stage": "inference",
+      "representation": "Logits, temperature, top-p/top-k, RNG/counter and constraints",
+      "transition_relation": "Choose next token deterministically or via seeded distribution",
+      "observation_projection": "Chosen token plus reproducibility and probability witness",
+      "navigation": "state_continuation",
+      "dependencies": [
+        "forward.logits"
+      ],
+      "source_anchors": [
+        "VP3:vp/query.py",
+        "ECPU:mailcpu/semantic_translation.py"
+      ],
+      "realization_status": "research_scoped",
+      "realization_scope": "VP-003 supports hosted greedy text queries; not native full-model stochastic sampling.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "forward.autoregressive",
+      "name": "Autoregressive inference orbit",
+      "stage": "inference",
+      "representation": "Prompt tokens, model identity, step index, generated prefix and KV state",
+      "transition_relation": "S_t -> S_(t+1) by one verified decode transition",
+      "observation_projection": "Next token, state fingerprint and continuation receipt",
+      "navigation": "state_continuation",
+      "dependencies": [
+        "forward.sampling",
+        "forward.attention"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/computational_session.py",
+        "VP3:vp/query.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "forward.kv_cache",
+      "name": "Attention key-value memory",
+      "stage": "inference",
+      "representation": "Layer/head/token-position cache pages, quantization and source model",
+      "transition_relation": "Append/reuse/invalidate K,V pages with causal and revision semantics",
+      "observation_projection": "Reconstructible cache entries and exact prefix scope",
+      "navigation": "state_continuation",
+      "dependencies": [
+        "forward.qkv",
+        "ground.lineage"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/structural_memory_pages.py",
+        "ECPU:mailcpu/computational_session.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "forward.diffusion",
+      "name": "Iterative diffusion / flow generation",
+      "stage": "inference",
+      "representation": "Noise state, timestep/sigma, score/velocity model and solver rule",
+      "transition_relation": "X_(t+1)=Solver(X_t,f_theta(X_t,t),seed,dt)",
+      "observation_projection": "Sample or latent projection with solver and seed evidence",
+      "navigation": "state_continuation",
+      "dependencies": [
+        "model.latent",
+        "model.parameters"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/law_certifier.py",
+        "ECPU:mailcpu/computational_session.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "forward.state_space",
+      "name": "Recurrent / state-space model transitions",
+      "stage": "inference",
+      "representation": "Hidden state, transition matrices or learned update, input coordinate",
+      "transition_relation": "h_(t+1)=A_t h_t+B_t x_t; output=C_t h_t when admissible",
+      "observation_projection": "State coordinate, bounded horizon and output projection",
+      "navigation": "direct_law",
+      "dependencies": [
+        "ground.transition",
+        "model.parameters"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/law_certifier.py",
+        "ECPU:mailcpu/observer_orbit.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "Closed-form navigation available only for certified algebraic subfamilies; nonlinear learned recurrence not automatically jumpable.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "forward.speculative",
+      "name": "Speculative decoding and proposal verification",
+      "stage": "inference",
+      "representation": "Draft proposal tokens, main-model target probabilities, commit policy",
+      "transition_relation": "Accept/reject proposed prefix by exact target-model policy",
+      "observation_projection": "Accepted prefix and target-model evidence",
+      "navigation": "evidence_search",
+      "dependencies": [
+        "forward.autoregressive"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/computational_session.py",
+        "ECPU:mailcpu/virtual_layer.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "learn.objective",
+      "name": "Loss/energy objective",
+      "stage": "learning",
+      "representation": "Prediction, target, weighting, mask and reduction",
+      "transition_relation": "L=reduce(loss(pred,target)) under declared numeric semantics",
+      "observation_projection": "Scalar loss and gradient obligation",
+      "navigation": "composed_projection",
+      "dependencies": [
+        "forward.logits",
+        "data.batch"
+      ],
+      "source_anchors": [
+        "VGI:virtual_ground_interpreter/vgi/exact.py",
+        "IFS:experiments/tensor_cut_realization/native_admission.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "learn.autodiff",
+      "name": "Automatic differentiation graph",
+      "stage": "learning",
+      "representation": "Forward graph, Jacobian/JVP/VJP rules and primal values",
+      "transition_relation": "Propagate derivatives via chain rule over eligible operators",
+      "observation_projection": "Gradient graph with differentiability and domain evidence",
+      "navigation": "symbolic_factorization",
+      "dependencies": [
+        "learn.objective",
+        "model.architecture"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/neural_graph_bridge.py",
+        "VGI:virtual_ground_interpreter/vgi/proof.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "learn.gradient",
+      "name": "Gradient evaluation and accumulation",
+      "stage": "learning",
+      "representation": "Parameters, microbatch, loss, precision, accumulation state",
+      "transition_relation": "g = dL/dtheta with reduction and overflow policy",
+      "observation_projection": "Gradient tensors, loss-scale and numerical checks",
+      "navigation": "qualified_realization",
+      "dependencies": [
+        "learn.autodiff",
+        "model.parameters"
+      ],
+      "source_anchors": [
+        "IFS:experiments/tensor_cut_realization/native_admission.py",
+        "ECPU:mailcpu/egpu.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "learn.optimizer",
+      "name": "Optimizer parameter update",
+      "stage": "learning",
+      "representation": "Parameter version, gradient, moments, step and hyperparameters",
+      "transition_relation": "theta_(t+1)=Update(theta_t,g_t,m_t,policy)",
+      "observation_projection": "New parameter revision and optimizer state receipt",
+      "navigation": "state_continuation",
+      "dependencies": [
+        "learn.gradient",
+        "ground.lineage"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/computational_session.py",
+        "ECPU:mailcpu/virtual_layer.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "learn.schedule",
+      "name": "Learning-rate and phase scheduling",
+      "stage": "learning",
+      "representation": "Step/epoch coordinates, warmup/decay policy, curriculum",
+      "transition_relation": "eta(t)=Scheduler(t) under admitted law",
+      "observation_projection": "Schedule coordinate and next policy value",
+      "navigation": "direct_law",
+      "dependencies": [
+        "learn.optimizer"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/law_certifier.py",
+        "ECPU:mailcpu/observer_orbit.py"
+      ],
+      "realization_status": "mainline_scoped",
+      "realization_scope": "Scalar law navigation exists; an end-to-end AI training scheduler is not implemented.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "learn.randomness",
+      "name": "RNG and stochastic experiment state",
+      "stage": "learning",
+      "representation": "Seed, counter, algorithm, sampler domain and entropy claims",
+      "transition_relation": "S_(t+1)=PRNG_transition(S_t) if generator and seed are known",
+      "observation_projection": "Reproducible sample/seed receipt or explicit entropy unknown",
+      "navigation": "state_continuation",
+      "dependencies": [
+        "ground.lineage"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/law_certifier.py",
+        "ECPU:mailcpu/computational_session.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "learn.distributed",
+      "name": "Gradient collective and sharded training",
+      "stage": "learning",
+      "representation": "Tensor partition identity, ranks, reduction topology and error policy",
+      "transition_relation": "Reduce/scatter/all-gather partitions with causal barriers",
+      "observation_projection": "Collective result, shard receipt, lost-update refusal",
+      "navigation": "composed_projection",
+      "dependencies": [
+        "learn.gradient",
+        "ground.realization"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/computational_fabric.py",
+        "ECPU:mailcpu/computation_dag.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "learn.checkpoint",
+      "name": "Training checkpoint and optimizer continuity",
+      "stage": "learning",
+      "representation": "Weights, optimizer moments, RNG, step, sample cursor and provenance",
+      "transition_relation": "Snapshot/restore full train state under current causal lineage",
+      "observation_projection": "Checkpoint identity and next-step equivalence",
+      "navigation": "state_continuation",
+      "dependencies": [
+        "learn.optimizer",
+        "learn.randomness"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/computational_session.py",
+        "ECPU:mailcpu/recovery_lineage.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "learn.adapter",
+      "name": "Parameter-efficient adaptation",
+      "stage": "learning",
+      "representation": "Frozen base identity, low-rank trainable tensors and update rule",
+      "transition_relation": "Apply gradient update only to selected adapter coordinates",
+      "observation_projection": "Adapter revision and unchanged-base proof",
+      "navigation": "state_continuation",
+      "dependencies": [
+        "model.adapter",
+        "learn.optimizer"
+      ],
+      "source_anchors": [
+        "IFS:experiments/procedural_neural_formation/README.md",
+        "ECPU:mailcpu/computational_session.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "learn.preference",
+      "name": "Preference/RL policy optimization",
+      "stage": "learning",
+      "representation": "Policy state, environment transitions, reward/preference evidence",
+      "transition_relation": "Update policies from admitted feedback/reward relation",
+      "observation_projection": "Policy update and grounded evaluation signal",
+      "navigation": "state_continuation",
+      "dependencies": [
+        "learn.optimizer",
+        "ground.observer"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/observed_orbit_pipeline.py",
+        "VGI:virtual_ground_interpreter/vgi/proof.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "learn.distillation",
+      "name": "Teacher/student representation transfer",
+      "stage": "learning",
+      "representation": "Teacher observation contract, student model, loss and data domain",
+      "transition_relation": "Fit student to selected teacher projections with explicit generalization scope",
+      "observation_projection": "Teacher/student agreement on declared samples and counterexamples",
+      "navigation": "evidence_search",
+      "dependencies": [
+        "learn.objective",
+        "model.compile"
+      ],
+      "source_anchors": [
+        "IFS:experiments/semantic_neural_compilation/compiler.py",
+        "VGI:virtual_ground_interpreter/vgi/neural_topology.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "learn.evaluation",
+      "name": "Held-out validation and experiment selection",
+      "stage": "learning",
+      "representation": "Dataset splits, metric contract, checkpoints and evaluation policy",
+      "transition_relation": "Select candidate by independent held-out observations without contaminating test evidence",
+      "observation_projection": "Evaluation report and confidence/coverage bounds",
+      "navigation": "evidence_search",
+      "dependencies": [
+        "learn.checkpoint",
+        "data.dataset"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/observed_orbit_pipeline.py",
+        "VGI:virtual_ground_interpreter/vgi/proof.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "learn.federated",
+      "name": "Federated model update and authority",
+      "stage": "learning",
+      "representation": "Partitioned policy/weights, contributor identity, update budget",
+      "transition_relation": "Compose authenticated updates with explicit aggregation and trust rules",
+      "observation_projection": "Accepted aggregate, participant attestations and privacy budget",
+      "navigation": "qualified_realization",
+      "dependencies": [
+        "learn.distributed",
+        "ground.authority"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/computational_fabric.py",
+        "ECPU:mailcpu/recovery_lineage.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "retrieve.chunk",
+      "name": "Chunking and document-ground representation",
+      "stage": "retrieval",
+      "representation": "Document bytes, boundaries, overlap and provenance references",
+      "transition_relation": "Project source content into recoverable, addressable chunks",
+      "observation_projection": "Chunk set with exact byte/source ancestry",
+      "navigation": "composed_projection",
+      "dependencies": [
+        "data.dataset",
+        "ground.source"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/computational_objects.py",
+        "ECPU:mailcpu/semantic_translation.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "retrieve.vector",
+      "name": "Vector or hybrid retrieval index",
+      "stage": "retrieval",
+      "representation": "Embedding vectors, index algorithm, identifier mapping",
+      "transition_relation": "Index/search candidates under stated distance or scoring metric",
+      "observation_projection": "Ranked candidate identifiers with score evidence",
+      "navigation": "evidence_search",
+      "dependencies": [
+        "model.embedding",
+        "retrieve.chunk"
+      ],
+      "source_anchors": [
+        "IFS:experiments/ground_model_addressability/README.md",
+        "VGI:virtual_ground_interpreter/vgi/ground.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "retrieve.rerank",
+      "name": "Grounded reranking and relevance",
+      "stage": "retrieval",
+      "representation": "Query, candidate passages, scoring policy and model revision",
+      "transition_relation": "Apply reranker; preserve candidate identity and score domain",
+      "observation_projection": "Selected passages and relevance rationale/evidence",
+      "navigation": "evidence_search",
+      "dependencies": [
+        "retrieve.vector"
+      ],
+      "source_anchors": [
+        "IFS:experiments/ground_model_addressability/README.md",
+        "ECPU:mailcpu/intention_sufficiency.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "retrieve.context",
+      "name": "Retrieval-augmented context assembly",
+      "stage": "retrieval",
+      "representation": "Retrieved passages, task intention, token budget and citation mapping",
+      "transition_relation": "Compose input context and delimit trusted source from model-generated text",
+      "observation_projection": "Bounded prompt context with source references",
+      "navigation": "composed_projection",
+      "dependencies": [
+        "retrieve.rerank",
+        "data.tokenizer"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/semantic_translation.py",
+        "ECPU:mailcpu/computational_objects.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "agent.policy",
+      "name": "Agent policy and action selection",
+      "stage": "agency",
+      "representation": "Goals, observations, actions, uncertainty, permissions, active state",
+      "transition_relation": "Policy maps admitted observations to proposed next action; it does not grant authority",
+      "observation_projection": "Candidate action with intention evidence",
+      "navigation": "evidence_search",
+      "dependencies": [
+        "ground.intention",
+        "forward.autoregressive"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/intention_sufficiency.py",
+        "ECPU:mailcpu/observed_orbit_pipeline.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "agent.planning",
+      "name": "Task decomposition and dependency planning",
+      "stage": "agency",
+      "representation": "Subgoals, dependencies, objective, eligible tools and work budget",
+      "transition_relation": "Construct typed DAG of proposed actions with causal prerequisites",
+      "observation_projection": "Action frontier and admissibility decisions",
+      "navigation": "composed_projection",
+      "dependencies": [
+        "agent.policy",
+        "ground.composition"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/computation_dag.py",
+        "VGI:virtual_ground_interpreter/vgi/proof.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "agent.tool",
+      "name": "External tool effects and acts",
+      "stage": "agency",
+      "representation": "Tool/schema, authorized capability, exact request, effect and replay class",
+      "transition_relation": "Execute effect only under receiver ownership; do not infer execution from planned text",
+      "observation_projection": "Effect receipt, independently observed outcome, replay status",
+      "navigation": "qualified_realization",
+      "dependencies": [
+        "agent.planning",
+        "ground.authority"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/virtual_layer.py",
+        "ECPU:mailcpu/computational_fabric.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "effectful",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "agent.memory",
+      "name": "Agent episodic/semantic memory",
+      "stage": "agency",
+      "representation": "Observations, summaries, symbolic rules, state epochs, content references",
+      "transition_relation": "Write/retrieve only admitted state, preserve source and uncertainty",
+      "observation_projection": "Memory read/write receipt and changed Ground revision",
+      "navigation": "state_continuation",
+      "dependencies": [
+        "ground.lineage",
+        "retrieve.chunk"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/structural_memory.py",
+        "ECPU:mailcpu/computational_session.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "stateful",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "agent.environment",
+      "name": "Environment and interaction Ground",
+      "stage": "agency",
+      "representation": "Environment state, action schema, transition law, external observations",
+      "transition_relation": "Observe and act under explicit transition/effect model",
+      "observation_projection": "Environment state projection and action outcome",
+      "navigation": "state_continuation",
+      "dependencies": [
+        "agent.tool",
+        "ground.transition"
+      ],
+      "source_anchors": [
+        "VGI:virtual_ground_interpreter/vgi/ground.py",
+        "ECPU:mailcpu/observed_orbit_pipeline.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "stateful",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "agent.self_critique",
+      "name": "Self-evaluation and grounded correction",
+      "stage": "agency",
+      "representation": "Claim, source evidence, counterexamples, verifier policy",
+      "transition_relation": "Compare proposal with evidence; revise only after admitted observation",
+      "observation_projection": "Corrected claim and undecided/refusal evidence",
+      "navigation": "evidence_search",
+      "dependencies": [
+        "agent.memory",
+        "ground.evidence"
+      ],
+      "source_anchors": [
+        "VGI:virtual_ground_interpreter/vgi/proof.py",
+        "VGI:virtual_ground_interpreter/vgi/neural_topology.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "agent.human_handoff",
+      "name": "Approval, handoff and escalation",
+      "stage": "agency",
+      "representation": "Action risk, approval owner, permission state, continuation identity",
+      "transition_relation": "Stop or resume stateful task only after authentic permission update",
+      "observation_projection": "Decision receipt and retained pending state",
+      "navigation": "state_continuation",
+      "dependencies": [
+        "agent.tool",
+        "ground.authority"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/virtual_layer.py",
+        "ECPU:mailcpu/computational_session.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "effectful",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "operate.session",
+      "name": "Queryable model and processor session",
+      "stage": "operations",
+      "representation": "Logical model/session identity, prompt, state version and result reference",
+      "transition_relation": "Accept query and continue session across disposable execution hosts",
+      "observation_projection": "Response and causal state revision",
+      "navigation": "state_continuation",
+      "dependencies": [
+        "forward.autoregressive",
+        "ground.lineage"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/computational_session.py",
+        "VP3:vp/query.py",
+        "VP4:vp/ground_neural.py"
+      ],
+      "realization_status": "research_scoped",
+      "realization_scope": "Related source implements or investigates a bounded prototype; cross-host proof and generalization are not established.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "operate.batching",
+      "name": "Dynamic batching and queue management",
+      "stage": "operations",
+      "representation": "Ready requests, sequence lengths, priorities, resource budgets",
+      "transition_relation": "Select compatible batches while preserving per-session semantics",
+      "observation_projection": "Admitted batch schedule and isolated outputs",
+      "navigation": "evidence_search",
+      "dependencies": [
+        "data.batch",
+        "operate.session"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/computation_dag.py",
+        "ECPU:mailcpu/computational_fabric.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "operate.placement",
+      "name": "Expert/tensor placement and qualification",
+      "stage": "operations",
+      "representation": "Shards, eligible loci, rights, topology, costs and lease epochs",
+      "transition_relation": "Choose a nonauthoritative route then receiver revalidates binding",
+      "observation_projection": "Placement witness, accepted realization and measured cost",
+      "navigation": "qualified_realization",
+      "dependencies": [
+        "forward.moe_expert",
+        "ground.realization"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/computational_fabric.py",
+        "ECPU:mailcpu/computational_execution.py",
+        "VP2:vp/moe.py"
+      ],
+      "realization_status": "research_scoped",
+      "realization_scope": "Related source implements or investigates a bounded prototype; cross-host proof and generalization are not established.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "operate.fabric",
+      "name": "Authenticated communication and causal ordering",
+      "stage": "operations",
+      "representation": "Channels, peer identities, sequence/ack windows and path transforms",
+      "transition_relation": "Transport typed frames; only admitted transforms count as computation",
+      "observation_projection": "Frame receipt and causal ordering evidence",
+      "navigation": "qualified_realization",
+      "dependencies": [
+        "ground.realization"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/computational_fabric.py",
+        "ECPU:mailcpu/federated_ground_continuity.py"
+      ],
+      "realization_status": "mainline_scoped",
+      "realization_scope": "Related source implements a bounded version of this relation, not a universal AI Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "effectful",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "operate.path_compute",
+      "name": "Path-native transformation and qualification",
+      "stage": "operations",
+      "representation": "Observed active path law, held-out probes, local authority and operator shape",
+      "transition_relation": "Promote a measured communication-path transformation to eligible realizer after independent checks",
+      "observation_projection": "Equivalent projection and verified locus of transformation",
+      "navigation": "evidence_search",
+      "dependencies": [
+        "operate.fabric",
+        "ground.evidence"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/latent_path_capacity.py",
+        "ECPU:mailcpu/ground_native_realization.py"
+      ],
+      "realization_status": "mainline_scoped",
+      "realization_scope": "Verified bounded path relations and port models exist; a universal tensor transform realized intrinsically by passive transit is unproven.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "operate.recovery",
+      "name": "Hard-failure restoration and fencing",
+      "stage": "operations",
+      "representation": "Checkpoint, journal, qualified successor host, quorum and operation epoch",
+      "transition_relation": "Recover most recent authoritative state; refuse stale publication and duplicate semantic effect",
+      "observation_projection": "Reconstructed session and validity of lineage",
+      "navigation": "state_continuation",
+      "dependencies": [
+        "operate.session",
+        "ground.lineage"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/recovery_lineage.py",
+        "ECPU:mailcpu/federated_ground_continuity.py"
+      ],
+      "realization_status": "mainline_scoped",
+      "realization_scope": "Related source implements a bounded version of this relation, not a universal AI Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "stateful",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "operate.kv_paging",
+      "name": "Remote/stateful inference pages",
+      "stage": "operations",
+      "representation": "Versioned KV and activation pages, hash, ownership and logical ranges",
+      "transition_relation": "Read/write cache pages through content identities with coherent updates",
+      "observation_projection": "Bounded page value and traceable cache revision",
+      "navigation": "state_continuation",
+      "dependencies": [
+        "forward.kv_cache",
+        "ground.lineage"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/structural_memory_pages.py",
+        "ECPU:mailcpu/computational_objects.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "operate.verify_numeric",
+      "name": "Independent numerical comparison",
+      "stage": "operations",
+      "representation": "Reference implementation, tolerance, typed inputs, output and parameter identity",
+      "transition_relation": "Check output with independent oracle, bounded error or exact proof",
+      "observation_projection": "Numeric conformance verdict and counterexample",
+      "navigation": "evidence_search",
+      "dependencies": [
+        "forward.matmul",
+        "ground.evidence"
+      ],
+      "source_anchors": [
+        "IFS:experiments/tensor_cut_realization/native_admission.py",
+        "VGI:virtual_ground_interpreter/vgi/exact.py"
+      ],
+      "realization_status": "research_scoped",
+      "realization_scope": "Related source implements or investigates a bounded prototype; cross-host proof and generalization are not established.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "operate.verify_semantic",
+      "name": "Cross-Ground observational equivalence",
+      "stage": "operations",
+      "representation": "Observer contexts, representations, paired translation, bisimulation",
+      "transition_relation": "Compare projections and transition behavior under declared semantic relation",
+      "observation_projection": "Equivalence / non-equivalence / unknown receipt",
+      "navigation": "evidence_search",
+      "dependencies": [
+        "ground.semantics",
+        "ground.observer"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/semantic_translation.py",
+        "VGI:virtual_ground_interpreter/vgi/neural_topology.py"
+      ],
+      "realization_status": "mainline_scoped",
+      "realization_scope": "Related source implements a bounded version of this relation, not a universal AI Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "operate.verify_provenance",
+      "name": "Model source and result authentication",
+      "stage": "operations",
+      "representation": "Source digest, implementation binding, authenticated observer and operation receipt",
+      "transition_relation": "Verify identity and provenance independently from result equality",
+      "observation_projection": "Authenticity, coverage, tamper or unknown state",
+      "navigation": "evidence_search",
+      "dependencies": [
+        "ground.source",
+        "ground.authority"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/recovery_lineage.py",
+        "ECPU:mailcpu/virtual_layer.py"
+      ],
+      "realization_status": "mainline_scoped",
+      "realization_scope": "Related source implements a bounded version of this relation, not a universal AI Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "operate.metrics",
+      "name": "Quality, latency, energy and resource evidence",
+      "stage": "operations",
+      "representation": "Ground, realizer, duration, input bytes, work estimate, memory and failures",
+      "transition_relation": "Measure distinct cost dimensions; avoid assuming symbolic savings for nonlinear kernels",
+      "observation_projection": "Cost vector and semantic correctness metrics",
+      "navigation": "evidence_search",
+      "dependencies": [
+        "ground.realization",
+        "operate.verify_numeric"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/computational_fabric.py",
+        "ECPU:mailcpu/observed_orbit_pipeline.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "operate.policy",
+      "name": "Safety, resource and privacy policy",
+      "stage": "operations",
+      "representation": "Caller authority, budget, refusal policy, output disclosure, audit context",
+      "transition_relation": "Enforce at admission and before visible result or irreversible effect",
+      "observation_projection": "Permission and disclosure receipt",
+      "navigation": "qualified_realization",
+      "dependencies": [
+        "ground.authority",
+        "data.privacy"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/virtual_layer.py",
+        "ECPU:mailcpu/intention_sufficiency.py"
+      ],
+      "realization_status": "mainline_scoped",
+      "realization_scope": "Related source implements a bounded version of this relation, not a universal AI Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "effectful",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "operate.lifecycle",
+      "name": "Evaluation, monitoring and Ground refinement",
+      "stage": "operations",
+      "representation": "Versioned model and Ground, quality signals, drift, held-out probes",
+      "transition_relation": "Propose new Ground or model revision from evidence; no unapproved auto-admission",
+      "observation_projection": "Version change evidence, unresolved questions and independent validation",
+      "navigation": "evidence_search",
+      "dependencies": [
+        "learn.evaluation",
+        "ground.evidence"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/observed_orbit_pipeline.py",
+        "ECPU:mailcpu/structural_memory.py",
+        "IFS:experiments/semantic_neural_compilation/compiler.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "The referenced modules are enabling components; the AI-specific transition is not established as an executable E-CPU Ground.",
+      "verification_obligation": "Bind exact source and state, compare requested projection with an independent oracle or declared invariant, and reject semantic drift.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "data.synthetic",
+      "name": "Procedural and synthetic data formation",
+      "stage": "data",
+      "representation": "Generative source Ground, seed, filters and intended domain",
+      "transition_relation": "Generate candidate samples from admitted laws or models with traceable synthesis parameters",
+      "observation_projection": "Candidate samples and generation provenance",
+      "navigation": "qualified_realization",
+      "dependencies": [
+        "data.dataset",
+        "ground.transition"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/weight_space.py",
+        "IFS:experiments/procedural_neural_formation/README.md"
+      ],
+      "realization_status": "research_scoped",
+      "realization_scope": "IFS procedural construction and E-CPU small Boolean weight generation provide bounded examples, not a universal synthetic data oracle.",
+      "verification_obligation": "Bind exact source, operator and input Ground; measure or prove the requested projection against an independent oracle and record unknown cases.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "data.labels",
+      "name": "Human, model and programmatic labels",
+      "stage": "data",
+      "representation": "Label source, ontology, confidence, reference and provenance",
+      "transition_relation": "Associate observation with annotated or inferred supervision under versioned policy",
+      "observation_projection": "Labeled example with uncertainty and source identity",
+      "navigation": "evidence_search",
+      "dependencies": [
+        "data.dataset",
+        "ground.evidence"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/observation.py",
+        "VGI:virtual_ground_interpreter/vgi/evidence.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "This semantic relation is catalogued; no general native E-CPU implementation or observational equivalence is demonstrated.",
+      "verification_obligation": "Bind exact source, operator and input Ground; measure or prove the requested projection against an independent oracle and record unknown cases.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "model.convolution",
+      "name": "Convolutional and spatial architectures",
+      "stage": "model",
+      "representation": "Spatial kernels, stride/dilation/padding, channels, grouping",
+      "transition_relation": "Bind convolution operator shapes and spatial dependencies",
+      "observation_projection": "Spatial feature layout and parameter identities",
+      "navigation": "composed_projection",
+      "dependencies": [
+        "model.tensor",
+        "model.architecture"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/neural_graph_bridge.py",
+        "ECPU:mailcpu/computation_dag.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "This semantic relation is catalogued; no general native E-CPU implementation or observational equivalence is demonstrated.",
+      "verification_obligation": "Bind exact source, operator and input Ground; measure or prove the requested projection against an independent oracle and record unknown cases.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "model.graph_network",
+      "name": "Graph neural network topology",
+      "stage": "model",
+      "representation": "Graph nodes/edges, typed features, message/update functions",
+      "transition_relation": "Construct neighborhood message-passing dependency fronts",
+      "observation_projection": "Graph feature projection and topology fingerprint",
+      "navigation": "composed_projection",
+      "dependencies": [
+        "model.architecture",
+        "data.schema"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/computation_dag.py",
+        "VGI:virtual_ground_interpreter/vgi/relational.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "This semantic relation is catalogued; no general native E-CPU implementation or observational equivalence is demonstrated.",
+      "verification_obligation": "Bind exact source, operator and input Ground; measure or prove the requested projection against an independent oracle and record unknown cases.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "model.probabilistic",
+      "name": "Probabilistic graphical model",
+      "stage": "model",
+      "representation": "Variables, factors, conditional probability contracts and evidence",
+      "transition_relation": "Represent factorization, marginalization and conditional inference",
+      "observation_projection": "Probability marginal or conditional belief with uncertainty",
+      "navigation": "symbolic_factorization",
+      "dependencies": [
+        "ground.semantics",
+        "model.tensor"
+      ],
+      "source_anchors": [
+        "VGI:virtual_ground_interpreter/vgi/proof.py",
+        "ECPU:mailcpu/semantic_translation.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "This semantic relation is catalogued; no general native E-CPU implementation or observational equivalence is demonstrated.",
+      "verification_obligation": "Bind exact source, operator and input Ground; measure or prove the requested projection against an independent oracle and record unknown cases.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "model.weight_tying",
+      "name": "Weight sharing and parameter aliases",
+      "stage": "model",
+      "representation": "Tensor aliases, shared storage identity, read/write constraints",
+      "transition_relation": "Resolve multiple parameter roles to one immutable underlying tensor identity",
+      "observation_projection": "Parameter identity equality and alias-consistency proof",
+      "navigation": "composed_projection",
+      "dependencies": [
+        "model.parameters"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/computational_objects.py",
+        "ECPU:mailcpu/neural_graph_bridge.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "This semantic relation is catalogued; no general native E-CPU implementation or observational equivalence is demonstrated.",
+      "verification_obligation": "Bind exact source, operator and input Ground; measure or prove the requested projection against an independent oracle and record unknown cases.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "forward.convolution",
+      "name": "Convolution and transposed-convolution operator",
+      "stage": "inference",
+      "representation": "Input tensor, kernel, groups, stride, padding, precision",
+      "transition_relation": "Y[o,i,j]=sum_{c,u,v}X[c,i+u,j+v]K[o,c,u,v] under declared boundary rules",
+      "observation_projection": "Output feature map and independent numerical witness",
+      "navigation": "symbolic_factorization",
+      "dependencies": [
+        "model.convolution",
+        "model.precision"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/egpu.py",
+        "ECPU:mailcpu/virtual_layer.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "This semantic relation is catalogued; no general native E-CPU implementation or observational equivalence is demonstrated.",
+      "verification_obligation": "Bind exact source, operator and input Ground; measure or prove the requested projection against an independent oracle and record unknown cases.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "forward.pooling",
+      "name": "Pooling and spatial reductions",
+      "stage": "inference",
+      "representation": "Spatial window, stride, reduction rule and tie behavior",
+      "transition_relation": "Reduce activated windows with exact max/mean/attention selection",
+      "observation_projection": "Pooled features, index/tie evidence",
+      "navigation": "composed_projection",
+      "dependencies": [
+        "forward.convolution"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/egpu.py",
+        "ECPU:mailcpu/computation_dag.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "This semantic relation is catalogued; no general native E-CPU implementation or observational equivalence is demonstrated.",
+      "verification_obligation": "Bind exact source, operator and input Ground; measure or prove the requested projection against an independent oracle and record unknown cases.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "forward.graph_message",
+      "name": "Graph message passing and aggregation",
+      "stage": "inference",
+      "representation": "Adjacency, message function, aggregation, update operator",
+      "transition_relation": "h_next_v=Update(h_v,Reduce_{u in neighbors(v)}Message(h_u,h_v,e_uv))",
+      "observation_projection": "Updated node/edge tensors and neighborhood provenance",
+      "navigation": "composed_projection",
+      "dependencies": [
+        "model.graph_network",
+        "forward.matmul"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/computation_dag.py",
+        "VGI:virtual_ground_interpreter/vgi/relational.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "This semantic relation is catalogued; no general native E-CPU implementation or observational equivalence is demonstrated.",
+      "verification_obligation": "Bind exact source, operator and input Ground; measure or prove the requested projection against an independent oracle and record unknown cases.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "forward.probability",
+      "name": "Probabilistic inference and marginalization",
+      "stage": "inference",
+      "representation": "Factor graph, evidence, normalization policy, exact/approx scope",
+      "transition_relation": "p(query|evidence)=Normalize(sum_hidden product_factors)",
+      "observation_projection": "Posterior projection with normalization or error certificate",
+      "navigation": "symbolic_factorization",
+      "dependencies": [
+        "model.probabilistic",
+        "ground.evidence"
+      ],
+      "source_anchors": [
+        "VGI:virtual_ground_interpreter/vgi/exact.py",
+        "ECPU:mailcpu/law_certifier.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "This semantic relation is catalogued; no general native E-CPU implementation or observational equivalence is demonstrated.",
+      "verification_obligation": "Bind exact source, operator and input Ground; measure or prove the requested projection against an independent oracle and record unknown cases.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "forward.flow",
+      "name": "Continuous flows and vector-field integration",
+      "stage": "inference",
+      "representation": "State, time-dependent vector field, ODE/SDE solver and accuracy",
+      "transition_relation": "dx/dt=v_theta(x,t); approximate via admitted integration policy",
+      "observation_projection": "Flowed state at target time with discretization evidence",
+      "navigation": "state_continuation",
+      "dependencies": [
+        "model.latent",
+        "forward.diffusion"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/observer_orbit.py",
+        "ECPU:mailcpu/temporal.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "This semantic relation is catalogued; no general native E-CPU implementation or observational equivalence is demonstrated.",
+      "verification_obligation": "Bind exact source, operator and input Ground; measure or prove the requested projection against an independent oracle and record unknown cases.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "forward.classifier",
+      "name": "Class prediction and structured output",
+      "stage": "inference",
+      "representation": "Class/logit representation, calibration, threshold and abstention",
+      "transition_relation": "Map output distribution to labels or structured decisions under declared policy",
+      "observation_projection": "Predicted label, score, class semantics and abstention",
+      "navigation": "composed_projection",
+      "dependencies": [
+        "forward.logits",
+        "ground.observer"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/semantic_translation.py",
+        "ECPU:mailcpu/virtual_layer.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "This semantic relation is catalogued; no general native E-CPU implementation or observational equivalence is demonstrated.",
+      "verification_obligation": "Bind exact source, operator and input Ground; measure or prove the requested projection against an independent oracle and record unknown cases.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "learn.contrastive",
+      "name": "Contrastive and metric learning",
+      "stage": "learning",
+      "representation": "Positive/negative pairs, embeddings, temperature, sampling policy",
+      "transition_relation": "Construct pairwise similarity and contrastive objective under declared reductions",
+      "observation_projection": "Contrastive loss and gradient trace",
+      "navigation": "composed_projection",
+      "dependencies": [
+        "learn.objective",
+        "model.embedding"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/virtual_layer.py",
+        "VGI:virtual_ground_interpreter/vgi/similarity_blocks.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "This semantic relation is catalogued; no general native E-CPU implementation or observational equivalence is demonstrated.",
+      "verification_obligation": "Bind exact source, operator and input Ground; measure or prove the requested projection against an independent oracle and record unknown cases.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "learn.regularization",
+      "name": "Regularization and constrained optimization",
+      "stage": "learning",
+      "representation": "Penalty terms, norm constraints, clipping and projection policy",
+      "transition_relation": "Modify loss/gradient/update under a declared regularizer and constraint set",
+      "observation_projection": "Constrained gradient, updated parameter and inequality witness",
+      "navigation": "symbolic_factorization",
+      "dependencies": [
+        "learn.gradient",
+        "learn.optimizer"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/semantic_translation.py",
+        "VGI:virtual_ground_interpreter/vgi/exact.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "This semantic relation is catalogued; no general native E-CPU implementation or observational equivalence is demonstrated.",
+      "verification_obligation": "Bind exact source, operator and input Ground; measure or prove the requested projection against an independent oracle and record unknown cases.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "learn.activation_recompute",
+      "name": "Activation rematerialization and memory scheduling",
+      "stage": "learning",
+      "representation": "Forward intermediates, checkpoint boundaries, recomputation recipe",
+      "transition_relation": "Reconstruct eligible activations from retained inputs and source parameters instead of storing all steps",
+      "observation_projection": "Recomputed activation and cost/equivalence evidence",
+      "navigation": "symbolic_factorization",
+      "dependencies": [
+        "learn.autodiff",
+        "ground.lineage"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/structural_memory.py",
+        "ECPU:mailcpu/computation_dag.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "This semantic relation is catalogued; no general native E-CPU implementation or observational equivalence is demonstrated.",
+      "verification_obligation": "Bind exact source, operator and input Ground; measure or prove the requested projection against an independent oracle and record unknown cases.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "learn.search",
+      "name": "Hyperparameter and architecture search",
+      "stage": "learning",
+      "representation": "Candidate space, validation observations, budget and stopping rules",
+      "transition_relation": "Select candidate schedules/architectures using held-out evidence and resource constraints",
+      "observation_projection": "Ranked candidate and verified trial provenance",
+      "navigation": "evidence_search",
+      "dependencies": [
+        "learn.evaluation",
+        "model.architecture"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/predictive_selection.py",
+        "ECPU:mailcpu/evidence_path_resolver.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "This semantic relation is catalogued; no general native E-CPU implementation or observational equivalence is demonstrated.",
+      "verification_obligation": "Bind exact source, operator and input Ground; measure or prove the requested projection against an independent oracle and record unknown cases.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "agent.tree_search",
+      "name": "Tree search and constrained exploration",
+      "stage": "agency",
+      "representation": "Search state, action laws, branching frontier, heuristic and evidence",
+      "transition_relation": "Expand only admissible branches or directly navigate proven subgoals",
+      "observation_projection": "Selected action path or explicit unknown",
+      "navigation": "evidence_search",
+      "dependencies": [
+        "agent.planning",
+        "ground.transition"
+      ],
+      "source_anchors": [
+        "VGI:virtual_ground_interpreter/vgi/proof.py",
+        "ECPU:mailcpu/navigation_formal.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "This semantic relation is catalogued; no general native E-CPU implementation or observational equivalence is demonstrated.",
+      "verification_obligation": "Bind exact source, operator and input Ground; measure or prove the requested projection against an independent oracle and record unknown cases.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "agent.world_model",
+      "name": "Learned world model and planning",
+      "stage": "agency",
+      "representation": "Latent state, observation model, predictive transition, uncertainty",
+      "transition_relation": "Predict and verify future observations under declared state and action relation",
+      "observation_projection": "Predicted state family with horizon and counterexample evidence",
+      "navigation": "state_continuation",
+      "dependencies": [
+        "agent.environment",
+        "model.latent"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/observed_orbit_pipeline.py",
+        "VGI:virtual_ground_interpreter/vgi/partial_attention.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "This semantic relation is catalogued; no general native E-CPU implementation or observational equivalence is demonstrated.",
+      "verification_obligation": "Bind exact source, operator and input Ground; measure or prove the requested projection against an independent oracle and record unknown cases.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "operate.version_compat",
+      "name": "Model and tokenizer version compatibility",
+      "stage": "operations",
+      "representation": "Model weights, tokenizer revision, adapter, tool schemas, precision and session context",
+      "transition_relation": "Admit rebind/migration only if source and observation semantics are compatible",
+      "observation_projection": "Compatibility verdict and migration proof or refusal",
+      "navigation": "evidence_search",
+      "dependencies": [
+        "operate.session",
+        "model.parameters"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/semantic_translation.py",
+        "ECPU:mailcpu/computational_session.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "This semantic relation is catalogued; no general native E-CPU implementation or observational equivalence is demonstrated.",
+      "verification_obligation": "Bind exact source, operator and input Ground; measure or prove the requested projection against an independent oracle and record unknown cases.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "operate.eval_safety",
+      "name": "Safety evaluation and output moderation",
+      "stage": "operations",
+      "representation": "Task policy, probes, context, harm categories, thresholds and action authority",
+      "transition_relation": "Evaluate output/policy against scoped constraints; permission remains separate from assessment",
+      "observation_projection": "Risk verdict, human review, counterexamples and refusal",
+      "navigation": "evidence_search",
+      "dependencies": [
+        "operate.policy",
+        "learn.evaluation"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/classifier.py",
+        "ECPU:mailcpu/hypervisor_orbit.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "This semantic relation is catalogued; no general native E-CPU implementation or observational equivalence is demonstrated.",
+      "verification_obligation": "Bind exact source, operator and input Ground; measure or prove the requested projection against an independent oracle and record unknown cases.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    },
+    {
+      "id": "operate.measure",
+      "name": "Model-system profiling and independent measurements",
+      "stage": "operations",
+      "representation": "Latency, peak memory, transferred bytes, processor work, energy probes and counters",
+      "transition_relation": "Profile end-to-end query stages without equating network time to compute",
+      "observation_projection": "Measured cost vector and evidence source",
+      "navigation": "evidence_search",
+      "dependencies": [
+        "operate.metrics",
+        "ground.observer"
+      ],
+      "source_anchors": [
+        "ECPU:mailcpu/operation_timing.py",
+        "ECPU:mailcpu/observer_path_evidence.py"
+      ],
+      "realization_status": "candidate",
+      "realization_scope": "This semantic relation is catalogued; no general native E-CPU implementation or observational equivalence is demonstrated.",
+      "verification_obligation": "Bind exact source, operator and input Ground; measure or prove the requested projection against an independent oracle and record unknown cases.",
+      "effect_class": "pure",
+      "ground_admission": "catalogued_only"
+    }
+  ],
+  "catalog_digest": "b7c3a70b77fe6963fc77181a2809c56dd7edbf433ea546a8e8c601894e340e44"
+}
