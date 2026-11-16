@@ -136,6 +136,25 @@ def computational_fabric_forward_channel_id(origin_peer_id: str, origin_channel:
     )
 
 
+
+def _bounded_fabric_goal_projection(goal: Any) -> object:
+    """Mathematics: retain small goals verbatim; map large goals to (kind, SHA256(canonical goal))."""
+    canonical = _canonical_bytes(goal, "fabric intent goal")
+    if len(canonical) <= 512:
+        return json.loads(canonical.decode("utf-8"))
+    # The receiver reconstructs this projection from the full decoded and
+    # digest-bound envelope. Never trust a caller-authored summary as evidence.
+    summary: dict[str, object] = {
+        "representation": "content-addressed",
+        "content_digest": hashlib.sha256(canonical).hexdigest(),
+    }
+    if isinstance(goal, Mapping) and isinstance(goal.get("kind"), str):
+        kind = goal["kind"]
+        if len(kind.encode("utf-8")) <= 128:
+            summary["kind"] = kind
+    return summary
+
+
 def _forwarding_intent_projection(
     envelope: "ComputationalFabricForwardingEnvelope",
     *,
@@ -172,7 +191,7 @@ def _forwarding_intent_projection(
         "operator_contract_digest": envelope.address.operator_contract_digest,
         "computational_ground_fingerprint": envelope.address.computational_ground_fingerprint,
         "program_fingerprint": envelope.address.program_fingerprint,
-        "goal": json.loads(_canonical_bytes(workload.intention["goal"], "fabric intent goal").decode("utf-8")),
+        "goal": _bounded_fabric_goal_projection(workload.intention["goal"]),
         "budget": workload.budget.to_dict(),
         "payload_bytes": payload_bytes,
     }
