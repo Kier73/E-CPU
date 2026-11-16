@@ -6,6 +6,8 @@ Index of specification documents. Documents use defined terms from `GLOSSARY.md`
 
 [AI Computational Ground Atlas — AGA-001](AI_COMPUTATIONAL_GROUND_ATLAS.md) catalogs 108 modern AI computational structures as pinned, queryable Ground descriptions with observation, navigation, and evidence obligations. It reuses the existing E-CPU Ground and authority architecture; catalog entries do not themselves grant Ground admission or execution rights.
 
+- [AGA-002 — Reuse a certified Ground without repeating its neural realization](AI_GROUND_REUSE_AGA002.md): an exact finite-domain test using two existing E-CPU neural architectures, two MailCPU interpreters, scoped proof receipts and direct observer queries. No model-specific inference engine is introduced.
+
 ## Reading order
 
 | Order | Document | Read it for |
