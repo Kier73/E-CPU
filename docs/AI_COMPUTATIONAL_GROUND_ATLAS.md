@@ -11,6 +11,7 @@
 - Canonical machine-readable source: [`mailcpu/ai_ground_atlas.v1.json`](../mailcpu/ai_ground_atlas.v1.json).
 - Validator and query interface: [`mailcpu/ai_ground_atlas.py`](../mailcpu/ai_ground_atlas.py).
 - Pinned source revisions: E-CPU main, IFS main, VGI main, VP main, plus explicitly separate stacked VP-002/003/004 *draft* commits. All anchors carry a commit identity rather than an implicit moving branch.
+- **Source-path audit:** all 49 distinct anchored files were checked against the relevant repository directory listings (including the VP draft revisions); 49 were present. This establishes path existence, not execution or semantic equivalence.
 - Catalog content digest: `b7c3a70b77fe6963fc77181a2809c56dd7edbf433ea546a8e8c601894e340e44` (canonical UTF-8 JSON excluding its own digest). This checks integrity, not authenticity.
 
 Every record states: **representation/state → transition relation → observer projection → navigation/realization strategy → dependencies → existing source anchors → verification obligation → status**. The catalog is open-world: no finite list can exhaust all architectures, representations or effective programs.
