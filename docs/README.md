@@ -2,6 +2,8 @@
 
 Index of specification documents. Documents use defined terms from `GLOSSARY.md`.
 
+For an exact-SHA inventory of mainline capabilities, feature-branch-only developments, and open verification gates, see [Mainline integration checkpoint (2026-11-15)](MAINLINE_INTEGRATION_CHECKPOINT_2026-11-15.md). Its observed CI state is historical, not a claim of current success.
+
 ## Reading order
 
 | Order | Document | Read it for |
