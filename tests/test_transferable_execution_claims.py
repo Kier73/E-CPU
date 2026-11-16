@@ -152,7 +152,7 @@ def test_quorum_reassignment_fences_old_epoch_and_new_host_completes(tmp_path: P
     ).digest == moved.digest
     with pytest.raises(TransferableExecutionClaimError, match="not current"):
         original.verify_current(coordinator)
-    with pytest.raises(TransferableExecutionClaimError, match="stale assignment epoch"):
+    with pytest.raises(TransferableExecutionClaimError, match="not the exact current assignment epoch"):
         store.complete(
             claim_id,
             expected_epoch=1,
