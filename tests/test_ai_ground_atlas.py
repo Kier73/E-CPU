@@ -145,10 +145,15 @@ class CatalogTests(unittest.TestCase):
             from mailcpu.ai_ground_atlas import representation_ref
         except ImportError:
             self.skipTest("Requires full E-CPU mailcpu.semantic_translation in this environment")
-        for name in ("ground.observer", "model.tensor", "forward.moe_expert", "learn.optimizer",
-                     "agent.tool", "operate.recovery"):
-            ref = representation_ref(self.catalog, name)
+        # Every catalogued structure receives a content-addressed native
+        # E-CPU representation identity. No identity grants Ground admission.
+        ids = [record["id"] for record in self.catalog["entries"]]
+        refs = [representation_ref(self.catalog, name) for name in ids]
+        self.assertEqual(len(refs), len(ids))
+        self.assertEqual(len({r.content_digest for r in refs}), len(ids))
+        for name, ref in zip(ids, refs):
             self.assertIsInstance(ref, RepresentationRef)
+            self.assertEqual(ref.type_id, "mailcpu.ai-ground-description")
             self.assertEqual(ref, representation_ref(self.catalog, name))
             self.assertEqual(len(ref.content_digest), 64)
         a = representation_ref(self.catalog, "forward.moe_expert").content_digest
