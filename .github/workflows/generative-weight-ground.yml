@@ -1,0 +1,41 @@
+name: MWS-002 generative weight Ground
+
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/generative_weight_ground.py'
+      - 'mailcpu/model_weight_ground.py'
+      - 'tests/test_generative_weight_ground.py'
+      - 'examples/generative_weight_ground_demo.py'
+      - 'docs/GENERATIVE_WEIGHT_GROUND_MWS002.md'
+      - '.github/workflows/generative-weight-ground.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'mailcpu/generative_weight_ground.py'
+      - 'mailcpu/model_weight_ground.py'
+      - 'tests/test_generative_weight_ground.py'
+      - 'examples/generative_weight_ground_demo.py'
+      - 'docs/GENERATIVE_WEIGHT_GROUND_MWS002.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  generative-ground:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install -e '.[dev]'
+      - name: Model Weight Ground and generative Ground tests
+        run: python -m pytest -q tests/test_model_weight_ground.py tests/test_model_weight_ground_demo.py tests/test_generative_weight_ground.py
+      - name: Reconstruct same model point from admitted Structural Memory law and sparse delta
+        run: python examples/generative_weight_ground_demo.py
