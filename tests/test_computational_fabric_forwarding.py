@@ -1,12 +1,36 @@
 from __future__ import annotations
 
+import hashlib
+import json
+
 import pytest
 
 from mailcpu.computational_fabric_forwarding import (
     ComputationalFabricForwardingError,
     ComputationalFabricHopReceipt,
+    _bounded_fabric_goal_projection,
     computational_fabric_forward_channel_id,
 )
+
+
+def test_large_fabric_goal_is_receiver_content_addressed_without_losing_semantic_identity() -> None:
+    """Mathematics: compact goal identity is SHA256 of exact canonical full content, not lossy truncation."""
+    small = {"kind": "sum", "expected": 9}
+    assert _bounded_fabric_goal_projection(small) == small
+
+    full = {"kind": "dataflow-frontier", "predecessors": ["a" * 512] * 12}
+    changed = {"kind": "dataflow-frontier", "predecessors": ["b" * 512] * 12}
+    summary = _bounded_fabric_goal_projection(full)
+    canonical = json.dumps(
+        full, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+    ).encode("utf-8")
+    assert summary == {
+        "representation": "content-addressed",
+        "content_digest": hashlib.sha256(canonical).hexdigest(),
+        "kind": "dataflow-frontier",
+    }
+    assert len(json.dumps(summary).encode("utf-8")) < 512
+    assert _bounded_fabric_goal_projection(changed)["content_digest"] != summary["content_digest"]
 
 
 def _terminal(status: str = "executed") -> ComputationalFabricHopReceipt:
