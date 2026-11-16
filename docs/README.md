@@ -2,6 +2,10 @@
 
 Index of specification documents. Documents use defined terms from `GLOSSARY.md`.
 
+## Model Weight Grounds
+
+- [MWS-001 — Snapshot-indexed Model Weight Grounds](MODEL_WEIGHT_GROUND_MWS001.md) defines model-family parameter spaces and exact snapshot coordinates, streams Safetensors parameters through the existing `ComputationalObjectStore`, and distinguishes bit-exact weight identity from functional equivalence or training provenance. Contains an executable two-instance, 10,000-parameter reconstruction experiment.
+
 ## Reading order
 
 | Order | Document | Read it for |
