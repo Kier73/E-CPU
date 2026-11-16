@@ -4109,7 +4109,7 @@ def test_b_64_authenticated_claim_status_refresh_is_scoped_to_the_assigned_peer_
     with pytest.raises(TransferableExecutionClaimError, match="not current"):
         ticket.verify_current(coordinator)
 
-    listener = SocketTransport.listen("127.0.0.1", 0)
+    listener = SocketTransport.open_listener("127.0.0.1", 0)
     endpoint = ComputationalPeerEndpoint(
         "peer-a",
         "peer-a.fabric.test",
