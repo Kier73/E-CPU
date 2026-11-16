@@ -8,6 +8,9 @@ The goal is for computational meaning, logical state, and accepted results to be
 
 The physical processor is a realizer of computation, not the definition of the computation.
 
+**Model weights as navigable Grounds:** [MWS-001](docs/MODEL_WEIGHT_GROUND_MWS001.md) defines an architecture's tensor parameter space independently of any executor, then treats a complete model snapshot as an exact, content-addressed point within it. E-CPU can navigate to chosen parameter coordinates through its existing computational byte store without materializing the whole network; equivalence or generative recovery requires separate proof. The [executable reconstruction demo](examples/model_weight_ground_demo.py) uses two 10,000-parameter neural realizations from E-CPU's existing weight-space compiler. The model-space description does not invent missing pretrained weights or confer neural execution authority.
+
+
 ## Foundational proposition: the internet is the computer
 
 **E-CPU is not intended merely to distribute computation across conventional machines. It aims to discover, describe, form, and navigate computation within the information architecture that already constitutes the internet.** Communication paths, signal propagation, ports, queues, observers, and interfaces can provide lawful information relations; a processor is one possible realizer, not a privileged computational unit. A path may carry unchanged digital bytes while transforming a physical signal under another Ground. The computational role is defined by an **admitted, observable relation**, not by whether the component looks like a CPU.
