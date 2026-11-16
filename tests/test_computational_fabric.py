@@ -3187,6 +3187,7 @@ def test_compiled_dataflow_frontiers_execute_on_distinct_fabric_hosts_with_egpu(
             }
             raise AssertionError(
                 f"operation-native forwarding failed: {exc}; "
+                f"partition failures={exc.failures!r}; "
                 f"peer failures={failures_snapshot!r}; server errors={server_errors!r}"
             ) from exc
         comparison = compare_dataflow_with_reference(plan, execution.execution, program)
