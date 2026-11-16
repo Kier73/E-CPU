@@ -212,6 +212,7 @@ The package and CLI remain under active development. See [docs/README.md](docs/R
 - [Operational Semantics and State-Space](docs/OPERATIONAL_SEMANTICS_AND_STATE_SPACE.md) — portable operation meaning and contextual realization.
 - [Semantic Translation](docs/SEMANTIC_TRANSLATION.md) — preservation of observations between representations.
 - [Structural Memory](docs/STRUCTURAL_MEMORY.md) — admitted generative descriptions and state reads.
+- [LENS-001: reversible observation-frame Grounds](docs/LENS_GROUND_001.md) — opt-in framed affine reconstruction, certification, inverse navigation, and revision-pinned receipts.
 - [Predictive Description Selection](docs/PREDICTIVE_DESCRIPTION_SELECTION.md) — evaluate competing state descriptions against observed system states.
 - [Computational Addressing](docs/COMPUTATIONAL_ADDRESSING.md) — semantic requests separated from physical placement.
 - [Communication Streams as Computational Substrate](docs/COMMUNICATION_STREAM_COMPUTATION.md) — observer-hosts and in-transit operations.
