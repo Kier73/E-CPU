@@ -57,7 +57,7 @@ mailcpu-recovery-topology = "mailcpu.recovery_deployment:main"
 packages = ["mailcpu"]
 
 [tool.setuptools.package-data]
-mailcpu = ["py.typed"]
+mailcpu = ["py.typed", "ai_ground_atlas.v1.json"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
