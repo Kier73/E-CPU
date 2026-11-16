@@ -178,6 +178,14 @@ def _validate_law_parameters(family: str, params: Mapping[str, Any], order: int)
             raise StructuralMemoryError("fgraph order must equal its cycle length")
         return
 
+    if family == "lens64":
+        from .lens_ground import validate_lens_parameters
+        try:
+            validate_lens_parameters(params, order)
+        except ValueError as exc:
+            raise StructuralMemoryError(str(exc)) from exc
+        return
+
     raise StructuralMemoryRefused(f"generator family {family!r} is not admitted by E0")
 
 
@@ -205,7 +213,7 @@ class StructuralMemorySpec:
         _require_int(self.order, "order", minimum=0)
         if self.schema != STRUCTURAL_MEMORY_SCHEMA:
             raise StructuralMemoryError(f"unsupported structural-memory schema {self.schema!r}")
-        if self.family not in {"int", "lcg", "gf2", "fgraph"}:
+        if self.family not in {"int", "lcg", "gf2", "fgraph", "lens64"}:
             raise StructuralMemoryRefused(f"generator family {self.family!r} is not admitted by E0")
         if self.law_verdict not in {"GROUND", "PREFIX-GROUND"}:
             raise StructuralMemoryRefused(
@@ -242,7 +250,7 @@ class StructuralMemorySpec:
         """Create a schema-checked immutable spec from an existing Law object. Mathematics: maps a certified law tuple (family, parameters, order, verdict) into an immutable structural specification. """
         if not isinstance(law, Law):
             raise StructuralMemoryError("law must be an existing mailcpu.law_certifier.Law")
-        if law.family not in {"int", "lcg", "gf2", "fgraph"}:
+        if law.family not in {"int", "lcg", "gf2", "fgraph", "lens64"}:
             raise StructuralMemoryRefused(f"generator family {law.family!r} is not admitted by E0")
         if law.verdict not in {"GROUND", "PREFIX-GROUND"}:
             raise StructuralMemoryRefused(
@@ -718,7 +726,7 @@ class GeneratorRegistry:
 
     GENERATOR_ID = "mailcpu.law_certifier"
     GENERATOR_VERSION = 1
-    SUPPORTED_FAMILIES = frozenset({"int", "lcg", "gf2", "fgraph"})
+    SUPPORTED_FAMILIES = frozenset({"int", "lcg", "gf2", "fgraph", "lens64"})
 
     def build_law(self, spec: StructuralMemorySpec) -> Law:
         """Reconstruct one whitelisted Law from canonical spec parameters. Mathematics: reconstructs the deterministic transition law L from its whitelisted family and parameter vector. """
@@ -1059,6 +1067,7 @@ class StructuralMemoryRegistry:
         *,
         domain: str = "integer-orbit",
         context: Mapping[str, Any] | None = None,
+        allow_lens: bool = False,
     ) -> StructuralMemoryProposal:
         """Recover a known law from a training window and withheld witness suffix. Mathematics: derives a candidate law from training W and withheld T, then verifies their combined coordinate/value observations."""
         train = self._normalize_samples(training, "training")
@@ -1067,6 +1076,11 @@ class StructuralMemoryRegistry:
             raise StructuralMemoryError("propose_trace requires non-empty training and withheld sequences")
         try:
             law = recover_law(train, holdout)
+            if type(allow_lens) is not bool:
+                raise ValueError("allow_lens must be a bool")
+            if allow_lens and law.verdict == "TAPE":
+                from .lens_ground import recover_lens_law
+                law = recover_lens_law(train, holdout)
         except Exception as exc:
             raise StructuralMemoryRefused(f"law recovery failed: {exc}") from exc
         if law.verdict not in {"GROUND", "PREFIX-GROUND"}:
