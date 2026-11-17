@@ -48,6 +48,23 @@ unresolved. The user's request, producer schema, receiver policy and
 authenticated provenance can provide the evidence required to select
 the appropriate interpretation. Byte identity alone cannot.
 
+### Explore candidates without silently selecting one
+
+`DataGround.candidate_views(offset=..., length=...)` tests the finite
+registered lens family against the **same exact observed bytes**. Its
+result retains the source digest, coordinate range, candidate
+mathematical domain, admitted translation-contract identity and
+refusals. The field `interpretation_selected` is always `null`:
+structural decodability is not evidence of source intent or
+hypervisor authority. A model or observer can use this survey to
+propose a relevant view, but a receiver must still select the lens
+under the actual intention, Ground and evidence requirements.
+
+This is a bounded survey of registered adapters, not an exhaustive
+enumeration of all mathematical structures a byte string could express.
+The opaque vector remains available even when every richer registered
+decoder refuses the data.
+
 ## Existing E-CPU capabilities, now composed
 
 This implementation deliberately **does not** create a competing
@@ -169,6 +186,8 @@ source = DataGround(b"123")
 text = source.interpret(DataLens("utf8"))
 numeric = source.interpret(DataLens("json"))
 binary_integer = source.interpret(DataLens("uint-be"))
+survey = source.candidate_views()
+assert survey["interpretation_selected"] is None
 assert source.verify_interpretation(text)
 assert source.verify_interpretation(numeric)
 assert source.verify_interpretation(binary_integer)
