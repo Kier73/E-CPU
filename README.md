@@ -8,12 +8,19 @@ The goal is for computational meaning, logical state, and accepted results to be
 
 The physical processor is a realizer of computation, not the definition of the computation.
 
-**Model weights as navigable Grounds:** [MWS-001](docs/MODEL_WEIGHT_GROUND_MWS001.md) defines an architecture's tensor parameter space independently of any executor, then treats a complete model snapshot as an exact, content-addressed point within it. E-CPU can navigate to chosen parameter coordinates through its existing computational byte store without materializing the whole network; equivalence or generative recovery requires separate proof. The [executable reconstruction demo](examples/model_weight_ground_demo.py) uses two 10,000-parameter neural realizations from E-CPU's existing weight-space compiler. The model-space description does not invent missing pretrained weights or confer neural execution authority.
-
-
-**Generative model-weight Grounds:** [MWS-002](docs/GENERATIVE_WEIGHT_GROUND_MWS002.md) extends exact snapshot navigation to *reconstruction*: one known model point can be realized through an already admitted Structural Memory byte law, sparse bit-level edits against another snapshot, or a pinned tensor-coordinate permutation. Every route must reconstruct the same MWS-001 content identity and refuse contradictory byte evidence. This is a tested, evidence-scoped step toward model instances as navigable structures—not a claim that arbitrary trained weights can be inferred from their digest, that all models are compressible, or that tensor permutations automatically preserve model behavior.
-
-**Pretrained neural realization Ground (HFG-002):** [Real Qwen3 layer via Hugging Face tensor ranges and E-CPU operators](docs/HF_PRETRAINED_LAYER_HFG002.md) extends HFG-001's logical model Ground with an independently checked full Transformer-layer numerical route. It reuses MWS-001 byte objects, Hypervisor-authorized Virtual Layer operators, and E-CPU's computation DAG. A pinned Qwen3-0.6B source range experiment runs in GitHub Actions; the code and earlier synthetic tests do not themselves prove hosted pretrained execution.
+**Any observed data can first be made mathematically addressable.** A finite
+byte sequence is already an exact coordinate space over `Z/256Z`,
+regardless of whether its format is recognized. A richer interpretation
+requires a **declared, verifiable lens** and the original evidence; the same
+bytes may support several mutually different structural meanings. E-CPU
+retains the source identity, interpretation contract and observation
+comparison separately, never assuming that representation proves the
+sender's intent. [DATA-GROUND-001](docs/DATA_GROUND_001_ANY_DATA_MATHEMATICAL_INTERPRETATION.md)
+implements this first general finite data-to-Ground path over native
+`RepresentationRef`, `TranslationContract`, `ObservationComparison`
+and verified computational-object page ranges. It admits exact integers,
+UTF-8, rational JSON, raw bytes and validated IPv4 datagrams while refusing
+unsupported meaning.
 
 ## Foundational proposition: the internet is the computer
 
@@ -25,7 +32,15 @@ The physical processor is a realizer of computation, not the definition of the c
 
 See [The Internet Is the Computer](docs/THE_INTERNET_IS_THE_COMPUTER.md) for the full proposition, its relation to E-CPU's existing observer/path systems, and a falsifiable experimental programme.
 
+[INTERNET-001](docs/INTERNET_NATIVE_GROUND_001.md) now exercises a pre-existing Internet service as an observer-host rather than installing an E-CPU worker there. An authorized Git service publishes a content-addressed object and conditionally advances a versioned ref; a separate observer checks the resulting state over HTTPS against externally retained exact identities. The experiment establishes a real **Internet service-state** relation, not arithmetic by routers or optical fiber, and does not treat logical-time navigation as instantaneous physical propagation.
+
+[INTERNET-002](docs/INTERNET_NATIVE_GROUND_002.md) now exercises **native state-space navigation in an already-existing Internet Git service**: two controlled branches and a two-parent merge produce a small causal graph whose ancestry, divergence and unique merge-base operations are evaluated by GitHub itself. Nine live queries matched a separately written oracle, with all twelve commit objects and three reference heads checked; its read-only verifier and HTTP conditional-response probe explicitly separate real service computation, native protocol state and still-unverified physical-path transformations.
+
+[INTERNET-003](docs/INTERNET_NATIVE_GROUND_003.md) tests a **real active intermediary as a retained computational Ground**, using separate Nginx origin and caching proxy processes over localhost TCP. A configured, pre-existing HTTP implementation provides gzip, conditional and byte-range responses, and keeps answering version-pinned observations after the origin is terminated (80/80 local checks). Changed-source observations refuse even when the proxy still serves an old representation. This is controlled protocol and intermediary computation, **not a WAN path measurement or passive-fiber logic**; a separate public-HTTPS conditional probe remains subject to hosted verification.
+
 [PATH-GROUND-001](docs/PATH_GROUND_001_COMMUNICATION_OBSERVATION.md) is the first evidence-scoped test: a live local TCP path is observed as both byte-stream transport and bounded endpoint timing, while a separately labeled numerical transfer kernel exercises calibration and held-out refusal. This **does not** claim computation inside physical optical fiber; it supplies the observation contract for such a future experiment.
+
+[TENSOR-PATH-001](docs/TENSOR_COMPUTATION_PATHS.md) extends E-GPU with bounded SIMT integer matrix tiles **and a distinct path-native tensor FIR operator**. A receiver-bound characterized path supplies each convolution response directly; SIMT is not invoked on that route. The synthetic reference proves the interface and verification logic, while physical in-medium tensor computation still requires independent instrument evidence. 
 
 
 ## Foremost capability: form computational environments from available substrates
@@ -219,6 +234,7 @@ The package and CLI remain under active development. See [docs/README.md](docs/R
 - [Operational Semantics and State-Space](docs/OPERATIONAL_SEMANTICS_AND_STATE_SPACE.md) — portable operation meaning and contextual realization.
 - [Semantic Translation](docs/SEMANTIC_TRANSLATION.md) — preservation of observations between representations.
 - [Structural Memory](docs/STRUCTURAL_MEMORY.md) — admitted generative descriptions and state reads.
+- [LENS-001: reversible observation-frame Grounds](docs/LENS_GROUND_001.md) — opt-in framed affine reconstruction, certification, inverse navigation, and revision-pinned receipts.
 - [Predictive Description Selection](docs/PREDICTIVE_DESCRIPTION_SELECTION.md) — evaluate competing state descriptions against observed system states.
 - [Computational Addressing](docs/COMPUTATIONAL_ADDRESSING.md) — semantic requests separated from physical placement.
 - [Communication Streams as Computational Substrate](docs/COMMUNICATION_STREAM_COMPUTATION.md) — observer-hosts and in-transit operations.
