@@ -112,12 +112,19 @@ def _ast(value: Any, depth: int = 0) -> dict[str, Any]:
             "denominator": str(q.denominator),
         }
     if type(value) is str:
+        if any(0xD800 <= ord(character) <= 0xDFFF for character in value):
+            raise DataGroundRefused("unpaired UTF-16 surrogate is not a Unicode scalar")
         return {"domain": "unicode", "text": value}
     if type(value) is list:
         return {"domain": "ordered-product", "items": [
             _ast(item, depth + 1) for item in value
         ]}
     if type(value) is dict:
+        if any(
+            any(0xD800 <= ord(character) <= 0xDFFF for character in key)
+            for key in value
+        ):
+            raise DataGroundRefused("JSON key is not a Unicode scalar sequence")
         return {"domain": "finite-string-map", "entries": [
             [key, _ast(value[key], depth + 1)] for key in sorted(value)
         ]}
