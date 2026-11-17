@@ -64,6 +64,12 @@ class RemoteGitGroundTests(unittest.TestCase):
                 expected_commit='d'*40, path=self.path, expected_blob_sha1=self.sha1,
                 expected_content_sha256=self.sha256)
 
+    def test_duplicate_wire_json_refuses(self):
+        import json
+        from verify_internet_git_ground import _pairs_no_duplicates
+        with self.assertRaisesRegex(InternetGroundRefused, 'duplicate JSON'):
+            json.loads('{"ref":"new","ref":"old"}', object_pairs_hook=_pairs_no_duplicates)
+
     def test_missing_object_refuses(self):
         self.records['/repos/' + self.repo + '/git/trees/' + self.tree + '?recursive=1']['tree'] = []
         with self.assertRaisesRegex(InternetGroundRefused, 'ref does not address'):
