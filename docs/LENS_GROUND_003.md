@@ -21,6 +21,11 @@ authority, Ground store or consensus protocol.
   `(memory_id, revision, context, coordinate, spec_digest, certificate_digest)`;
   receiver `VirtualLayerRuntime` checks local `/structural-memory/read`
   capability before calling the existing revision-pinned read API.
+- **Production terminal admission:** the test invokes the original
+  `ComputationalFabricForwardingServer._execute_terminal` on both receiver
+  runtimes, including receiver-local `ComputationalAddressResolver` and
+  `ComputationalExecutionAdmissionCoordinator`, not a test-created
+  Hypervisor decision.
 - **E-CPU Structural Memory:** the original journaled verifier, witness
   certificate, revision and `StructuralMemoryReadReceipt` are authoritative;
   no second law evaluator is installed on the receiving host.
@@ -103,6 +108,9 @@ mTLS identity must be established by the native transport when live.
    terminal reply: neither becomes a verified current-route result;
 5. Mutated Structural Memory receipt and a changed mathematical intention:
    neither is accepted despite otherwise valid route topology;
+   a missing receiver-admitted revision and missing local read capability
+   independently refuse execution despite a compatible remote advertisement;
+   a mismatched terminal implementation fingerprint also refuses before reading;
 6. Corrupted persisted evidence and mismatched replay intent: both refused;
 7. Recovery does not invoke a receiver, rerun the law or regenerate output.
 
