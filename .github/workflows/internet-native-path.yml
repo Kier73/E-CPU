@@ -1,0 +1,98 @@
+name: INTERNET-003 existing HTTP intermediary Ground and receiver evidence
+
+on:
+  push:
+    branches:
+      - research/internet-native-ground-003-20261116
+    paths:
+      - 'examples/probe_internet_path_nginx.py'
+      - 'examples/native_http_path_bridge.py'
+      - 'examples/verify_internet_path_report.py'
+      - 'examples/probe_internet_https_conditional.py'
+      - 'tests/test_internet_path_*.py'
+      - 'tests/test_internet_https_conditional.py'
+      - 'reports/internet_native_ground/internet_003_local_nginx_path.json'
+      - 'docs/INTERNET_NATIVE_GROUND_003.md'
+      - '.github/workflows/internet-native-path.yml'
+  pull_request:
+    paths:
+      - 'examples/probe_internet_path_nginx.py'
+      - 'examples/native_http_path_bridge.py'
+      - 'examples/verify_internet_path_report.py'
+      - 'examples/probe_internet_https_conditional.py'
+      - 'tests/test_internet_path_*.py'
+      - 'tests/test_internet_https_conditional.py'
+      - 'reports/internet_native_ground/internet_003_local_nginx_path.json'
+      - 'docs/INTERNET_NATIVE_GROUND_003.md'
+      - '.github/workflows/internet-native-path.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-controlled-intermediary:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.13']
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Require installed and working Nginx implementation
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y nginx
+          nginx -v
+      - name: Run actual TCP cache, response transformation and source-loss tests
+        run: |
+          python -m unittest discover -s tests -p 'test_internet_path_nginx.py' -v
+          python -m unittest discover -s tests -p 'test_internet_https_conditional.py' -v
+          python -m unittest discover -s tests -p 'test_internet_path_record.py' -v
+          python examples/probe_internet_path_nginx.py --output /tmp/internet-003-path-${{ matrix.python-version }}.json
+          python examples/verify_internet_path_report.py \
+            --report /tmp/internet-003-path-${{ matrix.python-version }}.json \
+            --expected-source-sha256 35a9bbca78d45eaf7b29ea644816a1cd07f76dee7b640c3c1e995120a8446155
+      - name: Native MailCPU observer path (must not skip)
+        run: |
+          python -c 'import mailcpu.observer_path_evidence, mailcpu.observer_orbit'
+          python -m unittest discover -s tests -p 'test_internet_path_native.py' -v
+          python - <<'PY'
+          import unittest, sys
+          suite=unittest.defaultTestLoader.discover('tests',pattern='test_internet_path_native.py')
+          r=unittest.TextTestRunner().run(suite)
+          sys.exit(0 if r.wasSuccessful() and len(r.skipped)==0 else 1)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: internet-003-local-path-${{ matrix.python-version }}
+          path: /tmp/internet-003-path-${{ matrix.python-version }}.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  bounded-real-public-internet-http:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Observe pinned original Git blob over actual public HTTPS
+        run: |
+          python examples/probe_internet_https_conditional.py \
+            --expected-blob-sha1 46958c491ec504e2f8562ca37b8b152d441376f0 \
+            --expected-source-sha256 ece11d917a3c4bf1240e8e02a29b94ff2761fcdf8e37504bc9660d382b0f5c67 \
+            --output /tmp/internet-003-wan.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: internet-003-live-public-https-conditional
+          path: /tmp/internet-003-wan.json
+          if-no-files-found: warn
+          retention-days: 14

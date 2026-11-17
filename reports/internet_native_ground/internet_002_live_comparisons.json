@@ -1,0 +1,126 @@
+{
+  "distinct_observed_native_relations": 9,
+  "hosting_test": "HTTPS independent GitHub Actions read-only verifier configured, not yet run",
+  "limits": [
+    "GitHub REST fields observed via connection; not independent remote hardware attestation",
+    "graph is a bounded synthetic service-history fixture anchored to an existing live state",
+    "API calls do not provide signed independent timestamps or network propagation latency"
+  ],
+  "observation_path": "authorized-GitHub-service-compare-and-Git-data-API",
+  "observations": [
+    {
+      "base": "R",
+      "base_sha": "9a34c11147db7d8619b65b6058fa121ab9b1c43c",
+      "head": "A4",
+      "head_sha": "6fa468a69f165e74c611e8ec448125d8713a6141",
+      "independent_reference_matches": true,
+      "observed_ahead_by": 4,
+      "observed_behind_by": 0,
+      "observed_merge_base_sha": "9a34c11147db7d8619b65b6058fa121ab9b1c43c",
+      "observed_status": "ahead",
+      "observed_total_commits": 4
+    },
+    {
+      "base": "R",
+      "base_sha": "9a34c11147db7d8619b65b6058fa121ab9b1c43c",
+      "head": "B5",
+      "head_sha": "c18f8de3f2b818d96149b0833d7086b8d1c46649",
+      "independent_reference_matches": true,
+      "observed_ahead_by": 5,
+      "observed_behind_by": 0,
+      "observed_merge_base_sha": "9a34c11147db7d8619b65b6058fa121ab9b1c43c",
+      "observed_status": "ahead",
+      "observed_total_commits": 5
+    },
+    {
+      "base": "A4",
+      "base_sha": "6fa468a69f165e74c611e8ec448125d8713a6141",
+      "head": "B5",
+      "head_sha": "c18f8de3f2b818d96149b0833d7086b8d1c46649",
+      "independent_reference_matches": true,
+      "observed_ahead_by": 5,
+      "observed_behind_by": 4,
+      "observed_merge_base_sha": "9a34c11147db7d8619b65b6058fa121ab9b1c43c",
+      "observed_status": "diverged",
+      "observed_total_commits": 5
+    },
+    {
+      "base": "A2",
+      "base_sha": "007f2b761c80028468af24f2d45e1137dbeb9530",
+      "head": "B4",
+      "head_sha": "36dbd2c328a621c75d9bc73a2f6c543831dcba0b",
+      "independent_reference_matches": true,
+      "observed_ahead_by": 4,
+      "observed_behind_by": 2,
+      "observed_merge_base_sha": "9a34c11147db7d8619b65b6058fa121ab9b1c43c",
+      "observed_status": "diverged",
+      "observed_total_commits": 4
+    },
+    {
+      "base": "B2",
+      "base_sha": "e390619dda541a7aa737eb25980edd8808dd7821",
+      "head": "B5",
+      "head_sha": "c18f8de3f2b818d96149b0833d7086b8d1c46649",
+      "independent_reference_matches": true,
+      "observed_ahead_by": 3,
+      "observed_behind_by": 0,
+      "observed_merge_base_sha": "e390619dda541a7aa737eb25980edd8808dd7821",
+      "observed_status": "ahead",
+      "observed_total_commits": 3
+    },
+    {
+      "base": "A4",
+      "base_sha": "6fa468a69f165e74c611e8ec448125d8713a6141",
+      "head": "M2",
+      "head_sha": "afcd39be08ee2f64992763e913c5370968232b84",
+      "independent_reference_matches": true,
+      "observed_ahead_by": 7,
+      "observed_behind_by": 0,
+      "observed_merge_base_sha": "6fa468a69f165e74c611e8ec448125d8713a6141",
+      "observed_status": "ahead",
+      "observed_total_commits": 7
+    },
+    {
+      "base": "B5",
+      "base_sha": "c18f8de3f2b818d96149b0833d7086b8d1c46649",
+      "head": "M2",
+      "head_sha": "afcd39be08ee2f64992763e913c5370968232b84",
+      "independent_reference_matches": true,
+      "observed_ahead_by": 6,
+      "observed_behind_by": 0,
+      "observed_merge_base_sha": "c18f8de3f2b818d96149b0833d7086b8d1c46649",
+      "observed_status": "ahead",
+      "observed_total_commits": 6
+    },
+    {
+      "base": "M2",
+      "base_sha": "afcd39be08ee2f64992763e913c5370968232b84",
+      "head": "A4",
+      "head_sha": "6fa468a69f165e74c611e8ec448125d8713a6141",
+      "independent_reference_matches": true,
+      "observed_ahead_by": 0,
+      "observed_behind_by": 7,
+      "observed_merge_base_sha": "6fa468a69f165e74c611e8ec448125d8713a6141",
+      "observed_status": "behind",
+      "observed_total_commits": 0
+    },
+    {
+      "base": "R",
+      "base_sha": "9a34c11147db7d8619b65b6058fa121ab9b1c43c",
+      "head": "M2",
+      "head_sha": "afcd39be08ee2f64992763e913c5370968232b84",
+      "independent_reference_matches": true,
+      "observed_ahead_by": 11,
+      "observed_behind_by": 0,
+      "observed_merge_base_sha": "9a34c11147db7d8619b65b6058fa121ab9b1c43c",
+      "observed_status": "ahead",
+      "observed_total_commits": 11
+    }
+  ],
+  "remote_commit_objects_checked": 12,
+  "remote_parent_and_tree_pins_checked": 12,
+  "repository": "Kier73/E-CPU",
+  "schema": "mailcpu.internet-native-git-graph-probe-record.v1",
+  "scope": "real-service-behavior-via-GitHub-connector-not-optical-path-arithmetic",
+  "source_manifest_sha256": "98dfca4156e985feb08cb595ded5f37a92eb826cfe52415e7f5307a959d63347"
+}

@@ -1,0 +1,98 @@
+name: INTERNET-002 native Git state-space and HTTP condition observations
+
+on:
+  push:
+    branches:
+      - research/internet-native-ground-002-20261116
+    paths:
+      - 'examples/verify_internet_graph_ground.py'
+      - 'examples/probe_internet_http_validators.py'
+      - 'reports/internet_native_ground/internet_002_*'
+      - 'tests/test_internet_graph_ground.py'
+      - 'tests/test_internet_http_validators.py'
+      - 'tests/test_internet_native_bridge.py'
+      - 'examples/native_git_observer_bridge.py'
+      - '.github/workflows/internet-native-graph.yml'
+  pull_request:
+    paths:
+      - 'examples/verify_internet_graph_ground.py'
+      - 'examples/probe_internet_http_validators.py'
+      - 'reports/internet_native_ground/internet_002_*'
+      - 'tests/test_internet_graph_ground.py'
+      - 'tests/test_internet_http_validators.py'
+      - 'tests/test_internet_native_bridge.py'
+      - 'examples/native_git_observer_bridge.py'
+      - '.github/workflows/internet-native-graph.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  oracle-and-negative-controls:
+    name: Pure-Python source and verifier contract
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Compare against independent bounded graph and adversarial controls
+        run: |
+          python -m unittest discover -s tests -p 'test_internet_graph_ground.py' -v
+          python -m unittest discover -s tests -p 'test_internet_http_validators.py' -v
+      - name: Run real MailCPU observer receipt and local policy adapter
+        run: |
+          python -c 'import mailcpu.observer_path_evidence, mailcpu.observer_orbit'
+          python -m unittest discover -s tests -p 'test_internet_native_bridge.py' -v
+
+  actual-internet-observer:
+    name: Independently verify existing live Git service operators
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Verify receiver-owned pinned Ground before Internet reads
+        env:
+          EXPECTED: 98dfca4156e985feb08cb595ded5f37a92eb826cfe52415e7f5307a959d63347
+        run: |
+          python - <<'PY'
+          import hashlib
+          from pathlib import Path
+          p = Path('reports/internet_native_ground/internet_002_graph.json')
+          assert hashlib.sha256(p.read_bytes()).hexdigest() == '98dfca4156e985feb08cb595ded5f37a92eb826cfe52415e7f5307a959d63347'
+          PY
+      - name: Run real, read-only HTTPS checks against exact pinned Git DAG
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python examples/verify_internet_graph_ground.py \
+            --manifest reports/internet_native_ground/internet_002_graph.json \
+            --expected-manifest-sha256 98dfca4156e985feb08cb595ded5f37a92eb826cfe52415e7f5307a959d63347 \
+            --out /tmp/internet-002-observed.json
+      - name: Probe HTTP ETag conditional relation (separate experimental gate)
+        id: etag
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python examples/probe_internet_http_validators.py \
+            --repo Kier73/E-CPU \
+            --commit 9a34c11147db7d8619b65b6058fa121ab9b1c43c \
+            > /tmp/internet-002-http-probe.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: internet-002-native-service-verified-observations
+          path: |
+            /tmp/internet-002-observed.json
+            /tmp/internet-002-http-probe.json
+          if-no-files-found: warn
+          retention-days: 14

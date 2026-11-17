@@ -1,0 +1,1 @@
+{"schema":"mailcpu.internet-native-state.v1","intention":{"goal":"observe-permitted-service-transition","logical_coordinate":72057594037928009},"ground":"github-git-objects-and-conditional-refs","scope":"authorized-research-branch","claim":"the remote Git service performs a content-addressed retention and ref-state transition; passive links are carriers"}
