@@ -1,0 +1,14 @@
+test_canonical_root_independent_key_order (test_room_protocol.PortableRoomsTest.test_canonical_root_independent_key_order) ... ok
+test_distant_navigation_matches_literal_short_orbit (test_room_protocol.PortableRoomsTest.test_distant_navigation_matches_literal_short_orbit) ... ok
+test_durable_mock_needs_bootstrap_and_current_head_pins (test_room_protocol.PortableRoomsTest.test_durable_mock_needs_bootstrap_and_current_head_pins) ... ok
+test_forged_root_and_snapshot_rollback_are_refused (test_room_protocol.PortableRoomsTest.test_forged_root_and_snapshot_rollback_are_refused) ... ok
+test_full_three_process_handoff_and_recovery (test_room_protocol.PortableRoomsTest.test_full_three_process_handoff_and_recovery) ... ok
+test_native_sab008_equivalence (test_room_protocol.PortableRoomsTest.test_native_sab008_equivalence) ... skipped 'Native E-CPU installed only in repo CI'
+test_schema_and_strict_integer_domains (test_room_protocol.PortableRoomsTest.test_schema_and_strict_integer_domains) ... ok
+test_tampered_receipt_and_self_consistent_false_result_are_refused (test_room_protocol.PortableRoomsTest.test_tampered_receipt_and_self_consistent_false_result_are_refused) ... ok
+test_wasm_executable_is_pinned_and_corrupt_bytes_refuse (test_room_protocol.PortableRoomsTest.test_wasm_executable_is_pinned_and_corrupt_bytes_refuse) ... ok
+
+----------------------------------------------------------------------
+Ran 9 tests in 2.785s
+
+OK (skipped=1)

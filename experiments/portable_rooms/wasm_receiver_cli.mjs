@@ -1,0 +1,13 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import {verifyAndRealize} from './browser/verify.mjs';
+const [inDir,outDir]=process.argv.slice(2);
+if(!inDir||!outDir)throw Error('usage: node wasm_receiver_cli.mjs INPUT_DIR OUTPUT_DIR');
+await fs.mkdir(outDir,{recursive:true});
+const cap=JSON.parse(await fs.readFile(path.join(inDir,'capsule.json'),'utf8'));
+const pol=JSON.parse(await fs.readFile(path.join(inDir,'policy.json'),'utf8'));
+const bytes=await fs.readFile(new URL('./browser/affine.wasm',import.meta.url));
+const outcome=await verifyAndRealize(cap,pol,bytes);
+await fs.writeFile(path.join(outDir,'capsule.json'),JSON.stringify(outcome.capsule,null,2)+'\n');
+await fs.writeFile(path.join(outDir,'policy.json'),JSON.stringify({...pol,expected_head:outcome.head,generation:3},null,2)+'\n');
+console.log(JSON.stringify({status:'node-webassembly-engine-browser-compatible',head:outcome.head,result:outcome.result,pid:process.pid}));

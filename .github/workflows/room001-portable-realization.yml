@@ -1,0 +1,118 @@
+name: ROOM-001 portable E-CPU realization across ephemeral jobs
+
+on:
+  pull_request:
+    paths:
+      - 'experiments/portable_rooms/**'
+      - 'docs/PORTABLE_ROOM_REALIZATION.md'
+      - '.github/workflows/room001-portable-realization.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'experiments/portable_rooms/**'
+      - 'docs/PORTABLE_ROOM_REALIZATION.md'
+      - '.github/workflows/room001-portable-realization.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ephemeral-runner:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Require native E-CPU and exercise protocol adversarial controls
+        run: |
+          python -m unittest discover -s experiments/portable_rooms -p 'test_*.py' -v
+          python -c "import mailcpu.ground_native_realization"
+          python -m pytest -q tests/test_ground_native_realization.py
+          node --check experiments/portable_rooms/worker.mjs
+      - name: Materialize initial pinned mathematical intention
+        run: python experiments/portable_rooms/build_runner.py --out stage1 --require-native
+      - uses: actions/upload-artifact@v4
+        with:
+          name: room001-initial-runner
+          path: stage1/
+          if-no-files-found: error
+          retention-days: 7
+
+  durable-object-contract:
+    needs: ephemeral-runner
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@v4
+        with:
+          name: room001-initial-runner
+          path: stage1
+      - name: Validate the Cloudflare adapter's pure contract in a new ephemeral job
+        run: node experiments/portable_rooms/local_worker_cli.mjs stage1 stage2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: room001-durable-object-contract
+          path: stage2/
+          if-no-files-found: error
+          retention-days: 7
+
+  browser-compatible-wasm:
+    needs: durable-object-contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@v4
+        with:
+          name: room001-durable-object-contract
+          path: stage2
+      - name: Independent compiled WebAssembly execution in another job
+        run: node experiments/portable_rooms/wasm_receiver_cli.mjs stage2 stage3
+      - uses: actions/upload-artifact@v4
+        with:
+          name: room001-independent-wasm
+          path: stage3/
+          if-no-files-found: error
+          retention-days: 7
+
+  independent-receiver:
+    needs: [ephemeral-runner, durable-object-contract, browser-compatible-wasm]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: room001-initial-runner
+          path: stage1
+      - uses: actions/download-artifact@v4
+        with:
+          name: room001-durable-object-contract
+          path: stage2
+      - uses: actions/download-artifact@v4
+        with:
+          name: room001-independent-wasm
+          path: stage3
+      - name: Independently rederive Ground result and externally pinned chain
+        run: |
+          python experiments/portable_rooms/audit.py --capsule stage1/capsule.json --policy stage1/policy.json --require-native
+          python experiments/portable_rooms/audit.py --capsule stage2/capsule.json --policy stage2/policy.json --require-native
+          python experiments/portable_rooms/audit.py --capsule stage3/capsule.json --policy stage3/policy.json --require-native --output room001-audit.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: room001-independent-audit
+          path: room001-audit.json
+          if-no-files-found: error
+          retention-days: 7
