@@ -9,6 +9,7 @@ on:
       - 'scripts/run_ip_router_path_ground.sh'
       - 'scripts/audit_live_capture_time.py'
       - 'tests/test_live_router_capture.py'
+      - 'tests/test_live_capture_audit.py'
       - 'docs/PATH_GROUND_006_CAPTURE_TIME_ATTESTATION.md'
       - '.github/workflows/path-ground-live-capture.yml'
   push:
@@ -19,6 +20,7 @@ on:
       - 'scripts/run_ip_router_path_ground.sh'
       - 'scripts/audit_live_capture_time.py'
       - 'tests/test_live_router_capture.py'
+      - 'tests/test_live_capture_audit.py'
       - 'docs/PATH_GROUND_006_CAPTURE_TIME_ATTESTATION.md'
       - '.github/workflows/path-ground-live-capture.yml'
   workflow_dispatch:
@@ -42,7 +44,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: python -m pip install -e ".[dev]" "cryptography>=42"
       - name: Validate finite event chain signatures, challenge replay and native E-CPU route reconstruction
-        run: python -m pytest -q tests/test_live_router_capture.py tests/test_router_witness_auth.py tests/test_ip_router_path_ground.py
+        run: python -m pytest -q tests/test_live_router_capture.py tests/test_live_capture_audit.py tests/test_router_witness_auth.py tests/test_ip_router_path_ground.py
 
   real-kernel-live-observation:
     name: Real Linux kernel forwarding with signed live Ethernet frame acquisitions
