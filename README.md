@@ -24,6 +24,8 @@ See [The Internet Is the Computer](docs/THE_INTERNET_IS_THE_COMPUTER.md) for the
 
 [PATH-GROUND-005](docs/PATH_GROUND_005_AUTHENTICATED_ROUTER_WITNESS.md) adds a **cryptographically authenticated observer-host evidence path** atop native router before/after measurements: four distinct P-256 test leaf credentials and real MailCPU mutual-TLS sessions sign exact source/route/Ground/policy-bound raw capture commitments under receiver-issued challenges. The receiver independently revalidates the packets, provenance permission, and E-CPU `ObserverPathStage` receipts before admitting any observation. A signature identifies the test credential that made a claim; it is **not** proof of honest hardware measurement or independently administered Internet hosts. The credentialed multi-process Linux CI experiment is pending.
 
+[PATH-GROUND-006](docs/PATH_GROUND_006_CAPTURE_TIME_ATTESTATION.md) moves from signing saved captures to **signing each raw Ethernet observation as it arrives at the actual observer's AF_PACKET receive boundary**. Receiver-preissued Ground/policy/challenge plans and sensor-held P-256 test keys create a chained, per-packet signed record. The receiver and an E-CPU-free auditor independently compare the 48 expected signatures against actual direct/L2/one/two-router traces and admit only fully verified native path witnesses. Its isolated Linux runner remains **one administrative and physical test environment**, not yet a demonstration of independently operated Internet sensors; privileged CI is the proof obligation.
+
 
 ## Foremost capability: form computational environments from available substrates
 
