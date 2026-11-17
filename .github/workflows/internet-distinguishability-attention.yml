@@ -1,0 +1,62 @@
+name: INTERNET-008 VGI counterfactual attention and native E-CPU frontier
+
+on:
+  push:
+    branches:
+      - research/internet-distinguishability-attention-008-20261117
+    paths:
+      - mailcpu/internet_partial_frontier.py
+      - mailcpu/internet_distinguishability_attention.py
+      - tests/test_internet_distinguishability_attention.py
+      - docs/INTERNET_DISTINGUISHABILITY_ATTENTION_008.md
+      - .github/workflows/internet-distinguishability-attention.yml
+  pull_request:
+    paths:
+      - mailcpu/internet_partial_frontier.py
+      - mailcpu/internet_distinguishability_attention.py
+      - tests/test_internet_distinguishability_attention.py
+      - docs/INTERNET_DISTINGUISHABILITY_ATTENTION_008.md
+      - .github/workflows/internet-distinguishability-attention.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-vgi-ecpu-contracts:
+    name: Native E-CPU and pinned VGI / Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.13']
+    steps:
+      - name: Checkout E-CPU stacked implementation
+        uses: actions/checkout@v4
+      - name: Checkout exact VGI research revision
+        uses: actions/checkout@v4
+        with:
+          repository: Kier73/Virtual-Ground-Interpreter
+          ref: 7a3c4a368d1d24044a6c06a317c26ef316513e6d
+          path: vgi-source
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Import the actual two architectures and verify fixed VGI source SHA
+        env:
+          PYTHONPATH: ${{ github.workspace }}/vgi-source/virtual_ground_interpreter
+        run: |
+          test "$(git -C vgi-source rev-parse HEAD)" = '7a3c4a368d1d24044a6c06a317c26ef316513e6d'
+          python -c 'import mailcpu.internet_distinguishability_attention, mailcpu.internet_partial_frontier; from vgi.partial_attention import score_partial_probe; from mailcpu.intention_sufficiency import plan_sufficiency; print("native interfaces imported")'
+      - name: Adversarial counterfactual scoring and real HeadlessOS routing
+        env:
+          PYTHONPATH: ${{ github.workspace }}/vgi-source/virtual_ground_interpreter
+        run: |
+          python -m unittest discover -s tests -p 'test_internet_distinguishability_attention.py' -v
+      - name: Retain existing native partial-frontier and admission regressions
+        env:
+          PYTHONPATH: ${{ github.workspace }}/vgi-source/virtual_ground_interpreter
+        run: |
+          python -m unittest discover -s tests -p 'test_internet_partial_frontier.py' -v
+          python -m unittest discover -s tests -p 'test_internet_prospective_qualification.py' -v
+          python -m unittest discover -s tests -p 'test_internet_ground_routing.py' -v
