@@ -271,7 +271,7 @@ class ExistingStructuralMemoryIntegrationTests(unittest.TestCase):
         ground = recognized(first, second)
         registry = StructuralMemoryRegistry(admission_policy=lambda _p: True)
         changed = list(second[2])
-        changed[0] = b"\\x00\\x00\\x00\\x00"
+        changed[0] = b"\x00\x00\x00\x00"
         with self.assertRaisesRegex(NativePathGroundRefused, "unverified original native path evidence"):
             ground.propose_to_structural_memory(
                 registry, "tampered-original-endpoint", first[0], second[0],
