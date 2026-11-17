@@ -345,6 +345,8 @@ from .navigable_computation_checkpoint import (
 )
 from .transit_simt import TransitSIMTError, TransitSIMTHost, TransitSIMTSharedMemoryHost
 from .egpu import EGPUError, EGPUHost, EGPUOperationalLocus
+from .tensor_stream import TensorStreamError, compile_matmul_tile, execute_tiled_matmul
+from .path_tensor import PathTensorError, PathTensorHost
 from .transit_worker import TransitComputeWorker
 from .transit_orbit import (
     TransitOrbitReceipt,
@@ -994,6 +996,11 @@ from .observed_orbit_pipeline import (
 )
 
 __all__ = [
+    "TensorStreamError",
+    "compile_matmul_tile",
+    "execute_tiled_matmul",
+    "PathTensorError",
+    "PathTensorHost",
     "OperationTimingError",
     "OperationTimingProbe",
     "OperationTimingSample",
@@ -1009,14 +1016,11 @@ __all__ = [
     "ComputationalFabricDataflowAddDispatcher",
     "ComputationalFabricDataflowBinaryDispatcher",
     "ComputationalFabricDataflowCompareDispatcher",
-    "ComputationalFabricDataflowMultiplyDispatcher",
     "DataflowAddFrontierReceipt",
     "DataflowAddFrontierRequest",
     "DataflowAddLane",
     "DataflowBinaryLane",
     "DataflowCompareFrontierReceipt",
-    "DataflowMultiplyFrontierReceipt",
-    "DataflowMultiplyFrontierRequest",
     "DataflowCompareFrontierRequest",
     "OperationNativeDataflowError",
     "OperationNativeDataflowReport",
@@ -1033,14 +1037,11 @@ __all__ = [
     "PartitionedFrontierIncomplete",
     "dataflow_add_operator_spec",
     "dataflow_compare_operator_spec",
-    "dataflow_multiply_operator_spec",
     "execute_dataflow_operation_native",
     "make_cpu_dataflow_add_handler",
     "make_cpu_dataflow_compare_handler",
-    "make_cpu_dataflow_multiply_handler",
     "make_egpu_dataflow_add_handler",
     "make_egpu_dataflow_compare_handler",
-    "make_egpu_dataflow_multiply_handler",
     "MailCPUDataflowCompiler",
     "ProgramDataflowError",
     "ProgramDataflowMetrics",
@@ -1783,7 +1784,6 @@ __all__ = [
     "ComputationalFabricPeerServer",
     "ComputationalFabricResolutionResult",
     "ComputationalFabricResolver",
-    "ComputationalFabricPlacementSet",
     "ComputationalFabricRouteWitness",
     "ComputationalFabricStatus",
     "ComputationalFabricRecoveryError",
