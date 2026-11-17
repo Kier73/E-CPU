@@ -147,6 +147,36 @@ python -m pytest -q tests/test_tensor_paths.py tests/test_egpu.py
 python scripts/verify_repo.py
 ~~~
 
+## Recovery of an interrupted matrix product
+
+`execute_tiled_matmul` accepts `checkpoint_sink` and `checkpoint`. After each
+new verified tile, the sink receives a detached, JSON-serializable snapshot
+of the completed prefix. The caller persists it atomically and passes the
+decoded snapshot to a later invocation with the same matrices and tiling.
+The coordinator reconstructs the accumulation chain, verifies each retained
+receipt against the original operands, and dispatches only the remaining
+suffix. The suffix may execute on a different authorized E-GPU host.
+
+The checkpoint binds exact operands and tiling, ordered tile requests, full
+receipts and a snapshot digest. Recovery requires independent semantic
+verification; integrity-only mode cannot restore saved work. Dispatch and
+persistence callbacks receive detached copies so they cannot redefine the
+verifier's intention or alter the next accumulation.
+
+This is recovery of pure arithmetic with independently checked values, not
+transferable authorization or cryptographic proof of the reported host.
+The caller still owns transport authentication, operation identities and
+atomic durable persistence. A crash before the sink commits can repeat the
+current tile; use the existing receiver replay contract for that interval.
+Snapshots retain full receipts and copy the prefix at every save, so their
+size grows with completed work and cumulative serialization can be quadratic.
+An incremental durable journal and bounded concurrent dispatch remain work
+to integrate with the existing frontier checkpoint machinery.
+
+Regression coverage persists an interrupted depth chain, resumes it on a
+second host, replays the completed snapshot without dispatch, rejects changed
+plans and rehashed false arithmetic, and isolates callback mutations.
+
 ## Next experiments
 
 - Replace the software FIR callback with instrumented physical-path signals

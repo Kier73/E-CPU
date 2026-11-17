@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from copy import deepcopy
 from typing import Any, Callable, Mapping, Sequence
 
 from .transit_simt import TransitSIMTHost
@@ -183,6 +184,8 @@ def execute_tiled_matmul(
     max_matrix_elements: int = 1_048_576,
     max_work_units: int = 65_536,
     verify_semantics: bool = True,
+    checkpoint: Mapping[str, Any] | None = None,
+    checkpoint_sink: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Mathematics: realize C=A*B as a stream of bounded, receipt-verified SIMT tile transitions.
 
@@ -191,12 +194,22 @@ def execute_tiled_matmul(
     callback must assign a fresh semantic operation identity per new request
     and use the same identity when retransmitting that request. Callback
     transport and authorization are external and remain authoritative.
+
+    A checkpoint records a verified prefix, bound to this exact matrix and
+    tiling plan. Recovery independently rechecks each retained receipt before
+    skipping its dispatch. The sink owns durable atomic persistence; a failure
+    before persistence may repeat the current pure operation. Neither restored
+    receipts nor their hashes grant permission to dispatch remaining work.
     """
 
     if not callable(dispatch):
         raise TypeError("tensor dispatch must be callable")
     if not isinstance(verify_semantics, bool):
         raise TensorStreamError("verify_semantics must be Boolean")
+    if checkpoint_sink is not None and not callable(checkpoint_sink):
+        raise TypeError("tensor checkpoint sink must be callable")
+    if not verify_semantics and (checkpoint is not None or checkpoint_sink is not None):
+        raise TensorStreamError("tensor recovery requires independent semantic verification")
     host = simt_host or TransitSIMTHost()
     _positive(max_matrix_elements, "matrix element bound")
     _positive(max_work_units, "tensor work-unit bound")
@@ -225,6 +238,27 @@ def execute_tiled_matmul(
     )
     if work_units > max_work_units:
         raise TensorStreamError("tensor plan exceeds work-unit bound")
+    plan_digest = _digest({
+        "schema": "mailcpu.tensor-matmul-plan.v1", "left": a, "right": b,
+        "tile_rows": tile_rows, "tile_cols": tile_cols, "chunk_depth": chunk_depth,
+    })
+    completed: list[dict[str, Any]] = []
+    if checkpoint is not None:
+        if not isinstance(checkpoint, Mapping) or set(checkpoint) != {
+            "schema", "plan_digest", "tiles", "checkpoint_digest",
+        }:
+            raise TensorStreamError("tensor checkpoint fields are invalid")
+        saved = deepcopy(dict(checkpoint))
+        if (saved["schema"] != "mailcpu.tensor-matmul-checkpoint.v1"
+                or saved["plan_digest"] != plan_digest):
+            raise TensorStreamError("tensor checkpoint belongs to a different plan")
+        if saved["checkpoint_digest"] != _digest({
+            key: value for key, value in saved.items() if key != "checkpoint_digest"
+        }):
+            raise TensorStreamError("tensor checkpoint digest mismatch")
+        if not isinstance(saved["tiles"], list) or len(saved["tiles"]) > work_units:
+            raise TensorStreamError("tensor checkpoint prefix exceeds plan")
+        completed = saved["tiles"]
     output = [[0 for _ in range(n)] for _ in range(m)]
     receipt_digests: list[str] = []
     for row_offset in range(0, m, tile_rows):
@@ -254,10 +288,29 @@ def execute_tiled_matmul(
                 }
                 # Verify the generated request under the same SIMT resource contract.
                 compile_matmul_tile(payload, host)
+                index = len(receipt_digests)
+                payload_digest = _digest(payload)
+                if index < len(completed):
+                    tile = completed[index]
+                    if (not isinstance(tile, dict)
+                            or set(tile) != {"payload_digest", "response"}
+                            or tile["payload_digest"] != payload_digest):
+                        raise TensorStreamError("tensor checkpoint tile does not bind ordered request")
+                    response = tile["response"]
+                else:
+                    # The callback must not alter the verifier's mathematical intention.
+                    response = deepcopy(dispatch(deepcopy(payload)))
                 accum, receipt_digest = _verified_tile(
-                    dispatch(payload), payload, host.max_integer_bits, verify_semantics,
+                    response, payload, host.max_integer_bits, verify_semantics,
                 )
                 receipt_digests.append(receipt_digest)
+                if index == len(completed) and checkpoint_sink is not None:
+                    completed.append({"payload_digest": payload_digest, "response": response})
+                    progress = {
+                        "schema": "mailcpu.tensor-matmul-checkpoint.v1",
+                        "plan_digest": plan_digest, "tiles": completed,
+                    }
+                    checkpoint_sink(deepcopy({**progress, "checkpoint_digest": _digest(progress)}))
             for dr in range(rows):
                 for dc in range(cols):
                     output[row_offset + dr][col_offset + dc] = accum[dr * cols + dc]

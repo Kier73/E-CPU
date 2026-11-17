@@ -148,6 +148,109 @@ def test_streaming_matmul_refuses_corrupted_result_even_with_rehashed_digest():
         execute_tiled_matmul([[3]], [[4]], corrupt, tile_rows=1, tile_cols=1, chunk_depth=1)
 
 
+@pytest.mark.parametrize("field", ["left", "right", "accumulate"])
+def test_streaming_matmul_keeps_original_intention_when_dispatch_mutates_request(field):
+    """Mathematics: callback mutation cannot redefine the independent verification reference."""
+    host = EGPUHost()
+
+    def mutate(payload):
+        """Mathematics: execute a changed request with an internally valid receipt."""
+        payload[field][0] += 1
+        return host.execute_authorized_method("tensor.matmul.tile", payload)
+
+    with pytest.raises(TensorStreamError, match="independent integer oracle"):
+        execute_tiled_matmul([[3]], [[4]], mutate, tile_rows=1, tile_cols=1, chunk_depth=1)
+
+
+def test_tensor_checkpoint_recovers_verified_prefix_on_a_different_host(tmp_path):
+    """Mathematics: a persisted prefix preserves accumulation across host changes without redispatch."""
+    import json
+
+    first, replacement = EGPUHost(host_id="first"), EGPUHost(host_id="replacement")
+    filename = tmp_path / "tensor.json"
+    calls = []
+
+    def persist(state):
+        """Mathematics: persist one complete JSON checkpoint for a fresh coordinator invocation."""
+        filename.write_text(json.dumps(state), encoding="utf-8")
+
+    def interrupted(payload):
+        """Mathematics: interrupt after two completed depth chunks."""
+        calls.append(copy.deepcopy(payload))
+        if len(calls) == 3:
+            raise ConnectionError("host lost")
+        return first.execute_authorized_method("tensor.matmul.tile", payload)
+
+    a, b = [[2, 3, 4, 5]], [[7], [11], [13], [17]]
+    options = dict(tile_rows=1, tile_cols=1, chunk_depth=1)
+    with pytest.raises(ConnectionError, match="host lost"):
+        execute_tiled_matmul(a, b, interrupted, checkpoint_sink=persist, **options)
+    saved = json.loads(filename.read_text(encoding="utf-8"))
+    assert len(saved["tiles"]) == 2
+    resumed = []
+
+    def dispatch(payload):
+        """Mathematics: execute only the remaining suffix on another already-authorized host."""
+        resumed.append(copy.deepcopy(payload))
+        return replacement.execute_authorized_method("tensor.matmul.tile", payload)
+
+    report = execute_tiled_matmul(a, b, dispatch, checkpoint=saved, checkpoint_sink=persist, **options)
+    assert report["values"] == [[184]]
+    assert len(resumed) == 2
+    assert resumed[0] == calls[2]
+    assert report["tile_receipt_digests"][:2] == [t["response"]["receipt_digest"] for t in saved["tiles"]]
+    restored = json.loads(filename.read_text(encoding="utf-8"))
+    replay = execute_tiled_matmul(a, b, dispatch, checkpoint=restored, **options)
+    assert replay == report and len(resumed) == 2
+    with pytest.raises(TensorStreamError, match="different plan"):
+        execute_tiled_matmul([[2, 3, 4, 6]], b, dispatch, checkpoint=restored, **options)
+    assert len(resumed) == 2
+
+
+def test_tensor_checkpoint_refuses_rehashed_false_evidence_before_dispatch():
+    """Mathematics: self-consistent hashes cannot promote false saved arithmetic into a verified prefix."""
+    from mailcpu.tensor_stream import _digest
+
+    host, saved = EGPUHost(), []
+    options = dict(tile_rows=1, tile_cols=1, chunk_depth=1)
+    execute_tiled_matmul([[3]], [[4]],
+                         lambda p: host.execute_authorized_method("tensor.matmul.tile", p),
+                         checkpoint_sink=saved.append, **options)
+    damaged = copy.deepcopy(saved[0])
+    response = damaged["tiles"][0]["response"]
+    result = response["result"]
+    result["outputs"]["result"][0] += 1
+    result["state_digest"] = _digest({k: v for k, v in result.items() if k != "state_digest"})
+    response["result_digest"] = _digest(result)
+    response["receipt_digest"] = _digest({k: v for k, v in response.items() if k not in ("result", "receipt_digest")})
+    damaged["checkpoint_digest"] = _digest({k: v for k, v in damaged.items() if k != "checkpoint_digest"})
+
+    def forbidden(payload):
+        """Mathematics: no new dispatch may occur before the saved prefix is verified."""
+        raise AssertionError("unexpected dispatch")
+
+    with pytest.raises(TensorStreamError, match="independent integer oracle"):
+        execute_tiled_matmul([[3]], [[4]], forbidden, checkpoint=damaged, **options)
+    with pytest.raises(TensorStreamError, match="independent semantic verification"):
+        execute_tiled_matmul([[3]], [[4]], forbidden, checkpoint=saved[0], verify_semantics=False, **options)
+
+
+def test_tensor_checkpoint_sink_cannot_mutate_later_accumulation():
+    """Mathematics: the persistence callback receives detached evidence, not mutable execution state."""
+    host = EGPUHost()
+
+    def mutate(state):
+        """Mathematics: overwrite the sink's own copy of an admitted result."""
+        state["tiles"][-1]["response"]["result"]["outputs"]["result"][0] = 999
+        state["tiles"].clear()
+
+    report = execute_tiled_matmul(
+        [[2, 3]], [[5], [7]], lambda p: host.execute_authorized_method("tensor.matmul.tile", p),
+        tile_rows=1, tile_cols=1, chunk_depth=1, checkpoint_sink=mutate,
+    )
+    assert report["values"] == [[31]]
+
+
 def _calibrated_path(mechanism="software_fir_reference"):
     """Mathematics: infer a finite LTI Ground from impulse, shift and two held-out probes."""
 
