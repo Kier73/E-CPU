@@ -99,6 +99,7 @@ def test_capture_time_signed_sensor_and_native_observer_path(tmp_path, route, si
     result = _verify(f)
     assert len(result["sensors"]) == signers
     assert len(result["native_path_digests"]) == 6
+    assert result["native_stage_modes"] == modes
     assert len(f["used"]) == signers
     assert all(r["signed_events"] == 12 for r in result["sensors"])
     assert result["scope"].startswith("observer_process_signs_at_AF_PACKET")
