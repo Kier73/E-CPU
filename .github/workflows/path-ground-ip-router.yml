@@ -1,0 +1,96 @@
+name: PATH-GROUND-004 actual in-network IPv4 forwarding Ground
+
+on:
+  push:
+    paths:
+      - 'mailcpu/ip_router_path_ground.py'
+      - 'tests/test_ip_router_path_ground.py'
+      - 'examples/run_ip_router_path_ground.py'
+      - 'scripts/run_ip_router_path_ground.sh'
+      - 'docs/PATH_GROUND_004_IPV4_FORWARDING.md'
+      - '.github/workflows/path-ground-ip-router.yml'
+  pull_request:
+    paths:
+      - 'mailcpu/ip_router_path_ground.py'
+      - 'tests/test_ip_router_path_ground.py'
+      - 'examples/run_ip_router_path_ground.py'
+      - 'scripts/run_ip_router_path_ground.sh'
+      - 'docs/PATH_GROUND_004_IPV4_FORWARDING.md'
+      - '.github/workflows/path-ground-ip-router.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  conformance:
+    name: Raw header, native observer and symbolic Ground contract
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ['3.11', '3.13']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install checked-out E-CPU
+        run: python -m pip install -e ".[dev]"
+      - name: Test raw datagram rechecking and native reuse
+        run: python -m pytest -q tests/test_ip_router_path_ground.py tests/test_latent_path_capacity.py tests/test_observer_path_evidence.py tests/test_substrate_bootstrap.py
+
+  actual-forwarding:
+    name: Privileged Linux kernel 0/1/2 forwarding hop observation
+    needs: conformance
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install checked-out E-CPU
+        run: python -m pip install -e ".[dev]"
+      - name: Require Linux namespace tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo -n true
+          if ! command -v ip >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y iproute2
+          fi
+          bash -n scripts/run_ip_router_path_ground.sh
+      - name: Observe actual intermediate packet headers before and after kernel IP forwarding
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/run_ip_router_path_ground.sh "$RUNNER_TEMP/path-ground-004"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          p = Path(os.environ["RUNNER_TEMP"]) / "path-ground-004" / "verified-ground.json"
+          report = json.loads(p.read_text())
+          assert report["status"] == "actual_kernel_forwarding_with_independently_observed_router_headers"
+          assert [r["hops"] for r in report["observed_routes"]] == [0, 1, 2]
+          assert [r["raw_router_headers"] for r in report["observed_routes"]] == [0, 12, 24]
+          observed = report["same_target_after_topology_change"]
+          assert observed["real_receiver_one"] == observed["real_receiver_two"] == 31
+          assert report["symbolic_ground_navigation"]["scope"] == "symbolic_rfc_model_not_observed_future_route"
+          print(json.dumps({
+            "ground_digest": report["ground_digest"],
+            "evidence_digest": report["evidence_digest"],
+            "routers_observed": [0, 1, 2],
+            "real_equal_output_after_rehoming": 31,
+            "symbolic_navigation": report["symbolic_ground_navigation"]["destination_ttl"],
+          }, sort_keys=True))
+          PY
+      - name: Retain raw source, kernel-router and receiver observations
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: path-ground-004-native-ip-router-raw-headers
+          path: ${{ runner.temp }}/path-ground-004
+          if-no-files-found: warn
