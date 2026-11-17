@@ -382,7 +382,10 @@ class FederatedNativeTests(unittest.TestCase):
             approved_specs=frozenset({proposal.spec.digest}),
         )
         first = a.navigate(proposal, coordinate, request_id="lens-first")
+        restarted_worker = a.navigate(proposal, coordinate, request_id="lens-first")
         second = b.navigate(proposal, coordinate, request_id="lens-rehome")
+        self.assertEqual(first.reply["result"], restarted_worker.reply["result"])
+        self.assertNotEqual(first.reply["boot"], restarted_worker.reply["boot"])
         expected = independent_lens_value(proposal, coordinate)
         self.assertEqual(verify_lens_native_receipt(first, proposal), expected)
         self.assertEqual(verify_lens_native_receipt(second, proposal), expected)
