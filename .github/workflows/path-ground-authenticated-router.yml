@@ -1,0 +1,144 @@
+name: PATH-GROUND-005 authenticated native router witness
+
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/router_witness_auth.py'
+      - 'mailcpu/router_observer_path.py'
+      - 'examples/run_authenticated_router_witness.py'
+      - 'scripts/audit_authenticated_router_witness.py'
+      - 'tests/test_router_witness_auth.py'
+      - 'tests/test_router_witness_audit.py'
+      - 'docs/PATH_GROUND_005_AUTHENTICATED_ROUTER_WITNESS.md'
+      - '.github/workflows/path-ground-authenticated-router.yml'
+  push:
+    paths:
+      - 'mailcpu/router_witness_auth.py'
+      - 'mailcpu/router_observer_path.py'
+      - 'examples/run_authenticated_router_witness.py'
+      - 'scripts/audit_authenticated_router_witness.py'
+      - 'tests/test_router_witness_auth.py'
+      - 'tests/test_router_witness_audit.py'
+      - 'docs/PATH_GROUND_005_AUTHENTICATED_ROUTER_WITNESS.md'
+      - '.github/workflows/path-ground-authenticated-router.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  signed-evidence-conformance:
+    name: P-256 signed evidence and receiver-owned native path refusals
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install E-CPU and opt-in signed-witness verification
+        run: python -m pip install -e ".[dev]" "cryptography>=42"
+      - name: Verify mTLS-leaf certificate identity, signed request binding and raw IP native paths
+        run: python -m pytest -q tests/test_router_witness_auth.py tests/test_router_witness_audit.py tests/test_ip_router_path_ground.py tests/test_observer_path_evidence.py tests/test_mtls_transport.py
+
+  actual-authenticated-network:
+    name: Real 0/L2/1/2 kernel path followed by distinct mTLS observer processes
+    needs: signed-evidence-conformance
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install E-CPU and optional certificate verifier
+        run: python -m pip install -e ".[dev]" "cryptography>=42"
+      - name: Require owned Linux namespace privileges
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo -n true
+          if ! command -v ip >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y iproute2
+          fi
+          bash -n scripts/run_ip_router_path_ground.sh
+      - name: Measure actual kernel routing and retain source/router/receiver evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/run_ip_router_path_ground.sh "$RUNNER_TEMP/path-ground-005"
+      - name: Bind four separate observer keys to raw captures over real E-CPU mutual TLS
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m examples.run_authenticated_router_witness \
+            --input-dir "$RUNNER_TEMP/path-ground-005" \
+            --output "$RUNNER_TEMP/path-ground-005/authenticated-observers.json"
+      - name: Assert signed observer and native path report
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          root = Path(os.environ["RUNNER_TEMP"]) / "path-ground-005"
+          data = json.loads((root / "authenticated-observers.json").read_text())
+          assert data["status"] == "authenticated_live_mtls_capture_claims_and_native_packet_paths"
+          assert data["authenticated_observer_count"] == 4
+          assert data["native_paths_verified"] == 24
+          assert data["replay_refused"] is True
+          assert data["transport"] == "actual_loopback_ECPU_mutual_TLS_SocketTransport"
+          assert list(data["routes"]) == ["direct", "bridge", "one", "two"]
+          assert [len(data["routes"][r]["authenticated_captures"]) for r in data["routes"]] == [0,1,1,2]
+          assert len({x["peer_cert_sha256"] for r in data["routes"].values()
+                      for x in r["authenticated_captures"]}) == 4
+          print(json.dumps({
+              "ground_digest": data["ground_digest"],
+              "actual_mtls_observers": data["authenticated_observer_count"],
+              "native_paths": data["native_paths_verified"],
+              "replay_refused": data["replay_refused"],
+          }, sort_keys=True))
+          PY
+      - name: Preserve signed evidence and raw packets (never private keys)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: path-ground-005-raw-plus-signed-observer-evidence
+          path: ${{ runner.temp }}/path-ground-005/
+          if-no-files-found: warn
+
+  independent-raw-and-signature-audit:
+    name: Separate runner independently checks packet mathematics and ECDSA receipts
+    needs: actual-authenticated-network
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install public key verifier only (do not install E-CPU)
+        run: python -m pip install "cryptography>=42"
+      - uses: actions/download-artifact@v4
+        with:
+          name: path-ground-005-raw-plus-signed-observer-evidence
+          path: ${{ runner.temp }}/pg5-public
+      - name: Independently reconstruct raw IPv4 TTL transitions and leaf-signed capture commitments
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/audit_authenticated_router_witness.py \
+            --input-dir "$RUNNER_TEMP/pg5-public" \
+            --report "$RUNNER_TEMP/pg5-public/authenticated-observers.json" \
+            > "$RUNNER_TEMP/pg5-independent-audit.json"
+          cat "$RUNNER_TEMP/pg5-independent-audit.json"
+      - name: Retain independent, E-CPU-free audit report
+        uses: actions/upload-artifact@v4
+        with:
+          name: path-ground-005-third-job-independent-audit
+          path: ${{ runner.temp }}/pg5-independent-audit.json
