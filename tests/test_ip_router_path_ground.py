@@ -136,6 +136,19 @@ def test_four_path_topologies_distinguish_l2_bridging_from_ip_ttl_forwarding():
     assert "symbolic_rfc" in ground.navigate(64, 40)["scope"]
 
 
+def test_unmeasured_ttl_cannot_be_mislabeled_as_observed_merely_due_to_known_hops():
+    """A finite path Ground must distinguish a measured coordinate from interpolation."""
+    ground = recognize_router_ttl_ground(*_verified())
+    seen = ground.navigate(64, 2)
+    modeled = ground.navigate(63, 2)
+    assert seen["destination_ttl"] == 62
+    assert seen["scope"] == "observed_controlled_route_relation"
+    assert modeled["destination_ttl"] == 61
+    assert modeled["scope"] == "symbolic_rfc_model_not_observed_future_route"
+    assert ground.navigate(63, 0)["scope"] == "symbolic_rfc_model_not_observed_future_route"
+    assert ground.navigate(64, 0)["scope"] == "observed_controlled_route_relation"
+
+
 def test_inverse_intention_realizes_same_observation_across_changed_route():
     """The observer requests a terminal TTL; E-CPU derives the different source coordinate."""
     ground = recognize_router_ttl_ground(*_verified())
