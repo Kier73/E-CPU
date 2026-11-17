@@ -104,7 +104,7 @@ of arbitrary behavior.
 - native SAB-002 Ground admission, direct temporal navigation and its oracle;
 - INTERNET-004's replay-verified RFC capsule entering the native route.
 
-The RFC fixture is **local bytes**, not a public Internet observation.
+The RFC fixtures are **local bytes**, not a public Internet observation. One deliberately large HTML capsule tests that the 8 KiB *projected observation* ceiling is not incorrectly applied to INTERNET-004's separately bounded (8 MiB) raw evidence archive.
 The `.github/workflows/internet-ground-routing.yml` job first tests the
 actual native resolver and discovery on Python 3.11 and 3.13; separately it
 runs an actual internet-connected RFC fetch from the inherited INTERNET-004

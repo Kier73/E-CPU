@@ -379,7 +379,8 @@ def admitted_rfc_observation(
     The verifier closes over the independently retained raw HTML capsule and
     reruns INTERNET-004's full offline link/byte reconstruction at each plan.
     """
-    from .public_internet_navigation import Policy, verify_capsule, rfc_url
+    from .public_internet_navigation import (Policy, verify_capsule, rfc_url,
+                                             MAX_ARCHIVE_BYTES, strict_loads)
 
     if not isinstance(policy, Policy):
         raise InternetGroundRefused("an INTERNET-004 bounded RFC policy is required")
@@ -389,9 +390,17 @@ def admitted_rfc_observation(
     if (expected_path[0] not in {rfc_url(n) for n in policy.seeds}
             or expected_path[-1] != rfc_url(policy.target)):
         raise InternetGroundRefused("declared path does not start and end at the intention")
-    snapshot = _json(capsule)
-    if not isinstance(snapshot, dict):
-        raise InternetGroundRefused("captured RFC evidence must be a JSON object")
+    # An HTML capsule includes the entire raw bounded HTTP representation and
+    # may be multiple MiB. Do not apply the 8 KiB *projected observation*
+    # ceiling to archival evidence; use INTERNET-004's own strict archive cap.
+    try:
+        encoded = json.dumps(capsule, sort_keys=True, separators=(",", ":"),
+                             ensure_ascii=False, allow_nan=False).encode("utf-8")
+        if len(encoded) > MAX_ARCHIVE_BYTES:
+            raise InternetGroundRefused("captured RFC evidence exceeds its archive budget")
+        snapshot = strict_loads(encoded)
+    except (TypeError, ValueError) as exc:
+        raise InternetGroundRefused("captured RFC evidence is invalid") from exc
 
     def read_proof() -> dict:
         return verify_capsule(snapshot, policy, expected_capsule_digest=expected_capsule_digest)

@@ -274,6 +274,25 @@ class InternetGroundRoutingTests(unittest.TestCase):
                        RouteMetric("bytes", "B", 100)),
             )
 
+    def test_large_realistic_rfc_archive_not_cut_down_to_projection_budget(self):
+        from mailcpu.public_internet_navigation import Policy, Response, navigate, rfc_url
+        seed = (b'<html><a href="/rfc/rfc793">RFC793</a>' + b'x' * 22000 + b'</html>')
+        target = b'<html><title>RFC793</title></html>'
+        policy = Policy((9293,), 793, max_pages=2, max_depth=1,
+                        page_budget=40000, total_budget=80000)
+        blobs = {rfc_url(9293): seed, rfc_url(793): target}
+        capsule = navigate(policy, fetch=lambda url, *, limit, timeout: Response(
+            blobs[url], 200, "text/html"))
+        self.assertGreater(len(str(capsule)), 8192)
+        case, checker = admitted_rfc_observation(
+            capsule, policy, expected_capsule_digest=capsule["capsule_digest"],
+            expected_path=(rfc_url(9293), rfc_url(793)), provider_id="largerfc",
+            source=ref("start"), target=ref("goal"), context_digest=CONTEXT,
+            observed_at=10, expires_at=25,
+            costs=(RouteMetric("latency_us", "us", 50),
+                   RouteMetric("bytes", "B", len(seed) + len(target))))
+        self.assertTrue(checker(case))
+
     def test_sab002_discovery_reuses_native_ground_admission_and_oracle(self):
         mod, a, c, x0 = 101, 7, 3, 5
         def value(t):
