@@ -113,6 +113,7 @@ def _receiver(proposal, envelope, peer, *, allow_read=True):
         operator_id=lens_fabric_spec().operator_id,
         computational_ground_fingerprints=(p.digest,),
         supports_ground_program_compilation=True,
+        supports_structural_memory=True,
         costs=_cost(1 if peer == "peer-c" else 8),
         implementation_fingerprint=digest("lens-implementation-" + peer),
     )
