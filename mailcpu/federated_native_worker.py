@@ -165,8 +165,8 @@ def serve_native(message: Any, *, host_id: str, directory: Path,
         message, authority_enabled=native_authority,
         approved_lens_grounds=approved_lens_grounds,
     )
-    if operation == "lens64.navigate":
-        result = {**result, "hypervisor_receipt_digest": evidence["hypervisor_receipt_digest"]}
+    # Keep the semantic result stable across process restarts. The first
+    # accepted receiver audit pins its Hypervisor evidence for replay.
     audit_dir = directory / "native-receipts"
     audit_dir.mkdir(parents=True, exist_ok=True)
     audit = {
@@ -179,11 +179,20 @@ def serve_native(message: Any, *, host_id: str, directory: Path,
     )
     if path.exists():
         old = json.loads(path.read_bytes())
-        if (old["request_digest"] != audit["request_digest"]
+        if (old["host"] != audit["host"] or old["nonce"] != audit["nonce"]
+                or old["request_digest"] != audit["request_digest"]
                 or old["result"] != result):
             raise ValueError("conflicting native replay or local receipt")
+        saved_evidence = old.get("receiver_evidence")
+        if (not isinstance(saved_evidence, dict)
+                or not isinstance(saved_evidence.get("hypervisor_receipt_digest"), str)
+                or len(saved_evidence["hypervisor_receipt_digest"]) != 64):
+            raise ValueError("persisted native audit is malformed")
+        evidence = saved_evidence
     else:
         _write_atomic(path, audit)
+    if operation == "lens64.navigate":
+        result = {**result, "hypervisor_receipt_digest": evidence["hypervisor_receipt_digest"]}
     return {
         "kind": RESPONSE_KIND, "host": host_id, "nonce": message["nonce"],
         "boot": secrets.token_hex(16), "ok": True,
