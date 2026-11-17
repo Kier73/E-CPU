@@ -246,7 +246,24 @@ class PartialFrontierQualifier(ProspectiveQualifier):
                     tuple(next(m.amount for m in first_offer.estimated_costs if m.name == name)
                           for name in metric_names), digest)
 
-        selected_digest = min(counts, key=priority)
+        # Optional receiver-installed attention can refine the ordering of ONLY
+        # the first probes proven reachable above. It cannot add edges, bypass
+        # native authority, or make a hypothetical case an observation.
+        attention_hook = getattr(self, "_attention_order", None)
+        if attention_hook is None:
+            selected_digest = min(counts, key=priority)
+        else:
+            chosen, attention_trace = attention_hook(
+                intent, os, pid,
+                tuple(sorted(counts)),
+                {key: counts[key] for key in sorted(counts)},
+                {key: tuple(m.amount for m in best_route[key].total_costs)
+                 for key in sorted(counts)},
+            )
+            if chosen not in counts or not isinstance(attention_trace, dict):
+                raise ProspectiveRefused("attention selected a probe outside the native qualified frontier")
+            selected_digest = chosen
+            considered.append(attention_trace)
         selected_offer = next(o for o in offers if o.digest == selected_digest)
         best = best_route[selected_digest]
         considered.append({
