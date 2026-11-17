@@ -20,6 +20,8 @@ See [The Internet Is the Computer](docs/THE_INTERNET_IS_THE_COMPUTER.md) for the
 
 [PATH-GROUND-001](docs/PATH_GROUND_001_COMMUNICATION_OBSERVATION.md) is the first evidence-scoped test: a live local TCP path is observed as both byte-stream transport and bounded endpoint timing, while a separately labeled numerical transfer kernel exercises calibration and held-out refusal. This **does not** claim computation inside physical optical fiber; it supplies the observation contract for such a future experiment.
 
+[PATH-GROUND-002](docs/PATH_GROUND_002_KERNEL_NATIVE_PROJECTION.md) tests a **real Internet-protocol information operation** on an owned local IPv4/UDP kernel stack: connected-socket source selection and queued-datagram retention. It compares a bypass with kernel filtering, recovers an affine Ground **from selected receiver observations**, checks a second socket topology, and navigates distant symbolic coordinates through E-CPU Structural Memory. Sender-side arithmetic, kernel selection, and Ground navigation remain separately attributed; this is not a remote internet/optical computation claim.
+
 
 ## Foremost capability: form computational environments from available substrates
 
