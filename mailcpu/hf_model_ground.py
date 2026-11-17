@@ -74,25 +74,27 @@ def _validate_arch(config: Mapping[str, Any]) -> str:
     if not isinstance(config, Mapping):
         raise HFModelGroundRefused("config must be a mapping")
     family = config.get("model_type")
-    if family not in ("qwen3_moe", "gpt_oss"):
+    if family not in ("qwen3", "qwen3_moe", "gpt_oss"):
         raise HFModelGroundRefused(f"model family {family!r} not yet semantically compiled")
     required = ("num_hidden_layers", "hidden_size", "num_attention_heads", "num_key_value_heads",
                 "head_dim", "max_position_embeddings", "vocab_size")
     for key in required: positive(config, key)
     if positive(config, "num_attention_heads") % positive(config, "num_key_value_heads"):
         raise HFModelGroundRefused("query heads are not divisible into KV groups")
-    expert_key = "num_experts" if family == "qwen3_moe" else "num_local_experts"
-    experts = positive(config, expert_key)
-    if positive(config, "num_experts_per_tok") > experts:
-        raise HFModelGroundRefused("active experts exceed available experts")
+    if family != "qwen3":
+        expert_key = "num_experts" if family == "qwen3_moe" else "num_local_experts"
+        experts = positive(config, expert_key)
+        if positive(config, "num_experts_per_tok") > experts:
+            raise HFModelGroundRefused("active experts exceed available experts")
     if config.get("tie_word_embeddings") not in (True, False):
         raise HFModelGroundRefused("embedding tie policy must be explicit")
     eps = config.get("rms_norm_eps")
     if not isinstance(eps, (int, float)) or isinstance(eps, bool) or not (0 < eps < 1):
         raise HFModelGroundRefused("RMS normalization epsilon is absent or invalid")
-    if family == "qwen3_moe":
-        positive(config,"moe_intermediate_size")
-        sparse = positive(config,"decoder_sparse_step")
+    if family in ("qwen3", "qwen3_moe"):
+        if family == "qwen3_moe":
+            positive(config,"moe_intermediate_size")
+            positive(config,"decoder_sparse_step")
         mlp_only = config.get("mlp_only_layers", [])
         if not isinstance(mlp_only, list) or any(type(i) is not int or not 0 <= i < config["num_hidden_layers"] for i in mlp_only):
             raise HFModelGroundRefused("MLP-only layer indices invalid")
@@ -100,8 +102,8 @@ def _validate_arch(config: Mapping[str, Any]) -> str:
             raise HFModelGroundRefused("duplicate MLP-only layer index")
         if config.get("hidden_act") != "silu":
             raise HFModelGroundRefused("unimplemented Qwen3 activation semantics")
-        if config.get("norm_topk_prob") not in (True,False):
-            raise HFModelGroundRefused("Qwen3 top-k normalization policy unknown")
+        if family == "qwen3_moe" and config.get("norm_topk_prob") not in (True,False):
+            raise HFModelGroundRefused("Qwen3 MoE top-k normalization policy unknown")
         positive(config,"intermediate_size")
     else:
         positive(config,"intermediate_size")
@@ -257,6 +259,7 @@ class HFModelGround:
         if type(layer) is not int or layer<0 or layer>=positive(self.configuration,"num_hidden_layers"):
             raise HFModelGroundRefused("layer coordinate outside model Ground")
         if self.family=="gpt_oss": return self.configuration["layer_types"][layer]
+        if self.family=="qwen3": return "dense_mlp"
         if layer in self.configuration.get("mlp_only_layers",[]): return "dense_mlp"
         step=self.configuration["decoder_sparse_step"]
         return "moe" if (layer+1)%step==0 else "dense_mlp"
@@ -329,7 +332,7 @@ class LayerGround:
         add("attn_norm","tensor.rms_norm",("input",),epsilon=c["rms_norm_eps"],weight=f"model.layers.{i}.input_layernorm.weight")
         for n in ("q","k","v"):
             add(n,"tensor.linear",("attn_norm",),tensor=f"model.layers.{i}.self_attn.{n}_proj.weight",heads=c["num_attention_heads"] if n=="q" else c["num_key_value_heads"],head_dim=c["head_dim"])
-        if family=="qwen3_moe":
+        if family in ("qwen3","qwen3_moe"):
             add("q_norm","tensor.rms_norm",("q",),weight=f"model.layers.{i}.self_attn.q_norm.weight",epsilon=c["rms_norm_eps"])
             add("k_norm","tensor.rms_norm",("k",),weight=f"model.layers.{i}.self_attn.k_norm.weight",epsilon=c["rms_norm_eps"])
             q,k="q_norm","k_norm"
@@ -344,7 +347,7 @@ class LayerGround:
         add("attn_out","tensor.linear",("attention",),tensor=f"model.layers.{i}.self_attn.o_proj.weight")
         add("attn_residual","tensor.add",("input","attn_out"))
         add("mlp_norm","tensor.rms_norm",("attn_residual",),epsilon=c["rms_norm_eps"],weight=f"model.layers.{i}.post_attention_layernorm.weight")
-        if family=="qwen3_moe" and self.model.layer_kind(i)=="dense_mlp":
+        if family in ("qwen3","qwen3_moe") and self.model.layer_kind(i)=="dense_mlp":
             add("dense_gate","tensor.linear_silu",("mlp_norm",),tensor=f"model.layers.{i}.mlp.gate_proj.weight")
             add("dense_up","tensor.linear",("mlp_norm",),tensor=f"model.layers.{i}.mlp.up_proj.weight")
             add("dense_interaction","tensor.multiply",("dense_gate","dense_up"))
