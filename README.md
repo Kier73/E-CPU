@@ -18,6 +18,8 @@ The physical processor is a realizer of computation, not the definition of the c
 
 See [The Internet Is the Computer](docs/THE_INTERNET_IS_THE_COMPUTER.md) for the full proposition, its relation to E-CPU's existing observer/path systems, and a falsifiable experimental programme.
 
+[INTERNET-001](docs/INTERNET_NATIVE_GROUND_001.md) now exercises a pre-existing Internet service as an observer-host rather than installing an E-CPU worker there. An authorized Git service publishes a content-addressed object and conditionally advances a versioned ref; a separate observer checks the resulting state over HTTPS against externally retained exact identities. The experiment establishes a real **Internet service-state** relation, not arithmetic by routers or optical fiber, and does not treat logical-time navigation as instantaneous physical propagation.
+
 [PATH-GROUND-001](docs/PATH_GROUND_001_COMMUNICATION_OBSERVATION.md) is the first evidence-scoped test: a live local TCP path is observed as both byte-stream transport and bounded endpoint timing, while a separately labeled numerical transfer kernel exercises calibration and held-out refusal. This **does not** claim computation inside physical optical fiber; it supplies the observation contract for such a future experiment.
 
 
