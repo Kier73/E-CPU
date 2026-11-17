@@ -8,6 +8,20 @@ The goal is for computational meaning, logical state, and accepted results to be
 
 The physical processor is a realizer of computation, not the definition of the computation.
 
+**Any observed data can first be made mathematically addressable.** A finite
+byte sequence is already an exact coordinate space over `Z/256Z`,
+regardless of whether its format is recognized. A richer interpretation
+requires a **declared, verifiable lens** and the original evidence; the same
+bytes may support several mutually different structural meanings. E-CPU
+retains the source identity, interpretation contract and observation
+comparison separately, never assuming that representation proves the
+sender's intent. [DATA-GROUND-001](docs/DATA_GROUND_001_ANY_DATA_MATHEMATICAL_INTERPRETATION.md)
+implements this first general finite data-to-Ground path over native
+`RepresentationRef`, `TranslationContract`, `ObservationComparison`
+and verified computational-object page ranges. It admits exact integers,
+UTF-8, rational JSON, raw bytes and validated IPv4 datagrams while refusing
+unsupported meaning.
+
 ## Foundational proposition: the internet is the computer
 
 **E-CPU is not intended merely to distribute computation across conventional machines. It aims to discover, describe, form, and navigate computation within the information architecture that already constitutes the internet.** Communication paths, signal propagation, ports, queues, observers, and interfaces can provide lawful information relations; a processor is one possible realizer, not a privileged computational unit. A path may carry unchanged digital bytes while transforming a physical signal under another Ground. The computational role is defined by an **admitted, observable relation**, not by whether the component looks like a CPU.
