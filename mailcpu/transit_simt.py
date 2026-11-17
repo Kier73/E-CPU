@@ -22,6 +22,7 @@ _ARITY = {
     "add": 3,
     "sub": 3,
     "mul": 3,
+    "mac": 4,
     "lt": 3,
     "if": 1,
     "else": 0,
@@ -353,6 +354,16 @@ class TransitSIMTHost:
                         value = a + b if opcode == "add" else a - b if opcode == "sub" else a * b
                         self._require_integer_bound(value)
                         registers[destination][lane] = value
+            elif opcode == "mac":
+                destination, accumulator, left, right = args
+                for lane, enabled in enumerate(active):
+                    if enabled:
+                        initial = self._read_integer(registers[accumulator][lane], accumulator, lane)
+                        a = self._read_integer(registers[left][lane], left, lane)
+                        b = self._read_integer(registers[right][lane], right, lane)
+                        value = initial + a * b
+                        self._require_integer_bound(value)
+                        registers[destination][lane] = value
             elif opcode == "lt":
                 destination, left, right = args
                 for lane, enabled in enumerate(active):
@@ -528,11 +539,11 @@ class TransitSIMTHost:
                 self._require_name(destination, "register")
                 self._require_name(source, "register")
                 registers.update((destination, source))
-            elif opcode in {"add", "sub", "mul", "lt"}:
-                destination, left, right = args
+            elif opcode in {"add", "sub", "mul", "lt", "mac"}:
+                # MAC has four registers; arithmetic and LT have three.
                 for name in args:
                     self._require_name(name, "register")
-                registers.update((destination, left, right))
+                registers.update(args)
             elif opcode == "if":
                 (predicate_name,) = args
                 self._require_name(predicate_name, "predicate register")

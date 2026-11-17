@@ -11,6 +11,8 @@ from typing import Any, Mapping, Sequence
 
 from .classifier import HypervisorArbitrationEvent, HypervisorRequest
 from .transit_simt import TransitSIMTError, TransitSIMTHost
+from .tensor_stream import TensorStreamError, compile_matmul_tile
+from .path_tensor import PathTensorError, PathTensorHost
 
 _OPERATION = "execute deterministic CPU E-GPU method"
 _RESOURCE = "/gpu/egpu"
@@ -19,6 +21,8 @@ _METHODS = {
     "simt.kernel": ("simt.execute",),
     "vector.add": ("simt.execute",),
     "vector.multiply": ("simt.execute",),
+    "tensor.matmul.tile": ("simt.execute",),
+    "tensor.path.fir": ("path.transform",),
     "vector.sum": ("reduce.tree",),
     "workgroup.shared_kernel": ("workgroup.execute", "shared.memory"),
 }
@@ -82,6 +86,7 @@ class EGPUHost:
         *,
         host_id: str = "egpu.default",
         simt_host: TransitSIMTHost | None = None,
+        tensor_path_host: PathTensorHost | None = None,
         loci: Sequence[EGPUOperationalLocus] | None = None,
     ) -> None:
         """Mathematics: bind one directed operational graph to a bounded SIMT evaluator and unique dispatch/verification loci."""
@@ -91,11 +96,16 @@ class EGPUHost:
         if simt_host is not None and not isinstance(simt_host, TransitSIMTHost):
             raise TypeError("E-GPU simt_host must be a TransitSIMTHost")
         self.simt_host = simt_host or TransitSIMTHost()
+        if tensor_path_host is not None and not isinstance(tensor_path_host, PathTensorHost):
+            raise TypeError("E-GPU path tensor host must be a PathTensorHost")
+        self.tensor_path_host = tensor_path_host
         if loci is None:
             loci = (
                 EGPUOperationalLocus(f"{host_id}.dispatch", "dispatch", frozenset({"egpu.dispatch"}),
-                                    (f"{host_id}.simt", f"{host_id}.reduce", f"{host_id}.workgroup")),
+                                    (f"{host_id}.simt", f"{host_id}.reduce", f"{host_id}.workgroup", f"{host_id}.path")),
                 EGPUOperationalLocus(f"{host_id}.simt", "simt-execution", frozenset({"simt.execute"}),
+                                    (f"{host_id}.verify",)),
+                EGPUOperationalLocus(f"{host_id}.path", "path-substrate-transfer", frozenset({"path.transform"}),
                                     (f"{host_id}.verify",)),
                 EGPUOperationalLocus(f"{host_id}.reduce", "tree-reduction", frozenset({"reduce.tree"}),
                                     (f"{host_id}.verify",)),
@@ -125,7 +135,7 @@ class EGPUHost:
     def available_methods(self) -> tuple[str, ...]:
         """Mathematics: expose the finite method domain in canonical lexical order."""
 
-        return tuple(sorted(_METHODS))
+        return tuple(sorted(m for m in _METHODS if m != "tensor.path.fir" or self.tensor_path_host is not None))
 
     def resolve_path(self, capability: str) -> tuple[str, ...]:
         """Mathematics: find a deterministic minimum-hop dispatch-to-capability-to-verification path."""
@@ -173,6 +183,10 @@ class EGPUHost:
             result = self._vector(event, method)
         elif method == "vector.sum":
             result = self._reduce(request.payload)
+        elif method == "tensor.matmul.tile":
+            result = self._tensor_tile(event, request.payload)
+        elif method == "tensor.path.fir":
+            result = self._tensor_path(request.payload)
         elif method == "workgroup.shared_kernel":
             result = self._workgroup_kernel(event, request.payload)
         else:
@@ -313,6 +327,29 @@ class EGPUHost:
             raise EGPUError(f"SIMT execution refused: {exc}") from exc
 
 
+    def _tensor_path(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        """Mathematics: realize convolution through a receiver-bound path transition, not through SIMT arithmetic."""
+
+        if self.tensor_path_host is None:
+            raise EGPUError("no characterized path tensor host is bound to this E-GPU")
+        try:
+            return self.tensor_path_host.execute(payload)
+        except PathTensorError as exc:
+            raise EGPUError(f"path tensor refused: {exc}") from exc
+
+    def _tensor_tile(
+        self,
+        event: HypervisorArbitrationEvent,
+        payload: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Mathematics: compile a bounded matrix product tile into SIMT multiply-accumulate lanes."""
+
+        try:
+            lanes, inputs, program, budget = compile_matmul_tile(payload, self.simt_host)
+        except TensorStreamError as exc:
+            raise EGPUError(f"tensor tile refused: {exc}") from exc
+        return self._run_simt(event, lanes, inputs, program, budget)
+
     def _workgroup_kernel(
         self,
         event: HypervisorArbitrationEvent,
@@ -365,7 +402,7 @@ class EGPUHost:
     def _verify_result(self, method: str, payload: Mapping[str, Any], result: Mapping[str, Any]) -> None:
         """Mathematics: compare vector and reduction results with scalar definitions and recompute backend state digests."""
 
-        if method in {"simt.kernel", "vector.add", "vector.multiply", "workgroup.shared_kernel"}:
+        if method in {"simt.kernel", "vector.add", "vector.multiply", "workgroup.shared_kernel", "tensor.matmul.tile"}:
             fields = ["lanes", "steps", "registers", "outputs", "mask_trace", "barriers"]
             if method == "workgroup.shared_kernel":
                 fields.extend(("shared_memory", "shared_epochs"))
@@ -376,6 +413,16 @@ class EGPUHost:
             state = {key: result[key] for key in fields}
             if result.get("state_digest") != _digest(state):
                 raise EGPUError("SIMT state digest is invalid")
+        if method == "tensor.path.fir":
+            if self.tensor_path_host is None:
+                raise EGPUError("path tensor host is missing")
+            if result.get("method") != method or result.get("request_id") != payload.get("request_id"):
+                raise EGPUError("path tensor result is not bound to its request")
+            if result.get("path_id") != self.tensor_path_host.path_id:
+                raise EGPUError("path tensor result identity mismatch")
+            state = {k: v for k, v in result.items() if k != "state_digest"}
+            if result.get("state_digest") != _digest(state):
+                raise EGPUError("path tensor state digest invalid")
         if method == "vector.add":
             expected = [a + b for a, b in zip(payload["left"], payload["right"])]
             if result["outputs"].get("result") != expected:
@@ -384,6 +431,20 @@ class EGPUHost:
             expected = [a * b for a, b in zip(payload["left"], payload["right"])]
             if result["outputs"].get("result") != expected:
                 raise EGPUError("vector multiplication failed its scalar reference check")
+        elif method == "tensor.matmul.tile":
+            rows, cols, depth = payload["shape"]
+            expected = list(payload["accumulate"])
+            for k in range(depth):
+                for row in range(rows):
+                    for col in range(cols):
+                        i = row * cols + col
+                        expected[i] += (
+                            payload["left"][row * depth + k]
+                            * payload["right"][k * cols + col]
+                        )
+                        self._integer_bound(expected[i])
+            if result["outputs"].get("result") != expected:
+                raise EGPUError("tensor matrix tile failed its independent integer oracle")
         elif method == "vector.sum":
             state = {k: result[k] for k in ("sum", "levels", "work_units", "trace")}
             if result.get("state_digest") != _digest(state):

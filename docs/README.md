@@ -115,3 +115,7 @@ python scripts/verify_invariants.py     # registry entries resolve to code and t
 python scripts/verify_repo.py           # links, secrets, invariants, hygiene
 python -m pytest                        # invariants hold at runtime
 ```
+
+## Tensor substrate experiment
+
+- [TENSOR-PATH-001 — SIMT and communication-substrate tensor computation](TENSOR_COMPUTATION_PATHS.md): exact integer MAC and tiled matrix multiplication through existing E-GPU/SIMT; a separate evidence-scoped path transfer which realizes streaming convolution without SIMT at the transformation locus.
