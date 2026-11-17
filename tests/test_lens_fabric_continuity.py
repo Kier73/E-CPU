@@ -16,7 +16,7 @@ import pytest
 from mailcpu import (
     Capability, HeadlessOS, HypervisorAction, HypervisorPolicy, LexicalDecisionModel,
     OperatorRegistry, SystemIdentity, SystemSeed, SystemSeedEnvelope,
-    VirtualGroundRef, VirtualLayerRuntime, VirtualLayerError,
+    VirtualGroundRef, VirtualLayerRuntime,
 )
 from mailcpu.computational_fabric import (
     ComputationalFabricDirectory, ComputationalHostAdvertisement,
@@ -365,7 +365,7 @@ def test_receiver_cannot_use_a_remote_read_capability(tmp_path):
     """Receiver-owned Structural Memory authority refuses a routed but ungranted read."""
     fabric, intent, address, wire, receivers = _fabric(denied_read=frozenset({"peer-c"}))
     plan = fabric.prepare(intent, address, origin_sequence=1)
-    with pytest.raises(VirtualLayerError, match="lacks 'read'"):
+    with pytest.raises(ComputationalFabricForwardingError, match="fresh terminal semantic resolution"):
         fabric.execute(plan)
     assert wire.calls == 1
     assert not any(event.kind == "structural_memory.read_revision"
