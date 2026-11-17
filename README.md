@@ -20,6 +20,8 @@ See [The Internet Is the Computer](docs/THE_INTERNET_IS_THE_COMPUTER.md) for the
 
 [PATH-GROUND-001](docs/PATH_GROUND_001_COMMUNICATION_OBSERVATION.md) is the first evidence-scoped test: a live local TCP path is observed as both byte-stream transport and bounded endpoint timing, while a separately labeled numerical transfer kernel exercises calibration and held-out refusal. This **does not** claim computation inside physical optical fiber; it supplies the observation contract for such a future experiment.
 
+[PATH-GROUND-004](docs/PATH_GROUND_004_IPV4_FORWARDING.md) tests a **native in-network transition** rather than a remote worker: Linux IPv4 kernel forwarding decrements packet TTL while the packet passes through intermediate routing namespaces with no MailCPU runtime. Real `AF_PACKET` ingress/egress headers and receiver-side `IP_RECVTTL` observations are checked against direct, one-hop, and two-hop controlled paths; the existing `Law` navigator and native `ChannelObservation` distinguish mathematical Ground, route evidence, and a topology-dependent intention. Privileged multi-hop CI remains the proof obligation; this is not an optical or public Internet path claim.
+
 
 ## Foremost capability: form computational environments from available substrates
 
