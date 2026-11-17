@@ -396,7 +396,7 @@ class NativeQwen3LayerHost:
         return {"tensor":output,"receipt":envelope,"operator_contract":op.digest,
                 "e_cpu_fingerprint":result.fingerprint}
 
-    def execute(self,hidden:Any,*,request_id:str="hfg002-query-0",position:int=0)->dict[str,Any]:
+    def execute(self,hidden:Any,*,request_id:str="hfg002-query-0",position:int=0, output_sink=None)->dict[str,Any]:
         from mailcpu.computation_dag import ComputationNode,NavigableComputationDAG
         if type(request_id) is not str or not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}",request_id):
             raise LayerRealizationRefused("invalid request identity")
@@ -430,7 +430,7 @@ class NativeQwen3LayerHost:
         diff=np.abs(m["tensor"]-reference)
         if not np.allclose(m["tensor"],reference,atol=2e-3,rtol=2e-3):
             raise LayerRealizationRefused("native E-CPU layer result contradicts PyTorch reference")
-        return {"schema":SCHEMA+".native-receipt","model_ground":self.binding.model.descriptor_digest,
+        outcome={"schema":SCHEMA+".native-receipt","model_ground":self.binding.model.descriptor_digest,
                 "layer_ground":self.binding.identity,"weight_snapshot":self.binding.snapshot.identity,
                 "input_digest":_array_digest(x),"output_digest":_array_digest(m["tensor"]),
                 "dag_digest":dag.digest,"dag_complete":True,
@@ -439,6 +439,12 @@ class NativeQwen3LayerHost:
                 "max_absolute_reference_error":float(np.max(diff)),
                 "independent_reference_checked":True,"layer_math_executed":True,
                 "full_model_forward_executed":False}
+        if output_sink is not None:
+            # Receiver-owned persistence hook, called only after native operator
+            # authorization, DAG commit and independent numerical verification.
+            # The hook never becomes execution authority or part of a request frame.
+            outcome["portable_output"] = output_sink(m["tensor"], dict(outcome))
+        return outcome
 
 
 def main(argv:list[str]|None=None)->int:

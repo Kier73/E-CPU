@@ -16,33 +16,18 @@ from mailcpu.hf_layer_realization import (_required_weights, LayerWeightGround,
     evaluate_with_reference,NativeQwen3LayerHost)
 
 
-@dataclass(frozen=True)
-class Manifest:
-    size_bytes: int
-    content_digest: str
-    manifest_digest: str
+from mailcpu.computational_objects import ComputationalObjectStore
 
+class Pages:
+    page_size=4096
+    def __init__(self): self.pages={}
+    def put_page(self, value):
+        digest=sha256(value).hexdigest()
+        self.pages[digest]=value
+        return digest
+    def get_page(self,digest): return self.pages[digest]
 
-# Local subset lacks the full E-CPU distribution. The actual CI uses the
-# real ComputationalObjectManifest; this shim exists only to test weight math.
-if importlib.util.find_spec('mailcpu.computational_objects') is None:
-    mod = types.ModuleType('mailcpu.computational_objects')
-    mod.ComputationalObjectManifest = Manifest
-    sys.modules['mailcpu.computational_objects'] = mod
-
-
-class LocalPages:
-    """A local test backing only; GH execution uses E-CPU's actual object store."""
-    def __init__(self):self.data={}
-    def put_bytes(self,raw):
-        digest=sha256(raw).hexdigest();self.data[digest]=raw
-        return Manifest(len(raw),digest,sha256(f'{len(raw)}:{digest}'.encode()).hexdigest())
-    def read_range(self,manifest,offset,length):
-        b=self.data[manifest.content_digest]
-        if sha256(b).hexdigest()!=manifest.content_digest:raise ValueError('content digest tampered')
-        return b[offset:offset+length]
-    def verify(self,manifest):
-        return sha256(self.data[manifest.content_digest]).hexdigest()==manifest.content_digest
+def _store(): return ComputationalObjectStore(Pages())
 
 
 def _bits(x):
@@ -91,7 +76,7 @@ def source_observation(*, config=None,source_name='Qwen/Experimental',source_sha
 def make_binding():
     nsd,payloads=source_observation()
     model=HFModelGround.from_nsd(nsd)
-    store=LocalPages()
+    store=_store()
     return LayerWeightGround.from_payloads(model,0,store,payloads)
 
 
@@ -151,14 +136,14 @@ def test_header_shape_tampering_rejected():
     damaged=copy.deepcopy(nsd)
     damaged['observed']['tensor_manifest'][0]['shape'][0]+=1
     with pytest.raises(Exception,match='extent|size|shape|byte'):
-        LayerWeightGround.from_payloads(HFModelGround.from_nsd(damaged),0,LocalPages(),raw)
+        LayerWeightGround.from_payloads(HFModelGround.from_nsd(damaged),0,_store(),raw)
 
 
 def test_source_weight_missing_refused():
     nsd,raw=source_observation()
     raw.pop(next(iter(raw)))
     with pytest.raises(LayerRealizationRefused,match='exact 11-tensor'):
-        LayerWeightGround.from_payloads(HFModelGround.from_nsd(nsd),0,LocalPages(),raw)
+        LayerWeightGround.from_payloads(HFModelGround.from_nsd(nsd),0,_store(),raw)
 
 
 def test_wrong_model_family_does_not_admit_qwen3_numerical_executor():
@@ -170,8 +155,8 @@ def test_mismatched_stored_tensor_detected_before_execution():
     binding=make_binding()
     name=next(name for name,_ in binding.snapshot.manifests)
     manifest=binding.snapshot.manifest_for(name)
-    binding.store.data[manifest.content_digest]=b'\0'*manifest.size_bytes
-    with pytest.raises(ValueError,match='tampered'):
+    binding.store.page_backing.pages[manifest.chunks[0].page_digest]=b'\0'*binding.store.chunk_size
+    with pytest.raises(ValueError,match='digest'):
         binding.weight(name.removeprefix('model.layers.0.'))
 
 
@@ -211,10 +196,10 @@ def test_hfr_source_evidence_is_bound_to_actual_payload_bits():
                         'payload_sha256_scope':'complete-selected-tensor-payload',
                         'shard_header_sha256':'e'*64,
                         'absolute_byte_range':[8+1024+start,8+1024+end-1]})
-    b=LayerWeightGround.from_payloads(ground,0,LocalPages(),raw,hfr_evidence=records)
+    b=LayerWeightGround.from_payloads(ground,0,_store(),raw,hfr_evidence=records)
     assert b.source_observer_verified
     assert b.evidence()['hfr_source_ranges_verified']
     damaged=copy.deepcopy(records)
     damaged[0]['payload_sha256']='0'*64
     with pytest.raises(LayerRealizationRefused,match='HFR selected tensor evidence'):
-        LayerWeightGround.from_payloads(ground,0,LocalPages(),raw,hfr_evidence=damaged)
+        LayerWeightGround.from_payloads(ground,0,_store(),raw,hfr_evidence=damaged)
