@@ -14,7 +14,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping, TypeVar
 
 from .adaptive_placement import CompositeIntent, expected_result
 from .computational_fabric import (
@@ -32,6 +32,7 @@ from .recovery_lineage import (
 from .runtime_qualification import canonical, digest
 
 SCHEMA = "mailcpu.sab007.fabric-ground-continuity.v1"
+_T = TypeVar("_T")
 MAX_EVIDENCE_BYTES = 512_000
 
 
@@ -136,6 +137,25 @@ def validate_native_result(intent: CompositeIntent, address: ComputationalAddres
 
 
 @dataclass(frozen=True)
+class NativeRoutePlan:
+    """Native route selection independent of the semantic verification adapter."""
+
+    address: ComputationalAddress
+    envelope: ComputationalFabricForwardingEnvelope
+    directory_digest: str
+    topology_digest: str
+
+    @property
+    def fingerprint(self) -> str:
+        """Mathematics: hash one exact address, route and authenticated-directory snapshot."""
+        return digest({
+            "schema": SCHEMA + ".route", "address": self.address.digest,
+            "envelope": self.envelope.digest, "directory": self.directory_digest,
+            "topology": self.topology_digest,
+        })
+
+
+@dataclass(frozen=True)
 class NativeGroundPlan:
     """Pinned native routing choice for one exact mathematical intention."""
 
@@ -188,10 +208,12 @@ class NativeGroundDispatcher:
             max_candidates=self.max_candidates,
         )
 
-    def prepare(self, intent: CompositeIntent, address: ComputationalAddress, *,
-                origin_sequence: int, excluded_hosts: frozenset[tuple[str, str]] = frozenset()) -> NativeGroundPlan:
-        """Choose a new candidate after failure; never transfer the previous route's authority."""
-        _matches_intent(address, intent)
+    def prepare_route(self, address: ComputationalAddress, *,
+                      origin_sequence: int,
+                      excluded_hosts: frozenset[tuple[str, str]] = frozenset()) -> NativeRoutePlan:
+        """Mathematics: bind an exact native address to a currently viable authenticated topology."""
+        if not isinstance(address, ComputationalAddress):
+            raise GroundContinuityRefused("typed native ComputationalAddress required")
         _strict_sequence(origin_sequence)
         if not isinstance(excluded_hosts, frozenset):
             raise GroundContinuityRefused("exclusions must be explicit immutable host identities")
@@ -210,15 +232,21 @@ class NativeGroundDispatcher:
                 address, witness, origin_channel=self.client.origin_channel,
                 origin_sequence=origin_sequence,
             )
-            return NativeGroundPlan(intent, address, envelope,
-                                    options.directory_digest, options.topology_digest)
+            return NativeRoutePlan(
+                address, envelope, options.directory_digest, options.topology_digest,
+            )
         raise GroundContinuityRefused("no locally admitted route uses the authenticated first hop")
 
-    def execute(self, plan: NativeGroundPlan) -> dict[str, Any]:
-        """Forward via *native* ReliableChannel/Hypervisor transport and recheck live route."""
-        if not isinstance(plan, NativeGroundPlan):
-            raise GroundContinuityRefused("native typed plan required")
-        _matches_intent(plan.address, plan.intent)
+    def execute_route(
+        self,
+        plan: NativeRoutePlan | NativeGroundPlan,
+        verify: Callable[[ComputationalFabricForwardingEnvelope, ComputationalFabricHopReceipt], _T],
+    ) -> _T:
+        """Mathematics: forward one authenticated route, verify semantics and recheck topology."""
+        if not isinstance(plan, (NativeRoutePlan, NativeGroundPlan)):
+            raise GroundContinuityRefused("native typed route plan required")
+        if not callable(verify):
+            raise GroundContinuityRefused("native semantic verification function required")
         before = self._options(plan.address)
         if (before.status is not ComputationalFabricStatus.FOUND
                 or before.directory_digest != plan.directory_digest
@@ -229,7 +257,7 @@ class NativeGroundDispatcher:
              plan.envelope.route.target_host.host_id) not in self.allowed_hosts):
             raise GroundContinuityRefused("local host permission revoked before dispatch")
         receipt = self.client.forward(plan.envelope, self.directory)
-        evidence = validate_native_result(plan.intent, plan.address, plan.envelope, receipt)
+        evidence = verify(plan.envelope, receipt)
         after = self._options(plan.address)
         if (after.status is not ComputationalFabricStatus.FOUND
                 or after.directory_digest != before.directory_digest
@@ -237,6 +265,29 @@ class NativeGroundDispatcher:
                 or all(x.digest != plan.envelope.route.digest for x in after.candidates)):
             raise GroundContinuityRefused("native peer lease or topology changed during forwarding")
         return evidence
+
+    def prepare(self, intent: CompositeIntent, address: ComputationalAddress, *,
+                origin_sequence: int,
+                excluded_hosts: frozenset[tuple[str, str]] = frozenset()) -> NativeGroundPlan:
+        """Mathematics: adapt one verified affine intention to the shared native route selector."""
+        _matches_intent(address, intent)
+        route = self.prepare_route(
+            address, origin_sequence=origin_sequence, excluded_hosts=excluded_hosts,
+        )
+        return NativeGroundPlan(intent, route.address, route.envelope,
+                                route.directory_digest, route.topology_digest)
+
+    def execute(self, plan: NativeGroundPlan) -> dict[str, Any]:
+        """Mathematics: execute original SAB-007 affine verification over native route checks."""
+        if not isinstance(plan, NativeGroundPlan):
+            raise GroundContinuityRefused("native typed plan required")
+        _matches_intent(plan.address, plan.intent)
+        return self.execute_route(
+            plan,
+            lambda envelope, receipt: validate_native_result(
+                plan.intent, plan.address, envelope, receipt,
+            ),
+        )
 
 
 class AtomicGroundEvidenceStore:

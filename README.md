@@ -213,6 +213,8 @@ The package and CLI remain under active development. See [docs/README.md](docs/R
 - [Semantic Translation](docs/SEMANTIC_TRANSLATION.md) — preservation of observations between representations.
 - [Structural Memory](docs/STRUCTURAL_MEMORY.md) — admitted generative descriptions and state reads.
 - [LENS-001: reversible observation-frame Grounds](docs/LENS_GROUND_001.md) — opt-in framed affine reconstruction, certification, inverse navigation, and revision-pinned receipts.
+- [LENS-002: native cross-host lens realization](docs/LENS_GROUND_002.md) — receiver-pinned mTLS lens operations, witness replay, Hypervisor audit, and rehome verification.
+- [LENS-003: native topology-preserving Ground continuity](docs/LENS_GROUND_003.md) — receiver-revision pinned Structural Memory, multi-hop evidence rechecks and quorum-current recovery.
 - [Predictive Description Selection](docs/PREDICTIVE_DESCRIPTION_SELECTION.md) — evaluate competing state descriptions against observed system states.
 - [Computational Addressing](docs/COMPUTATIONAL_ADDRESSING.md) — semantic requests separated from physical placement.
 - [Communication Streams as Computational Substrate](docs/COMMUNICATION_STREAM_COMPUTATION.md) — observer-hosts and in-transit operations.
