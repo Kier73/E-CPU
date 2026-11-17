@@ -86,20 +86,21 @@ def _snapshot(peer, *, outgoing=(), host=None, revision=1, latency=1):
     return ComputationalPeerSnapshot(_endpoint(peer), revision, 60, hosts, links)
 
 
-def _receiver(proposal, envelope, peer, *, allow_read=True):
+def _receiver(proposal, envelope, peer, *, allow_read=True, admit_memory=True):
     """Install and admit the same Ground into a separate native HeadlessOS receiver."""
     os = HeadlessOS(structural_memory_admission_policy=lambda item: item.spec.digest == proposal.spec.digest)
     os.hypervisor.classifier = LexicalDecisionModel()
     os.hypervisor.policy = HypervisorPolicy(embedding_review_confidence=1.0)
     assert os.seed_admission.admit(envelope).accepted
     p = proposal.spec
-    law = Law(p.family, p.parameters, p.order, p.law_verdict, first_bad=p.first_bad)
-    staged = os.structural_memory.propose(
-        p.memory_id, law, dict(proposal.witnesses), domain=p.domain, context=p.context,
-    )
-    assert staged.proposal_id == proposal.proposal_id
-    version = os.structural_memory.admit(staged.proposal_id, expected_revision=0)
-    assert version.spec.digest == p.digest
+    if admit_memory:
+        law = Law(p.family, p.parameters, p.order, p.law_verdict, first_bad=p.first_bad)
+        staged = os.structural_memory.propose(
+            p.memory_id, law, dict(proposal.witnesses), domain=p.domain, context=p.context,
+        )
+        assert staged.proposal_id == proposal.proposal_id
+        version = os.structural_memory.admit(staged.proposal_id, expected_revision=0)
+        assert version.spec.digest == p.digest
     registry = OperatorRegistry()
     registry.register(lens_fabric_spec(), lens_fabric_handler)
     runtime = VirtualLayerRuntime(registry, "node-" + peer[-1], frozenset({"cpu"}))
@@ -174,7 +175,7 @@ class _TerminalWire:
         return receipt
 
 
-def _fabric(*, denied_read=frozenset()):
+def _fabric(*, denied_read=frozenset(), missing_revision=frozenset()):
     """Create two native receiver runtimes and authenticated-ingress test snapshots."""
     proposal = _proposal()
     origin = HeadlessOS()
@@ -184,7 +185,14 @@ def _fabric(*, denied_read=frozenset()):
     )
     assert origin.seed_admission.admit(seed_envelope).accepted
     system_ground = VirtualGroundRef.from_envelope(seed_envelope)
-    receivers = {peer: _receiver(proposal, seed_envelope, peer, allow_read=peer not in denied_read) for peer in HOSTS}
+    receivers = {
+        peer: _receiver(
+            proposal, seed_envelope, peer,
+            allow_read=peer not in denied_read,
+            admit_memory=peer not in missing_revision,
+        )
+        for peer in HOSTS
+    }
     directory = ComputationalFabricDirectory(
         "peer-a", {peer: peer + ".lens003.test" for peer in ("peer-b",) + HOSTS},
         monotonic=lambda: 0.0,
