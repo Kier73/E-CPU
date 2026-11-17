@@ -281,3 +281,28 @@ def test_json_surrogate_refusal_does_not_collapse_valid_escaped_unicode():
     math = g.interpret(DataLens("json"))
     assert dict(math.structure["entries"])["face"]["text"] == "🙂"
     assert g.verify_interpretation(math)
+
+
+
+def test_candidate_survey_preserves_all_valid_views_but_refuses_to_choose_meaning():
+    ground = DataGround(b"123")
+    report = ground.candidate_views()
+    yes = [item["lens"] for item in report["results"]
+           if item["status"] == "structurally-admitted"]
+    assert yes == ["json", "opaque", "uint-be", "uint-le", "utf8"]
+    assert report["interpretation_selected"] is None
+    assert report["source_sha256"] == ground.byte_sha256
+    assert report["semantics"] == "candidate_decodability_not_source_intent_or_execution_authority"
+    assert ground.candidate_views(length=2)["interpretation_selected"] is None
+    with pytest.raises(DataGroundRefused):
+        ground.candidate_views(offset=1, length=99)
+
+
+def test_opaque_candidate_always_exists_even_when_other_formats_are_unreadable():
+    report = DataGround(b"\xff\x00\xfe").candidate_views()
+    accepted = {item["lens"] for item in report["results"]
+                if item["status"] == "structurally-admitted"}
+    assert "opaque" in accepted
+    assert "utf8" not in accepted
+    assert "json" not in accepted
+    assert "ipv4-datagram" not in accepted
