@@ -16,7 +16,7 @@ import pytest
 from mailcpu import (
     Capability, HeadlessOS, HypervisorAction, HypervisorPolicy, LexicalDecisionModel,
     OperatorRegistry, SystemIdentity, SystemSeed, SystemSeedEnvelope,
-    VirtualGroundRef, VirtualLayerRuntime,
+    VirtualGroundRef, VirtualLayerRuntime, VirtualLayerError,
 )
 from mailcpu.computational_fabric import (
     ComputationalFabricDirectory, ComputationalHostAdvertisement,
@@ -25,7 +25,7 @@ from mailcpu.computational_fabric import (
 from mailcpu.computational_fabric_forwarding import (
     ComputationalFabricForwardingClient, ComputationalFabricHopReceipt,
 )
-from mailcpu.computational_resolver import ComputationalHostLocus
+from mailcpu.computational_resolver import ComputationalAddress, ComputationalHostLocus
 from mailcpu.evidence_path_resolver import RouteMetric
 from mailcpu.federated_ground_continuity import (
     AtomicGroundEvidenceStore, GroundContinuityRefused, NativeGroundDispatcher,
@@ -172,8 +172,8 @@ class _TerminalWire:
         return receipt
 
 
-def _fabric():
-    """Create two real native receiver runtimes and authenticated-ingress test snapshots."""
+def _fabric(*, denied_read=frozenset()):
+    """Create two native receiver runtimes and authenticated-ingress test snapshots."""
     proposal = _proposal()
     origin = HeadlessOS()
     identity = SystemIdentity("lens003-system", 1)
@@ -182,7 +182,7 @@ def _fabric():
     )
     assert origin.seed_admission.admit(seed_envelope).accepted
     system_ground = VirtualGroundRef.from_envelope(seed_envelope)
-    receivers = {peer: _receiver(proposal, seed_envelope, peer) for peer in HOSTS}
+    receivers = {peer: _receiver(proposal, seed_envelope, peer, allow_read=peer not in denied_read) for peer in HOSTS}
     directory = ComputationalFabricDirectory(
         "peer-a", {peer: peer + ".lens003.test" for peer in ("peer-b",) + HOSTS},
         monotonic=lambda: 0.0,
@@ -357,3 +357,30 @@ def test_recovered_evidence_cannot_be_retargeted_or_corrupted(tmp_path):
             intent, address, manifest=manifest, proof=proof,
             coordinator=coordinator, storage=storage,
         )
+
+
+def test_receiver_cannot_use_a_remote_read_capability(tmp_path):
+    """Receiver-owned Structural Memory authority refuses a routed but ungranted read."""
+    fabric, intent, address, wire, receivers = _fabric(denied_read=frozenset({"peer-c"}))
+    plan = fabric.prepare(intent, address, origin_sequence=1)
+    with pytest.raises(VirtualLayerError, match="lacks 'read'"):
+        fabric.execute(plan)
+    assert wire.calls == 1
+    assert not any(event.kind == "structural_memory.read_revision"
+                   for event in receivers["peer-c"][0].environment.kernel.journal.records())
+
+
+def test_pinned_certificate_substitution_refused_before_forwarding():
+    """One valid route and output type cannot authorize a different witness certificate."""
+    fabric, intent, address, wire, _ = _fabric()
+    original = address.workload.operators[0]
+    reference = replace(original.structural_memory[0], certificate_digest="0" * 64)
+    substituted = replace(original, structural_memory=(reference,))
+    workload = replace(address.workload, operators=(substituted,))
+    new_address = ComputationalAddress.from_workload(
+        workload, lens_fabric_spec().operator_id, lens_fabric_spec(),
+        intent.proposal.spec.digest,
+    )
+    with pytest.raises(LensFabricRefused, match="semantic address"):
+        fabric.prepare(intent, new_address, origin_sequence=1)
+    assert wire.calls == 0
