@@ -415,3 +415,22 @@ def test_native_address_transports_only_revision_not_law_or_witness_tape():
     assert reference.to_dict() == intent.memory_ref.to_dict()
     assert reference.coordinate == COORDINATE
     assert address.workload.schema_version == 2
+
+
+def test_terminal_rejects_stale_implementation_advertisement():
+    """Native terminal rechecks its live host implementation, never trusting old directory bytes."""
+    fabric, intent, address, wire, receivers = _fabric()
+    plan = fabric.prepare(intent, address, origin_sequence=1)
+    os, runtime, pid, advertised, catalogue = receivers["peer-c"]
+    shifted_locus = replace(
+        catalogue.loci[0],
+        implementation_fingerprint=digest("new-receiver-build"),
+    )
+    receivers["peer-c"] = (
+        os, runtime, pid, advertised, ComputationalHostCatalogue((shifted_locus,)),
+    )
+    with pytest.raises(ComputationalFabricForwardingError, match="differs from the live local locus"):
+        fabric.execute(plan)
+    assert wire.calls == 1
+    assert not any(event.kind == "structural_memory.read_revision"
+                   for event in os.environment.kernel.journal.records())
