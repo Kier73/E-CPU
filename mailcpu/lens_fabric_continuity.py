@@ -374,6 +374,8 @@ def recover_lens_fabric_result(
     """Mathematics: recheck quorum-current state and recover value without reexecuting law."""
     if not isinstance(manifest, RecoveryStateManifest) or not isinstance(proof, RecoveryLineageProof):
         raise LensFabricRefused("typed recovery lineage manifest and proof required")
+    if manifest.capture_cut != "lens003.fabric-structural-read-verified":
+        raise LensFabricRefused("quorum state belongs to a different semantic capture cut")
     if coordinator.verify_state(manifest).snapshot() != proof.snapshot():
         raise LensFabricRefused("stored proof is not the current accepted quorum decision")
     raw = storage.get(manifest.state_digest)
