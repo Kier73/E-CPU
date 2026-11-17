@@ -442,3 +442,18 @@ def test_terminal_rejects_stale_implementation_advertisement():
     assert wire.calls == 1
     assert not any(event.kind == "structural_memory.read_revision"
                    for event in os.environment.kernel.journal.records())
+
+
+def test_receiver_advertised_ground_without_local_revision_is_not_authority():
+    """A peer's Structural Memory support advertisement cannot create an absent Ground."""
+    fabric, intent, address, wire, receivers = _fabric(
+        missing_revision=frozenset({"peer-c"}),
+    )
+    plan = fabric.prepare(intent, address, origin_sequence=1)
+    assert plan.route.envelope.route.peer_path[-1] == "peer-c"
+    with pytest.raises(ComputationalFabricForwardingError, match="fresh terminal semantic resolution"):
+        fabric.execute(plan)
+    assert wire.calls == 1
+    assert receivers["peer-c"][0].structural_memory.active_version(
+        intent.proposal.spec.memory_id,
+    ) is None
