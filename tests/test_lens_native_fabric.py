@@ -20,7 +20,7 @@ from mailcpu.structural_memory import StructuralMemoryRegistry
 ORIGIN = (1 << 40) + 23
 
 
-def _samples(n: int = 200) -> list[int]:
+def _samples(n: int = 512) -> list[int]:
     """Return the exact finite Gray orbit of a 64-bit affine counter."""
     return [transform((ORIGIN + i) % (1 << 64), "gray.encode") for i in range(n)]
 
@@ -163,7 +163,7 @@ def test_prefix_horizon_checked_before_remote_operation(tmp_path: Path) -> None:
 
 def test_oversized_certificate_cannot_be_hidden_in_native_frame(tmp_path: Path) -> None:
     """A finite but oversized witness set is rejected before native transport."""
-    proposal = _proposal(indices=tuple(range(160)))
+    proposal = _proposal(indices=tuple(range(400)))
     endpoint = _LocalBoundEndpoint(tmp_path, frozenset({proposal.spec.digest}))
     dispatcher = LensNativeDispatcher(endpoint, approved_specs=frozenset({proposal.spec.digest}))
     with pytest.raises(LensNativeRefused, match="wire frame"):
