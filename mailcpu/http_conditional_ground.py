@@ -269,6 +269,7 @@ class ConditionalHTTPGround:
                 or self.equal.status != 304 or self.equal.body
                 or self.mismatch.condition != '"ecpu-unmatched-validation-control"'
                 or self.mismatch.status != 200
+                or self.mismatch.body != self.baseline.body
                 or self.raw.url != self.address.raw_url
                 or self.raw.condition is not None or self.raw.status != 200
                 or self.blob.url != self.address.blob_url(self.git_blob_oid)
