@@ -317,13 +317,28 @@ class RouterTTLGround:
         if hops >= initial_ttl:
             raise RouterGroundRefused("forwarded IPv4 packet expires before desired observation")
         law = Law("int", {"x0": initial_ttl, "step": -1}, 1, "GROUND")
+        result_ttl = law.navigate(hops)
+        # A modeled coordinate is not a measured one merely because the
+        # hop count fits an observed route. The *initial TTL itself* must
+        # be among the actual source probes and its received value must
+        # appear in a verified route of that forwarding length.
+        observed = (
+            initial_ttl in TTL_PROBES and
+            any(
+                route.hops == hops and
+                route.received_ttls[TTL_PROBES.index(initial_ttl)] == result_ttl
+                for route in self.routes
+            )
+        )
         return {
             "schema": SCHEMA + ".navigation", "initial_ttl": initial_ttl,
-            "hops": hops, "destination_ttl": law.navigate(hops),
+            "hops": hops, "destination_ttl": result_ttl,
             "ground_digest": self.ground_digest,
             "evidence_digest": self.evidence_digest,
-            "scope": ("observed_controlled_route_relation" if hops <= 2
-                      else "symbolic_rfc_model_not_observed_future_route"),
+            "scope": (
+                "observed_controlled_route_relation" if observed
+                else "symbolic_rfc_model_not_observed_future_route"
+            ),
             "network_frames_sent_to_navigate": 0,
         }
 
