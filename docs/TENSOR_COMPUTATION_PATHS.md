@@ -177,6 +177,37 @@ Regression coverage persists an interrupted depth chain, resumes it on a
 second host, replays the completed snapshot without dispatch, rejects changed
 plans and rehashed false arithmetic, and isolates callback mutations.
 
+### Atomic file adapter
+
+`TensorCheckpointFile` connects the coordinator to the same fsynced,
+same-directory atomic replacement writer used for HeadlessOS checkpoints:
+
+~~~python
+from mailcpu.tensor_checkpoint import TensorCheckpointFile
+
+checkpoint_file = TensorCheckpointFile("tensor-progress.json")
+product = execute_tiled_matmul(
+    [[1, 2], [3, 4]], [[5, 6], [7, 8]],
+    lambda payload: host.execute_authorized_method("tensor.matmul.tile", payload),
+    tile_rows=2, tile_cols=2, chunk_depth=1,
+    checkpoint=checkpoint_file.load(), checkpoint_sink=checkpoint_file.save,
+)
+~~~
+
+Use one writer per path and a separate path for each calculation. Missing files
+mean a new calculation; malformed, changed or oversized files refuse. The file
+adapter checks envelope integrity and a configurable byte budget (64 MiB by
+default); the coordinator still checks the plan and arithmetic before reusing
+any result. Saved evidence never installs a host or authorizes an operation.
+
+The regression suite exits a separate worker process with `os._exit` after
+two committed chunks, then reconstructs from disk on a new E-GPU host and
+dispatches exactly the remaining operands. Injected fsync and replacement
+failures preserve the previous committed prefix and clean temporary files.
+This establishes process-interruption recovery; directory metadata is not
+fsynced by this shared writer, so universal power-loss durability is not
+claimed. Multi-writer fencing and incremental journal storage remain open.
+
 ## Next experiments
 
 - Replace the software FIR callback with instrumented physical-path signals

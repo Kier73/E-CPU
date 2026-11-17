@@ -30,6 +30,13 @@ def save_checkpoint(operating_system: HeadlessOS, path: str | Path) -> str:
     state = operating_system.snapshot()
     digest = hashlib.sha256(_canonical_state(state)).hexdigest()
     document = {"format": "mailcpu-checkpoint-v1", "digest": digest, "state": state}
+    _write_checkpoint_document(document, path)
+    return digest
+
+
+def _write_checkpoint_document(document: dict[str, Any], path: str | Path) -> None:
+    """Mathematics: flush a complete JSON document before atomically replacing its previous file."""
+
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(document, indent=2, sort_keys=True) + "\n"
@@ -54,7 +61,6 @@ def save_checkpoint(operating_system: HeadlessOS, path: str | Path) -> str:
                 temporary_path.unlink()
             except FileNotFoundError:
                 pass
-    return digest
 
 
 def load_checkpoint(
