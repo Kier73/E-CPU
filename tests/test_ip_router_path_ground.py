@@ -141,6 +141,24 @@ def test_inverse_intention_realizes_same_observation_across_changed_route():
     assert ground.navigate(64, 40)["network_frames_sent_to_navigate"] == 0
 
 
+def test_intention_equivalence_is_not_universal_transition_congruence():
+    """Current matching output does not imply equal future TTL-domain admissibility.
+
+    See IFS observation-equivalence transition-congruence and VGI's
+    distinguishing-continuation analysis: a matched observation is only
+    a quotient for the declared intention and its finite operating domain.
+    """
+    ground = recognize_router_ttl_ground(*_verified())
+    a = ground.inverse_intention(31, 1)
+    b = ground.inverse_intention(31, 2)
+    assert a["destination_ttl"] == b["destination_ttl"] == 31
+    # A future intention near the 8-bit TTL ceiling distinguishes routes:
+    # source 255 can realize 254 after one hop, but source 256 is invalid.
+    assert ground.inverse_intention(254, 1)["source_ttl"] == 255
+    with pytest.raises(RouterGroundRefused, match="field capacity"):
+        ground.inverse_intention(254, 2)
+
+
 def test_reuse_native_sab_channel_observations_without_granting_kernel_authority():
     """Each checked route can be described as a native E-CPU channel observation."""
     ground = recognize_router_ttl_ground(*_verified())
