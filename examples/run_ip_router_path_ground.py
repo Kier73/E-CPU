@@ -111,8 +111,12 @@ def capture_router(
     frames = []
     try:
         for name in (ingress, egress):
-            sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(0x0800))
-            sock.bind((name, socket.htons(0x0800)))
+            # ETH_P_ALL captures all L2 frames; the verifier accepts only
+            # exact observed IPv4/UDP probes. On Linux, binding an
+            # AF_PACKET observer with protocol zero to this interface
+            # retains the socket's nonzero ETH_P_ALL subscription.
+            sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(0x0003))
+            sock.bind((name, 0))
             sock.setblocking(False)
             sockets.append((name, sock))
             selector.register(sock.fileno(), select.EPOLLIN)
