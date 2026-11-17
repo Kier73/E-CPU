@@ -187,6 +187,59 @@ Hypervisor, authority ledger, or route scheduler.
   physical machine. Here one kernel machine contains multiple logical
   router namespaces; they are **not independent physical failure domains**.
 
+## Native E-CPU observer-path binding (integrated)
+
+`mailcpu/router_observer_path.py` now takes the **original sender,
+receiver and raw Ethernet capture records** for each packet and uses the
+existing native E-CPU path contracts to reconstruct the declared operation
+as an ordered series of carrier and observer-host stages. It does not
+implement a separate signature mechanism or routing authority.
+
+For a single packet, the required stage modes are:
+
+| Measured path | Native E-CPU stage sequence |
+|---|---|
+| Direct | `carrier → observe(receiver)` |
+| L2 bridge | `carrier → observe(bridge) → carrier → observe(receiver)` |
+| One L3 router | `carrier → transform(router) → carrier → observe(receiver)` |
+| Two L3 routers | `carrier → transform(r1) → carrier → transform(r2) → carrier → observe(receiver)` |
+
+Every `ObserverPathStage` uses actual native `RepresentationRef` and
+`ChannelObservation` values; every active observer uses native
+`ObserverContract` and `ObserverReceipt`. The verifier reopens the raw
+frame bytes, checks the packet's IP state across each passive carrier and
+each active transition, and binds the actual receiver-side `IP_RECVTTL`
+reading to its last observer. An L2 bridge must preserve the IP-level
+representation: **it may observe/forward but cannot be assigned an IPv4
+transform receipt**. Intermediate L3 routers must show a real before/after
+TTL difference. Any unrelated IP identification, source/destination,
+UDP port, or packet payload is refused.
+
+The physical observer process does not sign a receipt. Instead, the
+receiver-installed `admit_capture` callback must explicitly accept the
+rechecked `ObservedRoute` before the path receipt can be constructed.
+The receiver-installed `verify_carrier` and `verify_observer` checks
+then admit only the exact reconstructed native stages, using E-CPU's
+existing `verify_observer_path` and `check_observer_path_receipt`.
+The resulting receipt's scope remains
+`receiver_callbacks_not_external_attestation`. Content digests are **not
+proof that independent external hardware actually captured the packet**.
+
+The controlled Linux example now rebuilds and checks all **24 native packet
+paths** (six observed source TTLs × four topologies), and preserves their
+path digests, stage modes, ground reference and receiver policy identity
+alongside the separate raw source/router/receiver artifacts. The GitHub
+workflow explicitly asserts all four native stage sequences.
+
+### Finite observation scope
+
+A known per-hop law can predict a TTL that **was not part of the original
+probe set**. PATH-GROUND-004 now distinguishes those cases: `TTL=64,hops=2`
+has a finite recorded route observation, while `TTL=63,hops=2` is only
+a symbolic prediction, despite both having the same hop count. This keeps
+Ground navigation separate from the stronger claim of a physical witness
+for an exact coordinate.
+
 ## Verification and reproducibility
 
 ```sh
