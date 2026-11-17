@@ -1,0 +1,95 @@
+name: HFG-001 pinned HF description Grounds
+
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/hf_model_ground.py'
+      - 'tests/test_hf_model_ground.py'
+      - 'examples/hf_pinned_model_configs.json'
+      - 'docs/HF_MODEL_GROUND_HFG001.md'
+      - '.github/workflows/hf-model-ground.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'mailcpu/hf_model_ground.py'
+      - 'tests/test_hf_model_ground.py'
+      - 'examples/hf_pinned_model_configs.json'
+      - 'docs/HF_MODEL_GROUND_HFG001.md'
+  workflow_dispatch:
+    inputs:
+      live_hfr_read:
+        description: 'Explicitly opt in to public Hub metadata/header inspection (no payload bytes)'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        python-version: ['3.11','3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install E-CPU
+        run: python -m pip install -e '.[dev]'
+      - name: Test pinned architecture and native DAG handoff
+        run: python -m pytest -q tests/test_hf_model_ground.py
+      - name: Demonstrate full 235B structure addressability
+        run: |
+          python -m mailcpu.hf_model_ground --profiles examples/hf_pinned_model_configs.json --repository Qwen/Qwen3-235B-A22B --all-layers > /tmp/qwen-ground.json
+          python -m mailcpu.hf_model_ground --profiles examples/hf_pinned_model_configs.json --repository openai/gpt-oss-120b --layer 1 > /tmp/oss-ground.json
+          python - <<'PY'
+          import json
+          x=json.load(open('/tmp/qwen-ground.json'))
+          y=json.load(open('/tmp/oss-ground.json'))
+          assert len(x['layer_digests']) == 94
+          assert y['layer']['steps'][0]['operation'] == 'ground.read_hidden_state'
+          assert 'not acquired' in x['requirements']['weight_payload']
+          PY
+
+  live-hfr:
+    if: github.event_name == 'workflow_dispatch' && inputs.live_hfr_read
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Pin external HFR observer
+        uses: actions/checkout@v4
+        with:
+          repository: Kier73/In-Formation-Space
+          ref: c9716242725be65937fda1dd7b6cb778ca1def91
+          path: external/In-Formation-Space
+      - name: Read pinned Hub header and config only (no tensor payloads)
+        run: |
+          python external/In-Formation-Space/experiments/external_neural_structure_reading/hub.py \
+            --repository Qwen/Qwen3-235B-A22B \
+            --revision 58ccb6e3fb22606f13e07de68b71f8fbce40a375 \
+            --output /tmp/qwen235-nsd.json
+      - name: Compile the observed model Ground
+        run: |
+          python -m pip install -e .
+          python -m mailcpu.hf_model_ground --nsd /tmp/qwen235-nsd.json --layer 93 > /tmp/qwen235-ground.json
+          python - <<'PY'
+          import json
+          x=json.load(open('/tmp/qwen235-ground.json'))
+          assert x['layer']['layer'] == 93
+          assert x['requirements']['weight_header_status'].startswith('HFR-reported')
+          assert 'not acquired' in x['requirements']['weight_payload']
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hfg001-public-model-header-evidence
+          path: |
+            /tmp/qwen235-nsd.json
+            /tmp/qwen235-ground.json
