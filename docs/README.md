@@ -2,11 +2,9 @@
 
 Index of specification documents. Documents use defined terms from `GLOSSARY.md`.
 
-## AI computational Grounds
+## General Ground execution proposal
 
-[AI Computational Ground Atlas — AGA-001](AI_COMPUTATIONAL_GROUND_ATLAS.md) catalogs 108 modern AI computational structures as pinned, queryable Ground descriptions with observation, navigation, and evidence obligations. It reuses the existing E-CPU Ground and authority architecture; catalog entries do not themselves grant Ground admission or execution rights.
-
-- [AGA-002 — Reuse a certified Ground without repeating its neural realization](AI_GROUND_REUSE_AGA002.md): an exact finite-domain test using two existing E-CPU neural architectures, two MailCPU interpreters, scoped proof receipts and direct observer queries. No model-specific inference engine is introduced.
+- [GGE-001 — Executable Grounds for general computation](GENERAL_GROUND_EXECUTION_GGE001.md): cross-repository Ground closure and query/observation architecture, mapping the eleven LLM requirements to executable Grounds, evidence classifications, and concrete implementation gates. Research proposal; not an implemented universal executor.
 
 ## Reading order
 
@@ -121,3 +119,7 @@ python scripts/verify_invariants.py     # registry entries resolve to code and t
 python scripts/verify_repo.py           # links, secrets, invariants, hygiene
 python -m pytest                        # invariants hold at runtime
 ```
+
+## Tensor substrate experiment
+
+- [TENSOR-PATH-001 — SIMT and communication-substrate tensor computation](TENSOR_COMPUTATION_PATHS.md): exact integer MAC and tiled matrix multiplication through existing E-GPU/SIMT; a separate evidence-scoped path transfer which realizes streaming convolution without SIMT at the transformation locus.
