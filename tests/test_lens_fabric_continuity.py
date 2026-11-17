@@ -23,9 +23,10 @@ from mailcpu.computational_fabric import (
     ComputationalNetworkLink, ComputationalPeerEndpoint, ComputationalPeerSnapshot,
 )
 from mailcpu.computational_fabric_forwarding import (
-    ComputationalFabricForwardingClient, ComputationalFabricHopReceipt,
+    ComputationalFabricForwardingClient, ComputationalFabricForwardingServer,
+    ComputationalFabricHopReceipt, ComputationalFabricForwardingError,
 )
-from mailcpu.computational_resolver import ComputationalAddress, ComputationalHostLocus
+from mailcpu.computational_resolver import ComputationalAddress, ComputationalHostLocus, ComputationalHostCatalogue
 from mailcpu.evidence_path_resolver import RouteMetric
 from mailcpu.federated_ground_continuity import (
     AtomicGroundEvidenceStore, GroundContinuityRefused, NativeGroundDispatcher,
@@ -117,7 +118,7 @@ def _receiver(proposal, envelope, peer, *, allow_read=True):
         costs=_cost(1 if peer == "peer-c" else 8),
         implementation_fingerprint=digest("lens-implementation-" + peer),
     )
-    return os, runtime, pid, ComputationalHostAdvertisement.from_locus(locus, peer)
+    return os, runtime, pid, ComputationalHostAdvertisement.from_locus(locus, peer), ComputationalHostCatalogue((locus,))
 
 
 class _TerminalWire:
@@ -127,7 +128,6 @@ class _TerminalWire:
         """Bind the test's explicit peer-to-receiver table; never claim a physical relay."""
         self.receivers = receivers
         self.calls = 0
-        self.by_peer = {peer: 0 for peer in receivers}
         self.mutate = False
         self.before_reply = None
 
@@ -135,30 +135,32 @@ class _TerminalWire:
         """Build native typed hop receipts around a genuinely executed terminal effect."""
         self.calls += 1
         target = envelope.route.peer_path[-1]
-        self.by_peer[target] += 1
-        os, runtime, pid, _advertisement = self.receivers[target]
-        outcome = runtime.execute_operator(
-            os, pid, "lens003.remote", "lens003.operation." + target,
-            self.by_peer[target], envelope.address.workload.logical_time,
-            envelope.address.workload, lens_fabric_spec().operator_id,
-        )
-        assert outcome.action is HypervisorAction.ALLOW and outcome.executed
-        effect = json.loads(canonical(outcome.effect))
-        if self.mutate:
-            effect["structural_memory_receipts"]["lens"]["value"] ^= 1
+        os, _runtime, _pid, _advertisement, catalogue = self.receivers[target]
         first = envelope.advance()
         last = first.advance()
+        # Call the production terminal method: it compares the live local
+        # catalogue to the advertised host, resolves the address under receiver
+        # authority, then performs real Hypervisor/Structural Memory execution.
+        terminal_server = object.__new__(ComputationalFabricForwardingServer)
+        terminal_server.catalogue = catalogue
+        terminal_server.local_peer_id = target
+        terminal_server.operating_system = os
+        terminal_server.claim_coordinator = None
+        terminal_server.timing_probe = None
+        terminal_server.claim_status_clients = {}
+        executed = terminal_server._execute_terminal(last)
+        assert executed["kind"] == "terminal"
+        terminal_execution = executed["terminal_execution"]
+        assert terminal_execution["accepted"] and terminal_execution["executed"]
+        if self.mutate:
+            terminal_execution = json.loads(canonical(terminal_execution))
+            terminal_execution["execution"]["effect"]["structural_memory_receipts"]["lens"]["value"] ^= 1
         terminal = ComputationalFabricHopReceipt(
             peer_id=last.current_peer_id, previous_peer_id=last.previous_peer_id,
             next_peer_id=None, hop_index=2, operation_digest=last.operation_digest,
             envelope_digest=last.digest, next_envelope_digest=None,
             decision_receipt="7" * 64, status="executed",
-            terminal_execution={
-                "status": "executed", "accepted": True,
-                "executed": True, "replayed": False,
-                "address_digest": envelope.address.digest,
-                "admission_receipt": "a" * 64, "execution": {"effect": effect},
-            },
+            terminal_execution=terminal_execution,
         )
         receipt = ComputationalFabricHopReceipt(
             peer_id=first.current_peer_id, previous_peer_id=first.previous_peer_id,
@@ -249,7 +251,7 @@ def test_real_terminal_lens_ground_survives_native_rehome_and_quorum_recovery(tm
     )
 
     other = fabric.prepare(
-        intent, address, origin_sequence=2,
+        intent, address, origin_sequence=1,
         excluded_hosts=frozenset({("peer-c", "host-peer-c")}),
     )
     assert other.route.envelope.route.peer_path == ("peer-a", "peer-b", "peer-d")
