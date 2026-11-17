@@ -241,7 +241,8 @@ def verify_router_route(route_id: str, source: Mapping[str, Any],
             except ValueError as exc:
                 raise RouterGroundRefused("router captured malformed raw bytes") from exc
             parsed = parse_ethernet_ipv4_udp(raw)
-            if (parsed["destination_ip"] != src["destination_ip"]
+            if (parsed["seq"] not in original
+                    or parsed["destination_ip"] != src["destination_ip"]
                     or parsed["source_ip"] != src["source_ip"]
                     or parsed["destination_port"] != src["destination_port"]
                     or parsed["source_port"] != src["source_port"]
@@ -288,6 +289,7 @@ class RouterTTLGround:
     def __post_init__(self) -> None:
         """Mathematics: demand direct, L2 bridge, one-hop and two-hop observations."""
         if (self.scope != "controlled_linux_kernel_forwarding_not_public_internet_or_optics"
+                or not isinstance(self.routes, (tuple, list))
                 or len(self.routes) != 4
                 or any(not isinstance(r, ObservedRoute) for r in self.routes)
                 or {r.route_id for r in self.routes} != set(ROUTES)):
