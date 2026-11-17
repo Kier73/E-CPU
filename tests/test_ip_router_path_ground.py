@@ -18,6 +18,12 @@ from mailcpu.ip_router_path_ground import (
     RouterGroundRefused, parse_ethernet_ipv4_udp, probe_payload,
     recognize_router_ttl_ground, verify_router_route,
 )
+from mailcpu.router_observer_path import (
+    bind_router_packet_observer_path,
+    verify_router_packet_path_binding,
+)
+from mailcpu.observer_path_evidence import check_observer_path_receipt
+from mailcpu.semantic_translation import canonical_value_digest
 
 
 def _checksum(buffer):
@@ -301,6 +307,133 @@ def test_corrupted_ethernet_or_illegal_ip_header_is_not_a_router_witness():
     bad = raw[:12] + b"\x08\x06" + raw[14:]
     with pytest.raises(RouterGroundRefused):
         parse_ethernet_ipv4_udp(bad)
+
+
+
+def _native_binding(route, sequence, *, admit=None, evidence=None, policy=None):
+    """Make one bounded synthetic raw packet witness with genuine native E-CPU types.
+
+    This is a source-level regression fixture, NOT an assertion that a router
+    was run. The distinct privileged Linux workflow is the real measurement.
+    """
+    ground = recognize_router_ttl_ground(*_verified())
+    source, receiver, routers = _make(route)
+    return bind_router_packet_observer_path(
+        ground, route, sequence, source, receiver, routers,
+        admit_capture=(lambda _obs: True) if admit is None else admit,
+        receiver_policy_digest=policy or canonical_value_digest(
+            {"policy": "local-test-only", "rev": 1},
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    "route,seq,stages,ttl",
+    [("direct", 2, ["carrier", "observe"], 32),
+     ("bridge", 2, ["carrier", "observe", "carrier", "observe"], 32),
+     ("one", 2, ["carrier", "transform", "carrier", "observe"], 31),
+     ("two", 3, ["carrier", "transform", "carrier", "transform", "carrier", "observe"], 31)],
+)
+def test_native_path_receipt_uses_existing_carrier_and_observer_types(route, seq, stages, ttl):
+    """Realization changes location, but only genuine L3 forwarding changes IP TTL."""
+    bound = _native_binding(route, seq)
+    assert [stage.mode for stage in bound.stages] == stages
+    assert bound.destination_ttl == ttl
+    assert bound.verified.ground.content_digest == bound.stages[-1].contract.interpretation.content_digest
+    assert bound.verified.path_digest == bound.to_dict()["native_path"]["path_digest"]
+    assert bound.to_dict()["authority"] == "receiver_policy_callback_not_remote_router_signature"
+    assert check_observer_path_receipt(
+        bound.verified, bound.stages,
+        verify_carrier=lambda stage: stage in bound.stages and stage.mode == "carrier",
+        verify_observer=lambda stage: stage in bound.stages and stage.mode != "carrier",
+    )
+    for stage in bound.stages:
+        if stage.mode == "carrier":
+            assert stage.input_ref == stage.output_ref
+        if stage.mode == "transform":
+            assert stage.input_ref != stage.output_ref
+            assert stage.receipt.subject_state_after_digest == stage.output_ref.content_digest
+        if stage.mode == "observe":
+            assert stage.input_ref == stage.output_ref
+
+
+def test_native_observer_bridge_reuses_identical_ground_for_two_distinct_routes():
+    """One intention reaches the same observed TTL, but the receipts remain route-specific."""
+    one = _native_binding("one", 2)
+    two = _native_binding("two", 3)
+    assert (one.initial_ttl, two.initial_ttl) == (32, 33)
+    assert one.destination_ttl == two.destination_ttl == 31
+    assert one.ground_digest == two.ground_digest
+    assert one.verified.ground == two.verified.ground
+    assert one.verified.context_digest != two.verified.context_digest
+    assert one.verified.path_digest != two.verified.path_digest
+    assert one.route_evidence_digest != two.route_evidence_digest
+
+
+def test_receiver_owned_provenance_decision_is_required_even_for_perfect_raw_packet_bytes():
+    """Correct raw bytes do not authorize their own purported physical sensor."""
+    ground = recognize_router_ttl_ground(*_verified())
+    source, receiver, routers = _make("one")
+    policy = canonical_value_digest({"policy": "only-local-verified-captures"})
+    for callback in (None, lambda _: False, lambda _: 1):
+        with pytest.raises(RouterGroundRefused, match="provenance|callback"):
+            bind_router_packet_observer_path(
+                ground, "one", 2, source, receiver, routers,
+                admit_capture=callback, receiver_policy_digest=policy,
+            )
+
+
+def test_native_observer_path_can_be_rebuilt_only_from_original_raw_witnesses():
+    """Replaying the receipt requires the same observed raw frames and receiver policy."""
+    ground = recognize_router_ttl_ground(*_verified())
+    source, receiver, routers = _make("two")
+    policy = canonical_value_digest({"policy": "origin-bound", "revision": 1})
+    authorized = lambda route: route.route_id == "two"
+    bound = bind_router_packet_observer_path(
+        ground, "two", 3, source, receiver, routers,
+        admit_capture=authorized, receiver_policy_digest=policy,
+    )
+    assert verify_router_packet_path_binding(
+        bound, ground, "two", 3, source, receiver, routers,
+        admit_capture=authorized, receiver_policy_digest=policy,
+    )
+    assert not verify_router_packet_path_binding(
+        bound, ground, "two", 3, source, receiver, routers,
+        admit_capture=lambda _: False, receiver_policy_digest=policy,
+    )
+    assert not verify_router_packet_path_binding(
+        bound, ground, "two", 3, source, receiver, routers,
+        admit_capture=authorized,
+        receiver_policy_digest=canonical_value_digest({"policy": "other"}),
+    )
+    changed = replace(bound, route_evidence_digest="0" * 64)
+    assert not verify_router_packet_path_binding(
+        changed, ground, "two", 3, source, receiver, routers,
+        admit_capture=authorized, receiver_policy_digest=policy,
+    )
+    changed_stage = replace(
+        bound.stages[1].receipt,
+        subject_state_after_digest="0" * 64,
+    )
+    wrong = replace(
+        bound,
+        stages=(bound.stages[0], replace(bound.stages[1], receipt=changed_stage))
+        + bound.stages[2:],
+    )
+    assert not verify_router_packet_path_binding(
+        wrong, ground, "two", 3, source, receiver, routers,
+        admit_capture=authorized, receiver_policy_digest=policy,
+    )
+
+
+def test_native_bridge_observer_is_not_an_ipv4_router_transform():
+    """An E-CPU observer at an L2 transit locus does not invent an IP-layer computation."""
+    bound = _native_binding("bridge", 2)
+    bridge = bound.stages[1]
+    assert bridge.mode == "observe"
+    assert bridge.receipt.projection["step"] == 0
+    assert bridge.receipt.projection["mechanism"] == "l2_kernel_bridge"
+    assert bridge.input_ref == bridge.output_ref
 
 
 @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux IP_RECVTTL ancillary ABI")
