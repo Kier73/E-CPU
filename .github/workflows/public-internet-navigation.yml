@@ -1,0 +1,85 @@
+name: INTERNET-004 bounded public Internet Ground navigation
+
+on:
+  push:
+    branches:
+      - research/internet-native-navigation-004-20261116
+    paths:
+      - 'mailcpu/public_internet_navigation.py'
+      - 'examples/navigate_public_internet.py'
+      - 'examples/native_public_navigation_bridge.py'
+      - 'tests/test_public_internet_navigation.py'
+      - 'tests/test_public_internet_native_bridge.py'
+      - 'docs/INTERNET_NATIVE_NAVIGATION_004.md'
+      - '.github/workflows/public-internet-navigation.yml'
+  pull_request:
+    paths:
+      - 'mailcpu/public_internet_navigation.py'
+      - 'examples/navigate_public_internet.py'
+      - 'examples/native_public_navigation_bridge.py'
+      - 'tests/test_public_internet_navigation.py'
+      - 'tests/test_public_internet_native_bridge.py'
+      - '.github/workflows/public-internet-navigation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bounded-contract:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Run pure observation-orbit tests
+        run: python -m unittest discover -s tests -p 'test_public_internet_navigation.py' -v
+      - name: Run full native observer-path admissions
+        run: |
+          python -c 'import mailcpu.observer_path_evidence, mailcpu.observer_orbit'
+          python -m unittest discover -s tests -p 'test_public_internet_native_bridge.py' -v
+
+  live-readonly-internet-observer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: bounded-contract
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Execute actual public HTTPS navigation on the runner
+        run: |
+          python examples/navigate_public_internet.py observe \
+            --seed 9293 --target 793 --max-pages 4 --max-depth 2 \
+            --file /tmp/internet-004-rfc-observation.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: internet-004-bounded-https-evidence
+          path: /tmp/internet-004-rfc-observation.json
+          if-no-files-found: error
+          retention-days: 7
+
+  independent-replay-verifier:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: live-readonly-internet-observer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: internet-004-bounded-https-evidence
+          path: /tmp
+      - name: Verify the full remote observation bytes without Internet access
+        run: |
+          python examples/navigate_public_internet.py verify \
+            --seed 9293 --target 793 --max-pages 4 --max-depth 2 \
+            --file /tmp/internet-004-rfc-observation.json
