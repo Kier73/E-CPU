@@ -1,6 +1,6 @@
 # INTERNET-001 — The existing Internet as an E-CPU observer-host state-space
 
-**Research status (2026-11-16):** One **live, authorized GitHub Git-service state transition** and a subsequent read of the content-addressed observation; six local verifier tests passed. This is a protocol/service-level test of pre-existing Internet-native state. It does **not** establish passive-link arithmetic, physical fiber processing, general Internet deployment, or a remotely running E-CPU interpreter.
+**Research status (2026-11-16):** One **live, authorized GitHub Git-service state transition** and a subsequent read of the content-addressed observation; seven local verifier tests passed. This is a protocol/service-level test of pre-existing Internet-native state. It does **not** establish passive-link arithmetic, physical fiber processing, general Internet deployment, or a remotely running E-CPU interpreter.
 
 ## Why this experiment belongs to E-CPU
 
