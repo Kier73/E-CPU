@@ -156,11 +156,11 @@ the separate runtime Hypervisor remains the owner of effectful execution.
 
 ## Reproduce
 
-\`\`\`sh
+```sh
 python -m pytest -q tests/test_udp_path_projection_ground.py
 python -m pytest -q tests/test_latent_path_capacity.py tests/test_path_ground_probe.py
 python -m examples.run_udp_path_projection_ground > udp-path-ground-report.json
-\`\`\`
+```
 
 The JSON report preserves both communication-path identities, the
 counterfactual bypass and selected-output counts, observed idle interval,
