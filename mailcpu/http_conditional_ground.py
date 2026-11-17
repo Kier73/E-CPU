@@ -78,7 +78,8 @@ def _json_object(raw: bytes, kind: str) -> dict[str, Any]:
 def _decoded_blob(raw: bytes, *, kind: str) -> tuple[bytes, str]:
     """Mathematics: verify Git's canonical SHA-1 content identity from decoded bytes."""
     data = _json_object(raw, kind)
-    if (data.get("type") not in ("file", "blob")
+    if ((kind == "contents API" and data.get("type") != "file")
+            or (kind != "contents API" and data.get("type") not in (None, "blob"))
             or data.get("encoding") != "base64"
             or type(data.get("size")) is not int
             or not 0 < data["size"] <= _MAX_CONTENT
