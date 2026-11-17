@@ -127,6 +127,7 @@ class _TerminalWire:
         """Bind the test's explicit peer-to-receiver table; never claim a physical relay."""
         self.receivers = receivers
         self.calls = 0
+        self.by_peer = {peer: 0 for peer in receivers}
         self.mutate = False
         self.before_reply = None
 
@@ -134,10 +135,11 @@ class _TerminalWire:
         """Build native typed hop receipts around a genuinely executed terminal effect."""
         self.calls += 1
         target = envelope.route.peer_path[-1]
+        self.by_peer[target] += 1
         os, runtime, pid, _advertisement = self.receivers[target]
         outcome = runtime.execute_operator(
             os, pid, "lens003.remote", "lens003.operation." + target,
-            self.calls, envelope.address.workload.logical_time,
+            self.by_peer[target], envelope.address.workload.logical_time,
             envelope.address.workload, lens_fabric_spec().operator_id,
         )
         assert outcome.action is HypervisorAction.ALLOW and outcome.executed
