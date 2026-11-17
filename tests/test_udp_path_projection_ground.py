@@ -235,6 +235,8 @@ class ExistingStructuralMemoryIntegrationTests(unittest.TestCase):
         )
         proposal = ground.propose_to_structural_memory(
             registry, memory_id, first[0], second[0],
+            train_trace=first[1], train_received=first[2],
+            holdout_trace=second[1], holdout_received=second[2],
         )
         self.assertEqual(proposal.spec.family, "lcg")
         self.assertEqual(proposal.spec.context["observation_evidence"], ground.evidence_digest)
@@ -256,6 +258,8 @@ class ExistingStructuralMemoryIntegrationTests(unittest.TestCase):
         registry = StructuralMemoryRegistry()
         proposal = ground.propose_to_structural_memory(
             registry, "not-admitted-path", first[0], second[0],
+            train_trace=first[1], train_received=first[2],
+            holdout_trace=second[1], holdout_received=second[2],
         )
         with self.assertRaises(StructuralMemoryAuthorizationError):
             registry.admit(proposal.proposal_id, expected_revision=0)
@@ -266,9 +270,11 @@ class ExistingStructuralMemoryIntegrationTests(unittest.TestCase):
         ground = recognized(first, second)
         altered = replace(ground, c=(ground.c + 1) % ground.modulus)
         registry = StructuralMemoryRegistry(admission_policy=lambda _proposal: True)
-        with self.assertRaisesRegex(NativePathGroundRefused, "witnesses contradict"):
+        with self.assertRaisesRegex(NativePathGroundRefused, "unverified original native path evidence"):
             altered.propose_to_structural_memory(
                 registry, "corrupted-intent", first[0], second[0],
+                train_trace=first[1], train_received=first[2],
+                holdout_trace=second[1], holdout_received=second[2],
             )
 
 
