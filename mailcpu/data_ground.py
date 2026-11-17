@@ -432,6 +432,49 @@ class DataGround:
             comparison=comparison, qualification_scope=self.source_scope,
         )
 
+    def candidate_views(
+        self, *, offset: int = 0, length: int | None = None,
+    ) -> dict[str, Any]:
+        """Survey finite structural compatibility; NEVER pick semantic meaning automatically.
+
+        The procedure tests only the explicitly installed bounded lens
+        dialect, not arbitrary possible interpreters. A candidate being
+        valid proves decodability under that lens, not that its semantics
+        were intended by the data producer.
+        """
+        _integer(offset, "survey offset", 0, len(self.data))
+        window_size = len(self.data) - offset if length is None else length
+        _integer(window_size, "survey length", 0, MAX_WINDOW)
+        if window_size > len(self.data) - offset:
+            raise DataGroundRefused("candidate survey extends outside observed bytes")
+        results = []
+        for kind in sorted(KINDS):
+            lens = DataLens(kind, offset=offset, length=window_size)
+            try:
+                claim = self.interpret(lens)
+            except DataGroundRefused as exc:
+                results.append({
+                    "lens": kind, "status": "refused",
+                    "reason": str(exc),
+                })
+            else:
+                results.append({
+                    "lens": kind, "status": "structurally-admitted",
+                    "mathematical_domain": claim.structure["domain"],
+                    "contract_digest": claim.contract.digest,
+                    "projection_digest": claim.contract.target.content_digest,
+                    "byte_roundtrip_exact": claim.roundtrip_bytes_exact,
+                })
+        return {
+            "schema": SCHEMA + ".candidate-survey",
+            "source_sha256": self.byte_sha256,
+            "offset": offset, "length": window_size,
+            "source_scope": self.source_scope,
+            "results": results,
+            "interpretation_selected": None,
+            "semantics": "candidate_decodability_not_source_intent_or_execution_authority",
+        }
+
     def verify_interpretation(self, claim: DataInterpretation) -> bool:
         """Reconstruct exact claim against current source bytes; content hashes alone cannot authorize."""
         if not isinstance(claim, DataInterpretation):
