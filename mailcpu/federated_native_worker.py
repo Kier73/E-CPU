@@ -16,7 +16,7 @@ def native_affine(
     request: dict[str, Any], *, authority_enabled: bool,
     approved_lens_grounds: frozenset[str] = frozenset(),
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Execute a pure affine or pinned lens transition through local Virtual Layer authority."""
+    """Mathematics: evaluate one whitelisted F(t) under an admitted local Virtual Layer operator."""
     from . import (
         Capability, HeadlessOS, HypervisorAction, HypervisorPolicy, LexicalDecisionModel,
         OperatorRegistry, OperatorSpec, SystemIdentity, SystemSeed, SystemSeedEnvelope,
@@ -141,7 +141,7 @@ def native_affine(
 def serve_native(message: Any, *, host_id: str, directory: Path,
                  allowed: frozenset[str], native_authority: bool = True,
                  approved_lens_grounds: frozenset[str] = frozenset()) -> dict[str, Any]:
-    """Handle only locally granted operations; never accept remote source or capability."""
+    """Mathematics: dispatch only locally admitted operations and replay-stable content identities."""
     if (not isinstance(message, dict)
             or set(message) != {"kind", "host", "nonce", "operation", "payload"}
             or message["kind"] != REQUEST_KIND or message["host"] != host_id
@@ -201,7 +201,7 @@ def serve_native(message: Any, *, host_id: str, directory: Path,
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run a single bounded request in an isolated, receiver-owned interpreter."""
+    """Mathematics: accept one canonical request frame and emit one bounded result or refusal."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", required=True)
     parser.add_argument("--directory", required=True)
