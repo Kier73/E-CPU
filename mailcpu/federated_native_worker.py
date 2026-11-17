@@ -68,7 +68,7 @@ def native_affine(
         expected = {"value": lcg_navigate(a, c, mod, x0, t)}
         operator_id = "sab005.affine_mod"
         description = "Native receiver-owned modular navigation"
-        goal = {"kind": "bounded-affine-observation"}
+        goal = "bounded-affine-observation"
         compute = lambda x, workload: {
             "value": lcg_navigate(x["a"], x["c"], x["mod"], x["x0"], x["coordinate"])
         }
