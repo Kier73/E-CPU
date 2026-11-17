@@ -28,7 +28,17 @@ from .substrate_bootstrap import ChannelObservation
 SCHEMA = "mailcpu.path-ground-004.kernel-ipv4-hop.v1"
 MAGIC = b"ECPU-PG4:"
 TTL_PROBES = (4, 7, 32, 33, 64, 127)
-ROUTES = {"direct": (), "one": ("one.r1",), "two": ("two.r1", "two.r2")}
+# Physical observation loci and IP-forwarding steps are intentionally separate.
+# A Linux Ethernet bridge is an intermediate kernel forwarder but does NOT
+# execute the IPv4 TTL-decrement transition. It is the negative control.
+ROUTES = {
+    "direct": (), "bridge": ("bridge.r1",),
+    "one": ("one.r1",), "two": ("two.r1", "two.r2"),
+}
+IP_HOPS = {"direct": 0, "bridge": 0, "one": 1, "two": 2}
+LOCUS_TTL_STEPS = {
+    "bridge.r1": 0, "one.r1": -1, "two.r1": -1, "two.r2": -1,
+}
 _MAX_FRAME = 2048
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
 
@@ -146,7 +156,7 @@ class ObservedRoute:
         """Mathematics: preserve exactly the known finite route/hop relation."""
         if type(self.route_id) is not str or self.route_id not in ROUTES:
             raise RouterGroundRefused("unknown router path")
-        if self.hops != len(ROUTES[self.route_id]):
+        if self.hops != IP_HOPS[self.route_id]:
             raise RouterGroundRefused("route hop count differs from admitted shape")
         if self.source_ttls != TTL_PROBES or len(self.received_ttls) != len(TTL_PROBES):
             raise RouterGroundRefused("source TTL probes are not identical across routes")
@@ -169,7 +179,7 @@ def verify_router_route(route_id: str, source: Mapping[str, Any],
     must still trust who actually captured the three evidence classes; packet
     content hashes are not signatures or independent-host attestations.
     """
-    if route_id not in ROUTES or type(route_id) is not str:
+    if type(route_id) is not str or route_id not in ROUTES:
         raise RouterGroundRefused("unrecognized route intention")
     ids = ROUTES[route_id]
     src = _exact_keys(source, {"schema", "source_ip", "destination_ip", "source_port",
@@ -201,11 +211,12 @@ def verify_router_route(route_id: str, source: Mapping[str, Any],
                 or record["source_ip"] != src["source_ip"] or record["source_port"] != src["source_port"]):
             raise RouterGroundRefused("receiver did not observe the expected exact source packet")
         ttl = _integer(record["received_ttl"], "received IP_RECVTTL", 1, 255)
-        if ttl != TTL_PROBES[i] - len(ids):
+        if ttl != TTL_PROBES[i] - IP_HOPS[route_id]:
             raise RouterGroundRefused("receiver IP TTL does not match forwarded route")
         received.append(ttl)
     verified_frames = 0
     valid_checksums = 0
+    prior_ip_decrements = 0
     for router_index, capture in enumerate(routers):
         record = _exact_keys(capture, {"schema", "router_id", "ingress_iface",
                                       "egress_iface", "frames"}, "router capture")
@@ -242,14 +253,24 @@ def verify_router_route(route_id: str, source: Mapping[str, Any],
             by_edge[key] = parsed
             valid_checksums += int(parsed["ip_checksum_valid"])
             verified_frames += 1
+        # Infer the local relation from paired *observed* raw frame TTLs.
+        # Require the same transition for all probes, then compare it to
+        # the admitted role: IPv4 router (-1) versus L2 bridge (0).
+        inferred_steps = set()
         for i, ttl in enumerate(TTL_PROBES):
             if ((i, "ingress") not in by_edge or (i, "egress") not in by_edge
-                    or by_edge[(i, "ingress")]["ttl"] != ttl - router_index
-                    or by_edge[(i, "egress")]["ttl"] != ttl - router_index - 1
+                    or by_edge[(i, "ingress")]["ttl"] != ttl - prior_ip_decrements
                     or by_edge[(i, "ingress")]["ip_id"] != by_edge[(i, "egress")]["ip_id"]):
-                raise RouterGroundRefused("in-network router hop did not decrement TTL exactly once")
+                raise RouterGroundRefused("intermediate packet ingress or identity is inconsistent")
+            inferred_steps.add(by_edge[(i, "egress")]["ttl"] - by_edge[(i, "ingress")]["ttl"])
+        expected_step = LOCUS_TTL_STEPS[ids[router_index]]
+        if inferred_steps != {expected_step}:
+            raise RouterGroundRefused("intermediate packet relation contradicts admitted L2/L3 path role")
+        prior_ip_decrements -= expected_step
+    if prior_ip_decrements != IP_HOPS[route_id]:
+        raise RouterGroundRefused("captured path relation differs from declared IP hops")
     return ObservedRoute(
-        route_id, len(ids), TTL_PROBES, tuple(received),
+        route_id, IP_HOPS[route_id], TTL_PROBES, tuple(received),
         _digest({"schema": SCHEMA + ".route", "route": route_id,
                  "sender": src, "receiver": dst, "routers": routers}),
         sum(len(b) for b in original.values()), verified_frames,
@@ -265,11 +286,12 @@ class RouterTTLGround:
     scope: str = "controlled_linux_kernel_forwarding_not_public_internet_or_optics"
 
     def __post_init__(self) -> None:
-        """Mathematics: demand direct, one-hop and two-hop real observations before composing."""
+        """Mathematics: demand direct, L2 bridge, one-hop and two-hop observations."""
         if (self.scope != "controlled_linux_kernel_forwarding_not_public_internet_or_optics"
-                or len(self.routes) != 3 or {r.route_id for r in self.routes} != set(ROUTES)
-                or any(not isinstance(r, ObservedRoute) for r in self.routes)):
-            raise RouterGroundRefused("all three controlled paths must be independently observed")
+                or len(self.routes) != 4
+                or any(not isinstance(r, ObservedRoute) for r in self.routes)
+                or {r.route_id for r in self.routes} != set(ROUTES)):
+            raise RouterGroundRefused("all four controlled L2/L3 paths must be observed")
 
     @property
     def ground_digest(self) -> str:
@@ -337,7 +359,8 @@ class RouterTTLGround:
 
 
 def recognize_router_ttl_ground(
-    direct: ObservedRoute, one: ObservedRoute, two: ObservedRoute,
+    direct: ObservedRoute, bridge: ObservedRoute,
+    one: ObservedRoute, two: ObservedRoute,
 ) -> RouterTTLGround:
-    """Mathematics: compose three exact path observations into one shared hop relation."""
-    return RouterTTLGround((direct, one, two))
+    """Mathematics: certify one path-relative TTL Ground against four L2/L3 controls."""
+    return RouterTTLGround((direct, bridge, one, two))
