@@ -2,6 +2,10 @@
 
 Index of specification documents. Documents use defined terms from `GLOSSARY.md`.
 
+## General Ground execution proposal
+
+- [GGE-001 — Executable Grounds for general computation](GENERAL_GROUND_EXECUTION_GGE001.md): cross-repository Ground closure and query/observation architecture, mapping the eleven LLM requirements to executable Grounds, evidence classifications, and concrete implementation gates. Research proposal; not an implemented universal executor.
+
 ## Reading order
 
 | Order | Document | Read it for |
