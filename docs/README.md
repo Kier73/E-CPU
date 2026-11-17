@@ -6,6 +6,23 @@ Index of specification documents. Documents use defined terms from `GLOSSARY.md`
 
 - [GGE-001 — Executable Grounds for general computation](GENERAL_GROUND_EXECUTION_GGE001.md): cross-repository Ground closure and query/observation architecture, mapping the eleven LLM requirements to executable Grounds, evidence classifications, and concrete implementation gates. Research proposal; not an implemented universal executor.
 
+For an exact-SHA inventory of mainline capabilities, feature-branch-only developments, and open verification gates, see [Mainline integration checkpoint (2026-11-15)](MAINLINE_INTEGRATION_CHECKPOINT_2026-11-15.md). Its observed CI state is historical, not a claim of current success.
+
+## AI computational Grounds
+
+[AI Computational Ground Atlas — AGA-001](AI_COMPUTATIONAL_GROUND_ATLAS.md) catalogs 108 modern AI computational structures as pinned, queryable Ground descriptions with observation, navigation, and evidence obligations. It reuses the existing E-CPU Ground and authority architecture; catalog entries do not themselves grant Ground admission or execution rights.
+
+- [AGA-002 — Reuse a certified Ground without repeating its neural realization](AI_GROUND_REUSE_AGA002.md): an exact finite-domain test using two existing E-CPU neural architectures, two MailCPU interpreters, scoped proof receipts and direct observer queries. No model-specific inference engine is introduced.
+
+## Pretrained neural Ground realization
+
+- [HFG-002 — Real pretrained layer through verified model and weight Grounds](HF_PRETRAINED_LAYER_HFG002.md): live bounded-range Hugging Face observation, exact MWS-001 tensor bytes, two Hypervisor-governed numerical stages, and an independent reference check. Real checkpoint acquisition remains a hosted verification gate.
+
+## Model Weight Grounds
+
+- [MWS-002 — Generative Weight Grounds](GENERATIVE_WEIGHT_GROUND_MWS002.md) reconstructs the same exact model snapshot point from admitted Structural Memory laws, sparse exact-bit edits, stored parameters, or reversible tensor index permutations. It reuses MWS-001 and the existing page store; functional equivalence and authority remain separately verified.
+- [MWS-001 — Snapshot-indexed Model Weight Grounds](MODEL_WEIGHT_GROUND_MWS001.md) defines model-family parameter spaces and exact snapshot coordinates, streams Safetensors parameters through the existing `ComputationalObjectStore`, and distinguishes bit-exact weight identity from functional equivalence or training provenance. Contains an executable two-instance, 10,000-parameter reconstruction experiment.
+
 ## Reading order
 
 | Order | Document | Read it for |
