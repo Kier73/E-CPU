@@ -197,6 +197,33 @@ def test_router_must_show_no_udp_payload_change_and_no_ip_identity_change():
             verify_router_route("one", src, dst, routers)
 
 
+def test_layer_two_bridge_cannot_announce_an_ip_router_ttl_transition():
+    """Bridge packet continuity is observed, but that does not authorize a fictitious IP hop."""
+    src, dst, routers = _make("bridge")
+    observed = routers[0]["frames"][1]
+    observed["raw_hex"] = _raw_ipv4_packet(
+        0, TTL_PROBES[0] - 1, source_ip=src["source_ip"],
+        destination_ip=src["destination_ip"],
+        source_port=src["source_port"], dest_port=src["destination_port"],
+    ).hex()
+    with pytest.raises(RouterGroundRefused, match="relation contradicts"):
+        verify_router_route("bridge", src, dst, routers)
+
+
+def test_unexpected_router_packet_sequence_must_refuse_not_raise_key_error():
+    """A captured probe outside the receiver-controlled set is invalid evidence."""
+    src, dst, routers = _make("one")
+    frame = routers[0]["frames"][1]
+    raw = bytearray.fromhex(frame["raw_hex"])
+    ip_header_length = 20
+    udp_payload_start = 14 + ip_header_length + 8
+    seq_offset = udp_payload_start + len(MAGIC)
+    raw[seq_offset:seq_offset + 2] = (255).to_bytes(2, "big")
+    frame["raw_hex"] = raw.hex()
+    with pytest.raises(RouterGroundRefused, match="identity"):
+        verify_router_route("one", src, dst, routers)
+
+
 def test_tampered_receiver_ancillary_value_is_refused():
     """A remote sender cannot assert the receiver's actual kernel IP_RECVTTL measurement."""
     src, dst, routers = _make("one")
