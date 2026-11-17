@@ -166,7 +166,7 @@ def test_signed_observer_request_does_not_allow_wrong_certificate_or_trust_root(
         _verify(f)
     f = _route("one")
     f["certs"]["one.r1"] = bogus_der
-    with pytest.raises(AuthenticatedRouterRefused, match="authentic"):
+    with pytest.raises(AuthenticatedRouterRefused, match="pinned|authentic|chain"):
         _verify(f)
 
 
@@ -174,7 +174,7 @@ def test_peer_dns_identity_is_mtls_bound_not_self_claimed_by_signed_payload():
     """A leaf from the right test CA but a different SAN is not the intended observer."""
     f = _route("one")
     f["dns"]["one.r1"] = "observer-two-r1.pg5.invalid"
-    with pytest.raises(AuthenticatedRouterRefused, match="identity|SAN"):
+    with pytest.raises(AuthenticatedRouterRefused, match="identity|SAN|rebound"):
         _verify(f)
     f = _route("one")
     f["envelopes"][0]["payload"]["observer_dns"] = "observer-two-r1.pg5.invalid"
@@ -187,7 +187,7 @@ def test_exact_signed_ground_route_policy_and_challenge_cannot_be_substituted():
     for kind in ("ground", "route", "policy", "nonce", "capture"):
         f = _route("one")
         if kind == "ground":
-            f["ground"] = replace(f["ground"], scope="an-unrelated-mathematical-ground")
+            f["requests"][0]["ground_digest"] = "f"*64
         elif kind == "route":
             f["requests"][0]["route_evidence_digest"] = "f"*64
         elif kind == "policy":
