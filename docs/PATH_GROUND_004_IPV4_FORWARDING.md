@@ -79,6 +79,26 @@ actual receiver kernel `IP_RECVTTL` observations are required to agree on
 31. This is topology-rebinding of an intention via a common Ground, **not**
 an assumption that changing the physical topology leaves the input unchanged.
 
+### Intention-relative equivalence is not universal continuation equivalence
+
+The companion [In-Formation-Space observation-equivalence work](https://github.com/Kier73/In-Formation-Space/blob/main/bridges/observation-equivalence/README.md)
+makes a crucial distinction: two states can agree on the currently requested
+observation but fail to be **transition-congruent** under later actions.
+VGI's [Build 24 equivalence checks](https://github.com/Kier73/Virtual-Ground-Interpreter/blob/main/validation/build24_equivalence.py)
+likewise seek distinguishing continuations instead of treating a common
+present observation as universal state identity.
+
+Here, `(one-router, source TTL=32)` and `(two-router, source TTL=33)`
+both produce **observed receiver TTL=31**, so they are equivalent for this
+single admitted intention. They are **not identical route states**:
+they consume different hop budgets and have different route evidence.
+For desired terminal TTL **254**, the one-router source can send 255
+but the two-router source would require 256, which is outside IPv4's
+8-bit TTL field. That continuation **distinguishes** their admissibility.
+E-CPU therefore binds the requested observation and horizon to its
+route witness; it must not upgrade one matching result into a proof of
+unbounded topology-independent behavior or strong bisimulation.
+
 ## Controlled real kernel topologies
 
 `scripts/run_ip_router_path_ground.sh` creates twelve **temporary owned
