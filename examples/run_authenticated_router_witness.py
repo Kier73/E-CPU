@@ -124,7 +124,7 @@ def wire_read(t: SocketTransport, expected: str, timeout: float = 7.0) -> dict:
     while time.monotonic() < deadline:
         item = t.poll(t.local_endpoint)
         if item is not None:
-            if (item.op not in (expected, "REJECT") or len(item.body) != 1
+            if ((expected != "*" and item.op not in (expected, "REJECT")) or len(item.body) != 1
                     or type(item.body[0]) is not dict):
                 raise AuthenticatedRouterRefused("unexpected MailCPU observer response")
             return {"op": item.op, "body": item.body[0]}
@@ -154,66 +154,54 @@ def observer_process(
     ready_file.write_text(json.dumps({"port": listener.getsockname()[1],
                                       "router_id": router_id}))
     used = set()
+    t = None
     try:
-        # One connection; the coordinator sends a valid request, a repeated
-        # request to test replay, and an explicitly acknowledged termination.
-        with accept_mutual_tls(
+        # Real E-CPU mutually authenticated socket; a signed receipt alone
+        # does not identify the live peer whose key answered the request.
+        t = accept_mutual_tls(
             listener, router_id, "coordinator",
             server_context(keys, router_id), expected_peer_dns=CLIENT,
             handshake_timeout=7,
-        ) as t:
-            pass
-    except TypeError:
-        # SocketTransport supports close(), but is not a context manager.
-        t = None
-        try:
-            t = accept_mutual_tls(
-                listener, router_id, "coordinator", server_context(keys, router_id),
-                expected_peer_dns=CLIENT, handshake_timeout=7,
-            )
-            while True:
-                req = wire_read(t, "*", timeout=8)
-                op, msg = req["op"], req["body"]
-                if op == "OBSERVE":
-                    try:
-                        want = make_capture_request(
-                            route_id=msg["route_id"], router_id=msg["router_id"],
-                            ground_digest=msg["ground_digest"],
-                            route_evidence_digest=msg["route_evidence_digest"],
-                            receiver_policy_digest=msg["receiver_policy_digest"],
-                            capture=capture, challenge=msg["challenge"],
-                        )
-                        valid = (want == msg
-                                 and msg["router_id"] == router_id
-                                 and msg["ground_digest"] == expected_ground_digest
-                                 and msg["route_evidence_digest"] == expected_route_digest
-                                 and msg["receiver_policy_digest"] == expected_policy_digest)
-                        if not valid:
-                            raise AuthenticatedRouterRefused("unlicensed route, packet or Ground")
-                        if want["challenge"] in used:
-                            wire_send(t, "coordinator", "REJECT", {"reason": "challenge-replay"})
-                            continue
-                        used.add(want["challenge"])
-                        signed = signed_capture(key, want, capture, SERVER_DNS[router_id])
-                        wire_send(t, "coordinator", "RECEIPT", {
-                            "envelope": signed, "capture": capture,
-                        })
-                    except (AuthenticatedRouterRefused, KeyError, TypeError):
-                        wire_send(t, "coordinator", "REJECT", {"reason": "invalid-observation-request"})
-                elif op == "CLOSE":
-                    wire_send(t, "coordinator", "CLOSED", {"done": True})
-                elif op == "BYE":
-                    break
-                else:
-                    wire_send(t, "coordinator", "REJECT", {"reason": "unknown-capability"})
-        finally:
-            if t is not None:
-                t.close()
-            listener.close()
-    else:
-        # The adapter should not implement context management; fail if an
-        # unexpected transport implementation changes this assumption.
-        raise AuthenticatedRouterRefused("unexpected context-managed MailCPU transport")
+        )
+        while True:
+            req = wire_read(t, "*", timeout=8)
+            op, msg = req["op"], req["body"]
+            if op == "OBSERVE":
+                try:
+                    want = make_capture_request(
+                        route_id=msg["route_id"], router_id=msg["router_id"],
+                        ground_digest=msg["ground_digest"],
+                        route_evidence_digest=msg["route_evidence_digest"],
+                        receiver_policy_digest=msg["receiver_policy_digest"],
+                        capture=capture, challenge=msg["challenge"],
+                    )
+                    valid = (want == msg
+                             and msg["router_id"] == router_id
+                             and msg["ground_digest"] == expected_ground_digest
+                             and msg["route_evidence_digest"] == expected_route_digest
+                             and msg["receiver_policy_digest"] == expected_policy_digest)
+                    if not valid:
+                        raise AuthenticatedRouterRefused("unlicensed route, packet or Ground")
+                    if want["challenge"] in used:
+                        wire_send(t, "coordinator", "REJECT", {"reason": "challenge-replay"})
+                        continue
+                    used.add(want["challenge"])
+                    signed = signed_capture(key, want, capture, SERVER_DNS[router_id])
+                    wire_send(t, "coordinator", "RECEIPT", {
+                        "envelope": signed, "capture": capture,
+                    })
+                except (AuthenticatedRouterRefused, KeyError, TypeError):
+                    wire_send(t, "coordinator", "REJECT", {"reason": "invalid-observation-request"})
+            elif op == "CLOSE":
+                wire_send(t, "coordinator", "CLOSED", {"done": True})
+            elif op == "BYE":
+                break
+            else:
+                wire_send(t, "coordinator", "REJECT", {"reason": "unknown-capability"})
+    finally:
+        if t is not None:
+            t.close()
+        listener.close()
 
 
 def run(input_dir: Path, output: Path) -> dict:
