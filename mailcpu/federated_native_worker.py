@@ -93,8 +93,8 @@ def native_affine(
         required_rights=frozenset({"compute"}),
         base_energy=8,
         energy_per_byte=1,
-        max_input_bytes=8192,
-        max_output_bytes=1024,
+        max_input_bytes=8192 if request["operation"] == "lens64.navigate" else 4096,
+        max_output_bytes=1024 if request["operation"] == "lens64.navigate" else 256,
         deterministic=True,
         effect_mode="pure",
     )
