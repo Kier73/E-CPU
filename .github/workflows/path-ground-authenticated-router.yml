@@ -8,6 +8,7 @@ on:
       - 'examples/run_authenticated_router_witness.py'
       - 'scripts/audit_authenticated_router_witness.py'
       - 'tests/test_router_witness_auth.py'
+      - 'tests/test_router_witness_audit.py'
       - 'docs/PATH_GROUND_005_AUTHENTICATED_ROUTER_WITNESS.md'
       - '.github/workflows/path-ground-authenticated-router.yml'
   push:
@@ -17,6 +18,7 @@ on:
       - 'examples/run_authenticated_router_witness.py'
       - 'scripts/audit_authenticated_router_witness.py'
       - 'tests/test_router_witness_auth.py'
+      - 'tests/test_router_witness_audit.py'
       - 'docs/PATH_GROUND_005_AUTHENTICATED_ROUTER_WITNESS.md'
       - '.github/workflows/path-ground-authenticated-router.yml'
   workflow_dispatch:
@@ -41,7 +43,7 @@ jobs:
       - name: Install E-CPU and opt-in signed-witness verification
         run: python -m pip install -e ".[dev]" "cryptography>=42"
       - name: Verify mTLS-leaf certificate identity, signed request binding and raw IP native paths
-        run: python -m pytest -q tests/test_router_witness_auth.py tests/test_ip_router_path_ground.py tests/test_observer_path_evidence.py tests/test_mtls_transport.py
+        run: python -m pytest -q tests/test_router_witness_auth.py tests/test_router_witness_audit.py tests/test_ip_router_path_ground.py tests/test_observer_path_evidence.py tests/test_mtls_transport.py
 
   actual-authenticated-network:
     name: Real 0/L2/1/2 kernel path followed by distinct mTLS observer processes
