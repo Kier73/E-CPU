@@ -69,6 +69,8 @@ def run() -> dict:
     )
     proposal = ground.propose_to_structural_memory(
         registry, "path002-kernel-selected-output", train, holdout,
+        train_trace=train_trace, train_received=train_bytes,
+        holdout_trace=holdout_trace, holdout_received=holdout_bytes,
     )
     admitted = registry.admit(proposal.proposal_id, expected_revision=0)
     logical_target = 10**30 + 113
