@@ -265,6 +265,21 @@ class ExistingStructuralMemoryIntegrationTests(unittest.TestCase):
             registry.admit(proposal.proposal_id, expected_revision=0)
         self.assertIsNone(registry.active_version("not-admitted-path"))
 
+    def test_structural_memory_stage_requires_original_receive_bytes(self):
+        """A forged read receipt is not interchangeable with the real checked socket bytes."""
+        first, second = observations()
+        ground = recognized(first, second)
+        registry = StructuralMemoryRegistry(admission_policy=lambda _p: True)
+        changed = list(second[2])
+        changed[0] = b"\\x00\\x00\\x00\\x00"
+        with self.assertRaisesRegex(NativePathGroundRefused, "unverified original native path evidence"):
+            ground.propose_to_structural_memory(
+                registry, "tampered-original-endpoint", first[0], second[0],
+                train_trace=first[1], train_received=first[2],
+                holdout_trace=second[1], holdout_received=tuple(changed),
+            )
+        self.assertIsNone(registry.active_version("tampered-original-endpoint"))
+
     def test_cross_intention_witnesses_cannot_attach_to_other_ground(self):
         first, second = observations()
         ground = recognized(first, second)
