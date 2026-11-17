@@ -5,6 +5,10 @@ on:
       - 'mailcpu/transit_simt.py'
       - 'mailcpu/egpu.py'
       - 'mailcpu/tensor_stream.py'
+      - 'mailcpu/tensor_checkpoint.py'
+      - 'mailcpu/checkpoint.py'
+      - 'tests/test_tensor_checkpoint.py'
+      - 'tests/test_checkpoint.py'
       - 'mailcpu/path_tensor.py'
       - 'tests/test_tensor_paths.py'
       - '.github/workflows/tensor-path.yml'
@@ -14,6 +18,10 @@ on:
       - 'mailcpu/transit_simt.py'
       - 'mailcpu/egpu.py'
       - 'mailcpu/tensor_stream.py'
+      - 'mailcpu/tensor_checkpoint.py'
+      - 'mailcpu/checkpoint.py'
+      - 'tests/test_tensor_checkpoint.py'
+      - 'tests/test_checkpoint.py'
       - 'mailcpu/path_tensor.py'
       - 'tests/test_tensor_paths.py'
       - '.github/workflows/tensor-path.yml'
@@ -38,7 +46,7 @@ jobs:
       - name: Install test environment
         run: python -m pip install -e '.[dev]'
       - name: Verify SIMT and E-GPU reference and path-transfer tensor realizations
-        run: python -m pytest -q tests/test_tensor_paths.py tests/test_egpu.py tests/test_path_ground_probe.py
+        run: python -m pytest -q tests/test_tensor_paths.py tests/test_tensor_checkpoint.py tests/test_checkpoint.py tests/test_egpu.py tests/test_path_ground_probe.py
       - name: Repository conformance and syntax
         run: |
           python -m compileall -q mailcpu
