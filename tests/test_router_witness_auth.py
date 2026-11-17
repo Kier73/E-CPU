@@ -272,6 +272,105 @@ def test_malformed_challenge_and_response_are_refused_before_application_permiss
         _verify(f)
 
 
+@pytest.mark.parametrize("route", ["one", "bridge"])
+def test_real_mailcpu_mutual_tls_process_authenticates_leaf_key_and_rejects_replay(
+    tmp_path, route,
+):
+    """Real process/socket mTLS with SYNTHETIC raw packets; physical routing is separately tested.
+
+    This avoids treating a cryptographic signing-only unit test as evidence
+    that live MailCPU networking actually delivers authenticated receipts.
+    """
+    import os
+    from pathlib import Path
+    import subprocess
+    import sys
+    import time
+
+    from examples.run_authenticated_router_witness import (
+        SERVER_DNS, client_context, issue_test_identities,
+        wire_read, wire_send,
+    )
+    from mailcpu.mtls_transport import connect_mutual_tls
+
+    ground = recognize_router_ttl_ground(*_verified())
+    source, receiver, captures = _make(route)
+    router_id = ROUTES[route][0]
+    observed = ground.routes[tuple(ROUTES).index(route)]
+    policy = canonical_value_digest({"scenario": "synthetic-transport-only", "route": route})
+    cert_dir = tmp_path / "keys"
+    cert_dir.mkdir()
+    root = issue_test_identities(cert_dir)
+    capture = captures[0]
+    capture_file = tmp_path / "raw-capture.json"
+    capture_file.write_text(json.dumps(capture), encoding="utf-8")
+    ready = tmp_path / "observer-ready.json"
+    stdout = tmp_path / "observer.stdout"
+    stderr = tmp_path / "observer.stderr"
+    with stdout.open("w") as out, stderr.open("w") as err:
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "examples.run_authenticated_router_witness",
+             "--serve", router_id, "--capture-file", str(capture_file),
+             "--cert-dir", str(cert_dir), "--ready", str(ready),
+             "--ground", ground.ground_digest,
+             "--route", observed.evidence_digest, "--policy", policy],
+            stdout=out, stderr=err,
+        )
+    t = None
+    try:
+        deadline = time.monotonic() + 7
+        while not ready.exists() and time.monotonic() < deadline:
+            if proc.poll() is not None:
+                raise AssertionError(
+                    "authenticated observer terminated before listening: " + stderr.read_text()
+                )
+            time.sleep(0.02)
+        assert ready.exists(), "signed test observer did not open an E-CPU network socket"
+        port = json.loads(ready.read_text())["port"]
+        t = connect_mutual_tls(
+            "127.0.0.1", port, "coordinator", router_id,
+            client_context(cert_dir),
+            server_hostname=SERVER_DNS[router_id],
+            timeout=4, handshake_timeout=4,
+        )
+        assert t.socket.version() in ("TLSv1.2", "TLSv1.3")
+        actual_peer_der = t.socket.getpeercert(binary_form=True)
+        actual_pinned = x509.load_pem_x509_certificate(
+            (cert_dir / (router_id + ".pem")).read_bytes(),
+        ).public_bytes(serialization.Encoding.DER)
+        assert actual_peer_der == actual_pinned
+        nonce = "f"*32
+        request = make_capture_request(
+            route_id=route, router_id=router_id, ground_digest=ground.ground_digest,
+            route_evidence_digest=observed.evidence_digest,
+            receiver_policy_digest=policy, capture=capture,
+            challenge=nonce,
+        )
+        wire_send(t, router_id, "OBSERVE", request)
+        result = wire_read(t, "RECEIPT")
+        assert result["op"] == "RECEIPT"
+        assert result["body"]["capture"] == capture
+        assert verify_signed_capture(
+            request, capture, result["body"]["envelope"],
+            trusted_ca_pem=root, live_tls_peer_der=actual_peer_der,
+            expected_dns=SERVER_DNS[router_id],
+            now=datetime.now(timezone.utc),
+        ).challenge == nonce
+        wire_send(t, router_id, "OBSERVE", request)
+        replay = wire_read(t, "REJECT")
+        assert replay == {"op": "REJECT", "body": {"reason": "challenge-replay"}}
+        wire_send(t, router_id, "CLOSE", {"done": True})
+        assert wire_read(t, "CLOSED") == {"op": "CLOSED", "body": {"done": True}}
+        wire_send(t, router_id, "BYE", {"done": True})
+        assert proc.wait(timeout=5) == 0, stderr.read_text()
+    finally:
+        if t is not None:
+            t.close()
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=4)
+
+
 def test_received_certificate_claim_must_be_from_authenticated_tls_not_frame_metadata():
     """The signed frame cannot substitute a self-provided certificate for TLS peer identity."""
     f = _route("one")
