@@ -1,0 +1,49 @@
+name: INTERNET-001 pre-existing Internet-native Ground
+
+on:
+  push:
+    paths:
+      - 'examples/verify_internet_git_ground.py'
+      - 'tests/test_internet_git_ground.py'
+      - 'docs/INTERNET_NATIVE_GROUND_001.md'
+      - '.github/workflows/internet-native-ground.yml'
+  pull_request:
+    paths:
+      - 'examples/verify_internet_git_ground.py'
+      - 'tests/test_internet_git_ground.py'
+      - 'docs/INTERNET_NATIVE_GROUND_001.md'
+      - '.github/workflows/internet-native-ground.yml'
+  workflow_dispatch:
+
+jobs:
+  offline-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.13']
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Test receiver-owned network-object observation contract and refusals
+        run: python -m unittest discover -s tests -p 'test_internet_git_ground.py' -v
+
+  actual-public-internet-observation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Independently read fixed Git ref, commit, tree, and source blob using HTTPS
+        run: |
+          python examples/verify_internet_git_ground.py \
+            --repo Kier73/E-CPU \
+            --branch research/internet-native-ground-001-anchor \
+            --expected-commit 9a34c11147db7d8619b65b6058fa121ab9b1c43c \
+            --path reports/internet_native_ground/remote_state.json \
+            --expected-blob-sha1 46958c491ec504e2f8562ca37b8b152d441376f0 \
+            --expected-content-sha256 ece11d917a3c4bf1240e8e02a29b94ff2761fcdf8e37504bc9660d382b0f5c67
