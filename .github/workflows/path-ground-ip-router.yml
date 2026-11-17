@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - 'mailcpu/ip_router_path_ground.py'
+      - 'mailcpu/router_observer_path.py'
       - 'tests/test_ip_router_path_ground.py'
       - 'examples/run_ip_router_path_ground.py'
       - 'scripts/run_ip_router_path_ground.sh'
@@ -12,6 +13,7 @@ on:
   pull_request:
     paths:
       - 'mailcpu/ip_router_path_ground.py'
+      - 'mailcpu/router_observer_path.py'
       - 'tests/test_ip_router_path_ground.py'
       - 'examples/run_ip_router_path_ground.py'
       - 'scripts/run_ip_router_path_ground.sh'
@@ -76,6 +78,16 @@ jobs:
           assert report["status"] == "actual_kernel_forwarding_with_independently_observed_router_headers"
           assert [r["hops"] for r in report["observed_routes"]] == [0, 0, 1, 2]
           assert [r["raw_router_headers"] for r in report["observed_routes"]] == [0, 12, 12, 24]
+          native = report["native_e_cpu_observer_paths"]
+          assert list(native) == ["direct", "bridge", "one", "two"]
+          assert [native[r]["verified_packet_count"] for r in native] == [6, 6, 6, 6]
+          assert native["direct"]["stage_modes"] == ["carrier", "observe"]
+          assert native["bridge"]["stage_modes"] == ["carrier", "observe", "carrier", "observe"]
+          assert native["one"]["stage_modes"] == ["carrier", "transform", "carrier", "observe"]
+          assert native["two"]["stage_modes"] == [
+              "carrier", "transform", "carrier", "transform", "carrier", "observe"
+          ]
+          assert len({native[r]["route_evidence_digest"] for r in native}) == 4
           observed = report["same_target_after_topology_change"]
           assert observed["real_receiver_one"] == observed["real_receiver_two"] == 31
           assert report["symbolic_ground_navigation"]["scope"] == "symbolic_rfc_model_not_observed_future_route"
