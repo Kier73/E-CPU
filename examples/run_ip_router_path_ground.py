@@ -112,7 +112,7 @@ def capture_router(
     try:
         for name in (ingress, egress):
             sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(0x0800))
-            sock.bind((name, 0))
+            sock.bind((name, socket.htons(0x0800)))
             sock.setblocking(False)
             sockets.append((name, sock))
             selector.register(sock.fileno(), select.EPOLLIN)
