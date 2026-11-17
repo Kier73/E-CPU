@@ -4,9 +4,14 @@
 forwarding harness, Linux and Windows focused tests, and a dedicated privileged
 GitHub Actions test are committed. The owned multi-router test must actually
 run successfully before this is reported as *verified kernel forwarding*.
-This environment cannot create network namespaces because CAP_NET_ADMIN /
-CAP_SYS_ADMIN are unavailable. The standalone kernel `IP_RECVTTL` read was
-tested on real local UDP traffic, but that is not a router-hops proof.
+This container cannot change its existing host network, but a nested,
+isolated Linux user+network+mount namespace did permit a **real L2 bridge
+control**: six UDP packets traversed a native two-interface bridge, with
+twelve AF_PACKET ingress/egress observations and identical sender/receiver
+kernel TTL values. The host still mounts `/proc/sys` read-only, so the
+L3 `ip_forward` experiment cannot be completed locally. The privileged
+runner must establish that part; a bridge is **not** a substitute for it.
+The kernel's `IP_RECVTTL` ancillary read also worked on actual local traffic.
 
 ## Why this goes beyond remote execution
 
@@ -76,16 +81,22 @@ an assumption that changing the physical topology leaves the input unchanged.
 
 ## Controlled real kernel topologies
 
-`scripts/run_ip_router_path_ground.sh` creates nine **temporary owned
-Linux network namespaces**, connects them with six pairs of virtual Ethernet
-interfaces, installs finite local routes, and turns on kernel IPv4 forwarding
-**only inside the temporary router namespaces**.
+`scripts/run_ip_router_path_ground.sh` creates twelve **temporary owned
+Linux network namespaces**, connects them with eight virtual Ethernet pairs,
+installs explicit local routes, and enables IPv4 forwarding **only inside
+the L3 router namespaces**. A separate native Linux Ethernet bridge is
+configured solely as a link-layer switch without `ip_forward`.
 
-| Path | Kernel forwarding nodes | Sender / receiver expectation |
-|---|---:|---|
-| Direct | 0 | `u → u` |
-| One | 1 | `u → u−1` |
-| Two | 2 | `u → u−2` |
+| Path | Intermediate network elements | IPv4 forwarding hops | Sender / receiver expectation |
+|---|---|---:|---|
+| Direct | None, one veth pair | 0 | `u → u` |
+| Bridge | One real Linux L2 bridge, two veth pairs | 0 | `u → u` |
+| One | One IPv4 forwarding kernel | 1 | `u → u−1` |
+| Two | Two IPv4 forwarding kernels | 2 | `u → u−2` |
+
+This fourth topology is the critical **negative control**: movement through
+an intermediate network element does not itself imply a TTL transition.
+The observation depends on **which protocol operation the medium performs**.
 
 The source emits six independently recognizable UDP datagrams with TTLs
 `4,7,32,33,64,127`. Only the sender process sets `IP_TTL`. Router
@@ -93,9 +104,9 @@ namespaces contain **no MailCPU operator, no Python packet forwarder and no
 arithmetic evaluator**. Native Linux routing performs the transformation.
 The packet is simply forwarded via kernel IPv4 routing tables.
 
-Each real router launches an **observation-only AF_PACKET socket pair**:
-one on its ingress Ethernet interface and one on its egress Ethernet
-interface. These record the exact captured Ethernet/IPv4/UDP frame bytes.
+Each real intermediate router **or bridge** launches an **observation-only
+AF_PACKET socket pair**: one on its ingress Ethernet interface and one
+on its egress Ethernet interface. These record the exact captured Ethernet/IPv4/UDP frame bytes.
 The destination additionally enables the Linux `IP_RECVTTL` control
 message and reads the actual received TTL using `recvmsg`. This field is
 supplied by the receiving kernel, not parsed from the source's payload.
@@ -111,14 +122,15 @@ requires:
    datagram index and **original UDP payload bytes**.
 2. Real destination bytes and kernel `IP_RECVTTL` equal to the predicted
    incoming value after the **declared number of actual forwarding hops**.
-3. At each intermediate router, **both** ingress and egress captures.
-   Their actual IP headers must agree on IP identification, source and
-   destination, UDP ports and exact payload, while showing the required
-   TTL decrement. Every tested packet must appear exactly once at each
-   router side. No unseen packet can be reconstructed from a supplied
-   mathematical description.
-4. The same canonical fixed probe set across the direct, one-hop and
-   two-hop paths, with **different route evidence digests**. The Ground
+3. At each intermediate forwarding element, **both** ingress and egress
+   captures. Their actual IP headers must agree on IP identification,
+   source/destination, UDP ports and exact payload. The verifier recovers
+   the observed per-element TTL difference from the raw packet pair.
+   The L2 bridge must show **zero difference**; an L3 router must show
+   **minus one**. Each packet must appear once per interface. A missing
+   packet can never be replaced by a mathematical prediction.
+4. The same canonical fixed probe set across the direct, bridge, one-hop
+   and two-hop paths, with **different route evidence digests**. The Ground
    digest instead identifies their shared per-hop operation and
    interpretation, independent of route names.
 5. Correct destination equivalence when E-CPU inverts the intention to
