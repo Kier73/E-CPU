@@ -384,3 +384,18 @@ def test_pinned_certificate_substitution_refused_before_forwarding():
     with pytest.raises(LensFabricRefused, match="semantic address"):
         fabric.prepare(intent, new_address, origin_sequence=1)
     assert wire.calls == 0
+
+
+def test_receiver_rejects_inline_coordinate_drift():
+    """A local Hypervisor operator will not reinterpret the pinned memory address."""
+    fabric, intent, address, _wire, receivers = _fabric()
+    os, runtime, pid, _ = receivers["peer-c"]
+    changed_workload = replace(
+        address.workload, input_value={"coordinate": COORDINATE + 1},
+    )
+    with pytest.raises(LensFabricRefused, match="receiver coordinate"):
+        runtime.execute_operator(
+            os, pid, "lens003.remote", "lens003.coordinatedrift",
+            1, changed_workload.logical_time,
+            changed_workload, lens_fabric_spec().operator_id,
+        )
