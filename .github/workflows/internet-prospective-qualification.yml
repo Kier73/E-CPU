@@ -1,0 +1,93 @@
+name: INTERNET-006 prospective qualified Internet Ground navigation
+
+on:
+  push:
+    branches:
+      - research/internet-prospective-qualification-006-20261116
+    paths:
+      - 'mailcpu/internet_prospective_qualification.py'
+      - 'tests/test_internet_prospective_qualification.py'
+      - 'examples/prospectively_navigate_public_internet.py'
+      - 'docs/INTERNET_PROSPECTIVE_QUALIFICATION_006.md'
+      - '.github/workflows/internet-prospective-qualification.yml'
+  pull_request:
+    paths:
+      - 'mailcpu/internet_prospective_qualification.py'
+      - 'tests/test_internet_prospective_qualification.py'
+      - 'examples/prospectively_navigate_public_internet.py'
+      - '.github/workflows/internet-prospective-qualification.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-contracts:
+    name: Real native E-CPU resolver and prospective discovery
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Import actual E-CPU catalogue, law discovery and HeadlessOS
+        run: |
+          python -c 'import mailcpu.evidence_path_resolver, mailcpu.internet_ground_routing, mailcpu.active_ground_discovery'
+      - name: Run all native prospective-qualification and adversarial tests
+        run: python -m unittest discover -s tests -p 'test_internet_prospective_qualification.py' -v
+      - name: Retain upstream native router regression gates
+        run: |
+          python -m unittest discover -s tests -p 'test_internet_ground_routing.py' -v
+          python -m pytest -q tests/test_evidence_path_resolver.py
+
+  live-read-only-rfc:
+    name: Controlled permitted public HTTPS navigation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: native-contracts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Select prospective Internet Ground then issue bounded RFC observations
+        run: |
+          python examples/prospectively_navigate_public_internet.py observe \
+            --seed 9293 --target 793 --output /tmp/internet006-live.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: internet006-public-rfc-capsule
+          path: /tmp/internet006-live.json
+          retention-days: 7
+          if-no-files-found: error
+
+  independent-offline-replay:
+    name: Independent receiver without Internet I/O
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: live-read-only-rfc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: internet006-public-rfc-capsule
+          path: /tmp
+      - name: Reconstruct exact RFC path and qualified route without an HTTPS request
+        run: |
+          python examples/prospectively_navigate_public_internet.py replay \
+            --seed 9293 --target 793 \
+            --input /tmp/internet006-live.json \
+            --output /tmp/internet006-replayed.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: internet006-offline-replay-receipt
+          path: /tmp/internet006-replayed.json
+          retention-days: 7
+          if-no-files-found: error
