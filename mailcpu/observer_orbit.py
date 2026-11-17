@@ -61,6 +61,7 @@ _COMPLEXITY = {
     "fgraph": "O(1)",
     "lcg": "O(log n)",
     "gf2": "O(L^3 log n)",
+    "lens64": "O(log n) plus at most two fixed value frames",
 }
 
 
@@ -1329,6 +1330,13 @@ class ContextualOrbitNavigator:
                     target_value,
                 )
             inverse_complexity = "O(log m)"
+        elif family == "lens64":
+            from .lens_ground import find_lens
+            try:
+                candidate = find_lens(params, target_value)
+            except Refused as exc:
+                raise ObserverOrbitError(str(exc)) from exc
+            inverse_complexity = "O(log 2^64) plus two frames"
         elif family == "gf2":
             candidate = find_coordinate_gf2_bit(
                 params["C"],
