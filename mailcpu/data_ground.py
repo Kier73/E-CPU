@@ -284,15 +284,28 @@ class DataInterpretation:
         }
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class DataGround:
-    """One finite actual byte window and a separately identified source extent."""
+    """One finite actual byte window and a separately verified page-store extent.
+
+    Callers may construct inline bytes directly; page-store provenance can
+    only be established through from_object_range() after the native
+    backing has checked the requested immutable page hashes.
+    """
 
     data: bytes
-    source_scope: str = "complete-inline-bytes"
-    parent_manifest_digest: str | None = None
-    parent_content_digest: str | None = None
-    parent_offset: int = 0
+    source_scope: str
+    parent_manifest_digest: str | None
+    parent_content_digest: str | None
+    parent_offset: int
+
+    def __init__(self, data: bytes) -> None:
+        object.__setattr__(self, "data", data)
+        object.__setattr__(self, "source_scope", "complete-inline-bytes")
+        object.__setattr__(self, "parent_manifest_digest", None)
+        object.__setattr__(self, "parent_content_digest", None)
+        object.__setattr__(self, "parent_offset", 0)
+        self.__post_init__()
 
     def __post_init__(self) -> None:
         if type(self.data) is not bytes or len(self.data) > MAX_WINDOW:
@@ -325,11 +338,16 @@ class DataGround:
         _integer(length, "object range length", 0, MAX_WINDOW)
         data = store.read_range(manifest, offset, length)
         full = offset == 0 and length == manifest.size_bytes
-        return cls(
-            data,
+        observed = cls(data)
+        object.__setattr__(
+            observed, "source_scope",
             "full-object-content-verified" if full else "page-verified-range",
-            manifest.manifest_digest, manifest.content_digest, offset,
         )
+        object.__setattr__(observed, "parent_manifest_digest", manifest.manifest_digest)
+        object.__setattr__(observed, "parent_content_digest", manifest.content_digest)
+        object.__setattr__(observed, "parent_offset", offset)
+        observed.__post_init__()
+        return observed
 
     @property
     def byte_sha256(self) -> str:
