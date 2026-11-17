@@ -135,6 +135,9 @@ link_pair "$S0" out 10.73.0.1/30 "$D0" in 10.73.0.2/30
 link_pair "$S1" out 10.73.1.1/30 "$R1" in 10.73.1.2/30
 link_pair "$R1" out 10.73.2.1/30 "$D1" in 10.73.2.2/30
 sudo ip -n "$S1" route add 10.73.2.2/32 via 10.73.1.2 dev out
+# Legitimate reverse paths ensure Linux rp_filter, where enabled, does not
+# silently drop packets because the receiver lacks a route to the source.
+sudo ip -n "$D1" route add 10.73.1.1/32 via 10.73.2.1 dev in
 sudo ip netns exec "$R1" sysctl -qw net.ipv4.ip_forward=1
 
 # Two real kernel forwarding operations: s2 -> r2a -> r2b -> d2.
@@ -143,6 +146,8 @@ link_pair "$R2A" out 10.73.4.1/30 "$R2B" in 10.73.4.2/30
 link_pair "$R2B" out 10.73.5.1/30 "$D2" in 10.73.5.2/30
 sudo ip -n "$S2" route add 10.73.5.2/32 via 10.73.3.2 dev out
 sudo ip -n "$R2A" route add 10.73.5.2/32 via 10.73.4.2 dev out
+sudo ip -n "$R2B" route add 10.73.3.1/32 via 10.73.4.1 dev in
+sudo ip -n "$D2" route add 10.73.3.1/32 via 10.73.5.1 dev in
 sudo ip netns exec "$R2A" sysctl -qw net.ipv4.ip_forward=1
 sudo ip netns exec "$R2B" sysctl -qw net.ipv4.ip_forward=1
 
