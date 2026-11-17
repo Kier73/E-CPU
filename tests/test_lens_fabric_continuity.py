@@ -399,3 +399,17 @@ def test_receiver_rejects_inline_coordinate_drift():
             1, changed_workload.logical_time,
             changed_workload, lens_fabric_spec().operator_id,
         )
+
+
+def test_native_address_transports_only_revision_not_law_or_witness_tape():
+    """The native route contains no remote generator, synthetic tape or admission grant."""
+    _fabric_runtime, intent, address, _wire, _receivers = _fabric()
+    encoded = canonical(address.to_dict())
+    assert b'"parameters"' not in encoded
+    assert b'"witnesses"' not in encoded
+    assert b'"frames"' not in encoded
+    assert b'"admission_policy"' not in encoded
+    reference = address.workload.operators[0].structural_memory[0]
+    assert reference.to_dict() == intent.memory_ref.to_dict()
+    assert reference.coordinate == COORDINATE
+    assert address.workload.schema_version == 2
