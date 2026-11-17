@@ -12,8 +12,11 @@ from .runtime_qualification import REQUEST_KIND, RESPONSE_KIND, canonical, diges
 from .runtime_qualification_worker import serve as fixed_worker, _write_atomic
 
 
-def native_affine(request: dict[str, Any], *, authority_enabled: bool) -> tuple[dict[str, int], dict[str, Any]]:
-    """Execute a pure affine transition only through local Virtual Layer authorization."""
+def native_affine(
+    request: dict[str, Any], *, authority_enabled: bool,
+    approved_lens_grounds: frozenset[str] = frozenset(),
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Execute a pure affine or pinned lens transition through local Virtual Layer authority."""
     from . import (
         Capability, HeadlessOS, HypervisorAction, HypervisorPolicy, LexicalDecisionModel,
         OperatorRegistry, OperatorSpec, SystemIdentity, SystemSeed, SystemSeedEnvelope,
@@ -23,12 +26,54 @@ def native_affine(request: dict[str, Any], *, authority_enabled: bool) -> tuple[
     from .law_certifier import lcg_navigate
 
     values = request["payload"]
-    if (not isinstance(values, dict) or set(values) != {"a", "c", "mod", "x0", "coordinate"}
-            or any(type(x) is not int for x in values.values())):
-        raise ValueError("native operator payload has invalid schema")
-    a, c, mod, x0, t = (values[k] for k in ("a", "c", "mod", "x0", "coordinate"))
-    if not (2 <= mod <= 2**31 - 1 and all(0 <= x < mod for x in (a, c, x0)) and 0 <= t <= 10**18):
-        raise ValueError("native affine input outside admitted domain")
+    if request["operation"] == "lens64.navigate":
+        from .lens_ground import navigate_lens
+        from .structural_memory import (
+            StructuralMemoryProposal, StructuralMemoryVerifier, StructuralNavigator,
+        )
+
+        if not isinstance(values, dict) or set(values) != {"proposal", "coordinate"}:
+            raise ValueError("native lens request has invalid schema")
+        t = values["coordinate"]
+        if type(t) is not int or not 0 <= t <= 10**18:
+            raise ValueError("native lens coordinate outside receiver budget")
+        proposal = StructuralMemoryProposal.from_dict(values["proposal"])
+        if proposal.spec.family != "lens64" or proposal.spec.digest not in approved_lens_grounds:
+            raise ValueError("receiver has not allowed this exact lens Ground")
+        StructuralMemoryVerifier().verify_proposal(proposal)
+        observed, _context_digest = StructuralNavigator().read(
+            proposal.spec, proposal.certificate, t, context=proposal.spec.context,
+        )
+        expected = {
+            "value": observed,
+            "spec_digest": proposal.spec.digest,
+            "certificate_digest": proposal.certificate.digest,
+        }
+        operator_id = "sab005.lens64.navigate"
+        description = "Receiver-pinned Structural Memory lens navigation"
+        goal = {"kind": "bounded-lens64-observation", "spec_digest": proposal.spec.digest}
+        compute = lambda x, workload: {
+            "value": navigate_lens(proposal.spec.parameters, x["coordinate"]),
+            "spec_digest": proposal.spec.digest,
+            "certificate_digest": proposal.certificate.digest,
+        }
+    elif request["operation"] == "affine_mod":
+        if (not isinstance(values, dict) or set(values) != {"a", "c", "mod", "x0", "coordinate"}
+                or any(type(x) is not int for x in values.values())):
+            raise ValueError("native operator payload has invalid schema")
+        a, c, mod, x0, t = (values[k] for k in ("a", "c", "mod", "x0", "coordinate"))
+        if not (2 <= mod <= 2**31 - 1 and all(0 <= x < mod for x in (a, c, x0)) and 0 <= t <= 10**18):
+            raise ValueError("native affine input outside admitted domain")
+        from .law_certifier import lcg_navigate
+        expected = {"value": lcg_navigate(a, c, mod, x0, t)}
+        operator_id = "sab005.affine_mod"
+        description = "Native receiver-owned modular navigation"
+        goal = {"kind": "bounded-affine-observation"}
+        compute = lambda x, workload: {
+            "value": lcg_navigate(x["a"], x["c"], x["mod"], x["x0"], x["coordinate"])
+        }
+    else:
+        raise ValueError("native operation is not permitted")
     operating_system = HeadlessOS()
     operating_system.hypervisor.classifier = LexicalDecisionModel()
     operating_system.hypervisor.policy = HypervisorPolicy(embedding_review_confidence=1.0)
@@ -39,27 +84,22 @@ def native_affine(request: dict[str, Any], *, authority_enabled: bool) -> tuple[
     if not operating_system.seed_admission.admit(envelope).accepted:
         raise ValueError("receiver system Ground admission refused")
     spec = OperatorSpec(
-        operator_id="sab005.affine_mod",
+        operator_id=operator_id,
         version=1,
-        description="Native receiver-owned modular navigation",
+        description=description,
         input_kind="object",
         output_kind="object",
         substrates=("cpu",),
         required_rights=frozenset({"compute"}),
         base_energy=8,
         energy_per_byte=1,
-        max_input_bytes=4096,
-        max_output_bytes=256,
+        max_input_bytes=8192,
+        max_output_bytes=1024,
         deterministic=True,
         effect_mode="pure",
     )
     registry = OperatorRegistry()
-    registry.register(
-        spec,
-        lambda x, workload: {
-            "value": lcg_navigate(x["a"], x["c"], x["mod"], x["x0"], x["coordinate"])
-        },
-    )
+    registry.register(spec, compute)
     runtime = VirtualLayerRuntime(registry, "sab005-node", frozenset({"cpu"}))
     capabilities = (
         Capability("/virtual-layer/operators", frozenset({"compute"})),
@@ -73,8 +113,8 @@ def native_affine(request: dict[str, Any], *, authority_enabled: bool) -> tuple[
         workload_id="sab005-" + request["nonce"],
         system=identity,
         ground=VirtualGroundRef.from_envelope(envelope),
-        intention={"goal": "bounded-affine-observation"},
-        operators=(VirtualOperatorRef("sab005.affine_mod", 1, "cpu"),),
+        intention={"goal": goal},
+        operators=(VirtualOperatorRef(operator_id, 1, "cpu"),),
         input_value=values,
         budget=VirtualBudget(10_000, 10_000, 1000),
         logical_time=17,
@@ -83,9 +123,8 @@ def native_affine(request: dict[str, Any], *, authority_enabled: bool) -> tuple[
     )
     outcome = runtime.execute_operator(
         operating_system, pid, "sab005.remote", "sab005.operation", 1, 17,
-        workload, "sab005.affine_mod",
+        workload, operator_id,
     )
-    expected = {"value": lcg_navigate(a, c, mod, x0, t)}
     if (outcome.action is not HypervisorAction.ALLOW or not outcome.executed
             or outcome.effect.get("kind") != "virtual_layer.operator_result"
             or outcome.effect.get("operator_contract_digest") != spec.digest
@@ -100,7 +139,8 @@ def native_affine(request: dict[str, Any], *, authority_enabled: bool) -> tuple[
 
 
 def serve_native(message: Any, *, host_id: str, directory: Path,
-                 allowed: frozenset[str], native_authority: bool = True) -> dict[str, Any]:
+                 allowed: frozenset[str], native_authority: bool = True,
+                 approved_lens_grounds: frozenset[str] = frozenset()) -> dict[str, Any]:
     """Handle only locally granted operations; never accept remote source or capability."""
     if (not isinstance(message, dict)
             or set(message) != {"kind", "host", "nonce", "operation", "payload"}
@@ -115,13 +155,18 @@ def serve_native(message: Any, *, host_id: str, directory: Path,
             "boot": secrets.token_hex(16), "ok": False,
             "result": None, "error": "unsupported",
         }
-    if operation != "affine_mod":
+    if operation not in {"affine_mod", "lens64.navigate"}:
         return fixed_worker(
             message, host_id=host_id, directory=directory, no_compute=True,
             no_storage=not {"retain", "retrieve"}.issubset(allowed),
             no_transfer="transfer" not in allowed,
         )
-    result, evidence = native_affine(message, authority_enabled=native_authority)
+    result, evidence = native_affine(
+        message, authority_enabled=native_authority,
+        approved_lens_grounds=approved_lens_grounds,
+    )
+    if operation == "lens64.navigate":
+        result = {**result, "hypervisor_receipt_digest": evidence["hypervisor_receipt_digest"]}
     audit_dir = directory / "native-receipts"
     audit_dir.mkdir(parents=True, exist_ok=True)
     audit = {
@@ -153,6 +198,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--directory", required=True)
     parser.add_argument("--allow", action="append", default=[])
     parser.add_argument("--revoke-native", action="store_true")
+    parser.add_argument("--allow-lens-ground", action="append", default=[])
     args = parser.parse_args(argv)
     try:
         raw = sys.stdin.buffer.readline(8193)
@@ -161,6 +207,7 @@ def main(argv: list[str] | None = None) -> int:
         output = serve_native(
             json.loads(raw), host_id=args.host, directory=Path(args.directory),
             allowed=frozenset(args.allow), native_authority=not args.revoke_native,
+            approved_lens_grounds=frozenset(args.allow_lens_ground),
         )
         sys.stdout.buffer.write(canonical(output) + b"\n")
         return 0
