@@ -2,7 +2,9 @@
 
 Index of specification documents. Documents use defined terms from `GLOSSARY.md`.
 
-For an exact-SHA inventory of mainline capabilities, feature-branch-only developments, and open verification gates, see [Mainline integration checkpoint (2026-11-15)](MAINLINE_INTEGRATION_CHECKPOINT_2026-11-15.md). Its observed CI state is historical, not a claim of current success.
+## General Ground execution proposal
+
+- [GGE-001 — Executable Grounds for general computation](GENERAL_GROUND_EXECUTION_GGE001.md): cross-repository Ground closure and query/observation architecture, mapping the eleven LLM requirements to executable Grounds, evidence classifications, and concrete implementation gates. Research proposal; not an implemented universal executor.
 
 ## Reading order
 
@@ -117,3 +119,7 @@ python scripts/verify_invariants.py     # registry entries resolve to code and t
 python scripts/verify_repo.py           # links, secrets, invariants, hygiene
 python -m pytest                        # invariants hold at runtime
 ```
+
+## Tensor substrate experiment
+
+- [TENSOR-PATH-001 — SIMT and communication-substrate tensor computation](TENSOR_COMPUTATION_PATHS.md): exact integer MAC and tiled matrix multiplication through existing E-GPU/SIMT; a separate evidence-scoped path transfer which realizes streaming convolution without SIMT at the transformation locus.
