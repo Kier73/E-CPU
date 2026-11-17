@@ -48,8 +48,8 @@ function link_pair {
   sudo ip link set ecpg4b netns "$nsb"
   sudo ip -n "$nsa" link set ecpg4a name "$ifa"
   sudo ip -n "$nsb" link set ecpg4b name "$ifb"
-  sudo ip -n "$nsa" addr add "$adda" dev "$ifa"
-  sudo ip -n "$nsb" addr add "$addb" dev "$ifb"
+  if [[ "$adda" != "none" ]]; then sudo ip -n "$nsa" addr add "$adda" dev "$ifa"; fi
+  if [[ "$addb" != "none" ]]; then sudo ip -n "$nsb" addr add "$addb" dev "$ifb"; fi
   sudo ip -n "$nsa" link set "$ifa" up
   sudo ip -n "$nsb" link set "$ifb" up
 }
@@ -121,17 +121,27 @@ function run_route {
 }
 
 S0="$PREFIX-s0"; D0="$PREFIX-d0"
+SB="$PREFIX-sb"; BR="$PREFIX-br"; DB="$PREFIX-db"
 S1="$PREFIX-s1"; R1="$PREFIX-r1"; D1="$PREFIX-d1"
 S2="$PREFIX-s2"; R2A="$PREFIX-r2a"; R2B="$PREFIX-r2b"; D2="$PREFIX-d2"
 
-for ns in "$S0" "$D0" "$S1" "$R1" "$D1" "$S2" "$R2A" "$R2B" "$D2"; do
+for ns in "$S0" "$D0" "$SB" "$BR" "$DB" "$S1" "$R1" "$D1" "$S2" "$R2A" "$R2B" "$D2"; do
   add_namespace "$ns"
 done
 
-# Control: same L3 network, zero IP forwarding operations.
+# Direct control: one veth pair, no intermediate bridge/router.
 link_pair "$S0" out 10.73.0.1/30 "$D0" in 10.73.0.2/30
 
-# One forwarding operation: s1 -> r1 -> d1.
+# Distinguish an intermediate L2 forwarding element from an L3 router.
+# Native Linux bridge switching must preserve the IPv4 TTL field.
+link_pair "$SB" out 10.73.6.1/30 "$BR" in none
+link_pair "$BR" out none "$DB" in 10.73.6.2/30
+sudo ip -n "$BR" link add br0 type bridge
+sudo ip -n "$BR" link set br0 up
+sudo ip -n "$BR" link set in master br0
+sudo ip -n "$BR" link set out master br0
+
+# One IPv4 forwarding operation: s1 -> r1 -> d1.
 link_pair "$S1" out 10.73.1.1/30 "$R1" in 10.73.1.2/30
 link_pair "$R1" out 10.73.2.1/30 "$D1" in 10.73.2.2/30
 sudo ip -n "$S1" route add 10.73.2.2/32 via 10.73.1.2 dev out
@@ -152,6 +162,7 @@ sudo ip netns exec "$R2A" sysctl -qw net.ipv4.ip_forward=1
 sudo ip netns exec "$R2B" sysctl -qw net.ipv4.ip_forward=1
 
 run_route direct "$S0" "$D0" 10.73.0.1 10.73.0.2
+run_route bridge "$SB" "$DB" 10.73.6.1 10.73.6.2 "$BR"
 run_route one "$S1" "$D1" 10.73.1.1 10.73.2.2 "$R1"
 run_route two "$S2" "$D2" 10.73.3.1 10.73.5.2 "$R2A" "$R2B"
 
