@@ -20,7 +20,7 @@ from pathlib import Path
 import re
 
 from cryptography import x509
-from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import ExtendedKeyUsageOID
 
@@ -192,7 +192,8 @@ def audit_certificates(report: dict, now: datetime) -> dict[str, x509.Certificat
                     x509.BasicConstraints,
                 ).value.ca is True
                 and isinstance(root.public_key(), ec.EllipticCurvePublicKey)
-                and isinstance(root.public_key().curve, ec.SECP256R1),
+                and isinstance(root.public_key().curve, ec.SECP256R1)
+                and root.not_valid_before_utc <= now <= root.not_valid_after_utc,
                 "self-contained ephemeral root identity invalid")
         root.public_key().verify(
             root.signature, root.tbs_certificate_bytes,
@@ -259,6 +260,8 @@ def audit(input_dir: Path, report_file: Path) -> dict:
     raw = {}
     for route in ROUTES:
         raw[route] = audit_route(input_dir, route, report)
+    require([len(report["routes"][r]["authenticated_captures"]) for r in ROUTES]
+            == [0, 1, 1, 2], "one or more route-level observer coverage claims invalid")
     require(len(report["signed_receipts"]) == 4, "one or more observer signatures missing")
     seen_challenges = set()
     seen_routers = set()
@@ -298,7 +301,7 @@ def audit(input_dir: Path, report_file: Path) -> dict:
                 "signed observer receipt contains a rebinding or unauthorized field")
         cert = root[router]
         actual_cert_digest = sha256(cert.public_bytes(
-            x509.Encoding.DER,
+            serialization.Encoding.DER,
         )).hexdigest()
         require(entry["leaf_der_sha256"] == actual_cert_digest,
                 "reported live TLS peer DER identity differs from signer certificate")
