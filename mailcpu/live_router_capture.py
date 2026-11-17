@@ -24,7 +24,7 @@ from typing import Any, Callable, Mapping, Sequence
 
 from .ip_router_path_ground import (
     LOCUS_TTL_STEPS, ROUTES, SCHEMA as IP_SCHEMA, TTL_PROBES,
-    RouterTTLGround, ObservedRoute, parse_ethernet_ipv4_udp,
+    RouterTTLGround, ObservedRoute, RouterGroundRefused, parse_ethernet_ipv4_udp,
     verify_router_route,
 )
 from .router_observer_path import (
@@ -119,7 +119,10 @@ def _packet(plan: Mapping[str, Any], side: str, interface: str, raw: bytes) -> N
             or interface != plan["ingress_iface" if side == "ingress" else "egress_iface"]
             or type(raw) is not bytes):
         raise CaptureTimeRefused("signed frame is not from an authorized sensor interface")
-    frame = parse_ethernet_ipv4_udp(raw)
+    try:
+        frame = parse_ethernet_ipv4_udp(raw)
+    except RouterGroundRefused as exc:
+        raise CaptureTimeRefused("sensor refused malformed Ethernet/IPv4/UDP acquisition") from exc
     if (frame["source_ip"] != plan["source_ip"]
             or frame["destination_ip"] != plan["destination_ip"]
             or frame["destination_port"] != plan["destination_port"]
