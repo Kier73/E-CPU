@@ -22,7 +22,7 @@ import re
 from typing import Any, Callable, Mapping, Sequence
 
 from .ip_router_path_ground import (
-    ROUTES, SCHEMA as IP_SCHEMA, ObservedRoute, RouterGroundRefused,
+    ROUTES, SCHEMA as IP_SCHEMA, TTL_PROBES, ObservedRoute, RouterGroundRefused,
     RouterTTLGround, verify_router_route,
 )
 from .router_observer_path import (
