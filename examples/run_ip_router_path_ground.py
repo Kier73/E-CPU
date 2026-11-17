@@ -100,6 +100,8 @@ def receive(destination_ip: str, output: Path, ready: Path) -> None:
 def capture_router(
     router_id: str, ingress: str, egress: str,
     destination_ip: str, output: Path, ready: Path,
+    *, live_plan: Path | None = None, live_key: Path | None = None,
+    live_receipt: Path | None = None,
 ) -> None:
     """Mathematics: capture both actual Ethernet/IP packet headers around native kernel forwarding.
 
@@ -110,6 +112,23 @@ def capture_router(
         raise RouterGroundRefused("unknown declared router identity")
     if ingress == egress:
         raise RouterGroundRefused("router ingress and egress cannot be same interface")
+    # PATH-GROUND-006 is an opt-in sensor-local extension. Load the
+    # challenge and private leaf key *inside the observer process before*
+    # the first datagram arrives. The signer is called directly from recv,
+    # not after reopening a saved raw capture.
+    signer = None
+    if any(value is not None for value in (live_plan, live_key, live_receipt)):
+        if not all(value is not None for value in (live_plan, live_key, live_receipt)):
+            raise RouterGroundRefused("incomplete capture-time signing identity")
+        from cryptography.hazmat.primitives import serialization
+        from mailcpu.live_router_capture import CaptureTimeSigner
+        plan = json.loads(live_plan.read_text(encoding="utf-8"))
+        key = serialization.load_pem_private_key(
+            live_key.read_bytes(), password=None,
+        )
+        signer = CaptureTimeSigner(plan, key)
+        if signer.plan["router_id"] != router_id:
+            raise RouterGroundRefused("sensor key plan belongs to a different router")
     sockets = []
     selector = select.epoll()
     frames = []
@@ -144,9 +163,14 @@ def capture_router(
                     if (packet["destination_ip"] != destination_ip
                             or packet["destination_port"] != _DEST_PORT):
                         continue
+                    side = "ingress" if sock_name == ingress else "egress"
+                    if signer is not None:
+                        # Sign this exact raw Ethernet frame at the live
+                        # AF_PACKET receive boundary, before any JSON trace
+                        # is written for later replay.
+                        signer.observe(side, sock_name, raw)
                     frames.append({
-                        "side": "ingress" if sock_name == ingress else "egress",
-                        "interface": sock_name, "raw_hex": raw.hex(),
+                        "side": side, "interface": sock_name, "raw_hex": raw.hex(),
                     })
                     if len(frames) == 2 * len(TTL_PROBES):
                         break
@@ -156,11 +180,17 @@ def capture_router(
         selector.close()
         for _, sock in sockets:
             sock.close()
-    _write(output, {
+    raw_capture = {
         "schema": SCHEMA + ".router", "router_id": router_id,
         "ingress_iface": ingress, "egress_iface": egress,
         "frames": frames,
-    })
+    }
+    if signer is not None:
+        # Complete the receipt chain in memory before persisting either
+        # trace, so the receiver can compare both exact versions.
+        signed = signer.finalize(raw_capture)
+        _write(live_receipt, signed)
+    _write(output, raw_capture)
 
 
 def verify(input_dir: Path, output: Path) -> dict:
@@ -266,6 +296,9 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--ready", type=Path)
     parser.add_argument("--input-dir", type=Path)
+    parser.add_argument("--live-plan", type=Path)
+    parser.add_argument("--live-key", type=Path)
+    parser.add_argument("--live-receipt", type=Path)
     args = parser.parse_args()
     if not sys.platform.startswith("linux"):
         raise SystemExit("PATH-GROUND-004 real networking requires Linux")
@@ -277,6 +310,8 @@ def main() -> None:
         capture_router(
             args.router_id, args.ingress, args.egress,
             args.destination_ip, args.output, args.ready,
+            live_plan=args.live_plan, live_key=args.live_key,
+            live_receipt=args.live_receipt,
         )
     else:
         report = verify(args.input_dir, args.output)

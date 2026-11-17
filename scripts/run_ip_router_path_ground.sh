@@ -89,10 +89,18 @@ function run_route {
     local ready="$TMP/ready-$route-r$idx"
     local output="$TMP/router-$route-r$idx.json"
     local logfile="$TMP/router-$route-r$idx.log"
+    local -a live_args=()
+    if [[ -n "${PG6_SIGNING_DIR:-}" ]]; then
+      live_args=(
+        --live-plan "$PG6_SIGNING_DIR/$route.r$idx.plan.json"
+        --live-key "$PG6_SIGNING_DIR/$route.r$idx.key"
+        --live-receipt "$BASE/live-$route-r$idx.json"
+      )
+    fi
     sudo ip netns exec "$router" "$PYTHON" -m examples.run_ip_router_path_ground \
       --role router --router-id "$route.r$idx" \
       --ingress in --egress out --destination-ip "$dest_ip" \
-      --output "$output" --ready "$ready" > "$logfile" 2>&1 &
+      --output "$output" --ready "$ready" "${live_args[@]}" > "$logfile" 2>&1 &
     local pid="$!"
     PIDS+=("$pid")
     capture_pids+=("$pid")
