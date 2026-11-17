@@ -6,6 +6,7 @@ on:
       - 'mailcpu/router_witness_auth.py'
       - 'mailcpu/router_observer_path.py'
       - 'examples/run_authenticated_router_witness.py'
+      - 'scripts/audit_authenticated_router_witness.py'
       - 'tests/test_router_witness_auth.py'
       - 'docs/PATH_GROUND_005_AUTHENTICATED_ROUTER_WITNESS.md'
       - '.github/workflows/path-ground-authenticated-router.yml'
@@ -14,6 +15,7 @@ on:
       - 'mailcpu/router_witness_auth.py'
       - 'mailcpu/router_observer_path.py'
       - 'examples/run_authenticated_router_witness.py'
+      - 'scripts/audit_authenticated_router_witness.py'
       - 'tests/test_router_witness_auth.py'
       - 'docs/PATH_GROUND_005_AUTHENTICATED_ROUTER_WITNESS.md'
       - '.github/workflows/path-ground-authenticated-router.yml'
@@ -107,3 +109,34 @@ jobs:
           name: path-ground-005-raw-plus-signed-observer-evidence
           path: ${{ runner.temp }}/path-ground-005/
           if-no-files-found: warn
+
+  independent-raw-and-signature-audit:
+    name: Separate runner independently checks packet mathematics and ECDSA receipts
+    needs: actual-authenticated-network
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install public key verifier only (do not install E-CPU)
+        run: python -m pip install "cryptography>=42"
+      - uses: actions/download-artifact@v4
+        with:
+          name: path-ground-005-raw-plus-signed-observer-evidence
+          path: ${{ runner.temp }}/pg5-public
+      - name: Independently reconstruct raw IPv4 TTL transitions and leaf-signed capture commitments
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/audit_authenticated_router_witness.py \
+            --input-dir "$RUNNER_TEMP/pg5-public" \
+            --report "$RUNNER_TEMP/pg5-public/authenticated-observers.json" \
+            > "$RUNNER_TEMP/pg5-independent-audit.json"
+          cat "$RUNNER_TEMP/pg5-independent-audit.json"
+      - name: Retain independent, E-CPU-free audit report
+        uses: actions/upload-artifact@v4
+        with:
+          name: path-ground-005-third-job-independent-audit
+          path: ${{ runner.temp }}/pg5-independent-audit.json
