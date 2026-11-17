@@ -52,14 +52,14 @@ def _digest(value: Any) -> str:
 
 
 def _integer(value: Any, name: str, low: int, high: int) -> int:
-    """Mathematics: Mathematics: constrain one exact integer to an explicitly bounded finite domain."""
+    """Mathematics: constrain one exact integer to an explicitly bounded finite domain."""
     if type(value) is not int or not low <= value <= high:
         raise NativePathGroundRefused(f"{name} must be a strict integer in [{low}, {high}]")
     return value
 
 
 def _hash(value: Any, name: str) -> str:
-    """Mathematics: Mathematics: validate a canonical 256-bit content identity without assigning authority."""
+    """Mathematics: validate a canonical 256-bit content identity without assigning authority."""
     if type(value) is not str or len(value) != 64 or any(c not in "0123456789abcdef" for c in value):
         raise NativePathGroundRefused(f"{name} must be lowercase SHA-256")
     return value
@@ -94,7 +94,7 @@ def _prepare(
     channel: ChannelObservation, observed_at: int, start: int, count: int,
     pause_seconds: float, timeout_seconds: float,
 ) -> None:
-    """Mathematics: Mathematics: bound one socket probe by its native channel lease, coordinate and byte budget."""
+    """Mathematics: bound one socket probe by its native channel lease, coordinate and byte budget."""
     if not isinstance(channel, ChannelObservation):
         raise NativePathGroundRefused("native ChannelObservation required")
     if channel.source == channel.target or "bytes" not in channel.carries:
@@ -164,7 +164,7 @@ class KernelUdpProjectionObservation:
         return _digest(self._identity())
 
     def _identity(self) -> dict[str, Any]:
-        """Mathematics: Mathematics: project all immutable observation and mechanism fields into one identity record."""
+        """Mathematics: project all immutable observation and mechanism fields into one identity record."""
         return {
             "channel": self.channel.to_dict(), "observed_at": self.observed_at,
             "first_coordinate": self.first_coordinate,
