@@ -1,0 +1,35 @@
+name: AGA-002 native computational Ground reuse
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/ai_ground_reuse.py'
+      - 'mailcpu/ai_ground_atlas.py'
+      - 'mailcpu/ai_ground_atlas.v1.json'
+      - 'tests/test_ai_ground_reuse.py'
+      - 'docs/AI_GROUND_REUSE_AGA002.md'
+      - '.github/workflows/ai-ground-reuse.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  reuse:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install the real E-CPU package with developer tests
+        run: python -m pip install -e '.[dev]'
+      - name: Test exact neural equivalence and direct Ground queries
+        run: python -m pytest -q tests/test_ai_ground_reuse.py tests/test_weight_space.py tests/test_ai_ground_atlas.py
+      - name: Verify CLI from source checkout
+        run: |
+          python -m mailcpu.ai_ground_atlas validate
+          python -m mailcpu.ai_ground_reuse inspect model.compile --gate xor
+          python -m mailcpu.ai_ground_reuse certify xor --output /tmp/aga002-boolean-ground.json
+          python -m mailcpu.ai_ground_reuse query --certificate /tmp/aga002-boolean-ground.json --left 1 --right 0
