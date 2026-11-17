@@ -51,7 +51,7 @@ def native_affine(
         }
         operator_id = "sab005.lens64.navigate"
         description = "Receiver-pinned Structural Memory lens navigation"
-        goal = {"kind": "bounded-lens64-observation", "spec_digest": proposal.spec.digest}
+        goal = "bounded-lens64-observation"
         compute = lambda x, workload: {
             "value": navigate_lens(proposal.spec.parameters, x["coordinate"]),
             "spec_digest": proposal.spec.digest,
