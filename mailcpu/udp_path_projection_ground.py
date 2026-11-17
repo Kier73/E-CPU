@@ -32,11 +32,11 @@ _FRAME_SIZE = 4
 
 
 class NativePathGroundRefused(ValueError):
-    """A candidate native-path operator, observation or Ground is unjustified."""
+    """Mathematics: A candidate native-path operator, observation or Ground is unjustified."""
 
 
 def _canonical(value: Any) -> bytes:
-    """Provide the same canonical JSON byte representation as E-CPU evidence."""
+    """Mathematics: Provide the same canonical JSON byte representation as E-CPU evidence."""
     try:
         return json.dumps(
             value, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
@@ -47,30 +47,32 @@ def _canonical(value: Any) -> bytes:
 
 
 def _digest(value: Any) -> str:
-    """Content identity; never authentication or physical-path attestation."""
+    """Mathematics: Content identity; never authentication or physical-path attestation."""
     return sha256(_canonical(value)).hexdigest()
 
 
 def _integer(value: Any, name: str, low: int, high: int) -> int:
+    """Mathematics: Mathematics: constrain one exact integer to an explicitly bounded finite domain."""
     if type(value) is not int or not low <= value <= high:
         raise NativePathGroundRefused(f"{name} must be a strict integer in [{low}, {high}]")
     return value
 
 
 def _hash(value: Any, name: str) -> str:
+    """Mathematics: Mathematics: validate a canonical 256-bit content identity without assigning authority."""
     if type(value) is not str or len(value) != 64 or any(c not in "0123456789abcdef" for c in value):
         raise NativePathGroundRefused(f"{name} must be lowercase SHA-256")
     return value
 
 
 def _frame(value: int) -> bytes:
-    """One exact unsigned integer payload, with no application-side source filter."""
+    """Mathematics: One exact unsigned integer payload, with no application-side source filter."""
     return value.to_bytes(_FRAME_SIZE, "big")
 
 
 @dataclass(frozen=True)
 class SourceAffineStimulus:
-    """An explicitly SOURCE-generated deterministic probe, never path arithmetic."""
+    """Mathematics: An explicitly SOURCE-generated deterministic probe, never path arithmetic."""
 
     a: int
     c: int
@@ -83,7 +85,7 @@ class SourceAffineStimulus:
             _integer(getattr(self, name), name, 0, self.modulus - 1)
 
     def at(self, coordinate: int) -> int:
-        """Use the existing E-CPU closed-form law to generate source stimuli."""
+        """Mathematics: Use the existing E-CPU closed-form law to generate source stimuli."""
         _integer(coordinate, "source coordinate", 0, _MAX_COORDINATE)
         return lcg_navigate(self.a, self.c, self.modulus, self.initial, coordinate)
 
@@ -92,6 +94,7 @@ def _prepare(
     channel: ChannelObservation, observed_at: int, start: int, count: int,
     pause_seconds: float, timeout_seconds: float,
 ) -> None:
+    """Mathematics: Mathematics: bound one socket probe by its native channel lease, coordinate and byte budget."""
     if not isinstance(channel, ChannelObservation):
         raise NativePathGroundRefused("native ChannelObservation required")
     if channel.source == channel.target or "bytes" not in channel.carries:
@@ -109,7 +112,7 @@ def _prepare(
 
 @dataclass(frozen=True)
 class KernelUdpProjectionObservation:
-    """One measured kernel-connected UDP peer-filter/retention observation."""
+    """Mathematics: One measured kernel-connected UDP peer-filter/retention observation."""
 
     channel: ChannelObservation
     observed_at: int
@@ -157,10 +160,11 @@ class KernelUdpProjectionObservation:
 
     @property
     def digest(self) -> str:
-        """Hash all declared evidence and ephemeral socket identity."""
+        """Mathematics: Hash all declared evidence and ephemeral socket identity."""
         return _digest(self._identity())
 
     def _identity(self) -> dict[str, Any]:
+        """Mathematics: Mathematics: project all immutable observation and mechanism fields into one identity record."""
         return {
             "channel": self.channel.to_dict(), "observed_at": self.observed_at,
             "first_coordinate": self.first_coordinate,
@@ -177,14 +181,14 @@ class KernelUdpProjectionObservation:
         }
 
     def to_dict(self) -> dict[str, Any]:
-        """Typed, self-describing observation, not a remote signed receipt."""
+        """Mathematics: Typed, self-describing observation, not a remote signed receipt."""
         return {"schema": SCHEMA + ".observation", **self._identity(), "digest": self.digest}
 
 
 def _trace_values(
     stimulus: SourceAffineStimulus, start: int, count: int,
 ) -> tuple[dict[str, Any], ...]:
-    """Construct interleaved sender events; receiver never executes this generator."""
+    """Mathematics: Construct interleaved sender events; receiver never executes this generator."""
     trace: list[dict[str, Any]] = []
     for offset in range(count):
         coord = start + offset
@@ -199,7 +203,7 @@ def _exchange(
     timeout_seconds: float, connected: bool,
 ) -> tuple[tuple[dict[str, Any], ...], tuple[bytes, ...],
            tuple[str, int], tuple[str, int], tuple[str, int], int, bool, bool]:
-    """Exercise real OS datagram delivery; no Python receiver-side source filter."""
+    """Mathematics: Exercise real OS datagram delivery; no Python receiver-side source filter."""
     trace = _trace_values(stimulus, start, count)
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as receiver, \
          socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as selected, \
@@ -239,7 +243,7 @@ def probe_connected_udp_projection(
     observed_at: int, first_coordinate: int, count: int = 16,
     pause_seconds: float = 0.015, timeout_seconds: float = 2.0,
 ) -> tuple[KernelUdpProjectionObservation, tuple[dict[str, Any], ...], tuple[bytes, ...]]:
-    """Measure a real connected UDP socket filtering interleaved sources before recv.
+    """Mathematics: Measure a real connected UDP socket filtering interleaved sources before recv.
 
     Return the source trace and actual receiver bytes separately, so a checker
     can re-evaluate the evidence rather than trusting the receipt's own digest.
@@ -273,7 +277,7 @@ def probe_unconnected_udp_control(
     observed_at: int, first_coordinate: int, count: int = 16,
     pause_seconds: float = 0.015,
 ) -> tuple[tuple[dict[str, Any], ...], tuple[bytes, ...]]:
-    """Bypass control: without the kernel peer pin, both interleaved sources arrive.
+    """Mathematics: Bypass control: without the kernel peer pin, both interleaved sources arrive.
 
     This is deliberately NOT a KernelUdpProjectionObservation: it does not
     satisfy the selected-source Ground and may expose different arrival order.
@@ -293,7 +297,7 @@ def verify_kernel_udp_projection(
     trace: Sequence[Mapping[str, Any]],
     received: Sequence[bytes], *, channel: ChannelObservation,
 ) -> bool:
-    """Replay content identities, selection and exact frame order from supplied bytes.
+    """Mathematics: Replay content identities, selection and exact frame order from supplied bytes.
 
     Physical provenance remains the executing probe's local trust boundary;
     a forged serialized report cannot remotely attest to kernel activity.
@@ -329,7 +333,7 @@ def verify_kernel_udp_projection(
 
 @dataclass(frozen=True)
 class KernelProjectionGround:
-    """Finite-witness-recovered affine law of kernel-selected observations."""
+    """Mathematics: Finite-witness-recovered affine law of kernel-selected observations."""
 
     a: int
     c: int
@@ -352,7 +356,7 @@ class KernelProjectionGround:
 
     @property
     def ground_digest(self) -> str:
-        """Mathematical relation independent of particular socket IDs and path receipts."""
+        """Mathematics: Mathematical relation independent of particular socket IDs and path receipts."""
         return _digest({
             "schema": SCHEMA + ".mathematical-ground", "family": "lcg",
             "a": self.a, "c": self.c, "modulus": self.modulus,
@@ -362,7 +366,7 @@ class KernelProjectionGround:
 
     @property
     def law(self) -> Law:
-        """Re-use E-CPU's existing law type; no second algebraic navigator."""
+        """Mathematics: Re-use E-CPU's existing law type; no second algebraic navigator."""
         return Law(
             family="lcg",
             params={"a": self.a, "c": self.c, "mod": self.modulus, "x0": self.initial},
@@ -370,7 +374,7 @@ class KernelProjectionGround:
         )
 
     def navigate(self, coordinate: int) -> dict[str, Any]:
-        """Predict the observation at an arbitrary symbolic coordinate in O(log t)."""
+        """Mathematics: Predict the observation at an arbitrary symbolic coordinate in O(log t)."""
         _integer(coordinate, "requested coordinate", 0, _MAX_COORDINATE)
         return {
             "schema": SCHEMA + ".symbolic-navigation",
@@ -391,7 +395,7 @@ class KernelProjectionGround:
         holdout_trace: Sequence[Mapping[str, Any]],
         holdout_received: Sequence[bytes],
     ) -> Any:
-        """Recheck RAW endpoint evidence before staging in the existing receiver registry.
+        """Mathematics: Recheck RAW endpoint evidence before staging in the existing receiver registry.
 
         This method cannot substitute a self-hashed report for the original
         sender/receiver bytes, and it never grants its own admission rights.
@@ -430,7 +434,7 @@ def recognize_kernel_projection_ground(
     train_received: Sequence[bytes], holdout_trace: Sequence[Mapping[str, Any]],
     holdout_received: Sequence[bytes],
 ) -> KernelProjectionGround:
-    """Fit a law only from receiver-observed selected frames and independently checked holdouts.
+    """Mathematics: Fit a law only from receiver-observed selected frames and independently checked holdouts.
 
     Source-side recurrence is not read by this certifier. Distinct native
     socket/channel observations support the same Ground on two placements,
@@ -472,7 +476,7 @@ def verify_kernel_projection_ground(
     train: KernelUdpProjectionObservation,
     holdout: KernelUdpProjectionObservation, **kwargs: Any,
 ) -> bool:
-    """Refit and replay the complete measured evidence independently of serialized certificate."""
+    """Mathematics: Refit and replay the complete measured evidence independently of serialized certificate."""
     try:
         return isinstance(ground, KernelProjectionGround) and ground == recognize_kernel_projection_ground(
             train, holdout, **kwargs,
