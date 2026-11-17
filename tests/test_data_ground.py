@@ -132,6 +132,8 @@ def test_json_numbers_are_exact_rationals_and_not_float_approximations():
     b'{"value": Infinity}',
     b'{"value":1e999999}',
     b'{"value":' + b"9"*1200 + b'}',
+    b'{"value":"\\ud800"}',
+    b'{"\\ud800":1}',
     b'{"x":',
     b"\xff",
 ])
@@ -260,3 +262,22 @@ def test_empty_json_and_unadmitted_ipv4_are_not_misidentified():
             DataGround(raw).interpret(DataLens("json"))
     with pytest.raises(DataGroundRefused):
         DataGround(b"arbitrary binary data").interpret(DataLens("ipv4-datagram"))
+
+
+
+def test_non_native_public_construction_cannot_claim_unverified_page_store_provenance():
+    """A random caller cannot label inline bytes as an admitted remote immutable page."""
+    with pytest.raises(TypeError):
+        DataGround(
+            b"untrusted", source_scope="full-object-content-verified",
+            parent_manifest_digest="0"*64,
+            parent_content_digest="1"*64,
+        )
+
+
+def test_json_surrogate_refusal_does_not_collapse_valid_escaped_unicode():
+    """Only Unicode scalar values are admitted, not an unpaired Python surrogate."""
+    g = DataGround(b'{"face":"\\ud83d\\ude42"}')
+    math = g.interpret(DataLens("json"))
+    assert dict(math.structure["entries"])["face"]["text"] == "🙂"
+    assert g.verify_interpretation(math)
