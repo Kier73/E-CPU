@@ -1,0 +1,42 @@
+name: DATA-GROUND-001 exact mathematical interpretation of any observed bytes
+
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/data_ground.py'
+      - 'tests/test_data_ground.py'
+      - 'examples/data_ground_demo.py'
+      - 'docs/DATA_GROUND_001_ANY_DATA_MATHEMATICAL_INTERPRETATION.md'
+      - '.github/workflows/data-ground-interpretation.yml'
+  push:
+    paths:
+      - 'mailcpu/data_ground.py'
+      - 'tests/test_data_ground.py'
+      - 'examples/data_ground_demo.py'
+      - 'docs/DATA_GROUND_001_ANY_DATA_MATHEMATICAL_INTERPRETATION.md'
+      - '.github/workflows/data-ground-interpretation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  exact-data-ground:
+    name: Raw data, exact rational interpretation and native semantic-contract verification
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install E-CPU with repository test framework
+        run: python -m pip install -e ".[dev]"
+      - name: Verify exact and ambiguous mathematical views against E-CPU native Grounds
+        run: python -m pytest -q tests/test_data_ground.py tests/test_computational_objects.py tests/test_semantic_translation.py tests/test_codec.py
+      - name: Execute actual finite raw-data interpretation demo
+        run: python -m examples.data_ground_demo
