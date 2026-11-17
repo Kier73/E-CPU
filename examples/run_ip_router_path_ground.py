@@ -23,6 +23,10 @@ from mailcpu.ip_router_path_ground import (
     RouterGroundRefused, parse_ethernet_ipv4_udp, probe_payload,
     recognize_router_ttl_ground, verify_router_route,
 )
+from mailcpu.router_observer_path import (
+    bind_router_packet_observer_path, verify_router_packet_path_binding,
+)
+from mailcpu.semantic_translation import canonical_value_digest
 
 # Linux SOL_IP/IP_RECVTTL = 12. Python's socket module may omit the name.
 _LINUX_IP_RECVTTL = 12
@@ -162,6 +166,7 @@ def capture_router(
 def verify(input_dir: Path, output: Path) -> dict:
     """Mathematics: independently recheck each captured real network transition and compose its Ground."""
     observations = {}
+    raw_evidence = {}
     for route in ROUTES:
         src = json.loads((input_dir / ("sender-" + route + ".json")).read_text())
         dst = json.loads((input_dir / ("receiver-" + route + ".json")).read_text())
@@ -170,7 +175,42 @@ def verify(input_dir: Path, output: Path) -> dict:
             for i in range(len(ROUTES[route]))
         ]
         observations[route] = verify_router_route(route, src, dst, captures)
+        raw_evidence[route] = (src, dst, captures)
     ground = recognize_router_ttl_ground(*(observations[x] for x in ROUTES))
+    # Native receipts are authored by the trusted receiver after independent
+    # raw frame verification. The callback is an owned-harness acceptance
+    # policy, not a signature or independent kernel/physical attestation.
+    policy_digest = canonical_value_digest({
+        "schema": SCHEMA + ".receiver-policy",
+        "revision": 1, "observed_kernel": "local-namespace-harness",
+        "require_raw_ipv4_ingress_egress": True,
+        "require_receiver_ip_recvttl": True,
+    })
+    native_paths = {}
+    for route in ROUTES:
+        raw_src, raw_dst, raw_captures = raw_evidence[route]
+        admitted = lambda candidate, expected=observations[route]: candidate == expected
+        bindings = []
+        for seq in range(len(TTL_PROBES)):
+            bound = bind_router_packet_observer_path(
+                ground, route, seq, raw_src, raw_dst, raw_captures,
+                admit_capture=admitted, receiver_policy_digest=policy_digest,
+            )
+            if not verify_router_packet_path_binding(
+                bound, ground, route, seq, raw_src, raw_dst, raw_captures,
+                admit_capture=admitted, receiver_policy_digest=policy_digest,
+            ):
+                raise RouterGroundRefused("native observer path failed receiver evidence replay")
+            bindings.append(bound)
+        native_paths[route] = {
+            "verified_packet_count": len(bindings),
+            "path_digests": [x.verified.path_digest for x in bindings],
+            "ground_ref": bindings[0].verified.ground.to_dict(),
+            "route_evidence_digest": observations[route].evidence_digest,
+            "stage_modes": [x.mode for x in bindings[0].stages],
+            "receiver_policy_digest": policy_digest,
+            "authority": "owned_harness_callback_not_external_router_attestation",
+        }
     target = 31
     one_intent = ground.inverse_intention(target, 1)
     two_intent = ground.inverse_intention(target, 2)
@@ -200,6 +240,7 @@ def verify(input_dir: Path, output: Path) -> dict:
         },
         "symbolic_ground_navigation": ground.navigate(80, 40),
         "native_e_cpu_channel_observations": [edge.to_dict() for edge in native],
+        "native_e_cpu_observer_paths": native_paths,
         "scope": ground.scope,
         "actual_in_network_transition": "Linux IPv4 kernel forwarding decrements TTL; source and receiver Python do not",
         "native_capture": "Linux AF_PACKET ingress and egress, separate receiver IP_RECVTTL",
