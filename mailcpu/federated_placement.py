@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 import secrets
 import socket
@@ -22,6 +23,7 @@ from .runtime_qualification import (
 MAX_FRAME = 8192
 OPS = frozenset({
     "observe", "affine_mod", "transfer", "retain", "retrieve", "execute_source",
+    "lens64.navigate",
 })
 
 
@@ -128,6 +130,7 @@ class PinnedTLSServer:
         certificate: str, key: str, ca_file: str, client_dns: str,
         storage_directory: str, allowed_operations: frozenset[str],
         native_authority: bool = True, worker_timeout: float = 8.0,
+        allowed_lens_grounds: frozenset[str] = frozenset(),
     ) -> None:
         """Install the receiver's own executable, identity and grant configuration."""
         if (
@@ -137,6 +140,10 @@ class PinnedTLSServer:
             or not allowed_operations <= OPS
             or type(port) is not int or not 0 <= port < 65536
             or worker_timeout <= 0
+            or not isinstance(allowed_lens_grounds, frozenset)
+            or len(allowed_lens_grounds) > 32
+            or any(type(item) is not str or re.fullmatch(r"[0-9a-f]{64}", item) is None
+                   for item in allowed_lens_grounds)
         ):
             raise FederationRefused("invalid receiver configuration")
         self.host_id = host_id
@@ -146,6 +153,7 @@ class PinnedTLSServer:
         self.storage_directory = Path(storage_directory)
         self.allowed_operations = allowed_operations
         self.native_authority = bool(native_authority)
+        self.allowed_lens_grounds = allowed_lens_grounds
         self.worker_timeout = worker_timeout
         self.context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         self.context.load_cert_chain(certificate, key)
@@ -177,6 +185,8 @@ class PinnedTLSServer:
         ]
         for operation in sorted(self.allowed_operations):
             args.extend(("--allow", operation))
+        for digest_value in sorted(self.allowed_lens_grounds):
+            args.extend(("--allow-lens-ground", digest_value))
         if not self.native_authority:
             args.append("--revoke-native")
         try:
@@ -256,6 +266,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         p.add_argument("--" + label, required=True)
     p.add_argument("--port", type=int, required=True)
     p.add_argument("--allow", action="append", default=[])
+    p.add_argument("--allow-lens-ground", action="append", default=[])
     p.add_argument("--ready-file")
     p.add_argument("--revoke-native", action="store_true")
     p.add_argument("--max-connections", type=int, default=0)
@@ -270,6 +281,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         client_dns=args.client_dns,
         storage_directory=args.storage_directory,
         allowed_operations=frozenset(args.allow),
+        allowed_lens_grounds=frozenset(args.allow_lens_ground),
         native_authority=not args.revoke_native,
     ).serve(
         ready_file=args.ready_file,
