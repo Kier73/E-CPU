@@ -103,7 +103,7 @@ cryptographically authenticated witness.
 
 ```sh
 python -m pip install -e ".[dev]" "cryptography>=42"
-python -m pytest -q tests/test_router_witness_auth.py
+python -m pytest -q tests/test_router_witness_auth.py tests/test_router_witness_audit.py
 # Linux privileges required for real packet forwarding:
 bash scripts/run_ip_router_path_ground.sh artifacts/path-ground-005
 # Distinct observer OS processes exchange signed raw captures over real mTLS:
@@ -113,8 +113,9 @@ python -m examples.run_authenticated_router_witness \
 ```
 
 `.github/workflows/path-ground-authenticated-router.yml` runs:
-- Signed-witness and receiver refusal tests on Ubuntu and Windows,
-  Python 3.11 and 3.13.
+- Signed-witness and receiver refusal tests, the independent audit parser
+  controls, and a real unprivileged mTLS observer-process exchange on
+  Ubuntu and Windows, Python 3.11 and 3.13.
 - On an owned privileged Ubuntu runner: the actual **four PATH-GROUND-004
   network topologies**, then four independent observer **OS processes**
   with real E-CPU mTLS sessions, four distinct ephemeral P-256 identities,
@@ -131,6 +132,46 @@ python -m examples.run_authenticated_router_witness \
 Any failure in a privilege, timeout, signature, identity, raw-packet or
 native observation step fails the live job. No synthetic packet fixture
 may be reported as a passing real routed-network experiment.
+
+### Unprivileged real mTLS regression and independent audit
+
+The cross-platform tests now contain an **actual TCP mutual-TLS process
+exchange**, not only an in-memory ECDSA signature fixture. For this
+unprivileged regression, its raw Ethernet frames are explicitly synthetic
+and cannot establish physical forwarding. It starts the exact
+`examples.run_authenticated_router_witness` observer service in another
+OS process; a real MailCPU `SocketTransport` negotiates TLS using
+certificate SANs and a pinned test CA; the coordinator obtains
+`getpeercert(binary_form=True)`, verifies the exact leaf used to sign
+the response and proves the second use of that challenge is rejected.
+This isolates transport/protocol problems from the privileged Linux
+real-router proof obligations.
+
+A third GitHub Actions job, running on a **different runner without
+E-CPU installed**, invokes
+`scripts/audit_authenticated_router_witness.py` with only
+`cryptography` and Python standard libraries. It downloads the public
+raw/certificate/signature artifact from the privileged job and
+independently reconstructs:
+
+- The original six packet payloads, IP source/destination and UDP ports;
+  all four exact L2/L3 route topologies; TTL and IP identification
+  continuity; the bridge's zero decrement and the routers' minus-one
+  transition;
+- The route and shared mathematical Ground SHA-256 identities from
+  **original raw records**, not an E-CPU serialized verdict;
+- All four distinct P-256 server certificates, expected SAN and server
+  role, public CA and leaf signature chain, raw-capture hash commitments,
+  challenge uniqueness, exact request/receipt scope and ECDSA signatures.
+
+Its authority scope is intentionally narrower than the full E-CPU
+receiver: native `ObserverPathStage` digests are checked for shape and
+count, **not rebuilt** by the E-CPU-free auditor; the producer's claim
+that a TLS handshake occurred is **not independently observed** by the
+auditor; and the ephemeral test CA is transported inside the same
+artifact rather than independently provisioned. This is useful
+independent consistency verification, not an external-root attestation
+of hardware truth.
 
 ### Refusals
 
