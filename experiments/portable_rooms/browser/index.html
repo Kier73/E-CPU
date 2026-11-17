@@ -1,0 +1,21 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>E-CPU portable room — browser verifier</title>
+<style>body{font:16px system-ui;max-width:50rem;margin:3rem auto;padding:1rem}pre{white-space:pre-wrap;overflow-wrap:anywhere}button{padding:.75rem}</style>
+<h1>Portable E-CPU mathematical realization</h1>
+<p>Loads the previously accepted room history and locally computes the mathematical result in WebAssembly.</p>
+<p><strong>Important:</strong> trusted-policy.json must come from a separately authenticated authority. Serving the policy beside a capsule is only a reproducibility demonstration, not a cryptographic trust root.</p>
+<button id="run">Verify from hosted files</button><pre id="result">Not run</pre>
+<script type="module">
+import { verifyAndRealize } from './verify.mjs';
+const read = async file=>{const r=await fetch(file,{cache:'no-store'});if(!r.ok)throw Error(file+': '+r.status);return r};
+document.getElementById('run').onclick=async()=>{
+ const el=document.getElementById('result');el.textContent='Verifying…';
+ try{
+  const [cap,pol,wasm]=await Promise.all([
+   read('./capsule.json').then(r=>r.json()),
+   read('./trusted-policy.json').then(r=>r.json()),
+   read('./affine.wasm').then(r=>r.arrayBuffer())]);
+  const result=await verifyAndRealize(cap,pol,wasm);
+  el.textContent=JSON.stringify({value:result.result,head:result.head,verified_generations:3,execution:'WebAssembly in browser'},null,2);
+ }catch(e){el.textContent='REFUSED: '+String(e)}
+};
+</script></html>

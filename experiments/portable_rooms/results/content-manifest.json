@@ -1,0 +1,31 @@
+{
+  "scope": {
+    "browser_gui_exercised": false,
+    "cloudflare_runtime_exercised": false,
+    "files": 19,
+    "full_local_sequence": true,
+    "native_mailcpu_checked_locally": false,
+    "wasm_executed_in_node": true
+  },
+  "sha256": {
+    ".github/workflows/room001-portable-realization.yml": "096d0dae0062da75b0d757d86d030f212ab85534e1b5d546e29af81293a25d38",
+    "docs/PORTABLE_ROOM_REALIZATION.md": "c10bc22d8ad1fd4c0ba20aeb2b05eac0d0765852fb61b281416119af6533c997",
+    "experiments/portable_rooms/README.md": "a82567237e23c2af6426134eb5946c7279c6e9bdea19d83b7e08a63c6b3ac709",
+    "experiments/portable_rooms/affine.c": "7621695e85f2fb56b98d3e425996f25f2dc9bb7b478d81cb18a69137b3067ea4",
+    "experiments/portable_rooms/audit.py": "6bf7ce70e9c7875d06a283c53908d3e0c824356698664439bfabb61e21d45387",
+    "experiments/portable_rooms/browser/affine.wasm": "ade38246804dad978cdf38118a21aba15f10e2af95aba26bcbff2de724bff1ec",
+    "experiments/portable_rooms/browser/index.html": "575bac98bb59ea3a1a55046a51e205429b0f26b74ad96e23fb235c448779af03",
+    "experiments/portable_rooms/browser/verify.mjs": "101b162926a9ab5ad516071a6fe2a4b7fa312114649375c082cd3bdfdd9f03e2",
+    "experiments/portable_rooms/build_runner.py": "220993109e1d398a76c868f521b643c9d94c3a041b9ef416e977b247e8b67b87",
+    "experiments/portable_rooms/local_worker_cli.mjs": "e652fa3d03b528687fde52348ba5b5c1a0e45d645e30ce20c7ab13dc4c1621e8",
+    "experiments/portable_rooms/results/audit.stdout.json": "8662d692f87dd97441dc4533c11d54cf749f38dfaf1b63ff53e59de41dc16d95",
+    "experiments/portable_rooms/results/local-audit.json": "205587726337cde9550d84a656998abec052ff2bc90976fd3b6eaf893411492e",
+    "experiments/portable_rooms/results/local-tests.txt": "d31c2344b42d587683e53e7b4998b078576a7bb323ab7121e6d6c673bc4f7e53",
+    "experiments/portable_rooms/room_core.mjs": "daadbfa792dc30dbcb07382a7b4a4a4efe2bed4f146ebda438cf73a8085525fc",
+    "experiments/portable_rooms/room_protocol.py": "fa44d5dbbddfebba95bc0ad25f3337adcf40459244a6f288bfd61ca44b4a9855",
+    "experiments/portable_rooms/test_room_protocol.py": "4b55895873b10b1fc6612db493a93c943858b4f491c9345dcea4219224c1588a",
+    "experiments/portable_rooms/wasm_receiver_cli.mjs": "39da9d099ea1411808da657908115a1fd722c8f96ac32d4db870e0168b715367",
+    "experiments/portable_rooms/worker.mjs": "1a5473014df63f5cfb6238f65e3f650d0543259b3ffe6227aebc19ecb0d1a160",
+    "experiments/portable_rooms/wrangler.example.jsonc": "31a0de792430170c7f45a3ca18507a27e34d54c29585971c671f518c360e2a1e"
+  }
+}

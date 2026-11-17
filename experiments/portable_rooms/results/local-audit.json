@@ -1,0 +1,14 @@
+{
+  "external_pin_scope": "caller_supplied_test_supervisor_policy_not_publisher_signature",
+  "generation": 3,
+  "head": "06a0e5fa377702077a2613ce95a5e5e319b4f4232b7cf2067e9a97aa69109431",
+  "native_ground_fingerprint": null,
+  "new_source_calls": 0,
+  "result": 64379,
+  "rooms": [
+    "github-actions",
+    "durable-object",
+    "browser-wasm"
+  ],
+  "schema": "ecpu.room001.offline-verification.v1"
+}

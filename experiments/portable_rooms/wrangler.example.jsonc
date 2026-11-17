@@ -1,0 +1,9 @@
+{
+  // Copy to wrangler.jsonc and supply ROOM_TOKEN, INTENTION_SHA256 and
+  // BOOTSTRAP_HEAD as deployment-controlled bindings; do not commit secrets.
+  "name": "ecpu-portable-room-demo",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-11-16",
+  "durable_objects": {"bindings": [{"name": "ROOMS", "class_name": "PortableRoom"}]},
+  "exports": {"PortableRoom": {"type": "durable-object", "storage": "sqlite"}}
+}
