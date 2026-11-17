@@ -66,13 +66,30 @@ def _refuse_nonfinite(value: str) -> None:
     raise DataGroundRefused(f"JSON nonfinite number {value!r} is not admitted")
 
 
+def _exact_integer(token: str) -> int:
+    """Mathematics: enforce finite integer digit budget before big-int conversion."""
+    if len(token) > 1024:
+        raise DataGroundRefused("JSON integer exceeds exact numeric budget")
+    return int(token)
+
+
+def _exact_decimal(token: str) -> Decimal:
+    """Mathematics: bound decimal exponent and mantissa before rational expansion."""
+    if len(token) > 1024:
+        raise DataGroundRefused("JSON decimal exceeds exact numeric budget")
+    result = Decimal(token)
+    if abs(result.as_tuple().exponent) > 1024:
+        raise DataGroundRefused("JSON decimal exponent exceeds rational budget")
+    return result
+
+
 def _parse_json(data: bytes) -> Any:
     """Mathematics: parse exact UTF-8 JSON using Decimal, not binary floats."""
     try:
         return json.loads(
             data.decode("utf-8", errors="strict"),
-            parse_int=int, parse_float=Decimal, parse_constant=_refuse_nonfinite,
-            object_pairs_hook=_object_pairs,
+            parse_int=_exact_integer, parse_float=_exact_decimal,
+            parse_constant=_refuse_nonfinite, object_pairs_hook=_object_pairs,
         )
     except (UnicodeError, ValueError, RecursionError, TypeError) as exc:
         raise DataGroundRefused("data is not admitted exact UTF-8 JSON") from exc
