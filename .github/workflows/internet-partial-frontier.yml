@@ -1,0 +1,93 @@
+name: INTERNET-007 partial frontier Internet Ground attention
+
+on:
+  push:
+    branches:
+      - research/internet-partial-frontier-007-20261116
+    paths:
+      - 'mailcpu/internet_partial_frontier.py'
+      - 'tests/test_internet_partial_frontier.py'
+      - 'examples/navigate_rfc_partial_frontier.py'
+      - 'docs/INTERNET_PARTIAL_FRONTIER_007.md'
+      - '.github/workflows/internet-partial-frontier.yml'
+  pull_request:
+    paths:
+      - 'mailcpu/internet_partial_frontier.py'
+      - 'tests/test_internet_partial_frontier.py'
+      - 'examples/navigate_rfc_partial_frontier.py'
+      - '.github/workflows/internet-partial-frontier.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-contracts:
+    name: Native E-CPU resolver and partial-frontier attention (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install test dependency
+        run: python -m pip install pytest
+      - name: Import native E-CPU authority and routing interfaces
+        run: python -c 'import mailcpu.headless, mailcpu.evidence_path_resolver, mailcpu.internet_prospective_qualification, mailcpu.internet_ground_routing'
+      - name: Native multi-gap evidence and adversarial tests
+        run: python -m unittest discover -s tests -p 'test_internet_partial_frontier.py' -v
+      - name: Preserve upstream single-gap and Ground routing regression gates
+        run: |
+          python -m unittest discover -s tests -p 'test_internet_prospective_qualification.py' -v
+          python -m unittest discover -s tests -p 'test_internet_ground_routing.py' -v
+          python -m pytest -q tests/test_evidence_path_resolver.py
+
+  public-https-two-stage:
+    name: Two read-only RFC reference observations on actual public Internet
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    needs: native-contracts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Navigate two independently source-linked RFC relations
+        run: python examples/navigate_rfc_partial_frontier.py observe --output /tmp/internet007-live.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: internet007-two-stage-public-https-source
+          path: /tmp/internet007-live.json
+          if-no-files-found: error
+          retention-days: 14
+
+  independent-offline-replay:
+    name: Independent typed replay on separate host with no Internet reads
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    needs: public-https-two-stage
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: internet007-two-stage-public-https-source
+          path: /tmp
+      - name: Recheck exact HTML, two links, observation receipts, and final route
+        run: |
+          python examples/navigate_rfc_partial_frontier.py replay \
+            --input /tmp/internet007-live.json \
+            --output /tmp/internet007-replayed.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: internet007-independent-replay-receipt
+          path: /tmp/internet007-replayed.json
+          if-no-files-found: error
+          retention-days: 14
