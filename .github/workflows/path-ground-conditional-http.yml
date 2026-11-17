@@ -45,15 +45,20 @@ jobs:
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
+      - name: Independently checkout immutable public main source for remote comparison
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: trusted-main
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
       - run: python -m pip install -e ".[dev]"
-      - name: Pinned commit remote 200/304/200 plus raw and Git blob independent reads
+      - name: Pinned main commit remote 200/304/200 plus raw and Git blob independent reads
         shell: bash
         run: |
           set -euo pipefail
-          python -m examples.run_http_conditional_ground --commit "$(git rev-parse HEAD)" > conditional-http-ground-report.json
+          python -m examples.run_http_conditional_ground --root trusted-main --commit "$(git -C trusted-main rev-parse HEAD)" > conditional-http-ground-report.json
           python - <<'PY'
           import json
           report = json.load(open("conditional-http-ground-report.json", encoding="utf-8"))
