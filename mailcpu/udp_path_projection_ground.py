@@ -385,15 +385,26 @@ class KernelProjectionGround:
     def propose_to_structural_memory(
         self, registry: Any, memory_id: str,
         train: KernelUdpProjectionObservation,
-        holdout: KernelUdpProjectionObservation,
+        holdout: KernelUdpProjectionObservation, *,
+        train_trace: Sequence[Mapping[str, Any]],
+        train_received: Sequence[bytes],
+        holdout_trace: Sequence[Mapping[str, Any]],
+        holdout_received: Sequence[bytes],
     ) -> Any:
-        """Stage in the EXISTING registry only; admission remains receiver-owned."""
+        """Recheck RAW endpoint evidence before staging in the existing receiver registry.
+
+        This method cannot substitute a self-hashed report for the original
+        sender/receiver bytes, and it never grants its own admission rights.
+        """
         from .structural_memory import StructuralMemoryRegistry
         if not isinstance(registry, StructuralMemoryRegistry):
             raise NativePathGroundRefused("trusted native StructuralMemoryRegistry required")
-        if (len(train.result_values) != self.train_count
-                or len(holdout.result_values) != self.holdout_count):
-            raise NativePathGroundRefused("ground evidence window sizes do not match")
+        if not verify_kernel_projection_ground(
+            self, train, holdout, modulus=self.modulus,
+            train_trace=train_trace, train_received=train_received,
+            holdout_trace=holdout_trace, holdout_received=holdout_received,
+        ):
+            raise NativePathGroundRefused("unverified original native path evidence cannot be staged")
         witnesses = {
             **{i: x for i, x in enumerate(train.result_values)},
             **{self.train_count + i: x for i, x in enumerate(holdout.result_values)},
