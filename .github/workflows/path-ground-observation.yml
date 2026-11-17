@@ -1,4 +1,4 @@
-name: PATH-GROUND-001 path-observation regression
+name: PATH-GROUND-001/002 native path-observation regression
 on:
   pull_request:
     paths:
@@ -6,6 +6,10 @@ on:
       - 'tests/test_path_ground_probe.py'
       - 'examples/run_path_ground_probe.py'
       - 'docs/PATH_GROUND_001_COMMUNICATION_OBSERVATION.md'
+      - 'mailcpu/udp_path_projection_ground.py'
+      - 'tests/test_udp_path_projection_ground.py'
+      - 'examples/run_udp_path_projection_ground.py'
+      - 'docs/PATH_GROUND_002_KERNEL_NATIVE_PROJECTION.md'
       - '.github/workflows/path-ground-observation.yml'
   push:
     paths:
@@ -13,6 +17,10 @@ on:
       - 'tests/test_path_ground_probe.py'
       - 'examples/run_path_ground_probe.py'
       - 'docs/PATH_GROUND_001_COMMUNICATION_OBSERVATION.md'
+      - 'mailcpu/udp_path_projection_ground.py'
+      - 'tests/test_udp_path_projection_ground.py'
+      - 'examples/run_udp_path_projection_ground.py'
+      - 'docs/PATH_GROUND_002_KERNEL_NATIVE_PROJECTION.md'
       - '.github/workflows/path-ground-observation.yml'
 permissions:
   contents: read
@@ -37,3 +45,7 @@ jobs:
         run: python -m pytest -q tests/test_transit_path_modes.py tests/test_transit_path_binding.py tests/test_observer_path_evidence.py tests/test_observer_orbit.py
       - name: Measure path and characterize separate synthetic kernel
         run: python -m examples.run_path_ground_probe
+      - name: PATH-GROUND-002 native UDP kernel peer-selection, bypass and Structural Memory
+        run: python -m unittest discover -s tests -p 'test_udp_path_projection_ground.py' -v
+      - name: Navigate measured UDP projection and emit full provenance report
+        run: python -m examples.run_udp_path_projection_ground
