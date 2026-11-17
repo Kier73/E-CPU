@@ -42,6 +42,7 @@ def run() -> dict:
     return {
         "schema": "mailcpu.data-ground.demo.v1",
         "same_exact_source_sha256": source.byte_sha256,
+        "candidate_survey": source.candidate_views(),
         "interpretations": {
             kind: {
                 "structure": item.structure,
