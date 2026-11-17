@@ -1,0 +1,136 @@
+name: PATH-GROUND-006 signed packet acquisition in the actual observer process
+
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/live_router_capture.py'
+      - 'examples/run_live_capture_ground.py'
+      - 'examples/run_ip_router_path_ground.py'
+      - 'scripts/run_ip_router_path_ground.sh'
+      - 'scripts/audit_live_capture_time.py'
+      - 'tests/test_live_router_capture.py'
+      - 'docs/PATH_GROUND_006_CAPTURE_TIME_ATTESTATION.md'
+      - '.github/workflows/path-ground-live-capture.yml'
+  push:
+    paths:
+      - 'mailcpu/live_router_capture.py'
+      - 'examples/run_live_capture_ground.py'
+      - 'examples/run_ip_router_path_ground.py'
+      - 'scripts/run_ip_router_path_ground.sh'
+      - 'scripts/audit_live_capture_time.py'
+      - 'tests/test_live_router_capture.py'
+      - 'docs/PATH_GROUND_006_CAPTURE_TIME_ATTESTATION.md'
+      - '.github/workflows/path-ground-live-capture.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  signed-acquisition-tests:
+    name: Capture-time event chain / receiver policy on Linux and Windows
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install -e ".[dev]" "cryptography>=42"
+      - name: Validate finite event chain signatures, challenge replay and native E-CPU route reconstruction
+        run: python -m pytest -q tests/test_live_router_capture.py tests/test_router_witness_auth.py tests/test_ip_router_path_ground.py
+
+  real-kernel-live-observation:
+    name: Real Linux kernel forwarding with signed live Ethernet frame acquisitions
+    needs: signed-acquisition-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -e ".[dev]" "cryptography>=42"
+      - name: Require privilege for owned isolated netns and IP kernel forwarding
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo -n true
+          if ! command -v ip >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y iproute2
+          fi
+          bash -n scripts/run_ip_router_path_ground.sh
+      - name: Generate receiver-held ephemeral CA, four leaf keys and preissued challenges
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m examples.run_live_capture_ground --prepare \
+            --private-dir "$RUNNER_TEMP/pg6-private" \
+            --public-dir "$RUNNER_TEMP/pg6-public"
+          test ! -e "$RUNNER_TEMP/pg6-public/one.r1.key"
+      - name: Sign each genuine AF_PACKET frame inside its router/bridge namespace before saving capture
+        shell: bash
+        run: |
+          set -euo pipefail
+          PG6_SIGNING_DIR="$RUNNER_TEMP/pg6-private" \
+            bash scripts/run_ip_router_path_ground.sh "$RUNNER_TEMP/pg6-public"
+      - name: Receiver independently verify acquisition-time signatures and native observer paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m examples.run_live_capture_ground --verify \
+            --private-dir "$RUNNER_TEMP/pg6-private" \
+            --observations-dir "$RUNNER_TEMP/pg6-public" \
+            --output "$RUNNER_TEMP/pg6-public/live-capture-verification.json"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          report = json.loads((Path(os.environ['RUNNER_TEMP']) / 'pg6-public' / 'live-capture-verification.json').read_text())
+          assert report['status'] == 'capture_time_signatures_verified_against_raw_kernel_observations'
+          assert [len(report['route_results'][r]['sensors']) for r in ('direct','bridge','one','two')] == [0,1,1,2]
+          assert report['sensor_count'] == 4
+          assert report['signed_packet_events'] == 48
+          assert report['native_packet_paths_verified'] == 24
+          assert report['physical_admin_independence'] is False
+          print(json.dumps({'signed_events': 48, 'native_paths': 24, 'trusted_ground': report['ground_digest']}, sort_keys=True))
+          PY
+      - name: Upload raw bytes and public signed evidence (not private keys)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: path-ground-006-public-sensor-evidence
+          path: ${{ runner.temp }}/pg6-public/
+          if-no-files-found: warn
+
+  separate-ecpu-free-audit:
+    name: Independently recheck 48 signed raw packet events without installing E-CPU
+    needs: real-kernel-live-observation
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install "cryptography>=42"
+      - uses: actions/download-artifact@v4
+        with:
+          name: path-ground-006-public-sensor-evidence
+          path: ${{ runner.temp }}/pg6-public
+      - name: Independent raw IPv4 relation, X.509 and acquisition-time ECDSA chain verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m scripts.audit_live_capture_time \
+            --input-dir "$RUNNER_TEMP/pg6-public" \
+            > "$RUNNER_TEMP/pg6-independent-audit.json"
+          cat "$RUNNER_TEMP/pg6-independent-audit.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: path-ground-006-separate-audit-result
+          path: ${{ runner.temp }}/pg6-independent-audit.json
