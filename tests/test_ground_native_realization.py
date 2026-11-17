@@ -21,6 +21,12 @@ from mailcpu.ground_native_realization import (
 from mailcpu.runtime_qualification import (
     QualificationPolicy, SubprocessQualificationEndpoint, qualify,
 )
+from mailcpu.lens_ground import recover_lens_law, transform
+from mailcpu.lens_native_fabric import (
+    LensNativeDispatcher, LensNativeReceipt, LensNativeRefused,
+    independent_lens_value, verify_lens_native_receipt,
+)
+from mailcpu.structural_memory import StructuralMemoryRegistry
 
 try:
     from mailcpu.federated_placement import MutualTLSQualificationEndpoint
@@ -227,6 +233,24 @@ def _cert(root: Path, ca: Path, name: str, client: bool) -> tuple[Path, Path]:
     return crt, key
 
 
+def _lens_proposal():
+    """Construct a finite-witness lens Ground independently of receiver placement."""
+    origin = (1 << 40) + 23
+    trace = [
+        transform((origin + t) % (1 << 64), "gray.encode")
+        for t in range(96)
+    ]
+    law = recover_lens_law(trace[:56], trace[56:])
+    if law.family != "lens64" or law.verdict != "GROUND":
+        raise AssertionError("the lens Ground fixture could not be recovered")
+    registry = StructuralMemoryRegistry(admission_policy=lambda proposal: True)
+    return registry.propose(
+        "sab008-framed-lens", law,
+        {t: trace[t] for t in (0, 1, 2, 8, 15, 31, 48, 72, 90)},
+        context={"source": "sab008-lens-fixture"},
+    )
+
+
 @unittest.skipUnless(HAVE_NATIVE and shutil.which("openssl"),
                      "native E-CPU with mTLS receiver and OpenSSL required")
 class FederatedNativeTests(unittest.TestCase):
@@ -243,18 +267,27 @@ class FederatedNativeTests(unittest.TestCase):
                  "-addext", "keyUsage=critical,keyCertSign,cRLSign",
                  "-keyout", str(cls.root/"ca.key"), "-out", str(cls.ca))
         cls.client_cert, cls.client_key = _cert(cls.root, cls.ca, "origin", True)
-        cls.servers = {name: _cert(cls.root, cls.ca, name, False) for name in ("gate-relay", "math-host")}
+        cls.lens_proposal = _lens_proposal()
+        cls.servers = {name: _cert(cls.root, cls.ca, name, False)
+                       for name in ("gate-relay", "math-host", "math-spare")}
         cls.listeners = {}
         cls.endpoints = {}
         try:
             cls._launch("gate-relay", ("observe", "transfer"))
-            cls._launch("math-host", ("observe", "affine_mod"))
+            cls._launch(
+                "math-host", ("observe", "affine_mod", "lens64.navigate"),
+                lens_ground=cls.lens_proposal.spec.digest,
+            )
+            cls._launch(
+                "math-spare", ("observe", "lens64.navigate"),
+                lens_ground=cls.lens_proposal.spec.digest,
+            )
         except Exception:
             cls.tearDownClass()
             raise
 
     @classmethod
-    def _launch(cls, name, operations, *, revoke=False):
+    def _launch(cls, name, operations, *, revoke=False, lens_ground=None):
         """Start one locally installed fixed-vocabulary Hypervisor-capable receiver."""
         cert, key = cls.servers[name]
         with socket.socket() as probe:
@@ -271,6 +304,8 @@ class FederatedNativeTests(unittest.TestCase):
                 "--ready-file", str(ready)]
         for operation in operations:
             argv += ["--allow", operation]
+        if lens_ground is not None:
+            argv += ["--allow-lens-ground", lens_ground]
         if revoke:
             argv.append("--revoke-native")
         process = subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
@@ -333,6 +368,53 @@ class FederatedNativeTests(unittest.TestCase):
                          {independent_observation(INTENTION)})
         self.assertEqual(federated.payload["event_count"], 2)
         self.assertFalse(federated.payload["physical_host_attested"])
+
+    def test_native_lens_ground_rehomes_between_authenticated_receivers(self):
+        """Read one Ground on two different mTLS peer identities and check native audit evidence."""
+        proposal = self.lens_proposal
+        coordinate = (1 << 50) + 19
+        a = LensNativeDispatcher(
+            self.endpoints["math-host"],
+            approved_specs=frozenset({proposal.spec.digest}),
+        )
+        b = LensNativeDispatcher(
+            self.endpoints["math-spare"],
+            approved_specs=frozenset({proposal.spec.digest}),
+        )
+        first = a.navigate(proposal, coordinate, request_id="lens-first")
+        second = b.navigate(proposal, coordinate, request_id="lens-rehome")
+        expected = independent_lens_value(proposal, coordinate)
+        self.assertEqual(verify_lens_native_receipt(first, proposal), expected)
+        self.assertEqual(verify_lens_native_receipt(second, proposal), expected)
+        self.assertNotEqual(first.reply["host"], second.reply["host"])
+        self.assertEqual(first.reply["result"]["value"], second.reply["result"]["value"])
+        for host in ("math-host", "math-spare"):
+            audits = list((self.root / (host + ".store") / "native-receipts").glob("*.json"))
+            self.assertTrue(audits, f"{host} did not retain its native Hypervisor audit")
+        # An unbound semantic identity is refused before initiating network I/O.
+        with self.assertRaises(LensNativeRefused):
+            LensNativeDispatcher(
+                self.endpoints["math-host"], approved_specs=frozenset({"0" * 64}),
+            ).navigate(proposal, coordinate, request_id="wrong-ground")
+        altered = LensNativeReceipt(
+            first.proposal_id, first.request,
+            {**first.reply, "result": {**first.reply["result"], "value": expected ^ 1}},
+        )
+        with self.assertRaises(LensNativeRefused):
+            verify_lens_native_receipt(altered, proposal)
+
+    def test_native_lens_certificate_mismatch_fails_tls_identity_check(self):
+        """Reject a mismatched receiver certificate before interpreting Ground evidence."""
+        proposal = self.lens_proposal
+        good = self.endpoints["math-host"]
+        bad = MutualTLSQualificationEndpoint(
+            "math-host", good.address, server_dns="incorrect.sab008.test",
+            client_certificate=str(self.client_cert), client_key=str(self.client_key),
+            ca_file=str(self.ca),
+        )
+        dispatcher = LensNativeDispatcher(bad, approved_specs=frozenset({proposal.spec.digest}))
+        with self.assertRaises(LensNativeRefused):
+            dispatcher.navigate(proposal, (1 << 40) + 73, request_id="wrong-cert")
 
     def test_federated_wrong_certificate_identity_refused(self):
         """TLS SAN mismatch is not repaired by a matching self-reported host ID."""
