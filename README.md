@@ -22,6 +22,8 @@ See [The Internet Is the Computer](docs/THE_INTERNET_IS_THE_COMPUTER.md) for the
 
 [PATH-GROUND-004](docs/PATH_GROUND_004_IPV4_FORWARDING.md) tests a **native in-network transition** rather than a remote worker: Linux IPv4 kernel forwarding decrements packet TTL inside intermediate routing namespaces **without a MailCPU forwarding operator** (separate local E-CPU observer scripts measure real packet headers). Real `AF_PACKET` ingress/egress headers and receiver-side `IP_RECVTTL` observations are checked against **direct, L2-bridge, one-router and two-router** paths, making L2 transit without TTL transformation a necessary negative control; the existing `Law` navigator and native `ChannelObservation` distinguish mathematical Ground, route evidence, and a topology-dependent intention. Privileged multi-hop CI remains the proof obligation; this is not an optical or public Internet path claim.
 
+[PATH-GROUND-005](docs/PATH_GROUND_005_AUTHENTICATED_ROUTER_WITNESS.md) adds a **cryptographically authenticated observer-host evidence path** atop native router before/after measurements: four distinct P-256 test leaf credentials and real MailCPU mutual-TLS sessions sign exact source/route/Ground/policy-bound raw capture commitments under receiver-issued challenges. The receiver independently revalidates the packets, provenance permission, and E-CPU `ObserverPathStage` receipts before admitting any observation. A signature identifies the test credential that made a claim; it is **not** proof of honest hardware measurement or independently administered Internet hosts. The credentialed multi-process Linux CI experiment is pending.
+
 
 ## Foremost capability: form computational environments from available substrates
 
