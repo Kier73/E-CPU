@@ -10,6 +10,8 @@ on:
       - 'reports/internet_native_ground/internet_002_*'
       - 'tests/test_internet_graph_ground.py'
       - 'tests/test_internet_http_validators.py'
+      - 'tests/test_internet_native_bridge.py'
+      - 'examples/native_git_observer_bridge.py'
       - '.github/workflows/internet-native-graph.yml'
   pull_request:
     paths:
@@ -18,6 +20,8 @@ on:
       - 'reports/internet_native_ground/internet_002_*'
       - 'tests/test_internet_graph_ground.py'
       - 'tests/test_internet_http_validators.py'
+      - 'tests/test_internet_native_bridge.py'
+      - 'examples/native_git_observer_bridge.py'
       - '.github/workflows/internet-native-graph.yml'
   workflow_dispatch:
 
@@ -41,6 +45,10 @@ jobs:
         run: |
           python -m unittest discover -s tests -p 'test_internet_graph_ground.py' -v
           python -m unittest discover -s tests -p 'test_internet_http_validators.py' -v
+      - name: Run real MailCPU observer receipt and local policy adapter
+        run: |
+          python -c 'import mailcpu.observer_path_evidence, mailcpu.observer_orbit'
+          python -m unittest discover -s tests -p 'test_internet_native_bridge.py' -v
 
   actual-internet-observer:
     name: Independently verify existing live Git service operators

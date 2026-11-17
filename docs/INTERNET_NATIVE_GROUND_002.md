@@ -1,6 +1,6 @@
 # INTERNET-002 — Navigate an existing Internet service's state graph
 
-**Status (2026-11-16):** Authorized live GitHub service graph created and examined through the GitHub connection; **9/9 native comparison results** agreed with an independent bounded ancestry oracle; **12/12 remote commit/tree/parent objects** independently cross-checked; 24/24 local pure-Python tests passed. The direct HTTPS recheck and HTTP-ETag probe are configured but **not yet verified on GitHub Actions**. This is an existing *Internet application-service operator*, not an experiment in optical computation, router arithmetic, or worker distribution.
+**Status (2026-11-16):** Authorized live GitHub service graph created and examined through the GitHub connection; **9/9 native comparison results** agreed with an independent bounded ancestry oracle; **12/12 remote commit/tree/parent objects** independently cross-checked; 24/24 local pure-Python tests passed; 4 native MailCPU path-adapter tests skipped locally and required by the hosted workflow. The direct HTTPS recheck and HTTP-ETag probe are configured but **not yet verified on GitHub Actions**. This is an existing *Internet application-service operator*, not an experiment in optical computation, router arithmetic, or worker distribution.
 
 This experiment extends [INTERNET-001](INTERNET_NATIVE_GROUND_001.md), [The Internet Is the Computer](THE_INTERNET_IS_THE_COMPUTER.md), [Latent Path Capacity](LATENT_PATH_CAPACITY.md), [State-Space Navigation](STATE_SPACE_NAVIGATION.md), and [Observer-Host Path Cohesion](OBSERVER_HOST_PATH_COHESION.md). It follows the design principle that **capacity precedes recognition, intention selects an observation, and path evidence is separate from execution authority**.
 
@@ -64,6 +64,14 @@ The complete success witness is `mailcpu.internet-native-git-graph-observation.v
 
 The historical Git objects before the separately pinned root are outside this finite Ground. The remote root may have parents in the broader repository, which are **not** used to justify claims about unobserved commit history.
 
+## Native E-CPU observer-path integration (new typed adapter)
+
+`examples/native_git_observer_bridge.py` reuses **native E-CPU** `ObserverContract`, `ObserverReceipt`, `ObserverPathStage(mode="observe")`, `verify_observer_path` and `check_observer_path_receipt`. It reruns the receiver-owned parent/tree/ref/compare checks before producing a native path witness, then calls the receiver-installed `receiver_admit` policy callback. There is no new service protocol, scheduler, Hypervisor grant, or redundant observer ledger.
+
+The single active observation stage has one real declared operational locus (`github.git.compare`). **There is deliberately no manufactured `carrier` stage**: the Git API evidence is not independent proof of physical-path delivery or transport transformation. The native observer receipt is reissued by the receiving verifier from a checked HTTPS observation and remains *unsigned after export*; remote peer attribution remains the HTTPS origin, not a hardware-attested network node.
+
+`tests/test_internet_native_bridge.py` exercises typed native receipt construction, callback denial (including a deceptive truthy integer), corrupted two-parent merge state, and unlisted-intention refusal. All four native tests were skipped locally because the full MailCPU runtime is not mounted. In the hosted workflow **importing E-CPU and running those tests is mandatory**, not a permissive skip substituted for successful integration. Results are pending until actual exact-head CI completes.
+
 ## Second protocol-level observation: HTTP conditional state
 
 [`examples/probe_internet_http_validators.py`](../examples/probe_internet_http_validators.py) tests another pre-existing internet relation, **HTTP entity validation**, with three read-only requests to a fixed Git commit:
@@ -93,6 +101,8 @@ Offline, Python 3.11+:
 ```sh
 python -m unittest discover -s tests -p 'test_internet_graph_ground.py' -v
 python -m unittest discover -s tests -p 'test_internet_http_validators.py' -v
+# If E-CPU is present, also execute the native observer-path adapter tests:
+python -m unittest discover -s tests -p 'test_internet_native_bridge.py' -v
 ```
 
 Hosted or on an authorized Internet-connected environment (read-only, 24 bounded GitHub GETs; `GITHUB_TOKEN` optional for API rate budget):
