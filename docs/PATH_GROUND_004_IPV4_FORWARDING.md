@@ -157,12 +157,12 @@ Hypervisor, authority ledger, or route scheduler.
 
 ## Verification and reproducibility
 
-\`\`\`sh
+```sh
 python -m pytest -q tests/test_ip_router_path_ground.py
 python -m pytest -q tests/test_observer_path_evidence.py tests/test_latent_path_capacity.py
 # Requires Linux, CAP_NET_ADMIN, CAP_NET_RAW and a permitted local sudo runner:
 bash scripts/run_ip_router_path_ground.sh artifacts/path-ground-004
-\`\`\`
+```
 
 The unit suite uses synthetic raw Ethernet frames strictly as **parser
 and verifier negative controls** and checks a real unprivileged Linux
