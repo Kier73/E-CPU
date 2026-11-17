@@ -1,0 +1,83 @@
+name: PATH-GROUND-003 real Internet conditional observation
+
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/http_conditional_ground.py'
+      - 'tests/test_http_conditional_ground.py'
+      - 'examples/run_http_conditional_ground.py'
+      - 'docs/PATH_GROUND_003_CONDITIONAL_HTTP.md'
+      - '.github/workflows/path-ground-conditional-http.yml'
+  push:
+    paths:
+      - 'mailcpu/http_conditional_ground.py'
+      - 'tests/test_http_conditional_ground.py'
+      - 'examples/run_http_conditional_ground.py'
+      - 'docs/PATH_GROUND_003_CONDITIONAL_HTTP.md'
+      - '.github/workflows/path-ground-conditional-http.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mathematical-contract:
+    name: Verifier and native object-store regression
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install -e ".[dev]"
+      - name: Test HTTP evidence, conditional refusal and native CAS
+        run: python -m pytest -q tests/test_http_conditional_ground.py tests/test_computational_objects.py tests/test_latent_path_capacity.py
+
+  real-public-https:
+    name: Real owned GitHub HTTPS conditional comparison
+    needs: mathematical-contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Independently checkout immutable public main source for remote comparison
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: trusted-main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -e ".[dev]"
+      - name: Pinned main commit remote 200/304/200 plus raw and Git blob independent reads
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m examples.run_http_conditional_ground --root trusted-main --commit "$(git -C trusted-main rev-parse HEAD)" > conditional-http-ground-report.json
+          python - <<'PY'
+          import json
+          report = json.load(open("conditional-http-ground-report.json", encoding="utf-8"))
+          observed = report["internet_observations"]
+          assert (observed["full_200"]["status"], observed["equal_304"]["status"],
+                  observed["stale_200"]["status"]) == (200, 304, 200)
+          assert observed["equal_304"]["body_bytes"] == 0
+          assert observed["local_source_equals_remote"] is True
+          print(json.dumps({
+              "ground": report["ground"]["ground_digest"],
+              "content": report["ground"]["content_sha256"],
+              "actual_conditional_body_saved": observed["http_response_body_bytes_saved_at_equal_check"],
+              "internet_path": "real GitHub HTTPS (same service provider)",
+          }, sort_keys=True))
+          PY
+      - name: Preserve reproducible proof and exact reported refusal scope
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: path-ground-003-https-conditional-observations
+          path: conditional-http-ground-report.json
+          if-no-files-found: warn
