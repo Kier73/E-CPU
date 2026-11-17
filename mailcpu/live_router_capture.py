@@ -393,5 +393,6 @@ def verify_live_router_route(
             } for r in sensors
         ],
         "native_path_digests": [p.verified.path_digest for p in paths],
+        "native_stage_modes": [x.mode for x in paths[0].stages],
         "scope": "observer_process_signs_at_AF_PACKET_receive_no_physical_independence_claim",
     }
