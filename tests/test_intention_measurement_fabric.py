@@ -75,6 +75,17 @@ def _installed(state=3, *, reads=None, admissions=None, authority=lambda: AUTH):
     )}
 
 
+def test_hosted_measurement_validates_contract_without_reading_private_state():
+    """Mathematics: installation validates a native contract without performing its observation."""
+    reads, admissions = [], []
+    binding = _installed(reads=reads, admissions=admissions)["parity"]
+    assert isinstance(binding.contract, ObserverContract)
+    for invalid in (None, {}, binding.contract.digest):
+        with pytest.raises(SufficiencyRefused, match="native observer contract"):
+            replace(binding, contract=invalid)
+    assert reads == admissions == []
+
+
 def test_native_request_canonical_digest_reconstruction_and_mutations():
     req = _requests()[0]
     assert _parse_request({"kind": "mailcpu.intention.measurement.request.v1", "request": req}) == req
@@ -304,3 +315,4 @@ def test_receiver_rejects_wrong_authenticated_peer_dns_before_read(tmp_path, tls
         thread.join(timeout=5)
         listener.close()
     assert errors and not thread.is_alive()
+

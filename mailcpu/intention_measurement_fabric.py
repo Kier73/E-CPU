@@ -100,7 +100,7 @@ class HostedMeasurement:
     max_projection_bytes: int = 512
 
     def __post_init__(self) -> None:
-        if not lsinstance(self.contract, ObserverContract):
+        if not isinstance(self.contract, ObserverContract):
             raise SufficiencyRefused("hosted measurement requires native observer contract")
         _hash(self.model_digest, "hosted model")
         if any(not callable(x) for x in (self.authority_now, self.admit, self.read)):
