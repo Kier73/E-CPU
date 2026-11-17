@@ -14,7 +14,7 @@ import sys
 import pytest
 
 from mailcpu.ip_router_path_ground import (
-    MAGIC, ROUTES, SCHEMA, TTL_PROBES,
+    MAGIC, IP_HOPS, ROUTES, SCHEMA, TTL_PROBES,
     RouterGroundRefused, parse_ethernet_ipv4_udp, probe_payload,
     recognize_router_ttl_ground, verify_router_route,
 )
@@ -47,9 +47,11 @@ def _raw_ipv4_packet(seq, ttl, *, source_ip, destination_ip, source_port, dest_p
 
 def _make(route):
     """Build an intentionally labeled synthetic observation across the expected route shape."""
-    hop_count = len(ROUTES[route])
-    source_ip = {"direct": "10.73.0.1", "one": "10.73.1.1", "two": "10.73.3.1"}[route]
-    dest_ip = {"direct": "10.73.0.2", "one": "10.73.2.2", "two": "10.73.5.2"}[route]
+    hop_count = IP_HOPS[route]
+    source_ip = {"direct": "10.73.0.1", "bridge": "10.73.6.1",
+                 "one": "10.73.1.1", "two": "10.73.3.1"}[route]
+    dest_ip = {"direct": "10.73.0.2", "bridge": "10.73.6.2",
+               "one": "10.73.2.2", "two": "10.73.5.2"}[route]
     source_port = 48510
     port = 46831
     source = {
@@ -73,8 +75,8 @@ def _make(route):
         frames = []
         for seq, ttl in enumerate(TTL_PROBES):
             for side, remaining in (
-                ("ingress", ttl - i),
-                ("egress", ttl - i - 1),
+                ("ingress", ttl - max(i, 0) if route != "bridge" else ttl),
+                ("egress", ttl - i - 1 if route != "bridge" else ttl),
             ):
                 raw = _raw_ipv4_packet(
                     seq, remaining, source_ip=source_ip,
@@ -112,16 +114,17 @@ def test_ipv4_packet_parser_independently_checks_source_bytes_ttl_and_checksum()
     assert parsed["ip_id"] == 2303
 
 
-def test_three_path_topologies_share_exact_math_but_not_observed_route_evidence():
+def test_four_path_topologies_distinguish_l2_bridging_from_ip_ttl_forwarding():
     """One forwarding law has three distinct carrier placements and observed output orbits."""
-    direct, one, two = _verified()
-    assert direct.received_ttls == TTL_PROBES
+    direct, bridge, one, two = _verified()
+    assert direct.received_ttls == bridge.received_ttls == TTL_PROBES
     assert one.received_ttls == tuple(ttl - 1 for ttl in TTL_PROBES)
     assert two.received_ttls == tuple(ttl - 2 for ttl in TTL_PROBES)
-    assert [x.router_captures for x in (direct, one, two)] == [0, 12, 24]
-    assert [x.checksum_valid_frames for x in (direct, one, two)] == [0, 12, 24]
-    assert len({x.evidence_digest for x in (direct, one, two)}) == 3
-    ground = recognize_router_ttl_ground(direct, one, two)
+    assert [x.router_captures for x in (direct, bridge, one, two)] == [0, 12, 12, 24]
+    assert [x.checksum_valid_frames for x in (direct, bridge, one, two)] == [0, 12, 12, 24]
+    assert len({x.evidence_digest for x in (direct, bridge, one, two)}) == 4
+    assert bridge.hops == 0 and bridge.router_captures == 12
+    ground = recognize_router_ttl_ground(direct, bridge, one, two)
     assert ground.navigate(64, 2)["destination_ttl"] == 62
     assert ground.navigate(64, 40)["destination_ttl"] == 24
     assert "symbolic_rfc" in ground.navigate(64, 40)["scope"]
@@ -142,15 +145,15 @@ def test_reuse_native_sab_channel_observations_without_granting_kernel_authority
     """Each checked route can be described as a native E-CPU channel observation."""
     ground = recognize_router_ttl_ground(*_verified())
     channels = ground.native_channel_observations()
-    assert len(channels) == 3
-    assert [x.channel_id for x in channels] == ["pg4.direct", "pg4.one", "pg4.two"]
-    assert len({x.evidence_digest for x in channels}) == 3
+    assert len(channels) == 4
+    assert [x.channel_id for x in channels] == ["pg4.direct", "pg4.bridge", "pg4.one", "pg4.two"]
+    assert len({x.evidence_digest for x in channels}) == 4
     assert channels[1].carries == ("ipv4.datagram",)
     assert channels[1].source != channels[1].target
     assert channels[1].expires_at == 1
 
 
-@pytest.mark.parametrize("route", ("direct", "one", "two"))
+@pytest.mark.parametrize("route", ("direct", "bridge", "one", "two"))
 def test_source_destination_or_router_must_supply_every_packet(route):
     """Missing actual packet observations cannot be filled with expected mathematical data."""
     source, receiver, routers = _make(route)
@@ -175,7 +178,7 @@ def test_changed_router_ip_ttl_is_rejected_against_source_and_receiver():
     altered = bytearray.fromhex(frame["raw_hex"])
     altered[14 + 8] = 37
     frame["raw_hex"] = altered.hex()
-    with pytest.raises(RouterGroundRefused, match="decrement"):
+    with pytest.raises(RouterGroundRefused, match="relation contradicts"):
         verify_router_route("two", src, dst, routers)
 
 
@@ -219,7 +222,7 @@ def test_router_identity_refuses_header_id_mismatch_and_fragmentation():
     raw = bytearray.fromhex(frame["raw_hex"])
     raw[14 + 4:14 + 6] = (654).to_bytes(2, "big")
     frame["raw_hex"] = raw.hex()
-    with pytest.raises(RouterGroundRefused, match="decrement"):
+    with pytest.raises(RouterGroundRefused, match="identity"):
         verify_router_route("one", src, dst, routers)
 
     src, dst, routers = _make("one")
