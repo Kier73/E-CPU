@@ -20,6 +20,8 @@ See [The Internet Is the Computer](docs/THE_INTERNET_IS_THE_COMPUTER.md) for the
 
 [PATH-GROUND-001](docs/PATH_GROUND_001_COMMUNICATION_OBSERVATION.md) is the first evidence-scoped test: a live local TCP path is observed as both byte-stream transport and bounded endpoint timing, while a separately labeled numerical transfer kernel exercises calibration and held-out refusal. This **does not** claim computation inside physical optical fiber; it supplies the observation contract for such a future experiment.
 
+[PATH-GROUND-003](docs/PATH_GROUND_003_CONDITIONAL_HTTP.md) extends the Internet-computer experiment to a **real public HTTPS observer-host operation**: GitHub's representation-specific ETag comparison (`200 → 304 → 200` under an exact commit-pinned file and changed request predicates). E-CPU independently binds the selected response to the same Git content through raw HTTPS, Git blob SHA-1, and its existing immutable computational-object store. The state predicate is an Internet service operation, **not** an assertion of arithmetic inside passive fiber; full live conditional CI is pending.
+
 
 ## Foremost capability: form computational environments from available substrates
 
