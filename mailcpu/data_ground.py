@@ -137,12 +137,12 @@ def _json_normalize(value: Any, depth: int = 0) -> str:
     if type(value) is Decimal:
         return str(value)
     if type(value) is str:
-        return json.dumps(value, ensure_ascii=False)
+        return json.dumps(value, ensure_ascii=True)
     if type(value) is list:
         return "[" + ",".join(_json_normalize(item, depth + 1) for item in value) + "]"
     if type(value) is dict:
         return "{" + ",".join(
-            json.dumps(key, ensure_ascii=False) + ":" +
+            json.dumps(key, ensure_ascii=True) + ":" +
             _json_normalize(value[key], depth + 1)
             for key in sorted(value)
         ) + "}"
