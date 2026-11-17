@@ -3187,6 +3187,7 @@ def test_compiled_dataflow_frontiers_execute_on_distinct_fabric_hosts_with_egpu(
             }
             raise AssertionError(
                 f"operation-native forwarding failed: {exc}; "
+                f"partition failures={exc.failures!r}; "
                 f"peer failures={failures_snapshot!r}; server errors={server_errors!r}"
             ) from exc
         comparison = compare_dataflow_with_reference(plan, execution.execution, program)
@@ -4109,7 +4110,7 @@ def test_b_64_authenticated_claim_status_refresh_is_scoped_to_the_assigned_peer_
     with pytest.raises(TransferableExecutionClaimError, match="not current"):
         ticket.verify_current(coordinator)
 
-    listener = SocketTransport.listen("127.0.0.1", 0)
+    listener = SocketTransport.open_listener("127.0.0.1", 0)
     endpoint = ComputationalPeerEndpoint(
         "peer-a",
         "peer-a.fabric.test",

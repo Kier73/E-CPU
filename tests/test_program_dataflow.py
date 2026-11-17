@@ -173,7 +173,9 @@ def test_dataflow_compiler_preserves_program_identity_and_reference_terminal_obs
     }
     restored = NavigableComputationDAG.from_snapshot(report.dag_snapshot)
     assert restored.is_complete
-    assert restored.committed_nodes == report.committed_node_ids
+    # The restored DAG exposes canonical node-ID order. The execution report
+    # preserves causal/frontier commit chronology; neither is a sorted alias.
+    assert tuple(sorted(restored.committed_nodes)) == tuple(sorted(report.committed_node_ids))
     assert report.dag_snapshot_digest == hashlib.sha256(
         __import__("json").dumps(
             report.dag_snapshot,
