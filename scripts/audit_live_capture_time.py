@@ -106,6 +106,13 @@ def independently_audit(input_dir: Path) -> dict:
             and summary.get("route_evidence_digest") == route_digest
             and summary.get("receiver_policy_digest") == trust["receiver_policy_digest"]
             and len(summary.get("native_path_digests", [])) == 6
+            and summary.get("native_stage_modes") == {
+                "direct": ["carrier", "observe"],
+                "bridge": ["carrier", "observe", "carrier", "observe"],
+                "one": ["carrier", "transform", "carrier", "observe"],
+                "two": ["carrier", "transform", "carrier", "transform",
+                        "carrier", "observe"],
+            }[route]
             and len(summary.get("sensors", [])) == len(router_ids),
             "signed route's native packet evidence is not structurally complete",
         )
