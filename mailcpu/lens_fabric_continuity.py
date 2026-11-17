@@ -58,11 +58,23 @@ def lens_fabric_spec() -> OperatorSpec:
 def lens_fabric_handler(resolved_input: Mapping[str, Any], _workload: VirtualLayerWorkload) -> dict[str, int]:
     """Mathematics: project the receiver-authorized read value without reimplementing its law."""
     try:
-        value = resolved_input["structural_memory"][BINDING]["value"]
-    except (TypeError, KeyError) as exc:
+        reference = _workload.operator_ref(OPERATOR)
+        inline = resolved_input["input"]
+        resolved = resolved_input["structural_memory"][BINDING]
+        value, receipt = resolved["value"], resolved["receipt"]
+    except (TypeError, KeyError, AttributeError) as exc:
         raise LensFabricRefused("receiver has not resolved the pinned Structural Memory binding") from exc
-    if type(value) is not int:
-        raise LensFabricRefused("resolved Ground value is not an exact integer")
+    if (len(reference.structural_memory) != 1
+            or reference.structural_memory[0].binding != BINDING
+            or not isinstance(inline, Mapping) or set(inline) != {"coordinate"}
+            or type(inline["coordinate"]) is not int
+            or inline["coordinate"] != reference.structural_memory[0].coordinate
+            or not isinstance(receipt, Mapping)
+            or receipt.get("coordinate") != inline["coordinate"]
+            or receipt.get("spec_digest") != reference.structural_memory[0].spec_digest
+            or receipt.get("certificate_digest") != reference.structural_memory[0].certificate_digest
+            or type(value) is not int or receipt.get("value") != value):
+        raise LensFabricRefused("receiver coordinate or resolved revision differs from pinned intention")
     return {"value": value}
 
 
@@ -152,7 +164,8 @@ def _match_intention(intent: LensFabricIntent, address: ComputationalAddress) ->
         raise LensFabricRefused("typed lens intention and ComputationalAddress required")
     workload = address.workload
     try:
-        refs = workload.operator_ref(OPERATOR).structural_memory
+        bound_operator = workload.operator_ref(OPERATOR)
+        refs = bound_operator.structural_memory
         goal = json.loads(canonical(workload.intention["goal"]))
         inputs = json.loads(canonical(workload.input_value))
     except (KeyError, TypeError, ValueError) as exc:
@@ -171,6 +184,9 @@ def _match_intention(intent: LensFabricIntent, address: ComputationalAddress) ->
             or address.program_fingerprint is not None
             or inputs != {"coordinate": intent.coordinate}
             or goal != target_goal or len(refs) != 1
+            or bound_operator.to_dict() != VirtualOperatorRef(
+                OPERATOR, 1, "cpu", structural_memory=(intent.memory_ref,),
+            ).to_dict()
             or refs[0].to_dict() != intent.memory_ref.to_dict()):
         raise LensFabricRefused("native lens semantic address differs from intention or pinned revision")
 
