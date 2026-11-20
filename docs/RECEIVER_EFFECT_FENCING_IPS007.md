@@ -23,6 +23,8 @@ There is **no second consensus or network authority**. The effect receiver accep
 
 The native module fenced_effect_receiver.py provides:
 
+The local receiver is constructed with an **immutable resource-to-plan binding** (resource path plus exact IPS-003 plan digest), persisted in its receiver-owned database. Reopening the resource with a different plan digest is refused rather than allowing another valid Ground to replace its meaning.
+
 - PublishedGroundEffect: a bounded **inert request**, carrying resource, current published manifest root/generation, original plan and checkpoint digests, stage, epoch, qualified host, exact SAB-008 receipt digest and output value. It is **not** a bearer credential.
 - published_effect: extracts a stage description from a quorum-published Ground head. It performs no effect and grants no rights.
 - FencedGroundEffectReceiver: stores an installed authority root, append-only semantic effect receipts and one persistent register in a receiver-owned SQLite database.
