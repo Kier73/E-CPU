@@ -150,6 +150,14 @@ class AuthenticatedGroundEffectService:
                 sender=RECEIVER, recipient=OWNER, op="ground.effect.response",
                 seq=message.seq, body=(response,),
             ))
+            # Preserve the TLS stream until the client confirms receiving the
+            # complete native frame. Never interpret a dropped ACK as proof
+            # that a committed SQLite barrier or effect did not occur.
+            acknowledgement = _wait_message(connection, RECEIVER, _MAX_SECONDS)
+            if (acknowledgement.op != "ground.effect.ack"
+                    or acknowledgement.seq != message.seq
+                    or acknowledgement.body != ("received",)):
+                raise EffectReceiverServiceError("effect response acknowledgement mismatch")
             return True
         except (EffectReceiverServiceError, SocketTransportError):
             return False
@@ -191,13 +199,22 @@ class AuthenticatedGroundEffectClient:
                 sender=OWNER, recipient=RECEIVER, op="ground.effect.request",
                 seq=1, body=({"kind":kind, "data":data},),
             ))
-            response = _wait_message(channel, OWNER, self.timeout)
+            try:
+                response = _wait_message(channel, OWNER, self.timeout)
+            except SocketTransportError as exc:
+                raise EffectReceiverServiceError("authenticated effect response frame incomplete") from exc
             if (response.op != "ground.effect.response" or response.seq != 1
                     or len(response.body) != 1
                     or not isinstance(response.body[0], Mapping)
                     or set(response.body[0]) not in ({"ok","result"}, {"ok","reason"})):
                 raise EffectReceiverServiceError("effect response is not a bound typed result")
             payload = response.body[0]
+            # Acknowledge the exact response frame before closing this
+            # authenticated connection, including explicit refusals.
+            channel.send(RECEIVER, Message(
+                sender=OWNER, recipient=RECEIVER, op="ground.effect.ack",
+                seq=response.seq, body=("received",),
+            ))
             if payload["ok"] is not True:
                 raise EffectFencingRefused(str(payload["reason"]))
             if not isinstance(payload["result"], Mapping):
