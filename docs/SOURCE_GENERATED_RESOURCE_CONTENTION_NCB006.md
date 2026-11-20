@@ -75,6 +75,10 @@ python -m pytest -q tests/test_constructed_resource_contention.py tests/test_con
 python scripts/ncb006_contention_benchmark.py --output ncb006-evidence.json
 ```
 
+## Cross-platform resource-lifecycle observation
+
+The first complete revision passed 25 native tests on Windows but its standalone benchmark subsequently exposed a **Windows file-handle lifetime defect**: temporary SQLite databases could not be deleted while implicit connection objects still held open handles. The resource adapter now uses explicit `contextlib.closing` on every independent SQLite connection (policy installation, reservation, release and snapshot). This changes no authority or mathematical semantics, but makes repeated construction/execution/cleanup reproducible across the Linux and Windows CI matrix. The fixed revision must still pass the standalone benchmark on both platforms before it can be merged.
+
 ## Scope and subsequent work
 
 This experiment is **actual receiver-owned local capacity contention for pure operations** across distinct native E-CPU OS hosts/processes. The independently source-generated conflicting schedule and its reduction are finite, not universally optimal adversarial scheduling. The simulation of host removal after reservation is local and deterministic; it is **not authenticated remote mTLS rehome**. The receiver database is trusted by its local process/OS permissions; arbitrary hostile writers with direct database-file access are outside this demonstration.
