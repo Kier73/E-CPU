@@ -226,6 +226,35 @@ def test_conflicting_assignments_cannot_both_commit_same_quorum_slot(tmp_path: P
     assert competing.restore_latest().manifest.digest == accepted.manifest.digest
 
 
+def test_rehome_interleaved_after_preflight_cannot_publish_under_new_parent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An exact quorum-head check cannot be followed by a stale later-slot seal."""
+    lineage, initial, os, _, pid = _bootstrap(tmp_path)
+    old_host = _host(tmp_path, "slow-owner")
+    next_host = _host(tmp_path, "winning-owner")
+    assigned = lineage.assign(initial, old_host)
+    old_candidate = lineage.compute(assigned, old_host, os, pid)
+    competing = _lineage(tmp_path)
+
+    original_seal = lineage._seal
+
+    def seal_after_rival_reassign(state, *, capture_cut, expected_parent):
+        """Place a real durable majority rehome after publish checked its head."""
+        newer = competing.assign(assigned, next_host)
+        assert newer.assignment["host_id"] == next_host.locus
+        return original_seal(
+            state, capture_cut=capture_cut, expected_parent=expected_parent,
+        )
+
+    monkeypatch.setattr(lineage, "_seal", seal_after_rival_reassign)
+    with pytest.raises(FencedGroundError, match="expected parent"):
+        lineage.publish(assigned, old_candidate)
+    restored = competing.restore_latest()
+    assert restored.assignment["host_id"] == next_host.locus
+    assert restored.assignment["epoch"] == assigned.assignment["epoch"] + 1
+
+
 def test_missing_read_quorum_prevents_assignment_and_compute(tmp_path: Path) -> None:
     """Local checkpoint presence cannot substitute for independent majority state."""
     full, head, os, _, pid = _bootstrap(tmp_path)
