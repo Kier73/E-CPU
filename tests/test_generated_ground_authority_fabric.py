@@ -10,6 +10,9 @@ import hashlib
 import json
 import shutil
 import ssl
+import subprocess
+import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -261,3 +264,87 @@ def test_distributed_coordinator_degraded_flag_never_changes_membership(
             hashlib.sha256(b"state").hexdigest(), "ips006.no-quorum",
         )
         reduced.seal(manifest)
+
+
+@pytest.mark.skipif(shutil.which("openssl") is None, reason="OpenSSL required for owned authority services")
+def test_sigkilled_generated_ground_owner_recovers_from_majority_without_candidate(
+    tmp_path: Path,
+) -> None:
+    """A new OS process recovers the latest generated Ground with no checkpoint input."""
+    certificates = _make_certificates(tmp_path)
+    membership = _membership()
+    process_b, ready_b = _start_member(tmp_path, membership, certificates, "B")
+    process_c, ready_c = _start_member(tmp_path, membership, certificates, "C")
+    endpoints = {
+        "B": {
+            "host": ready_b["host"], "port": int(ready_b["port"]),
+            "dns": "member-b.mailcpu.test",
+        },
+        "C": {
+            "host": ready_c["host"], "port": int(ready_c["port"]),
+            "dns": "member-c.mailcpu.test",
+        },
+    }
+    (tmp_path/"authority-endpoints.json").write_text(
+        json.dumps(endpoints, sort_keys=True, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    worker = Path(__file__).parent / "helpers" / "ips006_owner_process.py"
+    root = Path(__file__).resolve().parents[1]
+    original = subprocess.Popen(
+        (sys.executable, str(worker), "seal", str(tmp_path)),
+        cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    committed_path = tmp_path / "owner-committed.json"
+    try:
+        until = time.monotonic() + 25
+        while time.monotonic() < until and not committed_path.exists():
+            if original.poll() is not None:
+                _, err = original.communicate(timeout=4)
+                raise AssertionError("owner terminated before durable seal: " + err.decode()[:2500])
+            time.sleep(.04)
+        assert committed_path.is_file(), "initial owner never committed a quorum-sealed state"
+        committed = json.loads(committed_path.read_bytes())
+        assert committed["generation"] == 1
+        assert committed["members"] == ["A", "B", "C"]
+
+        # No callback, cleanup or finalizer in the owner's process is run.
+        original.kill()
+        original.communicate(timeout=5)
+        assert original.poll() is not None
+        assert process_b.poll() is None
+
+        # Recover with B alive, C unavailable, and NO original candidate
+        # checkpoint, root digest or session object supplied to the replacement.
+        _stop(process_c)
+        reconstructed = subprocess.run(
+            (sys.executable, str(worker), "recover", str(tmp_path)),
+            cwd=root, capture_output=True, timeout=25, check=False,
+        )
+        assert reconstructed.returncode == 0, reconstructed.stderr.decode()[:3000]
+        recovered = json.loads((tmp_path/"owner-recovered.json").read_bytes())
+        assert recovered["generation"] == committed["generation"]
+        assert recovered["root"] == committed["root"]
+        assert recovered["checkpoint_digest"] == committed["checkpoint_digest"]
+        assert recovered["members"] == ["A", "B"]
+        assert recovered["unavailable"] == ["C"]
+        assert recovered["stages"] == 0
+        assert recovered["assignment"] is None
+
+        # Without B as well, the original fixed quorum cannot be formed;
+        # the successor process must refuse even though the archive is intact.
+        (tmp_path/"owner-recovered.json").unlink()
+        _stop(process_b)
+        missing = subprocess.run(
+            (sys.executable, str(worker), "recover", str(tmp_path)),
+            cwd=root, capture_output=True, timeout=25, check=False,
+        )
+        assert missing.returncode != 0
+        assert b"read quorum" in missing.stderr
+        assert not (tmp_path/"owner-recovered.json").exists()
+    finally:
+        if original.poll() is None:
+            original.kill()
+            original.communicate(timeout=5)
+        _stop(process_b)
+        _stop(process_c)
