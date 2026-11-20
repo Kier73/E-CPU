@@ -190,12 +190,21 @@ def test_live_receiver_rights_and_removed_evidence_reject_native_candidate() -> 
         no_rights, no_rights_pid,
     )
     cat.remove(edges[3].edge_id)
+    # A now-orphaned schedule is rejected as stale input rather than silently
+    # retained as admissible route evidence.
+    with pytest.raises(ArchitectureSynthesisError):
+        synthesize_architecture(
+            intent, GROUND, cat, request, (), windows, os, pid
+        )
+    remaining_windows = tuple(
+        w for w in windows if w.edge_id != edges[3].edge_id
+    )
     no_edge = synthesize_architecture(
-        intent, GROUND, cat, request, (), windows, os, pid
+        intent, GROUND, cat, request, (), remaining_windows, os, pid
     )
     assert no_edge.selected_qualified is None
     assert not verify_architecture_synthesis(
-        expected, intent, GROUND, cat, request, (), windows, os, pid
+        expected, intent, GROUND, cat, request, (), remaining_windows, os, pid
     )
 
 
