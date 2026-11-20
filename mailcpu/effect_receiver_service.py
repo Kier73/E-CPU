@@ -13,7 +13,7 @@ from __future__ import annotations
 import socket
 import ssl
 import time
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from .fenced_effect_receiver import (
     FencedGroundEffectReceiver, PublishedGroundEffect, EffectFencingRefused,
@@ -58,6 +58,7 @@ class AuthenticatedGroundEffectService:
         tls_context: ssl.SSLContext,
         *,
         expected_owner_dns: str,
+        publisher_factory: Callable[[], FencedGroundLineage] | None = None,
     ) -> None:
         """Bind only a resource-local receiver to an original Ground quorum verifier."""
         if (not isinstance(receiver, FencedGroundEffectReceiver)
@@ -69,7 +70,10 @@ class AuthenticatedGroundEffectService:
         if publisher.plan.digest != receiver.plan_digest:
             raise EffectReceiverServiceError("receiver and verifier have different Ground plans")
         self.receiver = receiver
+        if publisher_factory is not None and not callable(publisher_factory):
+            raise EffectReceiverServiceError("publisher factory must reopen an independent quorum view")
         self.publisher = publisher
+        self.publisher_factory = publisher_factory
         self.listener = listener
         self.context = tls_context
         self.expected_owner_dns = expected_owner_dns
@@ -85,6 +89,10 @@ class AuthenticatedGroundEffectService:
         if not isinstance(request, Mapping) or set(request) != {"kind", "data"}:
             raise EffectReceiverServiceError("request schema is not exact")
         kind, data = request["kind"], request["data"]
+        publisher = self.publisher_factory() if self.publisher_factory else self.publisher
+        if (not isinstance(publisher, FencedGroundLineage)
+                or publisher.plan.digest != self.receiver.plan_digest):
+            raise EffectReceiverServiceError("live quorum read source is not bound to receiver plan")
         if not isinstance(data, Mapping):
             raise EffectReceiverServiceError("effect request data must be an object")
         if kind == "snapshot":
@@ -94,19 +102,19 @@ class AuthenticatedGroundEffectService:
         if kind == "prepare":
             if set(data) != {"source_root", "target_host"}:
                 raise EffectReceiverServiceError("handoff preparation fields invalid")
-            head = self.publisher.restore_latest()
+            head = publisher.restore_latest()
             if head.manifest.digest != data["source_root"]:
                 raise EffectFencingRefused("preparation source is not current quorum root")
             return self.receiver.prepare_handoff(
-                self.publisher, head, next_host=data["target_host"],
+                publisher, head, next_host=data["target_host"],
             )
         if kind == "activate":
             if set(data) != {"expected_root"}:
                 raise EffectReceiverServiceError("activation fields invalid")
-            head = self.publisher.restore_latest()
+            head = publisher.restore_latest()
             if head.manifest.digest != data["expected_root"]:
                 raise EffectFencingRefused("activation requires exact quorum head")
-            return self.receiver.install(self.publisher, head, require_handoff=True)
+            return self.receiver.install(publisher, head, require_handoff=True)
         if kind == "apply":
             if set(data) != {"claim"}:
                 raise EffectReceiverServiceError("effect application fields invalid")
