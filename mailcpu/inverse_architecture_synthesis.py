@@ -252,6 +252,8 @@ def synthesize_architecture(
     if (len(by_window) != len(windows)
             or not set(by_window).issubset(set(native_by_id) | set(offer_by_id))):
         raise ArchitectureSynthesisError("duplicate or unattached schedule description")
+    if any(w.schedule_ground_digest != architecture_ground_digest for w in windows):
+        raise ArchitectureSynthesisError("schedule and architecture Ground identities differ")
 
     order = tuple(request.metric_order)
     expected = {(k.name, k.unit) for k in order}
