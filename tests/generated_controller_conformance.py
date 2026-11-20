@@ -176,7 +176,6 @@ def run_conformance(*, max_instances: int=4) -> dict[str,Any]:
     admissible=construct_coupled(larger)
     changed=verify_coupled_controller(admissible.packet())
     os,identity,ground,catalogue,runtimes,calls=_native(admissible.packet())
-    from mailcpu.constructed_controller_admission import execute_constructed_action
     rejected_capacity=False
     try:
         execute_constructed_action(
