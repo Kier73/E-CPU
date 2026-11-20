@@ -6,6 +6,7 @@ on:
       - 'mailcpu/constructed_controller_admission.py'
       - 'tests/generated_counterexample_probe.py'
       - 'tests/test_generated_counterexample_repair.py'
+      - 'scripts/ncb005_counterexample_benchmark.py'
       - 'docs/GENERATED_COUNTEREXAMPLE_REPAIR_NCB005.md'
       - '.github/workflows/ncb005-counterexample-repair.yml'
   push:
