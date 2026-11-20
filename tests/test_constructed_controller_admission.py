@@ -250,6 +250,12 @@ def test_rehashed_misrepresentation_is_not_a_certificate() -> None:
     alterations.append(a)
     a=deepcopy(base);a["source"]["factors"][0]["actions"][0]["cases"][0]["deltas"]=[-2]
     alterations.append(a)
+    # Recomputed digests cannot make Python's bool==1 or 1.0==1 coercions
+    # legal typed action/rank evidence.
+    a=deepcopy(base);a["rank"][a["states"].index([1,0])]=True
+    alterations.append(a)
+    a=deepcopy(base);a["optimal"][a["states"].index([2,2])][0][0]=0.0
+    alterations.append(a)
     for tampered in alterations:
         tampered["sha256"]=_sha({k:v for k,v in tampered.items() if k!="sha256"})
         with pytest.raises(CoupledControllerAdmissionError):
