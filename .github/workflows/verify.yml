@@ -42,7 +42,7 @@ jobs:
 
       - name: Install pinned VGI integration
         id: install_vgi
-        run: python -m pip install ".[vgi]"
+        run: python -m pip install ".[dev,vgi]"
 
       - name: Verify VGI Ground
         run: python -m vgi verify
