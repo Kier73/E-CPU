@@ -106,7 +106,7 @@ class AuthenticatedGroundEffectService:
             head = self.publisher.restore_latest()
             if head.manifest.digest != data["expected_root"]:
                 raise EffectFencingRefused("activation requires exact quorum head")
-            return self.receiver.install(self.publisher, head)
+            return self.receiver.install(self.publisher, head, require_handoff=True)
         if kind == "apply":
             if set(data) != {"claim"}:
                 raise EffectReceiverServiceError("effect application fields invalid")
