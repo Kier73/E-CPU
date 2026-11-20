@@ -75,7 +75,7 @@ def test_quorum_published_stage_writes_exact_receiver_register_once(
     assert reopened.snapshot()["accepted_effects"] == 1
     with pytest.raises(EffectFencingRefused, match="resource"):
         reopened.apply(replace(claim, resource="/virtual-layer/effects/other"))
-    with pytest.raises(EffectFencingRefused, match="different Ground plan"):
+    with pytest.raises(EffectFencingRefused, match="another Ground plan"):
         FencedGroundEffectReceiver(
             tmp_path/"receiver.db", resource=RESOURCE, plan_digest="0"*64,
         )
@@ -248,7 +248,8 @@ def test_bad_claims_cannot_change_current_register(
         replace(proper, value=proper.value+1),
     ]
     for item in bad:
-        with pytest.raises(EffectFencingRefused,match="stale"):
+        reason = "different Ground plan" if item.plan_digest != proper.plan_digest else "stale"
+        with pytest.raises(EffectFencingRefused, match=reason):
             receiver.apply(item)
     with pytest.raises(EffectFencingRefused,match="schema"):
         PublishedGroundEffect.from_dict(proper.to_dict()|{"unexpected":True})
