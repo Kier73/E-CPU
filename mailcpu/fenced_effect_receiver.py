@@ -191,6 +191,14 @@ class FencedGroundEffectReceiver:
                     expected_value INTEGER,
                     event TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS effect_handoffs (
+                    resource TEXT PRIMARY KEY,
+                    source_generation INTEGER NOT NULL,
+                    source_root TEXT NOT NULL,
+                    target_epoch INTEGER NOT NULL,
+                    target_host TEXT NOT NULL,
+                    barrier_digest TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS effect_log (
                     operation_id TEXT PRIMARY KEY,
                     resource TEXT NOT NULL,
@@ -263,7 +271,71 @@ class FencedGroundEffectReceiver:
             "receipt_digest": record.receipt_digest if record else None,
             "expected_value": record.value if record else None,
             "event": state["event"],
+            "assignment_host": head.assignment["host_id"] if head.assignment else None,
+            "predecessor_root": head.manifest.predecessor_digest,
         }
+
+    def prepare_handoff(
+        self, publisher: FencedGroundLineage, head: FencedGroundHead,
+        *, next_host: str,
+    ) -> dict[str, Any]:
+        """Fsync a fail-closed receiver barrier BEFORE issuing a new quorum assignment.
+
+        The barrier and every future effect are serialized by one SQLite
+        writer lock. An acknowledged barrier cannot be removed by retrying
+        the old head; a matching successor assignment must be quorum-sealed
+        and verified before the new root can be installed.
+        """
+        if (type(next_host) is not str or not 1 <= len(next_host) <= 128
+                or "\x00" in next_host):
+            raise EffectFencingRefused("handoff target host identity is invalid")
+        binding = self._validated_binding(publisher, head)
+        if next_host == binding["assignment_host"]:
+            raise EffectFencingRefused("handoff requires a distinct next host")
+        proposed = {
+            "resource": self.resource,
+            "source_generation": binding["generation"],
+            "source_root": binding["root"],
+            "target_epoch": binding["epoch"] + 1,
+            "target_host": next_host,
+        }
+        from .semantic_translation import canonical_value_digest
+        proposed["barrier_digest"] = canonical_value_digest({
+            "schema": "mailcpu.ips008.effect-handoff.v1", **proposed,
+        })
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                installed = db.execute(
+                    "SELECT generation,root FROM installed_authority WHERE resource=?",
+                    (self.resource,),
+                ).fetchone()
+                if installed != (binding["generation"], binding["root"]):
+                    raise EffectFencingRefused("handoff source is not the installed receiver head")
+                old = db.execute(
+                    """SELECT source_generation,source_root,target_epoch,target_host,
+                              barrier_digest FROM effect_handoffs WHERE resource=?""",
+                    (self.resource,),
+                ).fetchone()
+                expected = tuple(proposed[k] for k in (
+                    "source_generation","source_root","target_epoch",
+                    "target_host","barrier_digest",
+                ))
+                if old is not None and old != expected:
+                    raise EffectFencingRefused("another durable receiver handoff is pending")
+                if old is None:
+                    db.execute(
+                        """INSERT INTO effect_handoffs
+                           (resource,source_generation,source_root,target_epoch,
+                            target_host,barrier_digest) VALUES (?,?,?,?,?,?)""",
+                        (self.resource, *expected),
+                    )
+                db.execute("COMMIT")
+                return proposed
+            except BaseException:
+                if db.in_transaction:
+                    db.execute("ROLLBACK")
+                raise
 
     def install(
         self, publisher: FencedGroundLineage, head: FencedGroundHead,
@@ -284,6 +356,19 @@ class FencedGroundEffectReceiver:
                 ).fetchone()
                 if current:
                     generation, root = current
+                    pending = db.execute(
+                        """SELECT source_generation,source_root,target_epoch,target_host
+                           FROM effect_handoffs WHERE resource=?""", (self.resource,),
+                    ).fetchone()
+                    if pending is not None and binding["generation"] > generation:
+                        source_generation,source_root,target_epoch,target_host = pending
+                        if (current != (source_generation,source_root)
+                                or binding["generation"] != source_generation + 1
+                                or binding["predecessor_root"] != source_root
+                                or binding["epoch"] != target_epoch
+                                or binding["assignment_host"] != target_host
+                                or binding["event"] not in ("assign","reassign")):
+                            raise EffectFencingRefused("new quorum head does not satisfy prepared receiver handoff")
                     if binding["generation"] < generation:
                         raise EffectFencingRefused("receiver rejects stale installed generation")
                     if binding["generation"] == generation:
@@ -307,6 +392,10 @@ class FencedGroundEffectReceiver:
                            expected_value=excluded.expected_value,event=excluded.event
                     """, binding,
                 )
+                db.execute(
+                    "DELETE FROM effect_handoffs WHERE resource=?",
+                    (self.resource,),
+                )
                 db.execute("COMMIT")
             except BaseException:
                 if db.in_transaction:
@@ -329,6 +418,11 @@ class FencedGroundEffectReceiver:
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             try:
+                if db.execute(
+                    "SELECT 1 FROM effect_handoffs WHERE resource=?",
+                    (self.resource,),
+                ).fetchone() is not None:
+                    raise EffectFencingRefused("receiver handoff barrier blocks old effects")
                 row = db.execute(
                     """SELECT generation,root,plan_digest,checkpoint_digest,
                               epoch,stage,host,receipt_digest,expected_value,event
@@ -401,6 +495,10 @@ class FencedGroundEffectReceiver:
                 "SELECT value,operation_id FROM registers WHERE resource=?",
                 (self.resource,),
             ).fetchone()
+            barrier = db.execute(
+                "SELECT barrier_digest FROM effect_handoffs WHERE resource=?",
+                (self.resource,),
+            ).fetchone()
             count = db.execute(
                 "SELECT COUNT(*) FROM effect_log WHERE resource=?",
                 (self.resource,),
@@ -415,4 +513,5 @@ class FencedGroundEffectReceiver:
             "register_value": register[0] if register else None,
             "register_operation_id": register[1] if register else None,
             "accepted_effects": count,
+            "pending_handoff_digest": barrier[0] if barrier else None,
         }
