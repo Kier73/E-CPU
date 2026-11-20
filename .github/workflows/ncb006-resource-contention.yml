@@ -1,0 +1,66 @@
+name: NCB-006 generated shared-resource contention and host topology
+
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/constructed_resource_reservations.py'
+      - 'tests/test_constructed_resource_contention.py'
+      - 'tests/test_constructed_controller_admission.py'
+      - 'tests/helpers/ncb006_crash_reservation.py'
+      - 'scripts/ncb006_contention_benchmark.py'
+      - 'docs/SOURCE_GENERATED_RESOURCE_CONTENTION_NCB006.md'
+      - '.github/workflows/ncb006-resource-contention.yml'
+  push:
+    branches:
+      - research/ncb006-topology-contention-constructive-repair
+    paths:
+      - 'mailcpu/constructed_resource_reservations.py'
+      - 'tests/test_constructed_resource_contention.py'
+      - 'tests/test_constructed_controller_admission.py'
+      - '.github/workflows/ncb006-resource-contention.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-generated-contention:
+    name: Source-generated two-controller overlap / atomic reservation
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Kier73/Navigable-Compute
+          ref: e607fd80c00630f6b31e4c86b9b5ee8faebda410
+          path: ncp-peer
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install separate mathematical generator and native receiver
+        run: |
+          python -m pip install -e '.[dev]'
+          python -m pip install -e ./ncp-peer
+      - name: Verify generated contention and existing native regression
+        run: >
+          python -m pytest -q
+          tests/test_constructed_resource_contention.py
+          tests/test_constructed_controller_admission.py
+          tests/test_generated_counterexample_repair.py
+          tests/test_computational_execution.py
+      - name: Run executable contention + topology benchmark
+        run: >
+          python scripts/ncb006_contention_benchmark.py
+          --output ncb006-evidence.json
+      - name: Retain independently checkable evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ncb006-${{ matrix.os }}-${{ matrix.python-version }}
+          path: ncb006-evidence.json
+          if-no-files-found: error
