@@ -16,6 +16,7 @@ additional owner/quorum protocol and is deliberately not implemented here.
 """
 from __future__ import annotations
 
+from contextlib import closing
 from dataclasses import dataclass
 from hashlib import sha256
 import json
@@ -113,7 +114,7 @@ class ReceiverOwnedResourceReservations:
         ]
         self._policy_json=_canonical({"schema":_SCHEMA,"resources":policy}).decode("ascii")
         self.path.parent.mkdir(parents=True,exist_ok=True)
-        with self._connect() as db:
+        with closing(self._connect()) as db:
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS constructed_resource_policy (
                     policy_key INTEGER PRIMARY KEY CHECK(policy_key=1),
@@ -185,7 +186,7 @@ class ReceiverOwnedResourceReservations:
         action=controller.next_action(state)
         requested=self._requested_units(controller,action)
         token=secrets.token_hex(32)
-        with self._connect() as db:
+        with closing(self._connect()) as db:
             db.execute("BEGIN IMMEDIATE")
             try:
                 rows=db.execute(
@@ -247,7 +248,7 @@ class ReceiverOwnedResourceReservations:
             raise ConstructedResourceReservationRefused(
                 "live local reservation proof required"
             )
-        with self._connect() as db:
+        with closing(self._connect()) as db:
             db.execute("BEGIN IMMEDIATE")
             try:
                 row=db.execute(
@@ -281,7 +282,7 @@ class ReceiverOwnedResourceReservations:
 
     def snapshot(self) -> dict[str,Any]:
         """Expose only aggregate occupancy, not bearer reservation tokens."""
-        with self._connect() as db:
+        with closing(self._connect()) as db:
             db.execute("BEGIN")
             try:
                 quantities={r.name:0 for r in self.resources}
