@@ -62,7 +62,7 @@ def _resources(checked):
                  for name,capacity,claims in checked.resources)
 
 
-def _native(packet, *, capability=True, incorrect=False):
+def _native(packet, *, capability=True, incorrect=False, on_execute=None):
     """Set up two independently registered native logical E-CPU operator hosts."""
     os=HeadlessOS()
     identity=SystemIdentity("ncb003-native-system",1)
@@ -89,6 +89,8 @@ def _native(packet, *, capability=True, incorrect=False):
             def make_handler(f=factor,a=operation):
                 def handle(argument,workload):
                     calls.append((f,a,argument["source_state"]))
+                    if on_execute is not None:
+                        on_execute(f,a,argument)
                     return (99 if incorrect else
                             argument["source_state"]-1 if a=="advance" else
                             argument["source_state"])
