@@ -233,11 +233,20 @@ class FencedGroundLineage:
         return self._validate_state(state)
 
     def _seal(
-        self, state: dict[str, Any], *, capture_cut: str
+        self, state: dict[str, Any], *, capture_cut: str,
+        expected_parent: tuple[int, str],
     ) -> FencedGroundHead:
-        """Fsync state and manifest first, then obtain a durable native majority."""
+        """Fsync only a transition extending its caller-pinned quorum parent.
+
+        Explicit expected-parent comparison prevents a delayed publisher from
+        treating a newly committed reassignment as permission to append its
+        obsolete candidate at a later generation. Native one-vote-per-slot
+        quorums close the remaining concurrent prepare race.
+        """
         self._validate_state(state)
         generation, predecessor = self.lineage.high_water()
+        if (generation, predecessor) != expected_parent:
+            raise FencedGroundError("expected parent was superseded by quorum high-water")
         raw = _bytes(state)
         manifest = RecoveryStateManifest(
             self.lineage.membership.system_id,
@@ -270,7 +279,7 @@ class FencedGroundLineage:
             "intention_digest": self.intention.digest,
             "checkpoint": saved, "epoch": 0, "assignment": None,
             "event": "bootstrap",
-        }, capture_cut="ips005.bootstrap")
+        }, capture_cut="ips005.bootstrap", expected_parent=(0, self.lineage.membership.genesis_state_digest))
 
     def restore(self, head: FencedGroundHead) -> FencedGroundHead:
         """Re-admit one persisted state only if it remains the quorum high-water."""
@@ -327,7 +336,10 @@ class FencedGroundLineage:
             },
             "event": "reassign" if prior else "assign",
         }
-        return self._seal(state, capture_cut="ips005.reassign" if prior else "ips005.assign")
+        return self._seal(
+            state, capture_cut="ips005.reassign" if prior else "ips005.assign",
+            expected_parent=(head.manifest.generation, head.manifest.digest),
+        )
 
     def compute(
         self,
@@ -383,4 +395,7 @@ class FencedGroundLineage:
             "epoch": assignment["epoch"], "assignment": None,
             "event": "publish",
         }
-        return self._seal(state, capture_cut="ips005.publish")
+        return self._seal(
+            state, capture_cut="ips005.publish",
+            expected_parent=(head.manifest.generation, head.manifest.digest),
+        )
