@@ -39,6 +39,7 @@ def main(arguments: list[str]) -> int:
     listener.settimeout(.25)
     service = AuthenticatedGroundEffectService(
         receiver, publisher, listener, context, expected_owner_dns=owner_dns,
+        publisher_factory=lambda: _lineage(directory),
     )
     out = Path(ready)
     payload = json.dumps(
