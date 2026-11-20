@@ -12,11 +12,13 @@ from mailcpu.fenced_effect_receiver import (
 
 
 def main(args: list[str]) -> int:
-    """Reopen receiver DB after a real interprocess barrier and attempt a write."""
-    if len(args) != 5:
-        raise ValueError("need db path, resource path, claim JSON, ready marker, go marker")
-    db_file, resource, claim_file, ready_file, go_file = args
-    receiver = FencedGroundEffectReceiver(db_file, resource=resource)
+    """Reopen a pinned receiver DB after an interprocess barrier and write."""
+    if len(args) != 6:
+        raise ValueError("need DB, resource, pinned Ground plan, claim, ready and go")
+    db_file, resource, plan_digest, claim_file, ready_file, go_file = args
+    receiver = FencedGroundEffectReceiver(
+        db_file, resource=resource, plan_digest=plan_digest
+    )
     claim = PublishedGroundEffect.from_dict(
         json.loads(Path(claim_file).read_text(encoding="utf-8"))
     )
