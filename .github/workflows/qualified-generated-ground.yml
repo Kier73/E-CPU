@@ -1,0 +1,39 @@
+name: IPS-004 qualified generated Ground execution
+
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/qualified_generated_ground.py'
+      - 'tests/test_qualified_generated_ground.py'
+      - 'docs/QUALIFIED_GENERATED_GROUND_IPS004.md'
+      - '.github/workflows/qualified-generated-ground.yml'
+  push:
+    branches:
+      - research/ips004-qualified-ground-fabric
+    paths:
+      - 'mailcpu/qualified_generated_ground.py'
+      - 'tests/test_qualified_generated_ground.py'
+      - '.github/workflows/qualified-generated-ground.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-qualified-ground:
+    name: Hypervisor, qualified peers and DAG recovery
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install native runtime and tests
+        run: python -m pip install -e '.[dev]'
+      - name: Verify IPS-004 with existing Ground and Virtual Layer regression
+        run: python -m pytest -q tests/test_qualified_generated_ground.py tests/test_generative_ground_construction.py tests/test_virtual_layer.py tests/test_ground_native_realization.py
