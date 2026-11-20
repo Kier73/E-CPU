@@ -48,7 +48,7 @@ def test_quorum_published_stage_writes_exact_receiver_register_once(
 ) -> None:
     """Only a checked IPS-005 published Ground can mutate the selected resource."""
     lineage, _, _, first, _, final = _published_two_stage(tmp_path)
-    receiver = FencedGroundEffectReceiver(tmp_path/"receiver.db", resource=RESOURCE)
+    receiver = FencedGroundEffectReceiver(tmp_path/"receiver.db", resource=RESOURCE, plan_digest=lineage.plan.digest)
     assert receiver.snapshot()["register_value"] is None
 
     # A stage-0 publication was valid historically but is no longer
@@ -70,11 +70,16 @@ def test_quorum_published_stage_writes_exact_receiver_register_once(
     assert receiver.snapshot()["register_value"] == 16
     assert receiver.snapshot()["accepted_effects"] == 1
 
-    reopened = FencedGroundEffectReceiver(tmp_path/"receiver.db", resource=RESOURCE)
+    reopened = FencedGroundEffectReceiver(tmp_path/"receiver.db", resource=RESOURCE, plan_digest=lineage.plan.digest)
     assert reopened.apply(claim) == result
     assert reopened.snapshot()["accepted_effects"] == 1
     with pytest.raises(EffectFencingRefused, match="resource"):
         reopened.apply(replace(claim, resource="/virtual-layer/effects/other"))
+    with pytest.raises(EffectFencingRefused, match="different Ground plan"):
+        FencedGroundEffectReceiver(
+            tmp_path/"receiver.db", resource=RESOURCE, plan_digest="0"*64,
+        )
+
 
 
 def test_unpublished_candidate_never_grants_external_side_effect(
@@ -82,7 +87,7 @@ def test_unpublished_candidate_never_grants_external_side_effect(
 ) -> None:
     """A mathematically correct computation without publication has no effect."""
     lineage, original, os, _, pid = _bootstrap(tmp_path)
-    receiver = FencedGroundEffectReceiver(tmp_path/"effects.db", resource=RESOURCE)
+    receiver = FencedGroundEffectReceiver(tmp_path/"effects.db", resource=RESOURCE, plan_digest=lineage.plan.digest)
     h_old = _host(tmp_path,"old-unpublished")
     h_new = _host(tmp_path,"new-authorized")
     assigned = lineage.assign(original, h_old)
@@ -114,7 +119,7 @@ def test_atomic_effect_rollback_if_receiver_write_fails(
     """A failed register update cannot leave an accepted effect receipt behind."""
     lineage, _, _, _, _, final = _published_two_stage(tmp_path)
     path = tmp_path/"atomic.db"
-    receiver = FencedGroundEffectReceiver(path, resource=RESOURCE)
+    receiver = FencedGroundEffectReceiver(path, resource=RESOURCE, plan_digest=lineage.plan.digest)
     receiver.install(lineage, final)
     claim = published_effect(final, RESOURCE)
     with sqlite3.connect(path) as db:
@@ -142,7 +147,7 @@ def test_multiple_threads_same_published_effect_commit_once(
 ) -> None:
     """Separate DB connections serialize the exact effect and its dedupe record."""
     lineage, _, _, _, _, final = _published_two_stage(tmp_path)
-    receiver = FencedGroundEffectReceiver(tmp_path/"threads.db", resource=RESOURCE)
+    receiver = FencedGroundEffectReceiver(tmp_path/"threads.db", resource=RESOURCE, plan_digest=lineage.plan.digest)
     receiver.install(lineage, final)
     request = published_effect(final, RESOURCE)
     with ThreadPoolExecutor(max_workers=6) as pool:
@@ -163,7 +168,7 @@ def test_separate_process_paused_old_effect_is_rejected_after_new_root(
         first_assigned, lineage.compute(first_assigned, host0, os, pid)
     )
     claim0 = published_effect(first, RESOURCE)
-    receiver = FencedGroundEffectReceiver(tmp_path/"interprocess.db", resource=RESOURCE)
+    receiver = FencedGroundEffectReceiver(tmp_path/"interprocess.db", resource=RESOURCE, plan_digest=lineage.plan.digest)
     receiver.install(lineage, first)
     assert receiver.apply(claim0)["committed"] is True
     assert receiver.snapshot()["accepted_effects"] == 1
@@ -174,7 +179,7 @@ def test_separate_process_paused_old_effect_is_rejected_after_new_root(
     worker = Path(__file__).parent/"helpers"/"ips007_effect_worker.py"
     process = subprocess.Popen(
         (sys.executable,str(worker),str(tmp_path/"interprocess.db"),
-         RESOURCE,str(claim_file),str(ready),str(go)),
+         RESOURCE,lineage.plan.digest,str(claim_file),str(ready),str(go)),
         cwd=Path(__file__).resolve().parents[1],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
     )
@@ -209,7 +214,7 @@ def test_separate_process_paused_old_effect_is_rejected_after_new_root(
             lineage.compute(later_assignment,next_host,next_os,next_pid),
         )
         reopened = FencedGroundEffectReceiver(
-            tmp_path/"interprocess.db", resource=RESOURCE,
+            tmp_path/"interprocess.db", resource=RESOURCE, plan_digest=lineage.plan.digest,
         )
         reopened.install(lineage,final)
         claim1 = published_effect(final,RESOURCE)
@@ -229,7 +234,7 @@ def test_bad_claims_cannot_change_current_register(
 ) -> None:
     """Changing root, host, coordinate, receipt or output cannot bypass the fence."""
     lineage, _, _, _, _, head = _published_two_stage(tmp_path)
-    receiver = FencedGroundEffectReceiver(tmp_path/"negative.db",resource=RESOURCE)
+    receiver = FencedGroundEffectReceiver(tmp_path/"negative.db", resource=RESOURCE, plan_digest=lineage.plan.digest)
     receiver.install(lineage,head)
     proper = published_effect(head,RESOURCE)
     bad = [
@@ -256,7 +261,7 @@ def test_install_requires_quorum_current_and_native_checkpoint_integrity(
 ) -> None:
     """A valid archived hash alone cannot install an unauthorized effect root."""
     lineage, _, _, first, _, final = _published_two_stage(tmp_path)
-    receiver = FencedGroundEffectReceiver(tmp_path/"quorum.db",resource=RESOURCE)
+    receiver = FencedGroundEffectReceiver(tmp_path/"quorum.db", resource=RESOURCE, plan_digest=lineage.plan.digest)
     with pytest.raises(RecoveryLineageError,match="stale"):
         receiver.install(lineage,first)
 
@@ -281,13 +286,13 @@ def test_rebooted_receiver_keeps_monotonic_fence_and_rejects_rollback(
     """Committed installed authority cannot be reset by reopening the DB."""
     lineage, _, _, _, _, final = _published_two_stage(tmp_path)
     path = tmp_path/"restart.db"
-    receiver = FencedGroundEffectReceiver(path,resource=RESOURCE)
+    receiver = FencedGroundEffectReceiver(path, resource=RESOURCE, plan_digest=lineage.plan.digest)
     receiver.install(lineage,final)
     claim = published_effect(final,RESOURCE)
     assert receiver.apply(claim)["committed"]
     original = receiver.snapshot()
     del receiver
-    again = FencedGroundEffectReceiver(path,resource=RESOURCE)
+    again = FencedGroundEffectReceiver(path, resource=RESOURCE, plan_digest=lineage.plan.digest)
     assert again.snapshot() == original
     assert again.apply(claim)["committed"]
     assert again.snapshot()["accepted_effects"] == 1
