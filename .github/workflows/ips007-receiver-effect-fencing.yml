@@ -1,0 +1,46 @@
+name: IPS-007 receiver-side atomic effect fencing
+
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/fenced_effect_receiver.py'
+      - 'tests/test_fenced_effect_receiver.py'
+      - 'tests/helpers/ips007_effect_worker.py'
+      - 'docs/RECEIVER_EFFECT_FENCING_IPS007.md'
+      - '.github/workflows/ips007-receiver-effect-fencing.yml'
+  push:
+    branches:
+      - research/ips007-receiver-side-effect-fencing
+    paths:
+      - 'mailcpu/fenced_effect_receiver.py'
+      - 'tests/test_fenced_effect_receiver.py'
+      - 'tests/helpers/ips007_effect_worker.py'
+      - '.github/workflows/ips007-receiver-effect-fencing.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-atomic-effects:
+    name: Ground fencing, durable atomic receiver and worker recovery
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install native E-CPU and test dependencies
+        run: python -m pip install -e '.[dev]'
+      - name: Verify IPS-007 atomic receiver effects and earlier native contracts
+        run: >
+          python -m pytest -q
+          tests/test_fenced_effect_receiver.py
+          tests/test_fenced_generated_ground.py
+          tests/test_qualified_generated_ground.py
+          tests/test_recovery_lineage.py
