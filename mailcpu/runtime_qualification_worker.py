@@ -152,7 +152,10 @@ def main(argv: list[str] | None = None) -> int:
                        no_compute=args.no_compute, no_storage=args.no_storage,
                        no_transfer=args.no_transfer, volatile=args.volatile,
                        wrong_compute=args.wrong_compute, unsafe_dispatch=args.unsafe_dispatch)
-        sys.stdout.write(json.dumps(result, sort_keys=True, allow_nan=False, separators=(",", ":")) + "\n")
+        # Write the wire ABI as bytes: Windows text-mode stdout translates
+        # LF to CRLF, which violates SAB-003's exact canonical frame contract.
+        sys.stdout.buffer.write(_canonical(result) + b"\n")
+        sys.stdout.buffer.flush()
         return 0
     except (ValueError, OSError, TypeError, KeyError, json.JSONDecodeError):
         return 2
