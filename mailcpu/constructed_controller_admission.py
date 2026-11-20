@@ -116,6 +116,7 @@ class CheckedCoupledController:
     policy: tuple[tuple[int,...],...]
     transitions: tuple[dict[tuple[int,...], tuple[int,...]],...]
     action_names: tuple[tuple[str,...],...]
+    resources: tuple[tuple[str,int,tuple[tuple[int,str],...]],...]
     convergence_bound: int
 
     def next_action(self, state: tuple[int,...]) -> "ConstructedAction":
@@ -184,6 +185,32 @@ class NativeActionBinding:
                 or not isinstance(self.address,ComputationalAddress)
                 or not isinstance(self.runtime,VirtualLayerRuntime)):
             raise CoupledControllerAdmissionError("native action binding is not receiver-owned and typed")
+
+
+@dataclass(frozen=True)
+class NativeResourceBinding:
+    """Receiver-declared available capacity for a named NCP-002 shared resource.
+
+    This is LOCAL configuration, not a reservation or external capacity
+    attestation. A later effectful integration must serialize actual claims
+    at the receiving resource before performing state-changing operations.
+    """
+
+    name: str
+    capacity: int
+    claims: tuple[tuple[int,str], ...]
+
+    def __post_init__(self) -> None:
+        """Refuse ambiguous receiver resource capabilities."""
+        if (type(self.name) is not str or not 1<=len(self.name)<=64
+                or type(self.capacity) is not int or not 0<=self.capacity<=128
+                or type(self.claims) is not tuple
+                or tuple(sorted(set(self.claims)))!=self.claims
+                or any(type(p) is not tuple or len(p)!=2
+                       or type(p[0]) is not int or p[0]<0
+                       or type(p[1]) is not str or not p[1]
+                       for p in self.claims)):
+            raise CoupledControllerAdmissionError("invalid trusted receiver resource policy")
 
 
 @dataclass(frozen=True)
@@ -409,6 +436,9 @@ def verify_coupled_controller(packet: Mapping[str,Any]) -> CheckedCoupledControl
         coordinate=coordinate,states=basis,goals=frozenset(target),
         ranks=tuple(ranks),policy=tuple(policies),
         transitions=tuple(relations),action_names=tuple(names),
+        resources=tuple((r["name"],r["capacity"],
+                         tuple((pair[0],pair[1]) for pair in r["claims"]))
+                        for r in source["resources"]),
         convergence_bound=world["worst_steps"],
     )
 
@@ -420,6 +450,7 @@ def execute_constructed_action(
     catalogue: ComputationalHostCatalogue,
     coordinator: ComputationalExecutionAdmissionCoordinator,
     *,
+    resources: Sequence[NativeResourceBinding],
     source: str="ncp002-controller",
     sequence: int=1,
 ) -> QualifiedConstructedStep:
@@ -436,6 +467,20 @@ def execute_constructed_action(
             or type(sequence) is not int or sequence<1):
         raise CoupledControllerAdmissionError("native controller execution configuration invalid")
     action=controller.next_action(state)
+    if (not isinstance(resources,Sequence)
+            or any(not isinstance(r,NativeResourceBinding) for r in resources)
+            or tuple(sorted((r.name,r.capacity,r.claims) for r in resources))
+               != tuple(sorted(controller.resources))):
+        raise CoupledControllerAdmissionError(
+            "receiver has not qualified the exact constructed resource capacities"
+        )
+    for resource in resources:
+        count=sum((i,name) in resource.claims
+                  for i,name in enumerate(action.names) if name is not None)
+        if count>resource.capacity:
+            raise CoupledControllerAdmissionError(
+                "selected joint operation exceeds receiver resource capacity"
+            )
     required={(i,name) for i,name in enumerate(action.names) if name is not None}
     if (not isinstance(bindings,Sequence)
             or len(bindings)!=len(required)
