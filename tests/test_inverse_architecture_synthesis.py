@@ -252,6 +252,12 @@ def test_typed_offer_rejections_and_description_drift() -> None:
             intent, GROUND, cat, request, (),
             windows + (_window("6" * 64, 2, (0,)),), os, pid
         )
+    with pytest.raises(ArchitectureSynthesisError):
+        synthesize_architecture(
+            intent, GROUND, cat, request, (),
+            (replace(windows[0], schedule_ground_digest="0" * 64),) + windows[1:],
+            os, pid,
+        )
     original = synthesize_architecture(
         intent, GROUND, cat, request, (offer,),
         windows + (_window(offer.relation_id, 2, (0,)),), os, pid
