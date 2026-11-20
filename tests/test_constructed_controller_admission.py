@@ -26,7 +26,7 @@ from mailcpu import (
     VirtualLayerRuntime,VirtualLayerWorkload,VirtualOperatorRef,
 )
 from mailcpu.constructed_controller_admission import (
-    CoupledControllerAdmissionError,NativeActionBinding,
+    CoupledControllerAdmissionError,NativeActionBinding,NativeResourceBinding,
     execute_constructed_action,verify_coupled_controller,
 )
 from mailcpu.semantic_translation import canonical_value_digest
@@ -54,6 +54,12 @@ def _sha(value):
     """Rehash even malicious source edits to challenge the numerical checker."""
     return sha256(json.dumps(value,sort_keys=True,separators=(",",":"),
                              ensure_ascii=True).encode()).hexdigest()
+
+
+def _resources(checked):
+    """Independent receiver-owned description of the admitted resource palette."""
+    return tuple(NativeResourceBinding(name,capacity,claims)
+                 for name,capacity,claims in checked.resources)
 
 
 def _native(packet, *, capability=True, incorrect=False):
@@ -179,7 +185,7 @@ def test_complete_constructed_machine_executes_through_native_hypervisor() -> No
         bindings=_bindings(checked,state,identity,ground,runtimes)
         result=execute_constructed_action(
             checked,state,bindings,catalogue,coordinator,
-            sequence=1+tick*16,
+            resources=_resources(checked),sequence=1+tick*16,
         )
         assert result.status=="verified_native_pure_step"
         assert result.observed in checked.next_action(state).allowed
@@ -204,12 +210,14 @@ def test_missing_or_stale_host_refused_before_any_native_execution() -> None:
     with pytest.raises(CoupledControllerAdmissionError,match="missing or extra"):
         execute_constructed_action(
             checked,(2,2),bindings[:-1],catalogue,coordinator,
+            resources=_resources(checked),
         )
     assert not calls
     catalogue.remove(bindings[-1].host_id,bindings[-1].address.operator_id)
     with pytest.raises(CoupledControllerAdmissionError,match="native host capability"):
         execute_constructed_action(
             checked,(2,2),bindings,catalogue,coordinator,
+            resources=_resources(checked),
         )
     assert not calls
 
@@ -224,6 +232,7 @@ def test_missing_compute_right_and_wrong_native_result_both_refused() -> None:
         execute_constructed_action(
             checked,(2,2),_bindings(checked,(2,2),identity,ground,runtimes),
             catalogue,ComputationalExecutionAdmissionCoordinator(os),
+            resources=_resources(checked),
         )
     assert not calls
     os,identity,ground,catalogue,runtimes,calls=_native(
@@ -233,6 +242,7 @@ def test_missing_compute_right_and_wrong_native_result_both_refused() -> None:
         execute_constructed_action(
             checked,(2,2),_bindings(checked,(2,2),identity,ground,runtimes),
             catalogue,ComputationalExecutionAdmissionCoordinator(os),
+            resources=_resources(checked),
         )
     assert calls
 
@@ -274,5 +284,27 @@ def test_alternative_valid_controller_does_not_reuse_original_host_program_pin()
         execute_constructed_action(
             alternate,(2,2),bindings,catalogue,
             ComputationalExecutionAdmissionCoordinator(os),
+            resources=_resources(alternate),
         )
     assert not calls
+
+
+def test_receiver_declared_resource_policy_is_independent_of_mathematical_brief() -> None:
+    """A constructed available action cannot invent receiver-owned capacity."""
+    world=_world()
+    checked=verify_coupled_controller(world.packet())
+    os,identity,ground,catalogue,runtimes,calls=_native(world.packet())
+    bindings=_bindings(checked,(2,2),identity,ground,runtimes)
+    coordinator=ComputationalExecutionAdmissionCoordinator(os)
+    for policy in (
+        (),
+        (NativeResourceBinding("shared-actuator",0,
+                               ((0,"advance"),(1,"advance"))),),
+        (NativeResourceBinding("shared-actuator",1,
+                               ((0,"hold"),(1,"hold"))),),
+    ):
+        with pytest.raises(CoupledControllerAdmissionError,match="receiver.*resource"):
+            execute_constructed_action(
+                checked,(2,2),bindings,catalogue,coordinator,resources=policy,
+            )
+    assert calls==[]
