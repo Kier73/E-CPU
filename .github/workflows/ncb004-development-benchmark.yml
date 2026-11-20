@@ -1,0 +1,66 @@
+name: NCB-004 source-generated development conformance benchmark
+
+on:
+  pull_request:
+    paths:
+      - 'tests/generated_controller_conformance.py'
+      - 'tests/test_generated_controller_conformance.py'
+      - 'scripts/ncb004_development_benchmark.py'
+      - 'docs/SOURCE_GENERATED_DEVELOPMENT_BENCHMARK_NCB004.md'
+      - '.github/workflows/ncb004-development-benchmark.yml'
+      - 'mailcpu/constructed_controller_admission.py'
+  push:
+    branches:
+      - research/ncb004-source-generated-development-benchmark
+    paths:
+      - 'tests/generated_controller_conformance.py'
+      - 'tests/test_generated_controller_conformance.py'
+      - 'scripts/ncb004_development_benchmark.py'
+      - '.github/workflows/ncb004-development-benchmark.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  generated-regression:
+    name: Source-selected processors vs native Hypervisor (development benchmark)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout pinned independent mathematical producer
+        uses: actions/checkout@v4
+        with:
+          repository: Kier73/Navigable-Compute
+          ref: e607fd80c00630f6b31e4c86b9b5ee8faebda410
+          path: ncp-peer
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install E-CPU and independently developed constructor
+        run: |
+          python -m pip install -e '.[dev]'
+          python -m pip install -e ./ncp-peer
+      - name: Check generated model cases, original NCB-003 and native coordinator regressions
+        run: >
+          python -m pytest -q
+          tests/test_generated_controller_conformance.py
+          tests/test_constructed_controller_admission.py
+          tests/test_computational_execution.py
+      - name: Run actual generator on current checkout and record cost
+        run: >
+          python scripts/ncb004_development_benchmark.py
+          --max-instances 4
+          --output ncb004-measurement.json
+      - name: Publish raw measured report for separate review
+        uses: actions/upload-artifact@v4
+        with:
+          name: ncb004-${{ matrix.os }}-py${{ matrix.python-version }}
+          path: ncb004-measurement.json
+          if-no-files-found: error
