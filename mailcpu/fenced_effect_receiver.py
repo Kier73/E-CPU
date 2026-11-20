@@ -339,6 +339,7 @@ class FencedGroundEffectReceiver:
 
     def install(
         self, publisher: FencedGroundLineage, head: FencedGroundHead,
+        *, require_handoff: bool = False,
     ) -> dict[str, Any]:
         """Monotonically install a quorum-verified root at the effect receiver.
 
@@ -360,6 +361,10 @@ class FencedGroundEffectReceiver:
                         """SELECT source_generation,source_root,target_epoch,target_host
                            FROM effect_handoffs WHERE resource=?""", (self.resource,),
                     ).fetchone()
+                    if (require_handoff and binding["generation"] > generation
+                            and binding["event"] in ("assign","reassign")
+                            and pending is None):
+                        raise EffectFencingRefused("remote receiver assignment requires prepared handoff")
                     if pending is not None and binding["generation"] > generation:
                         source_generation,source_root,target_epoch,target_host = pending
                         if (current != (source_generation,source_root)
