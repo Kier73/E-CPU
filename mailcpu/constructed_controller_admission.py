@@ -121,8 +121,13 @@ class CheckedCoupledController:
 
     def next_action(self, state: tuple[int,...]) -> "ConstructedAction":
         """Select the exact certified joint action and all allowed next states."""
-        if type(state) is not tuple or state not in self.states:
-            raise CoupledControllerAdmissionError("state is outside the admitted Ground")
+        if (type(state) is not tuple
+                or len(state) != len(self.states[0])
+                or any(type(x) is not int for x in state)
+                or state not in self.states):
+            raise CoupledControllerAdmissionError(
+                "state is outside the admitted exact integer Ground"
+            )
         index=self.states.index(state)
         if index in self.goals:
             raise CoupledControllerAdmissionError("terminal goal has no further action")
@@ -342,7 +347,13 @@ def verify_coupled_controller(packet: Mapping[str,Any]) -> CheckedCoupledControl
         raise CoupledControllerAdmissionError("unsafe joint coordinates ambiguous")
     basis=tuple(product(*(range(n) for n in sizes)))
     position={state:i for i,state in enumerate(basis)}
-    if world["states"]!=[list(s) for s in basis]:
+    # Never use Python list equality for untrusted numerical evidence:
+    # False == 0 and 1.0 == 1 despite different source representations.
+    # _coord admits only exact integer coordinates before basis comparison.
+    if (type(world["states"]) is not list
+            or len(world["states"]) != len(basis)
+            or tuple(_coord(row,len(sizes),sizes,"source joint state")
+                     for row in world["states"]) != basis):
         raise CoupledControllerAdmissionError("source joint state enumeration differs")
     # Python considers bool equal to 0/1 and some floats equal to integers.
     # Neither may enter a typed mathematical witness as a rank or action.
@@ -500,8 +511,13 @@ def execute_constructed_action(
             "source_state":action.state[b.factor],
             "action_name":b.action,
         }
-        if input_value!=expected:
-            raise CoupledControllerAdmissionError("runtime workload input is not bound to the requested action")
+        # Immutable native workload input may be valid JSON yet not match the
+        # exact typed mathematical action. Canonical bytes distinguish bool,
+        # float and int even where ordinary Python object equality does not.
+        if _canonical(input_value) != _canonical(expected):
+            raise CoupledControllerAdmissionError(
+                "runtime workload input is not bound to the requested action"
+            )
         outcome=coordinator.resolver.resolve(b.address,catalogue,coordinator.operating_system)
         if (outcome.status is not ComputationalResolutionStatus.FOUND
                 or outcome.witness is None or outcome.witness.host_id!=b.host_id):

@@ -1,0 +1,67 @@
+name: NCB-005 generated counterexample to verified repair
+
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/constructed_controller_admission.py'
+      - 'tests/generated_counterexample_probe.py'
+      - 'tests/test_generated_counterexample_repair.py'
+      - 'scripts/ncb005_counterexample_benchmark.py'
+      - 'docs/GENERATED_COUNTEREXAMPLE_REPAIR_NCB005.md'
+      - '.github/workflows/ncb005-counterexample-repair.yml'
+  push:
+    branches:
+      - research/ncb005-generated-counterexample-repair
+    paths:
+      - 'mailcpu/constructed_controller_admission.py'
+      - 'tests/generated_counterexample_probe.py'
+      - 'tests/test_generated_counterexample_repair.py'
+      - '.github/workflows/ncb005-counterexample-repair.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  generated-counterexample:
+    name: Source-generated minimal counterexample and native regression
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ['3.11', '3.13']
+    steps:
+      - name: Checkout current E-CPU implementation
+        uses: actions/checkout@v4
+      - name: Checkout exact independently maintained NCP-002 source
+        uses: actions/checkout@v4
+        with:
+          repository: Kier73/Navigable-Compute
+          ref: e607fd80c00630f6b31e4c86b9b5ee8faebda410
+          path: ncp-peer
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install both repositories without replacing E-CPU runtime
+        run: |
+          python -m pip install -e '.[dev]'
+          python -m pip install -e ./ncp-peer
+      - name: Independently exercise discovered counterexamples and native regressions
+        run: >
+          python -m pytest -q
+          tests/test_generated_counterexample_repair.py
+          tests/test_constructed_controller_admission.py
+          tests/test_generated_controller_conformance.py
+          tests/test_computational_execution.py
+      - name: Produce reproducible minimized counterexample report
+        run: >
+          python scripts/ncb005_counterexample_benchmark.py
+          --output ncb005-repair-evidence.json
+      - name: Retain checked report per host
+        uses: actions/upload-artifact@v4
+        with:
+          name: ncb005-${{ matrix.os }}-python-${{ matrix.python-version }}
+          path: ncb005-repair-evidence.json
+          if-no-files-found: error
