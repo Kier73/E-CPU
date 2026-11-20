@@ -1,0 +1,54 @@
+name: NCB-003 constructed-controller native E-CPU admission
+
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/constructed_controller_admission.py'
+      - 'tests/test_constructed_controller_admission.py'
+      - 'docs/NATIVE_CONSTRUCTED_CONTROLLER_NCB003.md'
+      - '.github/workflows/ncb003-native-controller-admission.yml'
+  push:
+    branches:
+      - research/ncb003-coupled-controller-native-admission
+    paths:
+      - 'mailcpu/constructed_controller_admission.py'
+      - 'tests/test_constructed_controller_admission.py'
+      - '.github/workflows/ncb003-native-controller-admission.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cross-repository-controller-admission:
+    name: NCP-002 proof to native host Hypervisor (authenticated local admission)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ['3.11', '3.13']
+    steps:
+      - name: Checkout E-CPU receiver independently
+        uses: actions/checkout@v4
+      - name: Checkout exact NCP-002 producer separately
+        uses: actions/checkout@v4
+        with:
+          repository: Kier73/Navigable-Compute
+          ref: e607fd80c00630f6b31e4c86b9b5ee8faebda410
+          path: ncp-peer
+          persist-credentials: false
+      - name: Prepare Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install native receiver tests and pinned mathematical producer
+        run: |
+          python -m pip install -e '.[dev]'
+          python -m pip install -e ./ncp-peer
+      - name: Independently recheck real NCP-002 packet and execute E-CPU native actions
+        run: >
+          python -m pytest -q
+          tests/test_constructed_controller_admission.py
+          tests/test_computational_execution.py
+          tests/test_computational_resolver.py
