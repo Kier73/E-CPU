@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import re
 import ssl
+import time
 from typing import Sequence
 
 from .fenced_generated_ground import FencedGroundHead, FencedGroundLineage
@@ -101,6 +102,7 @@ def connect_generated_ground_quorum(
     degraded: bool = False,
     timeout: float = 0.8,
     handshake_timeout: float = 0.8,
+    connection_attempts: int = 3,
 ) -> GeneratedGroundQuorumConnection:
     """Connect exactly configured mTLS authorities and preserve quorum size.
 
@@ -122,6 +124,8 @@ def connect_generated_ground_quorum(
         if (not isinstance(value, (int, float)) or isinstance(value, bool)
             or not 0 < value <= 10):
             raise GeneratedGroundAuthorityError(f"invalid {name}")
+    if type(connection_attempts) is not int or not 1 <= connection_attempts <= 5:
+        raise GeneratedGroundAuthorityError("invalid bounded connection-attempt count")
     if not isinstance(pinned_peers, (tuple, list)) or any(
         not isinstance(peer, PinnedRecoveryAuthority) for peer in pinned_peers
     ):
@@ -142,20 +146,28 @@ def connect_generated_ground_quorum(
     try:
         for member_id in sorted(expected):
             peer = by_id[member_id]
-            try:
-                bound = RecoveryLineagePeerClient.connect_mutual_tls(
-                    membership, member_id, peer.host, peer.port,
-                    client_tls_context,
-                    server_hostname=peer.server_dns,
-                    timeout=timeout,
-                    handshake_timeout=handshake_timeout,
-                )
-            except RecoveryLineageTransportError:
-                if not degraded:
-                    raise
-                unavailable.append(member_id)
-                continue
-            peers[member_id] = bound
+            bound: RecoveryLineagePeerClient | None = None
+            for attempt in range(connection_attempts):
+                try:
+                    bound = RecoveryLineagePeerClient.connect_mutual_tls(
+                        membership, member_id, peer.host, peer.port,
+                        client_tls_context,
+                        server_hostname=peer.server_dns,
+                        timeout=timeout,
+                        handshake_timeout=handshake_timeout,
+                    )
+                    break
+                except RecoveryLineageTransportError:
+                    if attempt + 1 == connection_attempts:
+                        if not degraded:
+                            raise
+                        unavailable.append(member_id)
+                        break
+                    # The previous owner's service stream may still be
+                    # disconnecting. Retries are short and strictly bounded.
+                    time.sleep(0.04 * (attempt + 1))
+            if bound is not None:
+                peers[member_id] = bound
 
         authorities: dict[str, RecoveryLineageAuthority | RecoveryLineagePeerClient] = {
             membership.owner_id: owner,
