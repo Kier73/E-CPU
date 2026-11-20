@@ -164,13 +164,20 @@ class FencedGroundEffectReceiver:
     is no cross-network atomic transaction between remote quorum and SQLite.
     """
 
-    def __init__(self, database: str | Path, *, resource: str) -> None:
-        """Create/check receiver-owned tables, WAL and durable commit settings."""
+    def __init__(
+        self, database: str | Path, *, resource: str, plan_digest: str
+    ) -> None:
+        """Bind an immutable receiver resource policy to one generated Ground."""
         self.path = Path(database)
         self.resource = _resource(resource)
+        self.plan_digest = _hex(plan_digest, "authorized Ground plan")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as db:
             db.executescript("""
+                CREATE TABLE IF NOT EXISTS receiver_policy (
+                    resource TEXT PRIMARY KEY,
+                    plan_digest TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS installed_authority (
                     resource TEXT PRIMARY KEY,
                     generation INTEGER NOT NULL,
@@ -200,6 +207,16 @@ class FencedGroundEffectReceiver:
                     operation_id TEXT NOT NULL
                 );
             """)
+            db.execute(
+                "INSERT OR IGNORE INTO receiver_policy(resource,plan_digest) VALUES (?,?)",
+                (self.resource, self.plan_digest),
+            )
+            accepted = db.execute(
+                "SELECT plan_digest FROM receiver_policy WHERE resource=?",
+                (self.resource,),
+            ).fetchone()
+            if accepted != (self.plan_digest,):
+                raise EffectFencingRefused("receiver resource is pinned to another Ground plan")
 
     def _connect(self) -> sqlite3.Connection:
         """Open a new independent connection suitable for cross-process locking."""
@@ -221,6 +238,9 @@ class FencedGroundEffectReceiver:
             raise EffectFencingRefused("a quorum-sealed Ground head is required")
         publisher.restore(head)
         state = head.state
+        if (state["plan_digest"] != self.plan_digest
+                or publisher.plan.digest != self.plan_digest):
+            raise EffectFencingRefused("receiver policy rejects a different Ground plan")
         record: PublishedGroundEffect | None = None
         if state["event"] == "publish":
             record = published_effect(head, self.resource)
@@ -304,6 +324,8 @@ class FencedGroundEffectReceiver:
         """
         if not isinstance(claim, PublishedGroundEffect) or claim.resource != self.resource:
             raise EffectFencingRefused("receiver policy rejects effect resource")
+        if claim.plan_digest != self.plan_digest:
+            raise EffectFencingRefused("receiver policy rejects a different Ground plan")
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             try:
@@ -384,7 +406,7 @@ class FencedGroundEffectReceiver:
                 (self.resource,),
             ).fetchone()[0]
         return {
-            "resource": self.resource,
+            "resource": self.resource, "authorized_plan_digest": self.plan_digest,
             "installed_generation": installed[0] if installed else None,
             "installed_root": installed[1] if installed else None,
             "installed_epoch": installed[2] if installed else None,
