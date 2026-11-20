@@ -1,0 +1,49 @@
+name: IPS-006 distributed generated Ground authority recovery
+
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/generated_ground_authority_fabric.py'
+      - 'mailcpu/recovery_lineage_transport.py'
+      - 'tests/test_generated_ground_authority_fabric.py'
+      - 'tests/helpers/ips006_owner_process.py'
+      - 'docs/DISTRIBUTED_GENERATED_GROUND_IPS006.md'
+      - '.github/workflows/ips006-generated-ground-authorities.yml'
+  push:
+    branches:
+      - research/ips006-distributed-authority-rejoin
+    paths:
+      - 'mailcpu/generated_ground_authority_fabric.py'
+      - 'mailcpu/recovery_lineage_transport.py'
+      - 'tests/test_generated_ground_authority_fabric.py'
+      - 'tests/helpers/ips006_owner_process.py'
+      - '.github/workflows/ips006-generated-ground-authorities.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  distributed-ground-recovery:
+    name: Authenticated quorum, hard owner kill, fencing and rejoin
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install E-CPU native package and test dependencies
+        run: python -m pip install -e '.[dev]'
+      - name: Test IPS-006 and existing lineage/Generated Ground regressions
+        run: >
+          python -m pytest -q
+          tests/test_generated_ground_authority_fabric.py
+          tests/test_fenced_generated_ground.py
+          tests/test_recovery_lineage.py
+          tests/test_recovery_lineage_service.py::test_tls_authorities_fail_closed_below_quorum_then_rejoin_and_rebind
+          tests/test_recovery_lineage_service.py::test_tcp_partition_preserves_two_member_quorum_and_rejoined_member_catches_up

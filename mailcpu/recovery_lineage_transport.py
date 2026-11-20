@@ -553,18 +553,36 @@ class DistributedRecoveryLineageCoordinator(RecoveryLineageCoordinator):
         self,
         membership: SeedCommitMembership,
         authorities: Mapping[str, RecoveryLineageAuthority | RecoveryLineagePeerClient],
+        *,
+        allow_unavailable: bool = False,
     ) -> None:
-        """Mathematics: require one authority endpoint per configured member, with the owner local and every non-owner remotely bound."""
+        """Bind the local owner and authenticated remote members.
+
+        Normal construction requires all configured members. Explicit degraded
+        construction may omit disconnected remote members, but never changes
+        fixed membership, quorum size, owner identity, or the durable vote
+        rules. Every read/prepare/commit still requires the original quorum.
+        """
 
         if not isinstance(membership, SeedCommitMembership):
             raise RecoveryLineageTransportError("distributed coordinator requires fixed membership")
         if not isinstance(authorities, Mapping):
             raise RecoveryLineageTransportError("distributed coordinator authorities must be a mapping")
+        if type(allow_unavailable) is not bool:
+            raise RecoveryLineageTransportError("allow_unavailable must be boolean")
+        if set(authorities) - set(membership.member_ids):
+            raise RecoveryLineageTransportError("distributed coordinator contains an unknown authority")
+        if not allow_unavailable and set(authorities) != set(membership.member_ids):
+            raise RecoveryLineageTransportError("distributed coordinator authority set must equal fixed membership")
+        if membership.owner_id not in authorities:
+            raise RecoveryLineageTransportError("distributed coordinator requires its local fixed owner")
         selected: dict[str, RecoveryLineageAuthority | RecoveryLineagePeerClient] = {}
         for member_id in membership.member_ids:
             authority = authorities.get(member_id)
             if authority is None:
-                raise RecoveryLineageTransportError(f"distributed coordinator is missing authority {member_id}")
+                if not allow_unavailable:
+                    raise RecoveryLineageTransportError(f"distributed coordinator is missing authority {member_id}")
+                continue
             if member_id == membership.owner_id:
                 valid = (
                     isinstance(authority, RecoveryLineageAuthority)
@@ -580,10 +598,17 @@ class DistributedRecoveryLineageCoordinator(RecoveryLineageCoordinator):
             if not valid:
                 raise RecoveryLineageTransportError(f"distributed authority {member_id} is not correctly bound")
             selected[member_id] = authority
-        if set(authorities) != set(membership.member_ids):
-            raise RecoveryLineageTransportError("distributed coordinator authority set must equal fixed membership")
         self.membership = membership
         self.authorities = dict(sorted(selected.items()))
+
+    @classmethod
+    def with_available_peers(
+        cls,
+        membership: SeedCommitMembership,
+        authorities: Mapping[str, RecoveryLineageAuthority | RecoveryLineagePeerClient],
+    ) -> "DistributedRecoveryLineageCoordinator":
+        """Reopen with surviving authenticated peers without reducing the quorum."""
+        return cls(membership, authorities, allow_unavailable=True)
 
     def close(self) -> None:
         """Mathematics: release all remote streams while leaving the owner's durable local authority journal intact."""
