@@ -317,6 +317,22 @@ def verify_coupled_controller(packet: Mapping[str,Any]) -> CheckedCoupledControl
     position={state:i for i,state in enumerate(basis)}
     if world["states"]!=[list(s) for s in basis]:
         raise CoupledControllerAdmissionError("source joint state enumeration differs")
+    # Python considers bool equal to 0/1 and some floats equal to integers.
+    # Neither may enter a typed mathematical witness as a rank or action.
+    if (type(world["rank"]) is not list
+            or any(type(v) is not int for v in world["rank"])
+            or type(world["optimal"]) is not list
+            or type(world["policy"]) is not list
+            or any(type(row) is not list
+                   or any(type(action) is not list
+                          or any(type(item) is not int for item in action)
+                          for action in row)
+                   for row in world["optimal"])
+            or any(type(action) is not list
+                   or any(type(item) is not int for item in action)
+                   for action in world["policy"])
+            or type(world["worst_steps"]) is not int):
+        raise CoupledControllerAdmissionError("witness rank/action types are not exact integers")
     unsafe=set(unsafe_joint)
     safe={i for i,s in enumerate(basis)
           if s not in unsafe and all(s[j] not in unsafes[j] for j in range(len(sizes)))}
