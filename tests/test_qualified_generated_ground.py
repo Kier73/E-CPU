@@ -352,7 +352,12 @@ def test_two_mtls_peer_hosts_and_recovery_after_first_peer_death() -> None:
             session = QualifiedGroundExecution(plan, goal, primitives, identity, ground)
             first = session.advance(os, pid, first_host)
             assert first["payload"]["stages"][0]["host"] == "peer-a"
-            assert first["payload"]["stages"][0]["stage_receipt"]["evidence"]["fresh_process"] is False
+            # A TLS endpoint may wrap a fresh native process per exchange.
+            # Respect the probed endpoint lifetime contract, not a transport guess.
+            assert (
+                first["payload"]["stages"][0]["stage_receipt"]["evidence"]["fresh_process"]
+                is first_host.qualification_report["separate_process_per_exchange"]
+            )
             # Destroy the actual first service process before rebuilding the
             # native DAG and completing it on another authenticated peer.
             _stop_peer(processes[0])
