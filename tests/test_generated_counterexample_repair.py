@@ -20,7 +20,7 @@ from mailcpu.constructed_controller_admission import (
 )
 from test_constructed_controller_admission import _world,_native,_bindings,_resources
 from generated_counterexample_probe import (
-    apply_edits,generate_and_reduce_alias,report_minimal_source_alias,
+    StateAliasEdit,apply_edits,generate_and_reduce_alias,report_minimal_source_alias,
     discover_native_input_alias,exact_type_oracle,legacy_equality_would_accept,
 )
 
@@ -40,6 +40,24 @@ def test_source_generated_minimal_invalid_certificate_is_refused() -> None:
     assert report["remaining_edits"]==1
     assert report["old_value_equality"] is True
     assert report["strict_source_type_oracle"] is False
+
+
+def test_generated_packet_rejects_all_bool_and_float_integer_aliases() -> None:
+    """Actual source-generated state coordinates never admit equal-valued types."""
+    base=_world().packet()
+    for integer,aliases in ((0,(False,0.0)),(1,(True,1.0))):
+        row,factor=next(
+            (i,j) for i,coordinates in enumerate(base["states"])
+            for j,x in enumerate(coordinates)
+            if type(x) is int and x==integer
+        )
+        for alias in aliases:
+            changed=apply_edits(base,(StateAliasEdit(row,factor,integer,alias),))
+            assert changed["sha256"]!=base["sha256"]
+            assert legacy_equality_would_accept(base,changed)
+            assert not exact_type_oracle(changed)
+            with pytest.raises(CoupledControllerAdmissionError,match="source joint state|coordinate|type"):
+                verify_coupled_controller(changed)
 
 
 def test_generated_source_rejects_bool_or_float_runtime_input_before_handler() -> None:
