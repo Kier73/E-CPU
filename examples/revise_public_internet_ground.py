@@ -21,7 +21,7 @@ from typing import Any
 
 from mailcpu.headless import HeadlessOS
 from mailcpu.kernel import Capability
-from mailcpu.evidence_path_resolver import RouteMetric
+from mailcpu.evidence_path_resolver import RouteMetric, _local_capability_snapshot
 from mailcpu.internet_ground_routing import (
     InternetGroundRouter, admitted_rfc_observation,
 )
@@ -160,13 +160,14 @@ def observe_and_revise(policy: Policy, *, archived: dict|None=None) -> dict[str,
             case_evidence_digest=capsule["capsule_digest"],
         )
 
+    authority=_local_capability_snapshot(os,pid)[1]
     revision=EvidenceGroundRevision(
         base,public,catalogue,
         (ReceiverFeatureBinding(
             offer.digest,"rfceditor","rfc_path",
             independent_source_decoder,max_archive_bytes=8*1024*1024,
         ),),
-        "0"*64,
+        authority,
     )
     before=revision.snapshot()
     step=qualifier.step(intent,os,pid)
@@ -186,7 +187,7 @@ def observe_and_revise(policy: Policy, *, archived: dict|None=None) -> dict[str,
     # Independent fresh reader, same original native-qualified case, original
     # archived raw bytes, same source verification policy. No extra network.
     verifier=EvidenceGroundRevision(
-        base,public,catalogue,revision.bindings,"0"*64,
+        base,public,catalogue,revision.bindings,authority,
     )
     if verifier.replay(qualifier,intent,((event,original_source_bytes),))!=after:
         raise RuntimeError("independent mathematical Ground replay failed")
