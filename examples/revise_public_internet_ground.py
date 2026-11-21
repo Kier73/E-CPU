@@ -17,7 +17,14 @@ import argparse
 from hashlib import sha256
 import json
 from pathlib import Path
+import sys
 from typing import Any
+
+# A direct 'python examples/...py' invocation must preserve the repository
+# package root; offline verifier uses the same import contract on another runner.
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from mailcpu.headless import HeadlessOS
 from mailcpu.kernel import Capability
