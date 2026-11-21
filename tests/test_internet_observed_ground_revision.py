@@ -202,6 +202,19 @@ class NativeEvidenceRevisionTests(unittest.TestCase):
                 e.base,e.public_value,e.offers,(invalid,),e.authority_digest)
         self.assertEqual(e.snapshot()["revision_count"],0)
 
+    def test_native_immutable_case_projection_survives_adversarial_dataclass_rebuild(self):
+        f,event=self.observed()
+        original=f.router._cases[event.observed_case_digest]
+        # Native InternetObservationCase freezes projection mappings. Rebuilding
+        # a modified case must reach the independently bound verifier instead
+        # of failing incidentally on a MappingProxyType JSON serializer.
+        forged=replace(original,evidence_digest="f"*64)
+        self.assertNotEqual(forged.case_digest,original.case_digest)
+        self.assertEqual(forged.to_dict()["expected_projection"],
+                         original.to_dict()["expected_projection"])
+        self.assertFalse(f.router._verifiers["httpalt"](forged))
+        self.assertEqual(engine(f).snapshot()["candidate_count"],4)
+
     def test_model_identity_and_original_rows_are_unchanged_after_revision(self):
         f,event=self.observed()
         e=engine(f)
