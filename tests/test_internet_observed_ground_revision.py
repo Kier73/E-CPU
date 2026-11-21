@@ -20,6 +20,7 @@ from mailcpu.internet_observed_ground_revision import (
 from mailcpu.semantic_translation import canonical_value_digest
 from mailcpu.intention_sufficiency import plan_sufficiency
 from mailcpu.internet_prospective_qualification import ProbeEvent
+from mailcpu.evidence_path_resolver import _local_capability_snapshot
 from test_internet_distinguishability_attention import fixture, intention, finite_ground
 
 
@@ -60,7 +61,7 @@ def engine(f, *,contradiction=False):
             contradicted_decoder if contradiction else decoder,
             2048,
         ),),
-        "0" * 64,
+        _local_capability_snapshot(f.os,f.pid)[1],
     )
 
 
@@ -95,7 +96,6 @@ class NativeEvidenceRevisionTests(unittest.TestCase):
         self.assertEqual(result["model_status"],"CONDITIONALLY_RESOLVED")
         self.assertEqual(result["conditional_result"],1)
         self.assertEqual(result["sufficiency_plan"]["status"],"READY")
-        self.assertIsNone(result["sufficiency_plan"]["ready_result"] is None and None or None)
         self.assertEqual(len(f.router._cases),1)
         # Distinguish the mathematical target from the NATIVE route:
         # the HTTP observation alone did not realize the RFC path.
