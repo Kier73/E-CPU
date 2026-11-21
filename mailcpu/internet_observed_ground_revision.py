@@ -155,15 +155,10 @@ class EvidenceGroundRevision:
         if subset is None:
             status, plan = "MODEL_CONTRADICTED", None
             target = None
-            possible = ()
         else:
             plan = plan_sufficiency(
                 subset, self.public_value, offered, self.authority_digest,
             )
-            possible = sorted({_decode(row.target_json)
-                               if type(_decode(row.target_json)) is str
-                               else _bytes(_decode(row.target_json)).decode("utf-8")
-                               for row in subset.states})
             status = "CONDITIONALLY_RESOLVED" if plan["status"] == "READY" else (
                 "MODEL_UNRESOLVED" if plan["status"] == "REFUSE"
                 else "MORE_SOURCE_EVIDENCE_REQUIRED"
