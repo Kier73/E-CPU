@@ -94,7 +94,7 @@ class NativeEvidenceRevisionTests(unittest.TestCase):
         self.assertEqual(result["candidate_count"],2)
         self.assertEqual(result["measured_features"],["http"])
         self.assertEqual(result["model_status"],"CONDITIONALLY_RESOLVED")
-        self.assertEqual(result["conditional_result"],1)
+        self.assertEqual(result["conditional_result"],{"intended_result":1})
         self.assertEqual(result["sufficiency_plan"]["status"],"READY")
         self.assertEqual(len(f.router._cases),1)
         # Distinguish the mathematical target from the NATIVE route:
