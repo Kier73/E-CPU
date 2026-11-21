@@ -52,6 +52,7 @@ class SourceFeatureReading:
     case_evidence_digest: str
 
     def __post_init__(self) -> None:
+        """Require exact typed feature bytes and source evidence digests."""
         from .internet_ground_routing import _check_digest
         _bytes(self.value)
         _check_digest(self.raw_evidence_digest, "source capture")
@@ -72,6 +73,7 @@ class ReceiverFeatureBinding:
     max_archive_bytes: int = MAX_ARCHIVE
 
     def __post_init__(self) -> None:
+        """Accept only bounded receiver-installed source decoder bindings."""
         from .internet_ground_routing import _check_digest, _NAME
         _check_digest(self.offer_digest, "bound offer")
         if (type(self.provider_id) is not str or _NAME.fullmatch(self.provider_id) is None
@@ -102,6 +104,7 @@ class EvidenceGroundRevision:
     _seen: dict[str, tuple[str, str]] = field(default_factory=dict, init=False, repr=False)
 
     def __post_init__(self) -> None:
+        """Pin an exact finite source model and unique feature decoder registry."""
         from .internet_ground_routing import _check_digest
         if (not isinstance(self.base, FiniteGround)
                 or type(self.offers) is not tuple
@@ -124,9 +127,11 @@ class EvidenceGroundRevision:
 
     @property
     def tip(self) -> str:
+        """Return the latest append-only verified revision digest."""
         return self.receipts[-1]["digest"] if self.receipts else "0" * 64
 
     def _candidates(self) -> tuple:
+        """Select original finite states consistent with all admitted readings."""
         public = _bytes(self.public_value)
         return tuple(
             row for row in self.base.states
