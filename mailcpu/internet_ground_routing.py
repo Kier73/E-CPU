@@ -61,7 +61,7 @@ def _check_digest(value: object, label: str) -> None:
 def _json(value: object) -> object:
     """Detach a bounded finite JSON value, preventing later mutation of claims."""
     try:
-        raw = json.dumps(value, sort_keys=True, separators=(",", ":"),
+        raw = json.dumps(_thaw(value), sort_keys=True, separators=(",", ":"),
                          allow_nan=False, ensure_ascii=False).encode("utf-8")
         if len(raw) > 8192:
             raise InternetGroundRefused("projected observation exceeds 8 KiB")
@@ -83,7 +83,7 @@ def _freeze(value: object) -> object:
 def _thaw(value: object) -> object:
     if isinstance(value, Mapping):
         return {k: _thaw(v) for k, v in value.items()}
-    if isinstance(value, tuple):
+    if isinstance(value, (tuple, list)):
         return [_thaw(v) for v in value]
     return value
 

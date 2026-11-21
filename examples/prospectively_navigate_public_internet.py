@@ -12,7 +12,14 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import sys
 from typing import Any
+
+# Original INTERNET-006 CLI is also invoked directly by hosted INTERNET-005
+# public HTTPS workflows, where the scripts directory is sys.path[0].
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from mailcpu.headless import HeadlessOS
 from mailcpu.kernel import Capability

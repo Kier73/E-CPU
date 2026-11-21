@@ -43,6 +43,8 @@ jobs:
   live-rfc-intention:
     runs-on: ubuntu-latest
     needs: native-policy-and-ground-tests
+    env:
+      PYTHONPATH: ${{ github.workspace }}
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4

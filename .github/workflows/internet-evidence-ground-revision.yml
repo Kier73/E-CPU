@@ -1,0 +1,100 @@
+name: INTERNET-009 native source-evidence Ground revision and live RFC replay
+
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/internet_observed_ground_revision.py'
+      - 'tests/test_internet_observed_ground_revision.py'
+      - 'examples/revise_public_internet_ground.py'
+      - 'docs/INTERNET_OBSERVED_GROUND_REVISION_009.md'
+      - '.github/workflows/internet-evidence-ground-revision.yml'
+  push:
+    branches:
+      - research/internet009-evidence-ground-revision
+    paths:
+      - 'mailcpu/internet_observed_ground_revision.py'
+      - 'tests/test_internet_observed_ground_revision.py'
+      - 'examples/revise_public_internet_ground.py'
+      - '.github/workflows/internet-evidence-ground-revision.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-evidence-and-vgi:
+    name: Exact E-CPU VGI intention model, real native probe admission and adversarial replay
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11','3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pin original VGI partial-Ground observation implementation
+        uses: actions/checkout@v4
+        with:
+          repository: Kier73/Virtual-Ground-Interpreter
+          ref: 7a3c4a368d1d24044a6c06a317c26ef316513e6d
+          path: vgi-source
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Execute native revision and original VGI/E-CPU attention regressions
+        shell: bash
+        run: |
+          export PYTHONPATH="$PWD/vgi-source/virtual_ground_interpreter:$PWD/tests"
+          python -m unittest discover -s tests -p 'test_internet_observed_ground_revision.py' -v
+          python -m unittest discover -s tests -p 'test_internet_distinguishability_attention.py' -v
+          python -m unittest discover -s tests -p 'test_internet_partial_frontier.py' -v
+          python -m unittest discover -s tests -p 'test_internet_prospective_qualification.py' -v
+          python -m unittest discover -s tests -p 'test_internet_ground_routing.py' -v
+
+  live-source-conditioned-rfc:
+    name: Live public RFC HTTPS observation actually revises an intention Ground
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: native-evidence-and-vgi
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Native RFC path observation and evidence-conditioned Ground revision
+        run: |
+          python examples/revise_public_internet_ground.py observe \
+            --seed 9293 --target 793 --output /tmp/internet009-live.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: internet009-original-live-https-evidence
+          path: /tmp/internet009-live.json
+          retention-days: 7
+          if-no-files-found: error
+
+  independent-offline-revision:
+    name: Separate reader/runner reconstructs native case and revised Ground without network
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: live-source-conditioned-rfc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: internet009-original-live-https-evidence
+          path: /tmp
+      - name: Independently reverify raw RFC source and recompute exact E-CPU model revision
+        run: |
+          python examples/revise_public_internet_ground.py replay \
+            --seed 9293 --target 793 \
+            --input /tmp/internet009-live.json \
+            --output /tmp/internet009-offline.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: internet009-independent-offline-ground-revision
+          path: /tmp/internet009-offline.json
+          retention-days: 7
+          if-no-files-found: error
