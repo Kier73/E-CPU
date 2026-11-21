@@ -25,9 +25,9 @@ Let `G0` be a finite receiver-supplied hypothesis table, `H0` its content identi
 
 For a feature `f` and an **actually source-qualified reading** `v`, the retained candidate set is
 
-[
+$
 S_{n+1} = \{s\in S_n:\operatorname{feature}_f(s)=v\}.
-]
+$
 
 The previous Ground remains unchanged. A new E-CPU `FiniteGround` is reconstructed only if `S_{n+1}` is nonempty. If all possible states disagree with the observation, the observed evidence is **not discarded or converted into a negative response**: the revision is recorded as `MODEL_CONTRADICTION` and no intention result is returned until the hypothetical model is independently rebuilt.
 
@@ -99,6 +99,16 @@ python examples/revise_public_internet_ground.py replay \
 ```
 
 The dedicated workflow checks out the exact VGI `7a3c4a368d1d24044a6c06a317c26ef316513e6d` and tests E-CPU's native Internet suite on Python 3.11 and 3.13. The live HTTPS and independent offline replay run **in separate jobs** with a short-retention artifact, no credentials or private keys.
+
+## Independently observed CI outcomes
+
+As observed on **November 20, 2026 (America/Toronto)**, [INTERNET-009 native and public-HTTPS workflow #44844078786](https://github.com/Kier73/E-CPU/actions/runs/44844078786) completed all four stages successfully. On Python 3.11 and 3.13, each native test worker passed 12 new revision tests and 67 original E-CPU/VGI Internet regressions (**79 tests per version**).
+
+The live public RFC Editor observer reported **two actual HTTPS requests**, native `qualified_and_routed`, and source-conditioned model `CONDITIONALLY_RESOLVED`. A distinct offline reader on another GitHub runner reported **zero HTTP requests** and reproduced exactly the same original RFC case, finite Ground revision and append-only revision tip:
+
+`c939806ab1b7c979c9973b696ae3ef4512a6205ba3276a4bab605be7a21bf19e`
+
+This is evidence that an existing Internet document relation can participate in an actual observer-driven computation; it is not evidence of general-purpose computation in the carrier or of a remotely signed source-representation pin. Separately, the older [INTERNET-005 live RFC workflow](https://github.com/Kier73/E-CPU/actions/runs/44844368907) passed after correcting its direct-script import environment. The broad repository specification gate reports unrelated existing missing docstrings and is **not** claimed as passing.
 
 ## Next ambitious step
 
