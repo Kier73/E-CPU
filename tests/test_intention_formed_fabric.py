@@ -183,6 +183,27 @@ class ObserverFormedFabricTests(unittest.TestCase):
         with self.assertRaisesRegex(BootstrapRefused, "not bound"):
             verify_formed_machine(wrong_source, machine)
 
+    def test_rehashed_oversplit_quotient_cannot_claim_minimality(self):
+        machine = form_observer_machine(LAW, ("parity",))
+        oversplit = replace(
+            machine, groups=tuple((i,) for i in range(8)),
+            state_groups=tuple(range(8)),
+            outputs=tuple((i % 2,) for i in range(8)),
+            transitions=LAW.transitions,
+        )
+        with self.assertRaisesRegex(BootstrapRefused, "not observationally minimal"):
+            verify_formed_machine(LAW, oversplit)
+
+    def test_future_observations_split_currently_indistinguishable_states(self):
+        law = FiniteObserverLaw(
+            ("a", "b", "c"), ("tick",), ("seen",),
+            ((2,), (1,), (2,)), ((0,), (0,), (1,)),
+        )
+        machine = form_observer_machine(law, ("seen",))
+        self.assertEqual(len(machine.groups), 3)
+        self.assertEqual(machine.apply({"initial_state": "a", "word": ["tick"]})["observation"], {"seen": 1})
+        self.assertEqual(machine.apply({"initial_state": "b", "word": ["tick"]})["observation"], {"seen": 0})
+
     def test_generated_machine_rejects_unmodeled_state_or_action(self):
         machine = form_observer_machine(LAW, ("parity",))
         with self.assertRaises(BootstrapRefused):
