@@ -785,6 +785,11 @@ from .computational_session import (
     ComputationalSessionStore,
 )
 
+from .cross_repository_nonlinear_ground import (
+    VerifiedForeignFiniteGround,
+    admit_ncr007_finite_packet,
+)
+
 from .intention_formed_fabric import (
     FiniteObserverLaw,
     FormedObserverMachine,
@@ -1766,6 +1771,8 @@ __all__ = [
     "ROUTE_SCHEMA",
     "SessionAttachment",
     "SessionRejoinAddress",
+    "VerifiedForeignFiniteGround",
+    "admit_ncr007_finite_packet",
     "FiniteObserverLaw",
     "FormedObserverMachine",
     "FormedRealization",
