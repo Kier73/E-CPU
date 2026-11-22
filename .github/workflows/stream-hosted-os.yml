@@ -1,0 +1,29 @@
+name: Stream-hosted HeadlessOS process continuity
+
+on:
+  push:
+    paths:
+      - "tests/test_stream_hosted_os.py"
+      - ".github/workflows/stream-hosted-os.yml"
+  pull_request:
+    paths:
+      - "tests/test_stream_hosted_os.py"
+      - ".github/workflows/stream-hosted-os.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  os-over-tcp:
+    name: Transport full OS state over TCP
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install E-CPU
+        run: python -m pip install -e ".[dev,vgi]"
+      - name: Test HeadlessOS process and virtual stream continuity
+        run: python -m pytest -q tests/test_stream_hosted_os.py
