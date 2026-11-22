@@ -243,7 +243,7 @@ def test_rejoin_revalidates_route_and_refuses_stale_routing_evidence(tmp_path: P
     address = SessionRejoinAddress.bootstrap(store)
     navigator = _navigator(_inventory(), store)
     route = navigator.plan(address, origin_id="browser", coordinate=3)
-    with pytest.raises(SessionRejoinRefused, match="no receiver-authorized"):
+    with pytest.raises(SessionRejoinRefused, match="origin observation has expired"):
         navigator.attach(address, route, coordinate=51)
     with pytest.raises(SessionRejoinRefused, match="route changed"):
         navigator.attach(address, route, coordinate=4)
