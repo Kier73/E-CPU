@@ -15,7 +15,7 @@ from typing import Any, Mapping, Sequence
 from .substrate_bootstrap import (
     AdaptiveBootstrap, BootstrapPlan, BootstrapPolicy, BootstrapRefused,
     BootstrapTask, CarrierBinding, RealizerBinding, SubstrateObservation,
-    canonical, digest, name, natural, verify_bootstrap_report,
+    canonical, digest, name, verify_bootstrap_report,
 )
 
 _SCHEMA = "mailcpu.intention-formed-fabric.v1"
@@ -204,25 +204,30 @@ def verify_formed_machine(source: FiniteObserverLaw, machine: FormedObserverMach
                tuple(source.observations[state][source.fields.index(f)] for f in selected) != machine.outputs[index] or \
                tuple(machine.state_groups[dst] for dst in source.transitions[state]) != machine.transitions[index]:
                 raise BootstrapRefused("generated machine is not source-equivalent")
-    # The minimality audit computes a separate family of finite observation
-    # signatures; this avoids trusting claims of minimality from a checksum.
-    pairs = [(i, j) for i in range(n) for j in range(i + 1, n)
-             if machine.state_groups[i] != machine.state_groups[j]]
-    for _ in range(n):
-        if not pairs:
+    # Independently derive pairwise distinguishability from the original
+    # observations, WITHOUT consulting the generated partition. Distinct
+    # classes are minimal iff every cross-class pair has some finite action
+    # word that separates its source observations. Fixed-point propagation
+    # is exact on a finite deterministic transition system.
+    distinguished = [[any(source.observations[i][source.fields.index(f)] !=
+                          source.observations[j][source.fields.index(f)] for f in selected)
+                      for j in range(n)] for i in range(n)]
+    for _ in range(n * n):
+        changed = False
+        for i in range(n):
+            for j in range(i + 1, n):
+                if not distinguished[i][j] and any(
+                    distinguished[source.transitions[i][a]][source.transitions[j][a]]
+                    for a in range(len(source.actions))
+                ):
+                    distinguished[i][j] = distinguished[j][i] = True
+                    changed = True
+        if not changed:
             break
-        outstanding = []
-        for i, j in pairs:
-            if any(source.observations[i][source.fields.index(f)] !=
-                   source.observations[j][source.fields.index(f)] for f in selected):
-                continue
-            if any(machine.state_groups[source.transitions[i][a]] !=
-                   machine.state_groups[source.transitions[j][a]] for a in range(len(source.actions))):
-                continue
-            outstanding.append((i, j))
-        if outstanding:
-            raise BootstrapRefused("distinct machine classes lack a distinguishing future")
-        break
+    for i in range(n):
+        for j in range(i + 1, n):
+            if (machine.state_groups[i] != machine.state_groups[j]) != distinguished[i][j]:
+                raise BootstrapRefused("formed quotient not observationally minimal")
     return True
 
 
