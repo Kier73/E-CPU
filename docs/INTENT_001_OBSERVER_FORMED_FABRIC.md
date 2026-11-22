@@ -83,7 +83,7 @@ Initialize pairwise distinguishability without using the producer's groups:
 D_0(x,y)=[O_F(x)\ne O_F(y)].
 \]
 
-Propagate distinguishability through the original source transitions:
+Propagate distinguishability through the original source transitions (the implementation updates the matrix in place; this recurrence describes the same least fixed point):
 
 \[
 D_{k+1}(x,y)=D_k(x,y)\lor
