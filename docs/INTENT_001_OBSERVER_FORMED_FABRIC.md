@@ -77,6 +77,8 @@ A single eight-state source supplies two possible observations: `parity` or `ide
 - Remove the cheapest compact host, leaving another admitted compact host: the same parity Ground and output are recomputed over a different native SAB-001 path. No old process or session resurrection is required.
 - A remote advertised compact operation with no receiver-admitted local handler is refused; so are missing permissions, expired resources, forged source/quotient structure, altered transport and unsupported problem descriptions.
 
+An additional native integration constructs **five owned network namespaces with five physical-simulation links and ten ports**, allows SAB-001 to observe the derived directed multi-hop routes, and transmits the generated request and state through real `OwnedNetworkFabric.send_routed`/`receive` frame operations. The parity and identity intentions form different interpreter-host placements over the same simulated network topology, while exact delivery and the native fabric journal are checked. This is the existing E-CPU owned-network simulator, **not** authenticated physical Internet communication.
+
 The test suite checks generated versus original source results for **every initial state and every action word of length 0–4** for three observation projections. This is a finite exhaustive regression over those word lengths. The fixed-point proof covers unbounded finite action-word lengths under the *declared* source law, not external physical-world behavior.
 
 ## Reproduce
