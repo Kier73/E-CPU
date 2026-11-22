@@ -9,6 +9,7 @@ or replicate the M3 quorum lineage; those remain separate E-CPU contracts.
 from __future__ import annotations
 
 import copy
+from contextlib import ExitStack
 import hashlib
 import json
 import os
@@ -229,7 +230,10 @@ def test_stream_checksum_refuses_changed_payload_before_os_interpretation() -> N
     valid = _frame({"schema": SCHEMA, "state": {"vm": {}}})
     corrupt = bytearray(valid)
     corrupt[-1] ^= 1
-    with socket.socketpair() as (left, right):
+    with ExitStack() as stack:
+        left, right = socket.socketpair()
+        stack.enter_context(left)
+        stack.enter_context(right)
         left.sendall(corrupt)
         with pytest.raises(ValueError, match="checksum"):
             _receive(right)
@@ -237,12 +241,18 @@ def test_stream_checksum_refuses_changed_payload_before_os_interpretation() -> N
 
 def test_stream_rejects_truncation_and_unbounded_envelopes() -> None:
     """Carrier fragmentation is allowed; missing and oversized bytes are not."""
-    with socket.socketpair() as (left, right):
+    with ExitStack() as stack:
+        left, right = socket.socketpair()
+        stack.enter_context(left)
+        stack.enter_context(right)
         left.sendall(struct.pack(">I", 5) + b"\0" * 32 + b"ab")
         left.shutdown(socket.SHUT_WR)
         with pytest.raises(ValueError, match="truncated"):
             _receive(right)
-    with socket.socketpair() as (left, right):
+    with ExitStack() as stack:
+        left, right = socket.socketpair()
+        stack.enter_context(left)
+        stack.enter_context(right)
         left.sendall(struct.pack(">I", MAX_FRAME + 1) + b"\0" * 32)
         with pytest.raises(ValueError, match="length"):
             _receive(right)
