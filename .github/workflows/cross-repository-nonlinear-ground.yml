@@ -8,7 +8,7 @@ on:
       - 'tests/test_cross_repository_nonlinear_ground.py'
       - '.github/workflows/cross-repository-nonlinear-ground.yml'
   push:
-    branches: [main]
+    branches: [main, research/crossrepo-ncr007-observer-wire-20261122]
     paths:
       - 'mailcpu/cross_repository_nonlinear_ground.py'
       - 'mailcpu/__init__.py'
