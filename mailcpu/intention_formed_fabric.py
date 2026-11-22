@@ -201,7 +201,7 @@ def verify_formed_machine(source: FiniteObserverLaw, machine: FormedObserverMach
             raise BootstrapRefused("incomplete generated operation table")
         for state in group:
             if machine.state_groups[state] != index or \
-               tuple(source.observations[state][source.fields.index(f)] for f in selected) != machine.outputs[index] or \
+               canonical(tuple(source.observations[state][source.fields.index(f)] for f in selected)) != canonical(machine.outputs[index]) or \
                tuple(machine.state_groups[dst] for dst in source.transitions[state]) != machine.transitions[index]:
                 raise BootstrapRefused("generated machine is not source-equivalent")
     # Independently derive pairwise distinguishability from the original
@@ -209,8 +209,8 @@ def verify_formed_machine(source: FiniteObserverLaw, machine: FormedObserverMach
     # classes are minimal iff every cross-class pair has some finite action
     # word that separates its source observations. Fixed-point propagation
     # is exact on a finite deterministic transition system.
-    distinguished = [[any(source.observations[i][source.fields.index(f)] !=
-                          source.observations[j][source.fields.index(f)] for f in selected)
+    distinguished = [[canonical(tuple(source.observations[i][source.fields.index(f)] for f in selected)) !=
+                      canonical(tuple(source.observations[j][source.fields.index(f)] for f in selected))
                       for j in range(n)] for i in range(n)]
     for _ in range(n * n):
         changed = False
@@ -269,8 +269,8 @@ def realize_formed_intention(
         """Mathematics: independently re-execute the original source relation."""
         try:
             expected_result = source.replay(previous["initial_state"], previous["word"], machine.fields)
-            return type(result) is dict and result == machine.apply(previous) and \
-                   result["observation"] == expected_result
+            return type(result) is dict and canonical(result) == canonical(machine.apply(previous)) and \
+                   canonical(result["observation"]) == canonical(expected_result)
         except (KeyError, TypeError, ValueError, IndexError):
             return False
 
@@ -281,10 +281,10 @@ def realize_formed_intention(
     def check_observe(previous: Any, result: Any) -> bool:
         """Mathematics: compare observed data with source replay, not host assertions."""
         try:
-            return type(result) is dict and result == {
+            return type(result) is dict and canonical(result) == canonical({
                 "observation": source.replay(previous["initial_state"], previous["word"], machine.fields),
                 "machine_digest": machine.fingerprint,
-            }
+            })
         except (KeyError, TypeError, ValueError, IndexError):
             return False
 
@@ -303,6 +303,6 @@ def realize_formed_intention(
     plan = runtime.plan(task, coordinate=coordinate)
     report = runtime.execute(task, plan, coordinate=coordinate)
     verify_bootstrap_report(report, task, plan)
-    if report["output"] != {"observation": expected, "machine_digest": machine.fingerprint}:
+    if canonical(report["output"]) != canonical({"observation": expected, "machine_digest": machine.fingerprint}):
         raise BootstrapRefused("final observation differs from independently replayed source")
     return FormedRealization(machine, task, plan, report)
