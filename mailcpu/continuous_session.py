@@ -69,7 +69,7 @@ class SessionRejoinAddress:
                 raise SessionRejoinRefused(f"invalid {field}")
 
     def to_dict(self) -> dict[str, object]:
-        """Encode immutable scope without a stale checkpoint or mutable endpoint."""
+        """Mathematics: Encode immutable scope without a stale checkpoint or mutable endpoint."""
         fields = {
             "schema": ADDRESS_SCHEMA,
             "session_id": self.session_id,
@@ -81,12 +81,12 @@ class SessionRejoinAddress:
 
     @property
     def fingerprint(self) -> str:
-        """Return the content identity of the immutable rejoin scope."""
+        """Mathematics: Return the content identity of the immutable rejoin scope."""
         return str(self.to_dict()["digest"])
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, object]) -> "SessionRejoinAddress":
-        """Reject altered, incomplete or noncanonical address descriptions."""
+        """Mathematics: Reject altered, incomplete or noncanonical address descriptions."""
         expected = {
             "schema", "session_id", "artifact_manifest_digest",
             "state_schema_id", "membership_digest", "digest",
@@ -107,7 +107,7 @@ class SessionRejoinAddress:
 
     @classmethod
     def bootstrap(cls, store: ComputationalSessionStore) -> "SessionRejoinAddress":
-        """Issue a durable address only after M3 admits a quorum-anchored revision."""
+        """Mathematics: Issue a durable address only after M3 admits a quorum-anchored revision."""
         if not isinstance(store, ComputationalSessionStore):
             raise TypeError("bootstrap requires a ComputationalSessionStore")
         store.load_latest()
@@ -119,7 +119,7 @@ class SessionRejoinAddress:
         )
 
     def save(self, path: str | os.PathLike[str]) -> None:
-        """Persist only the rejoin address atomically, never credentials or state bytes."""
+        """Mathematics: Persist only the rejoin address atomically, never credentials or state bytes."""
         target = Path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
         payload = canonical(self.to_dict()) + b"\n"
@@ -149,7 +149,7 @@ class SessionRejoinAddress:
 
     @classmethod
     def load(cls, path: str | os.PathLike[str]) -> "SessionRejoinAddress":
-        """Reload an exact saved address after the original bootstrap process ends."""
+        """Mathematics: Reload an exact saved address after the original bootstrap process ends."""
         try:
             source = Path(path)
             if source.stat().st_size > 4096:
@@ -190,7 +190,7 @@ class SessionRejoinRoute:
             raise SessionRejoinRefused("invalid path channel identities")
 
     def to_dict(self) -> dict[str, object]:
-        """Expose a deterministic plan, not a certificate of physical delivery."""
+        """Mathematics: Expose a deterministic plan, not a certificate of physical delivery."""
         return {
             "schema": ROUTE_SCHEMA,
             "address_digest": self.address_digest,
@@ -204,7 +204,7 @@ class SessionRejoinRoute:
 
     @property
     def fingerprint(self) -> str:
-        """Content-bind the exact selected route and observation coordinate."""
+        """Mathematics: Content-bind the exact selected route and observation coordinate."""
         return digest(self.to_dict())
 
 
@@ -223,7 +223,7 @@ class SessionAttachment:
             raise SessionRejoinRefused("attachment snapshot names another session")
 
     def evidence(self) -> dict[str, object]:
-        """Expose checked lineage coordinates without copying complete state bytes."""
+        """Mathematics: Expose checked lineage coordinates without copying complete state bytes."""
         return {
             "schema": "mailcpu.continuous-session-attachment.v1",
             "address_digest": self.address.fingerprint,
@@ -278,12 +278,12 @@ class SessionRejoinNavigator:
 
     @staticmethod
     def _live(observed_at: int, expires_at: int, coordinate: int) -> bool:
-        """Evaluate only declared logical-time lease coordinates."""
+        """Mathematics: Evaluate only declared logical-time lease coordinates."""
         return observed_at <= coordinate <= expires_at
 
     @staticmethod
     def _scope_matches(address: SessionRejoinAddress, store: ComputationalSessionStore) -> bool:
-        """Bind a candidate local host to the immutable M3 session lineage."""
+        """Mathematics: Bind a candidate local host to the immutable M3 session lineage."""
         return (
             store.session_id == address.session_id
             and store.artifact_manifest_digest == address.artifact_manifest_digest
@@ -298,7 +298,7 @@ class SessionRejoinNavigator:
         origin_id: str,
         coordinate: int,
     ) -> SessionRejoinRoute:
-        """Choose the cheapest qualifying admitted path without pretending delivery occurred."""
+        """Mathematics: Choose the cheapest qualifying admitted path without pretending delivery occurred."""
         if not isinstance(address, SessionRejoinAddress):
             raise TypeError("plan requires a SessionRejoinAddress")
         natural(coordinate, "navigation coordinate")
@@ -384,7 +384,7 @@ class SessionRejoinNavigator:
         coordinate: int,
         backend_compatibility: BackendCompatibility | None = None,
     ) -> SessionAttachment:
-        """Revalidate routing and load the current M3 quorum high-water on the target."""
+        """Mathematics: Revalidate routing and load the current M3 quorum high-water on the target."""
         if not isinstance(route, SessionRejoinRoute):
             raise TypeError("attach requires a SessionRejoinRoute")
         current_route = self.plan(address, origin_id=route.origin_id, coordinate=coordinate)
