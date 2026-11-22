@@ -54,6 +54,12 @@ A mathematical expression is not automatically evidence of physical execution. S
 - [ ] Next construction has an implementation target and observable acceptance criterion.
 - [ ] Translation revealed at least one potential invariant, mismatch or research question, or explicitly found none.
 
+## Translation findings as persistent research evidence
+
+A document rewrite may reveal an invariant or a missing input that is easier to see in a new representation. Record that finding separately from the implementation description, retaining its source, proof argument, verification status and acceptance test. The cross-repository [Translation Discovery Log (TDL-001)](https://github.com/Kier73/In-Formation-Space/blob/main/reports/TRANSLATION_DISCOVERY_LOG.md) is the continuing research index. The first round compares E-CPU's finite Moore quotient, VL-I's binary-affine quotient, NCR's nonlinear feature Ground, and VGI's evidence-finalization policy.
+
+Do not promote a deduction to an implemented feature merely because its mathematics is compact. The log distinguishes actual source, mathematically derived properties and proposed tests.
+
 ## First worked example
 
 [INTENT-001: intention-formed finite observer machine](INTENT_001_OBSERVER_FORMED_FABRIC.md) formalizes partition refinement and an independent distinguishability fixed point, shows the native API and receiver-bound execution path, and extracts a new question about observation refinement and machine identity.
