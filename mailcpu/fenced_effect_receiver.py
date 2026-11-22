@@ -12,6 +12,7 @@ network-exposed service must separately authenticate and authorize its caller.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 import json
 from pathlib import Path
@@ -226,15 +227,26 @@ class FencedGroundEffectReceiver:
             if accepted != (self.plan_digest,):
                 raise EffectFencingRefused("receiver resource is pinned to another Ground plan")
 
-    def _connect(self) -> sqlite3.Connection:
-        """Open a new independent connection suitable for cross-process locking."""
+    @contextmanager
+    def _connect(self):
+        """Use one transaction-scoped connection, closing it on every exit.
+
+        sqlite3.Connection.__exit__ commits or rolls back, but does NOT close
+        its file handle. E-CPU receiver operations must close the connection
+        explicitly so a restarted Windows receiver can reopen and delete
+        its durable database without relying on delayed garbage collection.
+        """
         conn = sqlite3.connect(
             str(self.path), timeout=8, isolation_level=None,
         )
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=FULL")
-        conn.execute("PRAGMA busy_timeout=8000")
-        return conn
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=FULL")
+            conn.execute("PRAGMA busy_timeout=8000")
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     def _validated_binding(
         self, publisher: FencedGroundLineage, head: FencedGroundHead
