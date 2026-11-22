@@ -301,3 +301,44 @@ def test_route_selects_cheapest_admitted_host_with_stable_tie_break(tmp_path: Pa
     route = navigator.plan(address, origin_id="browser", coordinate=3)
     assert route.channel_ids == ("alpha",)
     assert route.total_quanta == 4
+
+
+def test_rejoin_remains_stable_across_repeated_host_process_replacements(tmp_path: Path) -> None:
+    """Each fresh owner process resolves a new committed high-water under the same address."""
+    backing = PageBacking()
+    address_path = tmp_path / "persistent-address.json"
+    seen_revisions: list[int] = []
+    expected_address_digest: str | None = None
+
+    for revision in range(1, 13):
+        # Recreate M3 authority objects and journal readers every time. No
+        # previous ComputationalSessionStore or navigator instance is reused.
+        store = _store(tmp_path, backing)
+        if revision == 1:
+            state = store.create_session(b"revision-1")
+            address = SessionRejoinAddress.bootstrap(store)
+            expected_address_digest = address.fingerprint
+            address.save(address_path)
+        else:
+            previous = store.load_latest()
+            state = store.commit_state(
+                f"revision-{revision}".encode(),
+                expected_revision=previous.revision,
+                expected_checkpoint_digest=previous.checkpoint_digest,
+                transition_id=f"step-{revision:03d}",
+                operation_id="runtime.step",
+                input_digest=_sha(f"input-{revision}".encode()),
+                logical_time=revision,
+            )
+            address = SessionRejoinAddress.load(address_path)
+        navigator = _navigator(_inventory(), store)
+        route = navigator.plan(address, origin_id="browser", coordinate=revision)
+        attached = navigator.attach(address, route, coordinate=revision)
+        assert attached.snapshot.state_bytes == f"revision-{revision}".encode()
+        assert attached.snapshot.checkpoint_digest == state.checkpoint_digest
+        assert address.fingerprint == expected_address_digest
+        seen_revisions.append(attached.snapshot.revision)
+        del navigator
+        del store
+
+    assert seen_revisions == list(range(1, 13))
