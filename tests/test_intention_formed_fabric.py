@@ -204,6 +204,66 @@ class ObserverFormedFabricTests(unittest.TestCase):
         self.assertEqual(machine.apply({"initial_state": "a", "word": ["tick"]})["observation"], {"seen": 1})
         self.assertEqual(machine.apply({"initial_state": "b", "word": ["tick"]})["observation"], {"seen": 0})
 
+    def test_intention_forms_processor_over_native_owned_multihop_fabric(self):
+        from mailcpu.owned_network import OwnedNetworkFabric
+        from mailcpu.substrate_bootstrap import owned_network_probe, owned_network_carriers
+
+        fabric = OwnedNetworkFabric()
+        for namespace in ("origin", "bridge", "compact", "general", "witness"):
+            fabric.create_namespace(namespace)
+        def port(namespace, interface):
+            """Create a real owned-network address in an existing namespace."""
+            return fabric.create_interface(namespace, interface)
+        start = port("origin", "p0")
+        bi, bc, bg = port("bridge", "ingress"), port("bridge", "toc"), port("bridge", "tog")
+        ci, co = port("compact", "in"), port("compact", "out")
+        gi, go = port("general", "in"), port("general", "out")
+        wc, wg = port("witness", "inc"), port("witness", "ing")
+        for link, left, right in (
+            ("origin-bridge", start, bi), ("bridge-compact", bc, ci),
+            ("bridge-general", bg, gi), ("compact-witness", co, wc),
+            ("general-witness", go, wg),
+        ):
+            fabric.connect(link, left, right)
+        self.assertGreater(len(fabric.find_route(start, ci)), 2)
+        offers = {
+            "compact/in": (OperationOffer(
+                "form.execute.compact.v1", "form.request.v1", "form.state.v1", 1),),
+            "general/in": (OperationOffer(
+                "form.execute.general.v1", "form.request.v1", "form.state.v1", 2),),
+            "witness/inc": (OperationOffer(
+                "form.observe.v1", "form.state.v1", "form.observed.v1", 1),),
+        }
+        inv = owned_network_probe(
+            fabric, coordinate=12, offers=offers,
+            carries=("form.request.v1", "form.state.v1", "form.observed.v1"),
+        )
+        drivers = owned_network_carriers(fabric, inv)
+        policy = BootstrapPolicy(
+            frozenset({("compact/in", "form.execute.compact.v1"),
+                       ("general/in", "form.execute.general.v1"),
+                       ("witness/inc", "form.observe.v1")}),
+            frozenset(edge.channel_id for edge in inv.channels),
+            "local-owned-fabric-admission",
+        )
+        results = {}
+        for fields in (("parity",), ("identity",)):
+            outcome = realize_formed_intention(
+                LAW, fields, "s3", ("forward", "forward", "backward"),
+                inv, policy, drivers, admitted_interpreters=("compact/in", "general/in"),
+                admitted_observers=("witness/inc",),
+                ingress="origin/p0", observer="witness/inc", coordinate=12,
+            )
+            results[fields[0]] = outcome
+            self.assertTrue(verify_bootstrap_report(outcome.report, outcome.task, outcome.plan))
+            self.assertGreaterEqual(sum(s.kind == "carry" for s in outcome.plan.steps), 2)
+            self.assertFalse(outcome.report["physical_independence_attested"])
+        self.assertIn("compact/in", [step.locus for step in results["parity"].plan.steps])
+        self.assertIn("general/in", [step.locus for step in results["identity"].plan.steps])
+        self.assertEqual(results["parity"].report["output"]["observation"], {"parity": 0})
+        self.assertEqual(results["identity"].report["output"]["observation"], {"identity": 4})
+        self.assertTrue(fabric.journal.verify())
+
     def test_generated_machine_rejects_unmodeled_state_or_action(self):
         machine = form_observer_machine(LAW, ("parity",))
         with self.assertRaises(BootstrapRefused):
