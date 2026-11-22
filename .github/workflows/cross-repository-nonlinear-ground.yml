@@ -1,0 +1,52 @@
+name: WIRE-001 cross-repository nonlinear observer Ground
+
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/cross_repository_nonlinear_ground.py'
+      - 'mailcpu/__init__.py'
+      - 'tests/test_cross_repository_nonlinear_ground.py'
+      - '.github/workflows/cross-repository-nonlinear-ground.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'mailcpu/cross_repository_nonlinear_ground.py'
+      - 'mailcpu/__init__.py'
+      - 'tests/test_cross_repository_nonlinear_ground.py'
+      - '.github/workflows/cross-repository-nonlinear-ground.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verified-cross-repo-wire:
+    name: NCR mathematical packet -> native E-CPU (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ['3.11', '3.14']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install E-CPU test dependencies
+        run: python -m pip install ".[dev]"
+      - name: Retrieve the independent mathematical source repository
+        run: git clone --filter=blob:none https://github.com/Kier73/Navigable-Compute.git ../ncr-pinned-source
+      - name: Navigate to the exact reviewed NCR-007 source commit
+        run: git -C ../ncr-pinned-source checkout --detach 559a1a813012d13ed37c04e2a117467e34ed3cb1
+      - name: Enforce source identity before importing external mathematics
+        run: python -c "import subprocess; s=subprocess.check_output(['git','-C','../ncr-pinned-source','rev-parse','HEAD'],text=True).strip(); assert s=='559a1a813012d13ed37c04e2a117467e34ed3cb1',s"
+      - name: Install pinned mathematical source on the receiving runner
+        run: python -m pip install -e ../ncr-pinned-source
+      - name: Refuse a silently skipped foreign-source test
+        run: python -c "from navigable_compute.nonlinear_koopman_wire import decode_nonlinear; print('Original NCR-007 verifier import qualified')"
+      - name: Compile portable bridge and tests
+        run: python -m compileall -q mailcpu/cross_repository_nonlinear_ground.py tests/test_cross_repository_nonlinear_ground.py
+      - name: Source-check, transfer, form and execute across native E-CPU
+        run: python -m pytest -q tests/test_cross_repository_nonlinear_ground.py tests/test_intention_formed_fabric.py tests/test_substrate_bootstrap.py
