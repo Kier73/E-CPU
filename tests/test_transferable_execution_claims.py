@@ -184,7 +184,7 @@ def test_quorum_reassignment_fences_old_epoch_and_new_host_completes(tmp_path: P
         result_digest=RESULT,
         child_receipt_digest=RECEIPT,
     ).digest == completed.digest
-    with pytest.raises(TransferableExecutionClaimError, match="already completed"):
+    with pytest.raises(TransferableExecutionClaimError, match="completed claim batch retry"):
         store.complete(
             claim_id,
             expected_epoch=2,
