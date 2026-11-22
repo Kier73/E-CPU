@@ -785,6 +785,19 @@ from .computational_session import (
     ComputationalSessionStore,
 )
 
+from .continuous_session import (
+    ADDRESS_SCHEMA,
+    REJOIN_INPUT,
+    REJOIN_OPERATION,
+    REJOIN_OUTPUT,
+    ROUTE_SCHEMA,
+    SessionAttachment,
+    SessionRejoinAddress,
+    SessionRejoinNavigator,
+    SessionRejoinRefused,
+    SessionRejoinRoute,
+)
+
 from .computational_transition import (
     ComputationalSessionTransitionAdapter,
     ComputationalTransitionBackend,
@@ -1737,6 +1750,16 @@ __all__ = [
     "ComputationalSessionPendingError",
     "ComputationalSessionSnapshot",
     "ComputationalSessionStore",
+    "ADDRESS_SCHEMA",
+    "REJOIN_INPUT",
+    "REJOIN_OPERATION",
+    "REJOIN_OUTPUT",
+    "ROUTE_SCHEMA",
+    "SessionAttachment",
+    "SessionRejoinAddress",
+    "SessionRejoinNavigator",
+    "SessionRejoinRefused",
+    "SessionRejoinRoute",
     "ComputationalSessionTransitionAdapter",
     "ComputationalTransitionBackend",
     "ComputationalTransitionContext",
