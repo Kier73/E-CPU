@@ -2,6 +2,8 @@
 
 Index of specification documents. Documents use defined terms from `GLOSSARY.md`.
 
+For the editorial and mathematical representation standard used in current capability documents, see [Implementation-first documentation](IMPLEMENTATION_FIRST_DOCUMENTATION.md). The worked example is [INTENT-001](INTENT_001_OBSERVER_FORMED_FABRIC.md): formal law, algorithm, native syntax, verification and next construction.
+
 ## General Ground execution proposal
 
 - [GGE-001 — Executable Grounds for general computation](GENERAL_GROUND_EXECUTION_GGE001.md): cross-repository Ground closure and query/observation architecture, mapping the eleven LLM requirements to executable Grounds, evidence classifications, and concrete implementation gates. Research proposal; not an implemented universal executor.
