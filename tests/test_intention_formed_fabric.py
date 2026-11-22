@@ -275,6 +275,19 @@ class ObserverFormedFabricTests(unittest.TestCase):
         with self.assertRaises(BootstrapRefused):
             FiniteObserverLaw(("s0",), ("tick",), ("v",), ((2,),), ((0,),))
 
+    def test_typed_observations_distinguish_boolean_from_integer(self):
+        # JSON Booleans and integers must not collapse because Python True == 1.
+        source = FiniteObserverLaw(
+            ("true-state", "one-state"), ("stay",), ("value",),
+            ((0,), (1,)), ((True,), (1,)),
+        )
+        machine = form_observer_machine(source, ("value",))
+        self.assertEqual(len(machine.groups), 2)
+        self.assertTrue(verify_formed_machine(source, machine))
+        forged = replace(machine, outputs=((1,), (1,)))
+        with self.assertRaisesRegex(BootstrapRefused, "source-equivalent"):
+            verify_formed_machine(source, forged)
+
     def test_unsupported_intention_has_no_inferred_host_even_if_general_exists(self):
         with self.assertRaisesRegex(BootstrapRefused, "no admitted"):
             run(("parity",), environment_args={"include_a": False, "include_b": False})
