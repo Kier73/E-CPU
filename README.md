@@ -43,6 +43,11 @@ unsupported meaning.
 
 See [The Internet Is the Computer](docs/THE_INTERNET_IS_THE_COMPUTER.md) for the full proposition, its relation to E-CPU's existing observer/path systems, and a falsifiable experimental programme.
 
+
+**CONTINUOUS-001: recoverable, navigable computational sessions.** A [revision-independent rejoin address](docs/CONTINUOUS_SESSION_OBSERVER_REJOIN.md) now binds the existing M3 session identity, artifact, state schema, and fixed quorum membership without tying the session to a process, network connection, backend fingerprint or mutable checkpoint tip. `mailcpu.continuous_session` navigates explicit observer-host offers over directed, typed, lease-bounded communication paths; receiver-local admission gates every selected host/channel. Attachment revalidates the route and calls M3 to verify the current quorum-supported checkpoint and M1 state. The experiment includes a process-restart rejoin test, not a claim of persistent uptime or cross-machine Internet availability. Automatic remote ingress, independent-host storage replication, dynamic membership and physical failover remain in active development.
+
+
+
 [INTERNET-001](docs/INTERNET_NATIVE_GROUND_001.md) now exercises a pre-existing Internet service as an observer-host rather than installing an E-CPU worker there. An authorized Git service publishes a content-addressed object and conditionally advances a versioned ref; a separate observer checks the resulting state over HTTPS against externally retained exact identities. The experiment establishes a real **Internet service-state** relation, not arithmetic by routers or optical fiber, and does not treat logical-time navigation as instantaneous physical propagation.
 
 [INTERNET-002](docs/INTERNET_NATIVE_GROUND_002.md) now exercises **native state-space navigation in an already-existing Internet Git service**: two controlled branches and a two-parent merge produce a small causal graph whose ancestry, divergence and unique merge-base operations are evaluated by GitHub itself. Nine live queries matched a separately written oracle, with all twelve commit objects and three reference heads checked; its read-only verifier and HTTP conditional-response probe explicitly separate real service computation, native protocol state and still-unverified physical-path transformations.
