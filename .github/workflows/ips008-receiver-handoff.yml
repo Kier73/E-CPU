@@ -6,6 +6,7 @@ on:
       - 'mailcpu/fenced_effect_receiver.py'
       - 'mailcpu/effect_receiver_service.py'
       - 'tests/test_effect_receiver_service.py'
+      - 'tests/test_effect_receiver_connection_scope.py'
       - 'tests/helpers/ips008_effect_service_worker.py'
       - 'docs/RECEIVER_HANDOFF_BARRIER_IPS008.md'
       - '.github/workflows/ips008-receiver-handoff.yml'
@@ -16,6 +17,7 @@ on:
       - 'mailcpu/fenced_effect_receiver.py'
       - 'mailcpu/effect_receiver_service.py'
       - 'tests/test_effect_receiver_service.py'
+      - 'tests/test_effect_receiver_connection_scope.py'
       - 'tests/helpers/ips008_effect_service_worker.py'
       - '.github/workflows/ips008-receiver-handoff.yml'
   workflow_dispatch:
@@ -43,6 +45,7 @@ jobs:
         run: >
           python -m pytest -q
           tests/test_effect_receiver_service.py
+          tests/test_effect_receiver_connection_scope.py
           tests/test_fenced_effect_receiver.py
           tests/test_fenced_generated_ground.py
           tests/test_recovery_lineage.py
