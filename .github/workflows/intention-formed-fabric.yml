@@ -1,0 +1,39 @@
+name: Intention-formed observer-host fabric
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'mailcpu/intention_formed_fabric.py'
+      - 'tests/test_intention_formed_fabric.py'
+      - '.github/workflows/intention-formed-fabric.yml'
+  pull_request:
+    paths:
+      - 'mailcpu/intention_formed_fabric.py'
+      - 'tests/test_intention_formed_fabric.py'
+      - '.github/workflows/intention-formed-fabric.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  formed-fabric:
+    name: source-formed processor and native observer paths (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ['3.11', '3.14']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install ".[dev]"
+      - name: Compile source-formed processor and tests
+        run: python -m compileall -q mailcpu/intention_formed_fabric.py tests/test_intention_formed_fabric.py
+      - name: Verify intended observation formation and native SAB-001 regression
+        run: python -m pytest -q tests/test_intention_formed_fabric.py tests/test_substrate_bootstrap.py

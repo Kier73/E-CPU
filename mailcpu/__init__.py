@@ -785,6 +785,15 @@ from .computational_session import (
     ComputationalSessionStore,
 )
 
+from .intention_formed_fabric import (
+    FiniteObserverLaw,
+    FormedObserverMachine,
+    FormedRealization,
+    form_observer_machine,
+    realize_formed_intention,
+    verify_formed_machine,
+)
+
 from .continuous_session import (
     ADDRESS_SCHEMA,
     REJOIN_INPUT,
@@ -1757,6 +1766,12 @@ __all__ = [
     "ROUTE_SCHEMA",
     "SessionAttachment",
     "SessionRejoinAddress",
+    "FiniteObserverLaw",
+    "FormedObserverMachine",
+    "FormedRealization",
+    "form_observer_machine",
+    "realize_formed_intention",
+    "verify_formed_machine",
     "SessionRejoinNavigator",
     "SessionRejoinRefused",
     "SessionRejoinRoute",
