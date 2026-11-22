@@ -99,8 +99,21 @@ def _worker(port: int) -> None:
             )
             if not isinstance(received, bytes):
                 raise ValueError("virtual socket read did not yield bytes")
+        if request.get("cut") not in (None, "before_publish", "after_publish"):
+            raise ValueError("unsupported stream OS crash cut")
         machine.run(max_ticks=request["ticks"])
         observe_headless_os_state(machine)
+        state = machine.snapshot()
+        if request.get("cut") == "before_publish":
+            # The host executed locally, but the successor is not yet published.
+            connection.sendall(_frame({
+                "schema": SCHEMA,
+                "kind": "prepared",
+                "state_digest": hashlib.sha256(_canonical(state)).hexdigest(),
+                "worker_pid": os.getpid(),
+            }))
+            connection.recv(1)  # Intentionally blocked until the parent hard-kills us.
+            return
         connection.sendall(_frame({
             "schema": SCHEMA,
             "identity": request["identity"],
@@ -108,8 +121,10 @@ def _worker(port: int) -> None:
             "revision": request["revision"] + 1,
             "worker_pid": os.getpid(),
             "virtual_io_hex": None if received is None else received.hex(),
-            "state": machine.snapshot(),
+            "state": state,
         }))
+        if request.get("cut") == "after_publish":
+            connection.recv(1)  # The successor has crossed TCP, but ACK is lost.
 
 
 def _remote_step(
@@ -256,6 +271,104 @@ def test_stream_rejects_truncation_and_unbounded_envelopes() -> None:
         left.sendall(struct.pack(">I", MAX_FRAME + 1) + b"\0" * 32)
         with pytest.raises(ValueError, match="length"):
             _receive(right)
+
+
+def _remote_crash_cut(
+    snapshot: dict[str, object], *, identity: str,
+    revision: int, ticks: int, cut: str, consume_fd: int | None = None,
+) -> dict[str, object]:
+    """Kill a genuinely separate OS worker at a known pre/post-publication cut."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        listener.settimeout(20)
+        worker = subprocess.Popen(
+            [sys.executable, str(Path(__file__).resolve()), "--worker",
+             str(listener.getsockname()[1])],
+            cwd=Path(__file__).resolve().parents[1],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        try:
+            with listener.accept()[0] as connection:
+                connection.settimeout(20)
+                connection.sendall(_frame({
+                    "schema": SCHEMA, "identity": identity,
+                    "revision": revision, "ticks": ticks,
+                    "consume_fd": consume_fd, "state": snapshot, "cut": cut,
+                }))
+                receipt = _receive(connection)
+                assert worker.poll() is None, "worker exited before crash cut"
+                worker.kill()
+            _out, error = worker.communicate(timeout=20)
+            assert worker.returncode != 0, error
+        finally:
+            if worker.poll() is None:
+                worker.kill()
+                worker.communicate(timeout=10)
+    return receipt
+
+
+def _crash_probe() -> tuple[dict[str, object], int, int, str]:
+    """Prepare a runnable virtual process with six bytes queued in its native socket."""
+    machine = HeadlessOS()
+    pid = machine.spawn(Program((
+        Instruction(Op.SET, ("remaining", 30)),
+        Instruction(Op.SET, ("minus_one", -1)),
+        Instruction(Op.ADD, ("remaining", "remaining", "minus_one")),
+        Instruction(Op.BRANCH, ("remaining", 2)),
+        Instruction(Op.HALT),
+    )), "surviving-process")
+    fd = _virtual_stream(machine)
+    machine.run(max_ticks=5)
+    start = machine.snapshot()
+    return start, pid, fd, hashlib.sha256(_canonical(start)).hexdigest()
+
+
+def test_process_kill_before_state_publication_retries_from_original_checkpoint() -> None:
+    """A vanished host's uncommitted private OS effects do not replace source state."""
+    start, pid, fd, identity = _crash_probe()
+    prepared = _remote_crash_cut(
+        start, identity=identity, revision=0, ticks=8,
+        cut="before_publish", consume_fd=fd,
+    )
+    assert prepared["kind"] == "prepared"
+    assert len(prepared["state_digest"]) == 64
+    assert "state" not in prepared
+
+    # The parent never admitted the private successor; replay the exact input
+    # on a fresh process. Virtual socket consumption is state-local, not external.
+    recovered = _remote_step(start, identity=identity, revision=0, ticks=200, consume_fd=fd)
+    assert recovered["virtual_io_hex"] == b"queued".hex()
+    machine = HeadlessOS.from_snapshot(recovered["state"])
+    reference = HeadlessOS.from_snapshot(copy.deepcopy(start))
+    assert reference.syscall(reference.environment.init_pid, "read", fd=fd, size=6) == b"queued"
+    reference.run(200)
+    assert machine.process(pid).status == "exited"
+    assert compare_headless_os_states(machine, reference).equivalent
+
+
+def test_process_kill_after_state_publication_continues_accepted_successor() -> None:
+    """The checkpoint already transferred over TCP survives loss of its producer."""
+    start, pid, fd, identity = _crash_probe()
+    published = _remote_crash_cut(
+        start, identity=identity, revision=0, ticks=8,
+        cut="after_publish", consume_fd=fd,
+    )
+    assert published["revision"] == 1
+    assert published["virtual_io_hex"] == b"queued".hex()
+    assert isinstance(published["state"], dict)
+    confirmed = HeadlessOS.from_snapshot(published["state"])
+    assert confirmed.process(pid).status == "runnable"
+
+    recovered = _remote_step(published["state"], identity=identity, revision=1, ticks=200)
+    assert recovered["worker_pid"] != published["worker_pid"]
+    machine = HeadlessOS.from_snapshot(recovered["state"])
+    reference = HeadlessOS.from_snapshot(copy.deepcopy(start))
+    assert reference.syscall(reference.environment.init_pid, "read", fd=fd, size=6) == b"queued"
+    reference.run(8)
+    reference.run(200)
+    assert machine.process(pid).status == "exited"
+    assert compare_headless_os_states(machine, reference).equivalent
 
 
 if __name__ == "__main__":
