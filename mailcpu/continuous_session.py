@@ -344,25 +344,29 @@ class SessionRejoinNavigator:
         # Equal-cost routes are ordered by hop count, then exact channel IDs.
         # A best-known state per node/hop keeps max-hop search finite even with cycles.
         queue: list[tuple[int, int, tuple[str, ...], str]] = [(0, 0, (), origin_id)]
-        seen: dict[tuple[str, int], tuple[int, tuple[str, ...]]] = {}
+        best: dict[tuple[str, int], tuple[int, tuple[str, ...]]] = {
+            (origin_id, 0): (0, ())
+        }
         candidates: list[tuple[int, int, tuple[str, ...], str]] = []
         while queue:
             cost, hops, path, node = heapq.heappop(queue)
-            state = (node, hops)
-            previous = seen.get(state)
-            if previous is not None and previous <= (cost, path):
+            if best[(node, hops)] != (cost, path):
                 continue
-            seen[state] = (cost, path)
             if node in targets:
                 candidates.append((cost + targets[node], hops, path, node))
             if hops >= self.max_hops:
                 continue
             for channel in graph[node]:
-                heapq.heappush(
-                    queue,
-                    (cost + channel.estimated_quanta, hops + 1,
-                     path + (channel.channel_id,), channel.target),
-                )
+                next_hops = hops + 1
+                next_path = path + (channel.channel_id,)
+                next_cost = cost + channel.estimated_quanta
+                state = (channel.target, next_hops)
+                previous = best.get(state)
+                if previous is None or (next_cost, next_path) < previous:
+                    best[state] = (next_cost, next_path)
+                    heapq.heappush(
+                        queue, (next_cost, next_hops, next_path, channel.target)
+                    )
         if not candidates:
             raise SessionRejoinRefused("no admitted communication path reaches an eligible observer-host")
         total, _, channels, host = min(candidates)
