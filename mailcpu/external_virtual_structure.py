@@ -169,6 +169,7 @@ class SourceStructure:
     observation_digests:tuple[str,...]=()
     _index:Mapping[str,RemoteFile]=field(init=False,repr=False,compare=False)
     _size:int=field(init=False,repr=False,compare=False)
+    _head:str=field(init=False,repr=False,compare=False)
 
     def __post_init__(self):
         if (type(self.repository) is not str or REPO.fullmatch(self.repository) is None
@@ -189,6 +190,7 @@ class SourceStructure:
         object.__setattr__(self,"config",MappingProxyType(config))
         object.__setattr__(self,"_index",MappingProxyType({f.path:f for f in self.files}))
         object.__setattr__(self,"_size",sum(f.size_bytes for f in self.files))
+        object.__setattr__(self,"_head",digest(self.to_dict()))
 
     @property
     def declared_bytes(self)->int: return self._size
@@ -207,7 +209,7 @@ class SourceStructure:
                 "scope":"external_structure_only_zero_model_payload"}
 
     @property
-    def ground_digest(self)->str:return digest(self.to_dict())
+    def ground_digest(self)->str:return self._head
 
     @classmethod
     def restore(cls,document:Mapping[str,Any],expected_head:str)->"SourceStructure":
