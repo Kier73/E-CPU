@@ -194,6 +194,32 @@ Tests in tests/test_addressable_intelligence.py exercise:
    neural identity, prior turns and living temporal state
    remain unchanged.
 
+### Measured benchmark
+
+scripts/benchmark_addressable_intelligence.py executes the actual
+original-model readout and the newly generated original VL-I neural
+processor on one runner. It freezes 64 held-out hidden vectors, measures
+cold model-observation admission and compiled-direction construction
+separately from warm full 4-row dense FP64 reference evaluation and
+exact integer-certified pairwise navigation, and measures original
+VLD neural formation plus four actual VL-I stateful turns.
+
+Its JSON receipt includes per-model/source hashes, exact historical
+trained payload bytes (5,760), logical source bytes relevant to the
+intention (3,456), zero new remote weight reads, held-out
+numerical sign matches, early-stop frequency, mean/min/max dot
+coordinates, and observed wall time for each execution mode.
+The two warm methods have different arithmetic and Python
+overheads: a small-coordinate count alone is **not** evidence
+of wall-clock speedup. The benchmark reports both outcomes.
+
+CI stores one full JSON artifact per Linux/Windows and Python 3.11/3.14
+environment, enabling exact independent replay of all reported
+source and behavioral identities.
+
+    python scripts/benchmark_addressable_intelligence.py \
+      --trials 64 --out artifacts/addressable-intelligence-benchmark.json
+
 Cross-platform CI:
 https://github.com/Kier73/E-CPU/actions/workflows/addressable-intelligence.yml
 
