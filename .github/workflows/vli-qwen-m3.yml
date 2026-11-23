@@ -1,0 +1,56 @@
+name: Original VL-I Qwen eight-layer M1 and M3 session continuation
+
+on:
+  push:
+    paths:
+      - "mailcpu/vli_qwen_m3.py"
+      - "tests/test_vli_qwen_m3.py"
+      - ".github/workflows/vli-qwen-m3.yml"
+  pull_request:
+    paths:
+      - "mailcpu/vli_qwen_m3.py"
+      - "tests/test_vli_qwen_m3.py"
+      - ".github/workflows/vli-qwen-m3.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qwen-m3:
+    name: Original Qwen GDN/GQA M3 (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, python: "3.11", pathsep: ":"}
+          - {os: ubuntu-latest, python: "3.14", pathsep: ":"}
+          - {os: windows-latest, python: "3.11", pathsep: ";"}
+          - {os: windows-latest, python: "3.14", pathsep: ";"}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Kier73/VL-64
+          ref: fea0d29d5a8a1edb03d9c66edd5ca4b15a1395d3
+          path: original-vl64
+      - uses: actions/checkout@v4
+        with:
+          repository: Kier73/VL-I
+          ref: 939b49291bb719ab531730088f759574db471c00
+          path: original-vli
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install exact real original model and E-CPU quorum
+        run: |
+          python -m pip install -e ".[dev]"
+          python -m pip install -e "./original-vl64"
+          python -m pip install -e "./original-vli[test]"
+          python -m pip install "numpy>=2.1"
+      - name: Verify full original Qwen 8-layer model and M3 high-water across workers
+        env:
+          PYTHONPATH: ${{ github.workspace }}/original-vl64${{ matrix.pathsep }}${{ github.workspace }}/original-vl64/tests${{ matrix.pathsep }}${{ github.workspace }}/original-vli/tests
+        run: python -m pytest -q tests/test_vli_qwen_m3.py tests/test_vli_qwen_m1_pages.py tests/test_computational_session.py tests/test_computational_transition.py
