@@ -6,7 +6,7 @@ The declared external size affects neither virtual address geometry nor the
 number of control frames needed for one source-structural intention.
 
 Example:
- python scripts/observe_hosted_surface.py \
+ python -m scripts.observe_hosted_surface \
    --url https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/tree/main \
    --out artifacts/deepseek-virtual-structure.json
 """
