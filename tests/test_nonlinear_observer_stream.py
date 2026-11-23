@@ -208,11 +208,25 @@ class TestNCRConditionalObserverStream(unittest.TestCase):
         ))
         self.assertFalse(verify_nonlinear_stream_receipt(
             equivalent, packet=self.raw, receiver_expected_sha256=self.digest,
-            source_commit=PINNED_SOURCE, expected_request=observer.request,
+            source_commit=PINNED_SOURCE, expected_request=observer.request(10),
         ))
         self.assertTrue(verify_nonlinear_stream_receipt(
             legit, packet=self.raw, receiver_expected_sha256=self.digest,
-            source_commit=PINNED_SOURCE, expected_request=observer.request,
+            source_commit=PINNED_SOURCE, expected_request=observer.request(10),
+        ))
+        # After stabilization, even changing the output ordinal can describe
+        # a valid *different* emission. The receiver's original query must
+        # still reject the substitution.
+        other_event = replace(
+            legit, event=replace(legit.event, index=11, iteration=12)
+        )
+        self.assertTrue(verify_nonlinear_stream_receipt(
+            other_event, packet=self.raw, receiver_expected_sha256=self.digest,
+            source_commit=PINNED_SOURCE,
+        ))
+        self.assertFalse(verify_nonlinear_stream_receipt(
+            other_event, packet=self.raw, receiver_expected_sha256=self.digest,
+            source_commit=PINNED_SOURCE, expected_request=observer.request(10),
         ))
         # Before stabilization, selecting a different source action actually
         # changes the output and is rejected even without a request pin.
