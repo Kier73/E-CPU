@@ -1150,3 +1150,43 @@ class DurableSeedCommitLedger:
                     locking_module.locking(lock.fileno(), locking_module.LK_UNLCK, 1)
                 else:
                     locking_module.flock(lock.fileno(), locking_module.LOCK_UN)
+
+
+def verify_certificate_against_member_journals(
+    membership: SeedCommitMembership,
+    proposal: SeedCommitProposal,
+    certificate: SeedCommitCertificate,
+    member_journal_paths: Mapping[str, str | Path],
+) -> bool:
+    """Mathematics: each certified vote must equal the fsynced prepare receipt in its member's local journal.
+
+    This is an offline filesystem evidence check, not remote member authentication or
+    an externally anchored high-water proof. Callers must trust journal provenance.
+    """
+
+    if not isinstance(membership, SeedCommitMembership) or not isinstance(member_journal_paths, Mapping):
+        raise SeedCommitLedgerError("durable certificate verification requires membership and member journal paths")
+    if not isinstance(certificate, SeedCommitCertificate):
+        raise SeedCommitLedgerError("durable certificate verification requires a typed certificate")
+    owner_path = member_journal_paths.get(membership.owner_id)
+    if not isinstance(owner_path, (str, Path)) or not Path(owner_path).is_file():
+        raise SeedCommitLedgerError("durable certificate verification requires the owner journal")
+    owner = DurableSeedCommitLedger(owner_path, membership.owner_id, membership)
+    owner._validate_proposal(proposal)
+    owner._validate_certificate(proposal, certificate)
+    if not owner.verify():
+        raise SeedCommitLedgerError("owner journal does not verify")
+    for vote in certificate.votes:
+        path = member_journal_paths.get(vote.member_id)
+        if not isinstance(path, (str, Path)) or not Path(path).is_file():
+            raise SeedCommitLedgerError(f"member {vote.member_id!r} has no durable journal")
+        ledger = owner if vote.member_id == membership.owner_id else DurableSeedCommitLedger(
+            path, vote.member_id, membership
+        )
+        if not ledger.verify() or ledger.prepared_vote(proposal) != vote:
+            raise SeedCommitLedgerError(f"member {vote.member_id!r} has no matching durable prepare")
+        if proposal.transition_artifact_digest is not None:
+            artifact = ledger.transition_artifact(proposal)
+            if artifact is None or artifact.digest != proposal.transition_artifact_digest:
+                raise SeedCommitLedgerError(f"member {vote.member_id!r} lacks the exact prepared artifact")
+    return True
