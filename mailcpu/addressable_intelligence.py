@@ -140,7 +140,7 @@ class CompiledModelIntention:
             "order", "model_observation_bytes", "relevant_source_bytes", "semantics",
         } or record["schema"] != SCHEMA or record["semantics"] != (
             "sign_of_original_BF16_qrow_difference_after_RMS_norm_in_exact_reals"
-        )):
+        ):
             raise ValueError("unqualified compiled model description")
         if _hash(record) != expected_head:
             raise ValueError("compiled model direction changed across observer hosts")
