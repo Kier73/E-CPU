@@ -10,7 +10,9 @@ empirical recurrence inference: no learned law authorizes a leap.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping, Sequence
+import hashlib
+import json
+from typing import Any, Mapping, Sequence
 
 from .model import Instruction, Op, Program
 
@@ -224,3 +226,179 @@ def leap_affine_loop(
         )
     except AffineOrbitRefused as refusal:
         return AffineLeapResult("REFUSED", str(refusal))
+
+
+def _digest_payload(payload: object) -> str:
+    """Mathematics: SHA256 of a deterministic, strictly JSON-serializable witness projection."""
+
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _program_identity(program: Program) -> str:
+    """Mathematics: bind the exact typed opcode/operand sequence, not ambiguous source bytes."""
+
+    instructions = []
+    for instruction in program.instructions:
+        arguments = [
+            {"int": hex(value)} if isinstance(value, int) and not isinstance(value, bool)
+            else {"str": value}
+            for value in instruction.args
+        ]
+        instructions.append({"op": instruction.op.value, "args": arguments})
+    return _digest_payload({"instruction_algebra": 1, "instructions": instructions})
+
+
+def _initial_identity(initial_registers: Mapping[str, int]) -> str:
+    """Mathematics: bind the complete initial register valuation with unambiguous integer encodings."""
+
+    return _digest_payload({
+        "valuation_algebra": 1,
+        "registers": [[name, hex(value)] for name, value in sorted(initial_registers.items())],
+    })
+
+
+def _optional_hex(value: int | None) -> str | None:
+    """Mathematics: serialize an optional integer in a lossless hexadecimal normal form."""
+
+    return None if value is None else hex(value)
+
+
+def _decode_optional_hex(value: Any) -> int | None:
+    """Mathematics: invert the hexadecimal encoding while refusing noncanonical spellings."""
+
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise AffineOrbitRefused("witness integer must be an exact hexadecimal string")
+    try:
+        parsed = int(value, 16)
+    except ValueError as exc:
+        raise AffineOrbitRefused("witness integer is not hexadecimal") from exc
+    if hex(parsed) != value:
+        raise AffineOrbitRefused("witness integer spelling is noncanonical")
+    return parsed
+
+
+@dataclass(frozen=True)
+class AffineOrbitWitness:
+    """An immutable digest-bound symbolic proof candidate with portable bytes."""
+
+    program_digest: str
+    initial_digest: str
+    result: AffineLeapResult
+
+    def _payload(self) -> dict[str, Any]:
+        """Mathematics: construct one domain-separated versioned result projection."""
+
+        return {
+            "version": 1,
+            "program_digest": self.program_digest,
+            "initial_digest": self.initial_digest,
+            "result": {
+                "verdict": self.result.verdict,
+                "reason": self.result.reason,
+                "iterations": _optional_hex(self.result.iterations),
+                "registers": [[name, hex(value)] for name, value in self.result.registers],
+                "steps": _optional_hex(self.result.steps),
+                "pc": _optional_hex(self.result.pc),
+                "counter_initial": _optional_hex(self.result.counter_initial),
+                "counter_delta": _optional_hex(self.result.counter_delta),
+            },
+        }
+
+    @property
+    def digest(self) -> str:
+        """Mathematics: bind the full exact proof candidate to SHA-256 identity."""
+
+        return _digest_payload(self._payload())
+
+    def snapshot(self) -> dict[str, Any]:
+        """Mathematics: export the immutable witness as a versioned canonical JSON record."""
+
+        payload = self._payload()
+        return {**payload, "digest": self.digest}
+
+    @classmethod
+    def from_snapshot(cls, raw: Mapping[str, Any]) -> "AffineOrbitWitness":
+        """Mathematics: strictly invert the canonical projection and verify its digest."""
+
+        if not isinstance(raw, Mapping) or set(raw) != {
+            "version", "program_digest", "initial_digest", "result", "digest"
+        } or type(raw["version"]) is not int or raw["version"] != 1:
+            raise AffineOrbitRefused("witness envelope fields or version are invalid")
+        if not isinstance(raw["result"], Mapping) or set(raw["result"]) != {
+            "verdict", "reason", "iterations", "registers", "steps", "pc",
+            "counter_initial", "counter_delta"
+        }:
+            raise AffineOrbitRefused("witness result fields are invalid")
+        r = raw["result"]
+        if r["verdict"] not in ("LEAP", "DIVERGES") or not isinstance(r["reason"], str):
+            raise AffineOrbitRefused("only proven verdicts can be serialized as witnesses")
+        if not isinstance(r["registers"], list) or any(
+            not isinstance(item, list) or len(item) != 2 or not isinstance(item[0], str)
+            for item in r["registers"]
+        ):
+            raise AffineOrbitRefused("witness register valuation is malformed")
+        registers = tuple((name, _decode_optional_hex(value)) for name, value in r["registers"])
+        if any(value is None for _, value in registers) or tuple(sorted(registers)) != registers:
+            raise AffineOrbitRefused("witness registers must be unique sorted integer names")
+        result = AffineLeapResult(
+            r["verdict"], r["reason"],
+            _decode_optional_hex(r["iterations"]),
+            registers,
+            _decode_optional_hex(r["steps"]),
+            _decode_optional_hex(r["pc"]),
+            _decode_optional_hex(r["counter_initial"]),
+            _decode_optional_hex(r["counter_delta"]),
+        )
+        if any(
+            not isinstance(raw[name], str) or len(raw[name]) != 64
+            or any(char not in "0123456789abcdef" for char in raw[name])
+            for name in ("program_digest", "initial_digest", "digest")
+        ):
+            raise AffineOrbitRefused("witness hashes must be lower-case SHA-256 digests")
+        witness = cls(raw["program_digest"], raw["initial_digest"], result)
+        if witness.snapshot() != dict(raw):
+            raise AffineOrbitRefused("witness digest or canonical fields mismatch")
+        return witness
+
+
+def issue_affine_orbit_witness(
+    program: Program, initial_registers: Mapping[str, int] | None = None,
+    *, max_registers: int = 32, max_bits: int = 65536,
+) -> AffineOrbitWitness:
+    """Mathematics: bind the exact static program and starting valuation to one proved orbit."""
+
+    if initial_registers is None:
+        initial_registers = {}
+    result = leap_affine_loop(
+        program, initial_registers, max_registers=max_registers, max_bits=max_bits
+    )
+    if result.verdict not in ("LEAP", "DIVERGES"):
+        raise AffineOrbitRefused(result.reason)
+    return AffineOrbitWitness(
+        _program_identity(program), _initial_identity(initial_registers), result
+    )
+
+
+def verify_affine_orbit_witness(
+    witness: AffineOrbitWitness, program: Program,
+    initial_registers: Mapping[str, int] | None = None,
+    *, max_registers: int = 32, max_bits: int = 65536,
+) -> bool:
+    """Mathematics: independently reconstruct a claimed witness from exact source identity.
+
+    This checks semantic replay without n interpreter steps. It does not
+    authenticate who supplied the program or who authorized host execution.
+    """
+
+    if not isinstance(witness, AffineOrbitWitness):
+        return False
+    try:
+        candidate = issue_affine_orbit_witness(
+            program, initial_registers, max_registers=max_registers, max_bits=max_bits
+        )
+    except (AffineOrbitRefused, ValueError, TypeError):
+        return False
+    return candidate == witness
