@@ -1,0 +1,42 @@
+name: ONP-001 observation-formed processor
+
+on:
+  push:
+    paths:
+      - "mailcpu/observation_formed_processor.py"
+      - "tests/test_observation_formed_processor.py"
+      - "docs/OBSERVATION_FORMS_PROCESSOR_ONP001.md"
+      - ".github/workflows/observation-formed-processor.yml"
+  pull_request:
+    paths:
+      - "mailcpu/observation_formed_processor.py"
+      - "tests/test_observation_formed_processor.py"
+      - "docs/OBSERVATION_FORMS_PROCESSOR_ONP001.md"
+      - ".github/workflows/observation-formed-processor.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  observer-forms-processor:
+    name: Observer creates native processor (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, python: "3.11"}
+          - {os: ubuntu-latest, python: "3.14"}
+          - {os: windows-latest, python: "3.11"}
+          - {os: windows-latest, python: "3.14"}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install E-CPU dev tools
+        run: python -m pip install -e ".[dev]"
+      - name: Verify observation-constructed processor and existing computation
+        run: python -m pytest -q tests/test_observation_formed_processor.py tests/test_intention_sufficiency.py tests/test_generative_ground_construction.py tests/test_intention_formed_fabric.py tests/test_ground_native_realization.py
