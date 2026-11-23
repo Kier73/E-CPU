@@ -107,8 +107,25 @@ receipt = stream.issue_receipt(10**100 + 173)
 assert verify_nonlinear_stream_receipt(
     receipt, packet=raw, receiver_expected_sha256=pin,
     source_commit=reviewed_commit,
+    expected_request=stream.request,  # receiver's original intended query
 )
 ```
+
+### Observation equivalence versus intention identity
+
+Two genuinely different action words can yield the **same** selected output,
+particularly after a rank-draining system settles. A receiver verifying only
+the claimed mathematical word and event should accept either word if both
+are independently correct: this is genuine *observational equivalence*, not
+a broken numerical audit.
+
+But if the receiving observer intended a particular word, gate, readout and
+mailbox, accepting a mathematically valid **different** query would be a
+request substitution. The `NonlinearStreamRequest` object fixes all five
+request dimensions. Passing it as `expected_request=` requires that the
+received receipt match the observer's original intention *and* the
+independently verified source computation. Identity, observational meaning,
+and host execution authority are therefore distinct evidence relations.
 
 The receipt is an exact canonical content identity over the source pin, model
 digests, initial valuation, action word, chosen emission condition and
