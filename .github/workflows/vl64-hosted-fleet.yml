@@ -67,6 +67,8 @@ jobs:
         run: python scripts/benchmark_vl64_fleet.py --vm-count 32 --max-concurrent 8 --guest-page-budget 64 --output vl64-hosted-fleet-32.json
       - name: Benchmark 64 admitted E-CPU VMs and 8 budget refusals
         run: python scripts/benchmark_vl64_fleet.py --vm-count 72 --max-concurrent 8 --guest-page-budget 128 --output vl64-hosted-fleet-64-budget.json
+      - name: Synchronize 64 live and prepared E-CPU / VL-64 VM hosts
+        run: python scripts/benchmark_vl64_fleet.py --vm-count 64 --max-concurrent 64 --guest-page-budget 128 --simultaneous-gate --output vl64-hosted-fleet-64-simultaneous.json
       - name: Upload exact capacity report
         uses: actions/upload-artifact@v4
         with:
@@ -74,3 +76,4 @@ jobs:
           path: |
             vl64-hosted-fleet-32.json
             vl64-hosted-fleet-64-budget.json
+            vl64-hosted-fleet-64-simultaneous.json
