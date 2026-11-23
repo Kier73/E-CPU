@@ -12,13 +12,13 @@ pytest.importorskip("vld")
 
 
 def test_four_independent_python_interpreters_host_real_vl64_vm_instances() -> None:
-    """Four real interpreters own four full E-CPU OS instances and 16 VL64 operations."""
+    """Four real interpreters own four full E-CPU OS instances and 24 VL64 operations."""
     report = benchmark_case(4, max_concurrent_processes=4, max_total_resident_pages=8)
     assert report["requested_vm_count"] == 4
     assert report["admitted_vm_count"] == 4
     assert report["refused_vm_count"] == 0
     assert report["real_vl64_host_process_count"] == 4
-    assert report["vl64_operation_count"] == 16
+    assert report["vl64_operation_count"] == 24
     assert report["guest_resident_pages"] == 8
     assert report["guest_resident_bytes"] == 32_768
     assert report["all_vm_checks_passed"]
@@ -28,7 +28,7 @@ def test_four_independent_python_interpreters_host_real_vl64_vm_instances() -> N
     sources = {worker["artifact_manifest_digest"] for worker in report["vm_results"]}
     profiles = {worker["backend_fingerprint"] for worker in report["vm_results"]}
     assert len(sources) == len(profiles) == 1
-    assert all(len(worker["operation_receipt_digests"]) == 4 for worker in report["vm_results"])
+    assert all(len(worker["operation_receipt_digests"]) == 6 for worker in report["vm_results"])
     assert all(worker["native_supervisor_steps"] == 4 for worker in report["vm_results"])
 
 
