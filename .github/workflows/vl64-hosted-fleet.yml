@@ -52,7 +52,7 @@ jobs:
 
 
   capacity:
-    name: 32 independent VL-64 interpreter/OS instances
+    name: 32 and 64 independent VL-64 interpreter/OS instances
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -65,8 +65,12 @@ jobs:
           python -m pip install "git+https://github.com/Kier73/VL-64.git@fea0d29d5a8a1edb03d9c66edd5ca4b15a1395d3"
       - name: Benchmark 32 E-CPU VMs with genuine VL-64 runtimes
         run: python scripts/benchmark_vl64_fleet.py --vm-count 32 --max-concurrent 8 --guest-page-budget 64 --output vl64-hosted-fleet-32.json
+      - name: Benchmark 64 admitted E-CPU VMs and 8 budget refusals
+        run: python scripts/benchmark_vl64_fleet.py --vm-count 72 --max-concurrent 8 --guest-page-budget 128 --output vl64-hosted-fleet-64-budget.json
       - name: Upload exact capacity report
         uses: actions/upload-artifact@v4
         with:
           name: vl64-hosted-fleet-32
-          path: vl64-hosted-fleet-32.json
+          path: |
+            vl64-hosted-fleet-32.json
+            vl64-hosted-fleet-64-budget.json
