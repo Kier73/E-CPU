@@ -478,3 +478,101 @@ def test_real_vl64_worker_killed_after_result_publish_commits_then_replays(tmp_p
     assert duplicate.replayed
     assert duplicate.checkpoint_digest == accepted.checkpoint_digest
     assert replay.remote_calls == 0
+
+
+
+def test_mutable_vl64_pagespace_survives_three_rehosted_session_revisions(tmp_path: Path) -> None:
+    """Actual vld.PageSpace state is reconstructed and advanced, not reset with host PID."""
+    reference = _reference()
+    backing = PageBacking()
+    genesis_store = _store(tmp_path, backing, reference)
+    current = genesis_store.create_session(_initial_os())
+    process_ids: list[int] = []
+
+    writes = (
+        (0, b"vl64", "host-a"),
+        (4, b"-m3-", "host-b"),
+        (8, b"state", "host-a"),
+    )
+    expected = bytearray(256)
+    results = []
+    for step_index, (offset, data, worker) in enumerate(writes, start=1):
+        current_store = _store(tmp_path, backing, reference)
+        backend, adapter = _adapter(
+            current_store, reference, _remote(worker, process_ids, reference),
+        )
+        operation = encode_vl64_session_operation(
+            "page.session", {"offset": offset, "write_hex": data.hex()},
+        )
+        successor = adapter.apply(
+            operation,
+            operation_id=f"page-write-{step_index}",
+            expected_revision=current.revision,
+            expected_checkpoint_digest=current.checkpoint_digest,
+        )
+        assert successor.revision == current.revision + 1
+        expected[offset:offset + len(data)] = data
+        machine = restore_headless_state(successor.state_bytes)
+        saved = json.loads(machine.environment.kernel.fs.read_file("/vl64/session/page-state.json"))
+        assert bytes.fromhex(saved["state_hex"]) == bytes(expected)
+        assert saved["logical_time"] == step_index
+        assert saved["state_digest"] == hashlib.sha256(
+            bytes(expected) + bytes(4096 - 256)
+        ).hexdigest()
+        output = _result(successor.state_bytes, f"page-write-{step_index}", step_index)
+        assert output["result"]["state_hex"] == bytes(expected).hex()
+        assert output["result"]["page_bytes"] == 4096
+        assert machine.environment.kernel.journal.verify()
+        assert backend.remote_calls == 1
+        results.append(successor)
+        current = successor
+
+    assert len(process_ids) == len(set(process_ids)) == 3
+    final_store = _store(tmp_path, backing, reference)
+    latest = final_store.load_latest()
+    assert latest.revision == 4
+    assert latest.checkpoint_digest == results[-1].checkpoint_digest
+    assert latest.state_bytes == results[-1].state_bytes
+    assert _result(latest.state_bytes, "page-write-1", 1)["result"]["state_hex"].startswith(b"vl64".hex())
+    assert _result(latest.state_bytes, "page-write-2", 2)["result"]["state_hex"].startswith(b"vl64-m3-".hex())
+    assert _result(latest.state_bytes, "page-write-3", 3)["result"]["state_hex"].startswith(b"vl64-m3-state".hex())
+
+    def no_repeat(*_args):
+        """A committed persistent page write cannot be executed twice."""
+        raise AssertionError("duplicate page write entered worker")
+    replay_backend, replay_adapter = _adapter(final_store, reference, no_repeat)
+    duplicate = replay_adapter.apply(
+        encode_vl64_session_operation("page.session", {
+            "offset": 8, "write_hex": b"state".hex(),
+        }),
+        operation_id="page-write-3",
+    )
+    assert duplicate.replayed and duplicate.revision == latest.revision
+    assert replay_backend.remote_calls == 0
+
+
+def test_mutable_vl64_pagespace_rejects_corrupt_prior_os_state_before_remote(tmp_path: Path) -> None:
+    """Never use a forged app checkpoint as a source for the next pure computation."""
+    reference = _reference()
+    machine = restore_headless_state(_initial_os())
+    machine.install_source("/vl64/session/page-state.json", json.dumps({
+        "schema": "mailcpu.vl64-persistent-page.v1",
+        "state_hex": "00" * 256,
+        "state_digest": "f" * 64,
+        "logical_time": 0,
+    }))
+    backing = PageBacking()
+    store = _store(tmp_path, backing, reference)
+    initial = store.create_session(serialize_headless_state(machine))
+    backend, adapter = _adapter(
+        store, reference, lambda *_args: (_ for _ in ()).throw(
+            AssertionError("corrupt app state reached worker")
+        ),
+    )
+    operation = encode_vl64_session_operation(
+        "page.session", {"offset": 0, "write_hex": "ff"},
+    )
+    with pytest.raises(ComputationalTransitionError, match="integrity"):
+        adapter.apply(operation, operation_id="reject-corrupt-app")
+    assert backend.remote_calls == 0
+    assert store.load_latest().checkpoint_digest == initial.checkpoint_digest
