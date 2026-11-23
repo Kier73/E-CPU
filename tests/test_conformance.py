@@ -11,6 +11,7 @@ from mailcpu.programs import (
     branch_program,
     countdown_program,
     random_program,
+    random_communication_program,
     wait_send_program,
 )
 
@@ -117,3 +118,95 @@ def test_invalid_branch_target_is_exposed() -> None:
                 Instruction(Op.HALT),
             )
         )
+
+
+def test_send_enqueues_for_a_later_wait_on_the_same_mailbox() -> None:
+    """Mathematics: SEND(m,v) transforms Q_m before WAIT(m), preserving FIFO in both backends."""
+
+    program = Program((
+        Instruction(Op.SET, ("x", 29)),
+        Instruction(Op.SEND, ("shared", "x")),
+        Instruction(Op.WAIT, ("shared", "received")),
+        Instruction(Op.HALT),
+    ))
+    assert_equivalent(program)
+    result = ReferenceInterpreter(program).run()
+    assert result.status is RunStatus.HALTED
+    assert result.state.registers["received"] == 29
+    assert result.outputs == (("shared", 29),)
+
+
+def test_send_wait_respects_existing_input_fifo() -> None:
+    """Mathematics: external and internal sends occupy one ordered mailbox sequence."""
+
+    program = Program((
+        Instruction(Op.SET, ("x", 8)),
+        Instruction(Op.SEND, ("shared", "x")),
+        Instruction(Op.WAIT, ("shared", "first")),
+        Instruction(Op.WAIT, ("shared", "second")),
+        Instruction(Op.HALT),
+    ))
+    assert_equivalent(program, inputs={"shared": [5]})
+    result = ReferenceInterpreter(program).run(inputs={"shared": [5]})
+    assert (result.state.registers["first"], result.state.registers["second"]) == (5, 8)
+
+
+@pytest.mark.parametrize("mailbox", ("reg:x", "code:0", "reg:", "code:extra"))
+@pytest.mark.parametrize("operation", (Op.SEND, Op.WAIT))
+def test_private_address_space_cannot_be_used_as_a_program_mailbox(
+    operation: Op, mailbox: str
+) -> None:
+    """Mathematics: Q_user and Q_internal are disjoint for every validated instruction."""
+
+    with pytest.raises(ValueError, match="reserved internal"):
+        Program((Instruction(operation, (mailbox, "x")), Instruction(Op.HALT)))
+
+
+@pytest.mark.parametrize("mailbox", ("reg:x", "code:0"))
+def test_external_inputs_cannot_overwrite_internal_cells(mailbox: str) -> None:
+    """Mathematics: initial input traffic cannot alias control or register mailboxes."""
+
+    program = Program((Instruction(Op.HALT),))
+    for interpreter in (ReferenceInterpreter, QueueInterpreter):
+        with pytest.raises(ValueError, match="reserved internal"):
+            interpreter(program).run(inputs={mailbox: [9]})
+
+
+@pytest.mark.parametrize("value", (None, 1.25, "5", True))
+def test_external_input_domain_is_equal_on_both_substrates(value: object) -> None:
+    """Mathematics: all non-integer values are rejected before changing FIFO state."""
+
+    program = Program((Instruction(Op.WAIT, ("inbox", "x")), Instruction(Op.HALT)))
+    for interpreter in (ReferenceInterpreter, QueueInterpreter):
+        with pytest.raises(ValueError, match="input values"):
+            interpreter(program).run(inputs={"inbox": [value]})
+
+
+def test_invalid_opcode_and_mutable_operands_do_not_bypass_validation() -> None:
+    """Mathematics: freezing and typing precede all branch-target checks."""
+
+    with pytest.raises(ValueError, match="Op member"):
+        Instruction("BRANCH", ("flag", 5))
+    raw = ["flag", 1]
+    program = Program((Instruction(Op.BRANCH, raw), Instruction(Op.HALT)))
+    raw[1] = 100
+    assert program.instructions[0].args == ("flag", 1)
+    with pytest.raises(ValueError, match="outside"):
+        Program((Instruction(Op.BRANCH, ("flag", 5)), Instruction(Op.HALT)))
+
+
+def test_fallthrough_has_equal_total_semantics_at_budget_boundary() -> None:
+    """Mathematics: at a missing next token, both backends terminate without an IndexError."""
+
+    program = Program((Instruction(Op.SET, ("x", 1)),))
+    assert_equivalent(program, max_steps=1)
+    assert ReferenceInterpreter(program).run(max_steps=1).status is RunStatus.STEP_LIMIT
+    assert_equivalent(program, max_steps=2)
+    assert ReferenceInterpreter(program).run(max_steps=2).status is RunStatus.HALTED
+
+
+def test_randomized_shared_mailbox_wait_multiply_and_backward_branches() -> None:
+    """Mathematics: compare bounded orbits including shared SEND/WAIT, MUL and back edges."""
+
+    for seed in range(400):
+        assert_equivalent(random_communication_program(seed), max_steps=64)

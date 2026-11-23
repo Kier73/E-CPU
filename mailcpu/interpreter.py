@@ -17,6 +17,7 @@ from .model import (
     RunStatus,
     TraceEvent,
     instruction_message,
+    validate_mailbox_name,
 )
 from .transport import InMemoryTransport, Transport
 
@@ -40,7 +41,7 @@ class ExecutionBackend(Protocol):
         ...
 
     def send(self, mailbox: str, value: int) -> None:
-        """Mathematics: append an emitted value to the output sequence `O' = O || [(mailbox, value)]`."""
+        """Mathematics: append one value to both `Q_mailbox` and the ordered output sequence `O`."""
 
         ...
 
@@ -60,12 +61,31 @@ class ExecutionBackend(Protocol):
         ...
 
 
+def _validate_external_values(
+    initial_registers: dict[str, int], inputs: dict[str, Sequence[int]]
+) -> None:
+    """Mathematics: admit the same typed input domain for both execution substrates."""
+
+    for name, value in initial_registers.items():
+        if not isinstance(name, str) or not name:
+            raise ValueError("initial register names must be non-empty strings")
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("initial register values must be integers")
+    for mailbox, values in inputs.items():
+        validate_mailbox_name(mailbox, "input mailbox")
+        if not isinstance(values, Sequence) or isinstance(values, (str, bytes)):
+            raise ValueError("input mailbox values must be a sequence of integers")
+        if any(not isinstance(value, int) or isinstance(value, bool) for value in values):
+            raise ValueError("input values must be integers")
+
+
 class ReferenceBackend:
     """A transport-free finite-state backend used as the ground truth."""
 
     def __init__(self, initial_registers: dict[str, int], inputs: dict[str, Sequence[int]]) -> None:
         """Mathematics: initialize `R = R0`, `I_mailbox = deque(inputs[mailbox])`, and `O = []`."""
 
+        _validate_external_values(initial_registers, inputs)
         self._registers = dict(initial_registers)
         self._known_registers = set(initial_registers)
         self._inputs = {mailbox: deque(values) for mailbox, values in inputs.items()}
@@ -94,6 +114,7 @@ class ReferenceBackend:
     def send(self, mailbox: str, value: int) -> None:
         """Mathematics: append one event to the output trace, `O := O || [(mailbox, value)]`."""
 
+        self._inputs.setdefault(mailbox, deque()).append(value)
         self._outputs.append((mailbox, value))
 
     def snapshot_registers(self) -> dict[str, int]:
@@ -123,6 +144,7 @@ class QueueBackend:
     ) -> None:
         """Mathematics: establish the single-cell invariant `|Q_reg:name| ≤ 1` and seed each input queue in order."""
 
+        _validate_external_values(initial_registers, inputs)
         self.transport = transport
         self._known_registers = set(initial_registers)
         self._outputs: list[tuple[str, int]] = []
@@ -130,8 +152,6 @@ class QueueBackend:
             self.write_register(name, value)
         for mailbox, values in inputs.items():
             for value in values:
-                if not isinstance(value, int):
-                    raise ValueError("input values must be integers")
                 self.transport.send(
                     mailbox,
                     Message(sender="host", op="INPUT", addr=mailbox, value=value),
@@ -307,13 +327,17 @@ class ReferenceInterpreter:
     ) -> RunResult:
         """Mathematics: execute the bounded orbit `s_k = T^k(s_0)` until `HALT`, `WAIT` with `⊥`, or `k = max_steps`."""
 
-        if max_steps < 0:
-            raise ValueError("max_steps must be non-negative")
+        if not isinstance(max_steps, int) or isinstance(max_steps, bool) or max_steps < 0:
+            raise ValueError("max_steps must be a non-negative integer")
         backend = ReferenceBackend(initial_registers or {}, inputs or {})
         state = MachineState(registers={}, pc=0)
         trace: list[TraceEvent] = []
         status = RunStatus.STEP_LIMIT
         for step in range(max_steps):
+            if not 0 <= state.pc < len(self.program.instructions):
+                state.halted = True
+                status = RunStatus.HALTED
+                break
             instruction = self.program.instructions[state.pc]
             output_start = len(backend.output_log())
             transition = apply_instruction(instruction, state.pc, backend)
@@ -368,6 +392,10 @@ class QueueInterpreter:
         trace: list[TraceEvent] = []
         status = RunStatus.STEP_LIMIT
         for step in range(max_steps):
+            if not 0 <= state.pc < len(self.program.instructions):
+                state.halted = True
+                status = RunStatus.HALTED
+                break
             address = code_address(state.pc)
             token = transport.poll(address)
             if token is None:
@@ -398,6 +426,7 @@ class QueueInterpreter:
             if state.halted:
                 status = RunStatus.HALTED
                 break
-            transport.send(code_address(state.pc), instruction_message(self.program.instructions[state.pc]))
+            if 0 <= state.pc < len(self.program.instructions):
+                transport.send(code_address(state.pc), instruction_message(self.program.instructions[state.pc]))
         state.registers = backend.snapshot_registers()
         return RunResult(status, state, tuple(trace), tuple(backend.output_log()))

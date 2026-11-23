@@ -29,6 +29,15 @@ class Instruction:
     op: Op
     args: tuple[Any, ...] = ()
 
+    def __post_init__(self) -> None:
+        """Mathematics: freeze operands and admit only typed operations before validation."""
+
+        if not isinstance(self.op, Op):
+            raise ValueError("instruction opcode must be an Op member")
+        if not isinstance(self.args, (tuple, list)):
+            raise ValueError("instruction operands must be a finite sequence")
+        object.__setattr__(self, "args", tuple(self.args))
+
 
 @dataclass(frozen=True)
 class Program:
@@ -39,6 +48,9 @@ class Program:
     def __post_init__(self) -> None:
         """Mathematics: validate that every transition target lies in `[0, n)` for program length `n`."""
 
+        if not isinstance(self.instructions, (tuple, list)):
+            raise ValueError("program instructions must be a finite sequence")
+        object.__setattr__(self, "instructions", tuple(self.instructions))
         validate_program(self.instructions)
 
 
@@ -128,6 +140,15 @@ def _expect_register(value: Any, position: str) -> None:
         raise ValueError(f"{position} must be a non-empty register name")
 
 
+def validate_mailbox_name(value: Any, position: str = "mailbox") -> None:
+    """Mathematics: keep user queues disjoint from private register and code queues."""
+
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{position} must be a non-empty address")
+    if value.startswith(("reg:", "code:")):
+        raise ValueError(f"{position} uses a reserved internal address prefix")
+
+
 def _expect_arity(op: Op, args: Sequence[Any], arity: int) -> None:
     """Mathematics: an instruction is a partial function only on its declared operand domain, so `|args| = arity` is required."""
 
@@ -138,6 +159,8 @@ def _expect_arity(op: Op, args: Sequence[Any], arity: int) -> None:
 def validate_instruction(instruction: Instruction) -> None:
     """Mathematics: enforce the typed domain of each opcode before applying the transition function `T`."""
 
+    if not isinstance(instruction, Instruction):
+        raise ValueError("program members must be Instruction values")
     op = instruction.op
     args = instruction.args
     arity = OPCODE_ARITY[op]
@@ -161,11 +184,9 @@ def validate_instruction(instruction: Instruction) -> None:
             raise ValueError("BRANCH target must be an integer")
     elif op is Op.SEND:
         _expect_register(args[1], "SEND source")
-        if not isinstance(args[0], str) or not args[0]:
-            raise ValueError("SEND mailbox must be a non-empty address")
+        validate_mailbox_name(args[0], "SEND mailbox")
     elif op is Op.WAIT:
-        if not isinstance(args[0], str) or not args[0]:
-            raise ValueError("WAIT mailbox must be a non-empty address")
+        validate_mailbox_name(args[0], "WAIT mailbox")
         _expect_register(args[1], "WAIT destination")
     elif op is Op.SYSCALL:
         if len(args) < 2:

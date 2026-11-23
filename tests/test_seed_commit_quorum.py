@@ -7,6 +7,8 @@ import sys
 
 import pytest
 
+from mailcpu.seed_commit_quorum import verify_certificate_against_member_journals
+
 from mailcpu import (
     DurableSeedCommitLedger,
     SeedCommitCertificate,
@@ -363,3 +365,112 @@ def test_artifact_journal_version_two_replays_before_observed_vote_extension(tmp
     assert recovered is not None and ledger.transition_artifact(recovered) is None
     assert ledger.prepared_vote(recovered) is not None
     assert ledger.verify()
+
+
+def test_offline_certificate_rejects_forged_remote_receipt(tmp_path) -> None:
+    """Mathematics: a plausible tuple of voters is not evidence without matching durable member records."""
+
+    membership = _membership()
+    proposal = _proposal(membership)
+    paths = {member: tmp_path / f"{member}.log" for member in membership.member_ids}
+    owner = DurableSeedCommitLedger(paths["A"], "A", membership)
+    local_vote = owner.prepare(proposal)
+    fabricated = SeedPrepareVote("B", membership.digest, proposal.digest, "f" * 64)
+    forged_certificate = SeedCommitCertificate(
+        membership.digest, proposal.digest, (local_vote, fabricated)
+    )
+    with pytest.raises(SeedCommitLedgerError, match="no durable journal"):
+        verify_certificate_against_member_journals(
+            membership, proposal, forged_certificate, paths
+        )
+    remote = DurableSeedCommitLedger(paths["B"], "B", membership)
+    remote_vote = remote.prepare(proposal)
+    with pytest.raises(SeedCommitLedgerError, match="no matching durable prepare"):
+        verify_certificate_against_member_journals(
+            membership, proposal, forged_certificate, paths
+        )
+    genuine = SeedCommitCertificate(membership.digest, proposal.digest, (local_vote, remote_vote))
+    assert verify_certificate_against_member_journals(membership, proposal, genuine, paths)
+
+
+
+@pytest.mark.parametrize(
+    "cut", ("owner_prepare", "owner_vote_observation", "owner_decision")
+)
+def test_owner_real_process_death_recovers_five_member_quorum_at_durable_cuts(
+    tmp_path, cut: str
+) -> None:
+    """Mathematics: three hard owner-process deaths resume one exact quorum history from durable journal bytes."""
+
+    membership = SeedCommitMembership("system-A", 1, ("A", "B", "C", "D", "E"), "A", 1, GENESIS)
+    proposal = _proposal(membership)
+    paths = {member: tmp_path / f"{member}.log" for member in membership.member_ids}
+    prepared = {}
+    for member in ("B", "C"):
+        prepared[member] = DurableSeedCommitLedger(
+            paths[member], member, membership
+        ).prepare(proposal)
+
+    child = r'''
+import json, os, sys
+from mailcpu import DurableSeedCommitLedger, SeedCommitCertificate, SeedCommitMembership
+from mailcpu.seed_commit_quorum import SeedCommitProposal, SeedPrepareVote
+membership = SeedCommitMembership("system-A", 1, ("A", "B", "C", "D", "E"), "A", 1, "0" * 64)
+proposal = SeedCommitProposal(membership.digest, "system-A", 1, "A", 1, 1, "0" * 64, "a" * 64, "1" * 64)
+ledger = DurableSeedCommitLedger(sys.argv[1], "A", membership)
+owner_vote = ledger.prepare(proposal)
+if sys.argv[3] == "owner_prepare":
+    os._exit(91)
+peer_votes = [SeedPrepareVote.from_snapshot(v) for v in json.loads(sys.argv[2])]
+for vote in peer_votes:
+    ledger.observe_vote(proposal, vote)
+if sys.argv[3] == "owner_vote_observation":
+    os._exit(92)
+certificate = SeedCommitCertificate(membership.digest, proposal.digest, (owner_vote, *peer_votes))
+ledger.commit(proposal, certificate)
+os._exit(93)
+'''
+    completed = subprocess.run(
+        [sys.executable, "-c", child, str(paths["A"]),
+         json.dumps([prepared[member].snapshot() for member in ("B", "C")]), cut],
+        check=False, capture_output=True, text=True,
+    )
+    expected_exit = {"owner_prepare": 91, "owner_vote_observation": 92, "owner_decision": 93}
+    assert completed.returncode == expected_exit[cut], completed.stderr
+
+    # A new runtime reopens only the durable owner journal, not the killed process.
+    reopened = DurableSeedCommitLedger(paths["A"], "A", membership)
+    assert reopened.verify()
+    recovered_proposal = reopened.proposal_at(1)
+    assert recovered_proposal == proposal
+    owner_vote = reopened.prepared_vote(proposal)
+    assert owner_vote is not None
+    observed = reopened.observed_votes(proposal)
+    assert len(observed) == (0 if cut == "owner_prepare" else 2)
+
+    certificate = SeedCommitCertificate(
+        membership.digest, proposal.digest,
+        (owner_vote, prepared["B"], prepared["C"]),
+    )
+    assert verify_certificate_against_member_journals(
+        membership, proposal, certificate, paths
+    )
+    if cut == "owner_decision":
+        assert reopened.committed_state() == (1, NEXT)
+        assert reopened.certificate(proposal) == certificate
+    else:
+        assert reopened.committed_state() is None
+        reopened.commit(proposal, certificate)
+    assert reopened.committed_state() == (1, NEXT)
+    with pytest.raises(SeedCommitLedgerError, match="already prepared"):
+        reopened.prepare(_proposal(membership, result=OTHER))
+
+    for member in ("B", "C"):
+        participant = DurableSeedCommitLedger(paths[member], member, membership)
+        assert participant.commit(proposal, certificate).state_digest == NEXT
+        assert participant.verify()
+
+    assert sum(
+        DurableSeedCommitLedger(path, member, membership).committed_state() == (1, NEXT)
+        for member, path in paths.items()
+    ) == membership.quorum
