@@ -34,4 +34,10 @@ jobs:
       - name: Install audit dependencies
         run: python -m pip install -e . pytest
       - name: Differential interpreter and quorum durability regressions
-        run: python -m pytest -q tests/test_conformance.py tests/test_assembler.py tests/test_seed_commit_quorum.py
+        run: >-
+          python -m pytest -q
+          tests/test_conformance.py
+          tests/test_assembler.py
+          tests/test_seed_commit_quorum.py
+          tests/test_seed_commit_coordinator.py
+          tests/test_seed_input.py
