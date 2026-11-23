@@ -51,3 +51,27 @@ def test_fleet_rejects_invalid_admission_geometry(limits) -> None:
     """Reject impossible capacities before launching even one observer-host."""
     with pytest.raises(ValueError):
         benchmark_case(**limits)
+
+
+
+def test_four_live_admitted_vl64_vm_hosts_reach_synchronized_start() -> None:
+    """A barrier establishes four simultaneously live fully prepared OS hosts."""
+    result = benchmark_case(
+        4, max_concurrent_processes=4,
+        max_total_resident_pages=8,
+        simultaneous_gate=True,
+    )
+    assert result["simultaneous_live_ready_count"] == 4
+    assert result["real_vl64_host_process_count"] == 4
+    assert result["vl64_operation_count"] == 24
+    assert result["all_vm_checks_passed"]
+
+
+def test_synchronized_vm_host_admission_requires_enough_process_slots() -> None:
+    """Never deadlock on a barrier larger than the configured worker pool."""
+    with pytest.raises(ValueError, match="enough process slots"):
+        benchmark_case(
+            5, max_concurrent_processes=4,
+            max_total_resident_pages=10,
+            simultaneous_gate=True,
+        )
