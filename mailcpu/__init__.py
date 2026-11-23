@@ -7,6 +7,7 @@ from .counted_observer_stream import (
     CountedObserverStream,
     CountedStreamReceipt,
     CountedStreamRequest,
+    CountedTransfer,
     EmitRule,
     verify_counted_stream_receipt,
 )
@@ -1058,6 +1059,7 @@ __all__ = [
     "CountedObserverStream",
     "CountedStreamReceipt",
     "CountedStreamRequest",
+    "CountedTransfer",
     "EmitRule",
     "verify_counted_stream_receipt",
     "AffineSendStream",
