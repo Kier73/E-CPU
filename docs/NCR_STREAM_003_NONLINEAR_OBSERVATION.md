@@ -107,7 +107,7 @@ receipt = stream.issue_receipt(10**100 + 173)
 assert verify_nonlinear_stream_receipt(
     receipt, packet=raw, receiver_expected_sha256=pin,
     source_commit=reviewed_commit,
-    expected_request=stream.request,  # receiver's original intended query
+    expected_request=stream.request(10**100 + 173),  # full intended query
 )
 ```
 
@@ -121,9 +121,9 @@ a broken numerical audit.
 
 But if the receiving observer intended a particular word, gate, readout and
 mailbox, accepting a mathematically valid **different** query would be a
-request substitution. The `NonlinearStreamRequest` object fixes all five
-request dimensions. Passing it as `expected_request=` requires that the
-received receipt match the observer's original intention *and* the
+request substitution. The `NonlinearStreamRequest` object fixes all six
+request dimensions, including the emitted-event ordinal. Passing it as `expected_request=` requires that the
+received receipt match the observer's original intention, output ordinal *and* the
 independently verified source computation. Identity, observational meaning,
 and host execution authority are therefore distinct evidence relations.
 
