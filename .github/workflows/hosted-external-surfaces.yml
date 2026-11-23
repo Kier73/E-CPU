@@ -1,0 +1,64 @@
+name: Hosted External Surface Streams (HSS-001)
+
+on:
+  push:
+    paths:
+      - "mailcpu/external_surface_streams.py"
+      - "tests/test_external_surface_streams.py"
+      - "scripts/observe_hosted_surface.py"
+      - "docs/HOSTED_EXTERNAL_SURFACES.md"
+      - ".github/workflows/hosted-external-surfaces.yml"
+  pull_request:
+    paths:
+      - "mailcpu/external_surface_streams.py"
+      - "tests/test_external_surface_streams.py"
+      - "scripts/observe_hosted_surface.py"
+      - "docs/HOSTED_EXTERNAL_SURFACES.md"
+      - ".github/workflows/hosted-external-surfaces.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-frames:
+    name: Source-address proofs (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, python: "3.11"}
+          - {os: ubuntu-latest, python: "3.14"}
+          - {os: windows-latest, python: "3.11"}
+          - {os: windows-latest, python: "3.14"}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install E-CPU
+        run: python -m pip install -e ".[dev]"
+      - name: Qualify page sources, source ranges, frames, M1 recovery and refusal
+        run: python -m pytest -q tests/test_external_surface_streams.py tests/test_model_weight_ground.py tests/test_computational_objects.py
+
+  live-deepseek-discovery:
+    name: Real DeepSeek 48-shard hosted source-address discovery
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Observe actual externally hosted DeepSeek source tree (no weight payload)
+        run: |
+          python scripts/observe_hosted_surface.py --url "https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/tree/main" --out artifacts/deepseek-live-source-addresses.json
+      - name: Preserve original live HTTPS model inventory and source address digest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hss001-live-deepseek-source-inventory
+          path: artifacts/deepseek-live-source-addresses.json
+          if-no-files-found: warn
