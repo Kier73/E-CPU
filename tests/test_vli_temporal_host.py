@@ -869,3 +869,41 @@ def test_real_vli_interpreter_executes_under_original_ecpu_hypervisor_authority(
     assert refused.executed is False
     assert refused.action is not HypervisorAction.ALLOW
     assert machine.environment.kernel.journal.verify()
+
+
+
+def test_signed_vli_source_root_is_genesis_only_and_cannot_be_replaced() -> None:
+    """Never reclassify an already accepted unsigned history as publisher-authenticated."""
+    from mailcpu.vli_signed_source import bind_vli_signed_source
+    secret, public_key = _signed_publisher()
+    initial = _initial()
+    bound = bind_vli_signed_source(
+        initial, source="publisher-root-1", public_key=public_key,
+    )
+    with pytest.raises(ComputationalTransitionError, match="cannot silently be replaced"):
+        bind_vli_signed_source(
+            bound, source="publisher-root-2", public_key=public_key,
+        )
+    machine = restore_headless_state(initial)
+    checkpoint = read_vli_temporal_checkpoint(initial)
+    interpreter = TemporalIntelligenceGround.restore(
+        checkpoint, expected_head=checkpoint["head"],
+        expected_identity=checkpoint["identity"],
+    )
+    observation = _sample(0, 1)
+    interpreter.observe(
+        observation["time"], observation["values"],
+        source_digest=observation["source_digest"],
+        host="old-unsigned-host",
+        expected_head=interpreter.head,
+    )
+    machine.install_source(
+        VLI_STATE_PATH, json.dumps(
+            interpreter.checkpoint(), sort_keys=True, separators=(",", ":"),
+        ),
+    )
+    with pytest.raises(ComputationalTransitionError, match="before the first observation"):
+        bind_vli_signed_source(
+            serialize_headless_state(machine),
+            source="publisher-root-1", public_key=public_key,
+        )
