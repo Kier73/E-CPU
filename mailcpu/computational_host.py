@@ -211,7 +211,10 @@ def _artifact_files(
         files.append((_artifact_path(relative), item))
         if len(files) > max_files:
             raise ComputationalArtifactError("artifact directory contains too many files")
-    return files
+    # pathlib uses platform-specific path ordering (case-folded on Windows).
+    # Composite identities require exact, case-sensitive POSIX-relative order
+    # across every receiver OS, regardless of directory iteration or path API.
+    return sorted(files, key=lambda record: record[0])
 
 
 @dataclass(frozen=True)
