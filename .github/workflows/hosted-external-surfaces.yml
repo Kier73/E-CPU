@@ -54,7 +54,7 @@ jobs:
           python-version: "3.11"
       - name: Interpret actual DeepSeek source structure without model payload reads
         run: |
-          python scripts/observe_hosted_surface.py --url "https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/tree/main" --out artifacts/deepseek-virtual-structure.json
+          python -m scripts.observe_hosted_surface --url "https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/tree/main" --out artifacts/deepseek-virtual-structure.json
       - name: Preserve original live HTTPS model inventory and source address digest
         if: always()
         uses: actions/upload-artifact@v4
