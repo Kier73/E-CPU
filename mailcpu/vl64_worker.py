@@ -8,8 +8,11 @@ correlation evidence, not network authentication or a trusted sender proof.
 
 from __future__ import annotations
 
+import argparse
 import json
+import os
 import sys
+from threading import Event
 
 from .computational_host import (
     ComputationalHostRequest,
@@ -66,12 +69,19 @@ def execute_one_shot(payload: dict[str, object]) -> dict[str, object]:
 
 def main() -> None:
     """Read a bounded JSON request, execute it once, and write a typed receipt."""
+    parser = argparse.ArgumentParser(description="Real VL-64 one-shot host")
+    parser.add_argument("--crash-cut", choices=("before_publish", "after_publish"))
+    arguments = parser.parse_args()
     data = sys.stdin.buffer.read(_MAX_REQUEST_BYTES + 1)
     if not data or len(data) > _MAX_REQUEST_BYTES:
         raise ValueError("one-shot VL-64 request length exceeds the admitted bound")
     payload = json.loads(data)
     output = execute_one_shot(payload)
-    print(json.dumps(output, sort_keys=True, separators=(",", ":"), allow_nan=False))
+    if arguments.crash_cut == "before_publish":
+        os._exit(73)  # Local test fault injection; candidate stays private.
+    print(json.dumps(output, sort_keys=True, separators=(",", ":"), allow_nan=False), flush=True)
+    if arguments.crash_cut == "after_publish":
+        Event().wait(30)  # Parent kills us after receiving the exact result frame.
 
 
 if __name__ == "__main__":
