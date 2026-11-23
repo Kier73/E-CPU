@@ -28,15 +28,18 @@ from .stream_os_session import (
 from .vli_temporal_host import (
     VLI_TEMPORAL_HOST_SCHEMA, create_vli_temporal_genesis,
 )
+from .vli_signed_source import (
+    verify_signed_history, verify_next_signed_packet, write_signed_packet,
+)
 
 VLI_TEMPORAL_SESSION_INPUT = "mailcpu.vli-observer-session-request.v1"
 VLI_TEMPORAL_SESSION_INTERPRETATION = hashlib.sha256(
-    b"mailcpu.original-vli-time001-002-in-headlessos-m3.v1"
+    b"mailcpu.original-vli-time001-002-in-headlessos-m3.v2-signed-source"
 ).hexdigest()
-VLI_TEMPORAL_SESSION_TRANSITION = "vli.temporal.living-session.v1"
+VLI_TEMPORAL_SESSION_TRANSITION = "vli.temporal.living-session.v2"
 VLI_STATE_PATH = "/vli/temporal/state.json"
 _VLI_OPS = frozenset({
-    "temporal.ingest", "temporal.inquire", "temporal.compile", "temporal.navigate",
+    "temporal.ingest", "temporal.ingest_signed", "temporal.inquire", "temporal.compile", "temporal.navigate",
 })
 _SAFE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z")
 _MAX_INPUT = 8192
@@ -100,6 +103,7 @@ def _operation(raw: bytes) -> tuple[str, dict[str, Any]]:
         raise ComputationalTransitionError("VL-I request fields or operation differ")
     required = {
         "temporal.ingest": {"sample"},
+        "temporal.ingest_signed": {"packet"},
         "temporal.inquire": {"strategy"},
         "temporal.compile": {"epoch_index"},
         "temporal.navigate": {"time", "epoch_index", "allow_projection"},
@@ -166,6 +170,7 @@ def read_vli_temporal_checkpoint(state_bytes: bytes) -> dict[str, Any]:
         )
     except (ValueError, KeyError, TypeError) as exc:
         raise ComputationalTransitionError("source-verification of VL-I Ground failed") from exc
+    verify_signed_history(machine, snapshot)
     return snapshot
 
 
@@ -217,20 +222,34 @@ class VLITemporalSessionBackend:
         operation, args = _operation(input_bytes)
         previous = read_vli_temporal_checkpoint(state_bytes)
         machine = restore_headless_state(state_bytes)
-        host_args = {"snapshot": previous, **args}
-        if operation == "temporal.ingest":
+        source_root = verify_signed_history(machine, previous)
+        signed_packet = None
+        packet_digest = None
+        native_operation = operation
+        if operation == "temporal.ingest_signed":
+            if source_root is None:
+                raise ComputationalTransitionError("signed VL-I sample lacks M3-pinned source trust root")
+            signed_packet = args["packet"]
+            sample, packet_digest = verify_next_signed_packet(machine, previous, signed_packet)
+            host_args = {"snapshot": previous, "sample": sample}
+            native_operation = "temporal.ingest"
+        else:
+            if operation == "temporal.ingest" and source_root is not None:
+                raise ComputationalTransitionError("unsigned VL-I observation refused by signed-source policy")
+            host_args = {"snapshot": previous, **args}
+        if native_operation == "temporal.ingest":
             host_args["host"] = self.active_host
         request = ComputationalHostRequest(
             request_id=context.operation_id,
             artifact_manifest_digest=self.reference_host.manifest.manifest_digest,
-            operation=operation,
+            operation=native_operation,
             input_value=host_args,
             workload_id=context.session_id,
             logical_time=context.logical_time,
         )
 
         self.remote_calls += 1
-        result = self.execute_remote(operation, context.operation_id, host_args, context)
+        result = self.execute_remote(native_operation, context.operation_id, host_args, context)
         if not isinstance(result, dict) or set(result) != {
             "context_binding_digest", "receipt", "output",
         } or result["context_binding_digest"] != context.binding_digest:
@@ -258,7 +277,7 @@ class VLITemporalSessionBackend:
         output = reference.output
         if (not isinstance(output, dict) or set(output) != {
             "schema", "operation", "snapshot", "result",
-        } or output["schema"] != VLI_TEMPORAL_HOST_SCHEMA or output["operation"] != operation):
+        } or output["schema"] != VLI_TEMPORAL_HOST_SCHEMA or output["operation"] != native_operation):
             raise ComputationalTransitionError("VL-I result is outside its host output schema")
         candidate = output["snapshot"]
         if (not isinstance(candidate, dict)
@@ -273,17 +292,20 @@ class VLITemporalSessionBackend:
             )
         except (KeyError, ValueError, TypeError) as exc:
             raise ComputationalTransitionError("VL-I proposed source chain cannot be reconstructed") from exc
-        if operation == "temporal.ingest":
+        if native_operation == "temporal.ingest":
             if (len(candidate["events"]) != len(previous["events"]) + 1
                 or candidate["events"][:-1] != previous["events"]
                 or candidate["events"][-1]["host"] != self.active_host
-                or candidate["events"][-1]["time"] != args["sample"]["time"]
-                or candidate["events"][-1]["source_digest"] != args["sample"]["source_digest"]
+                or candidate["events"][-1]["time"] != host_args["sample"]["time"]
+                or candidate["events"][-1]["source_digest"] != host_args["sample"]["source_digest"]
                 or candidate["head"] == previous["head"]):
                 raise ComputationalTransitionError("VL-I proposed observation did not extend exact M3 source head")
         elif candidate != previous:
             raise ComputationalTransitionError("read-only VL-I intention changed the observed Ground")
         machine.install_source(VLI_STATE_PATH, _canonical(candidate).decode("utf-8"))
+        if signed_packet is not None:
+            write_signed_packet(machine, signed_packet)
+            verify_signed_history(machine, candidate)
         machine.install_source(
             f"/vli/results/{context.logical_time:08d}_{context.operation_id}.json",
             _canonical({
@@ -291,6 +313,10 @@ class VLITemporalSessionBackend:
                 "operation": operation, "time": context.logical_time,
                 "previous_head": previous["head"], "head": candidate["head"],
                 "identity": candidate["identity"], "result": output["result"],
+                "source_authentication": (
+                    {"kind": "VL-I-TIME005-ED25519", "packet_digest": packet_digest,
+                     "publisher": source_root["source"]} if signed_packet is not None else None
+                ),
             }).decode("utf-8"),
         )
         machine.run(max_ticks=machine.vm.scheduler.tick + 1)
