@@ -24,10 +24,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {os: ubuntu-latest, python: "3.11"}
-          - {os: ubuntu-latest, python: "3.14"}
-          - {os: windows-latest, python: "3.11"}
-          - {os: windows-latest, python: "3.14"}
+          - {os: ubuntu-latest, python: "3.11", pathsep: ":"}
+          - {os: ubuntu-latest, python: "3.14", pathsep: ":"}
+          - {os: windows-latest, python: "3.11", pathsep: ";"}
+          - {os: windows-latest, python: "3.14", pathsep: ";"}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
@@ -48,7 +48,8 @@ jobs:
           python -m pip install -e ".[dev]"
           python -m pip install -e "./original-vl64"
           python -m pip install -e "./original-vli[test]"
+          python -m pip install "numpy>=2.1"
       - name: Test original architecture and causal state via E-CPU source pages
         env:
-          PYTHONPATH: ${{ github.workspace }}/original-vl64:${{ github.workspace }}/original-vl64/tests:${{ github.workspace }}/original-vli/tests
+          PYTHONPATH: ${{ github.workspace }}/original-vl64${{ matrix.pathsep }}${{ github.workspace }}/original-vl64/tests${{ matrix.pathsep }}${{ github.workspace }}/original-vli/tests
         run: python -m pytest -q tests/test_vli_qwen_m1_pages.py original-vli/tests/test_qwen_architecture_process_recovery.py
