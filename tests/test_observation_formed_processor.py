@@ -18,10 +18,16 @@ from mailcpu.ground_native_realization import RealizationPolicy, RealizationRefu
 from mailcpu.inverse_architecture_synthesis import ProposedRelation
 from mailcpu.observation_formed_processor import (
     ObservationFormationRefused, ObserverConstructionIntention, ProbeOffer,
-    realize_observed_processor, sign_observation, verify_observation,
+    realize_observed_processor, realize_observed_processor_on_fabric,
+    sign_observation, verify_observation,
     verify_observed_processor,
 )
 from mailcpu.semantic_translation import RepresentationRef
+from mailcpu.substrate_bootstrap import (
+    BootstrapPolicy, BootstrapRefused, CarrierBinding,
+    ChannelObservation, OperationOffer, ResourceObservation,
+    SubstrateObservation, digest, verify_bootstrap_report,
+)
 
 SOURCE = "b"*64
 AUTHORITY = "a"*64
@@ -255,3 +261,107 @@ def test_observer_intention_changes_without_moving_source_law():
     assert first.intention.digest != second.intention.digest
     assert first.realization.output != second.realization.output
     assert first.construction_plan.primitive_names == second.construction_plan.primitive_names
+
+
+def _observed_host_inventory(*, include_alpha=True, include_beta=True,
+                             include_shadow=False):
+    def resource(host, offers=()):
+        return ResourceObservation(host, "observation-locus", 1, 30,
+                                   "resource-observer", digest({"host":host}),
+                                   tuple(offers))
+    def channel(label, begin, end, kind):
+        return ChannelObservation(
+            label, begin, end, (kind,), 1, 1, 30,
+            digest({"channel":label}), 8192,
+        )
+    resources = [
+        resource("input"),
+        resource("witness", (
+            OperationOffer("form.observe.v1", "form.state.v1",
+                           "form.observed.v1", 1),
+        )),
+    ]
+    edges = []
+    for host, cost, allowed in (
+        ("alpha", 1, include_alpha),
+        ("beta", 5, include_beta),
+        ("shadow", 1, include_shadow),
+    ):
+        if allowed:
+            resources.append(resource(host, (
+                OperationOffer("form.execute.general.v1",
+                               "form.request.v1", "form.state.v1", cost),
+            )))
+            edges.append(channel(host+"-in", "input", host, "form.request.v1"))
+            edges.append(channel(host+"-out", host, "witness", "form.state.v1"))
+    inventory = SubstrateObservation(tuple(resources), tuple(edges))
+    permitted_ops = frozenset({
+        ("alpha", "form.execute.general.v1"),
+        ("beta", "form.execute.general.v1"),
+        ("witness", "form.observe.v1"),
+    })
+    policy = BootstrapPolicy(
+        permitted_ops, frozenset(edge.channel_id for edge in edges),
+        "receiver-owned-capabilities",
+    )
+    carriers = tuple(CarrierBinding(
+        edge.channel_id, lambda raw, t: raw,
+        digest({"carrier":edge.channel_id}),
+    ) for edge in edges)
+    return inventory, policy, carriers
+
+
+def _realize_formed(observed, *, include_alpha=True, include_beta=True,
+                    include_shadow=False, interpreter_ids=("alpha", "beta")):
+    inv, fabric_policy, carriers = _observed_host_inventory(
+        include_alpha=include_alpha, include_beta=include_beta,
+        include_shadow=include_shadow,
+    )
+    return realize_observed_processor_on_fabric(
+        observed, offers=offers(), primitives=palette(),
+        observation_policy=policy(), trusted_keys={"signed-local-source":KEY},
+        inventory=inv, fabric_policy=fabric_policy, carriers=carriers,
+        admitted_interpreters=interpreter_ids, admitted_observers=("witness",),
+        ingress="input", observer="witness", coordinate=5, now=10,
+    )
+
+
+def test_observation_creates_machine_and_selects_host_route_without_named_cpu():
+    original = run()
+    federated = _realize_formed(original, include_shadow=True)
+    formed = federated.formed
+    assert formed.machine.register_bits == 4  # 13 distinguishable states
+    assert formed.machine.operation == "form.execute.general.v1"
+    assert formed.machine.source_digest == federated.derived_source_digest
+    assert federated.observation_receipt_digest == original.digest
+    assert any(step.locus == "alpha" for step in formed.plan.steps)
+    assert not any(step.locus == "shadow" for step in formed.plan.steps)
+    assert formed.report["output"]["observation"] == {"value":3}
+    assert formed.report["output"]["machine_digest"] == formed.machine.fingerprint
+    assert verify_bootstrap_report(formed.report, formed.task, formed.plan)
+    assert federated.digest
+
+
+def test_observation_formed_machine_survives_host_loss_without_source_reprobe():
+    sensor, probes = sensors()
+    original = run(sensor=sensor)
+    assert probes == [0,1,2]
+    alpha = _realize_formed(original, include_alpha=True, include_beta=True)
+    beta = _realize_formed(original, include_alpha=False, include_beta=True)
+    assert probes == [0,1,2]  # no source observation during route reformation
+    assert alpha.formed.machine.fingerprint == beta.formed.machine.fingerprint
+    assert alpha.derived_source_digest == beta.derived_source_digest
+    assert alpha.formed.task.ground_digest == beta.formed.task.ground_digest
+    assert alpha.formed.report["output"] == beta.formed.report["output"]
+    assert alpha.formed.plan.fingerprint != beta.formed.plan.fingerprint
+    assert any(s.locus=="alpha" for s in alpha.formed.plan.steps)
+    assert any(s.locus=="beta" for s in beta.formed.plan.steps)
+
+
+def test_observation_cannot_authorize_unbound_fabric_executor():
+    original = run()
+    with pytest.raises(BootstrapRefused, match="no admitted"):
+        _realize_formed(original, interpreter_ids=())
+    with pytest.raises(BootstrapRefused, match="no admitted"):
+        _realize_formed(original, include_alpha=False, include_beta=False,
+                        include_shadow=True)
