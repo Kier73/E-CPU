@@ -1,0 +1,178 @@
+{
+  "actions": [
+    "inspect",
+    "advance",
+    "reset"
+  ],
+  "channels": [
+    "phase",
+    "signal"
+  ],
+  "format": "vld.transition-system.v1",
+  "initial_state": "idle",
+  "metadata": {
+    "purpose": "description-native response-state formation",
+    "source_type": "model-description-without-pretrained-weights",
+    "sample_scope": "complete-nine-cell-finite-ground"
+  },
+  "observations": [
+    {
+      "action": "inspect",
+      "evidence": [
+        "description-cell:idle:inspect"
+      ],
+      "outcomes": [
+        {
+          "output": [
+            1,
+            2
+          ],
+          "target": "observing"
+        }
+      ],
+      "source": "idle",
+      "support_count": 1
+    },
+    {
+      "action": "advance",
+      "evidence": [
+        "description-cell:idle:advance"
+      ],
+      "outcomes": [
+        {
+          "output": [
+            2,
+            3
+          ],
+          "target": "formed"
+        }
+      ],
+      "source": "idle",
+      "support_count": 1
+    },
+    {
+      "action": "reset",
+      "evidence": [
+        "description-cell:idle:reset"
+      ],
+      "outcomes": [
+        {
+          "output": [
+            0,
+            0
+          ],
+          "target": "idle"
+        }
+      ],
+      "source": "idle",
+      "support_count": 1
+    },
+    {
+      "action": "inspect",
+      "evidence": [
+        "description-cell:observing:inspect"
+      ],
+      "outcomes": [
+        {
+          "output": [
+            3,
+            4
+          ],
+          "target": "observing"
+        }
+      ],
+      "source": "observing",
+      "support_count": 1
+    },
+    {
+      "action": "advance",
+      "evidence": [
+        "description-cell:observing:advance"
+      ],
+      "outcomes": [
+        {
+          "output": [
+            4,
+            5
+          ],
+          "target": "formed"
+        }
+      ],
+      "source": "observing",
+      "support_count": 1
+    },
+    {
+      "action": "reset",
+      "evidence": [
+        "description-cell:observing:reset"
+      ],
+      "outcomes": [
+        {
+          "output": [
+            0,
+            1
+          ],
+          "target": "idle"
+        }
+      ],
+      "source": "observing",
+      "support_count": 1
+    },
+    {
+      "action": "inspect",
+      "evidence": [
+        "description-cell:formed:inspect"
+      ],
+      "outcomes": [
+        {
+          "output": [
+            5,
+            6
+          ],
+          "target": "formed"
+        }
+      ],
+      "source": "formed",
+      "support_count": 1
+    },
+    {
+      "action": "advance",
+      "evidence": [
+        "description-cell:formed:advance"
+      ],
+      "outcomes": [
+        {
+          "output": [
+            6,
+            7
+          ],
+          "target": "formed"
+        }
+      ],
+      "source": "formed",
+      "support_count": 1
+    },
+    {
+      "action": "reset",
+      "evidence": [
+        "description-cell:formed:reset"
+      ],
+      "outcomes": [
+        {
+          "output": [
+            0,
+            2
+          ],
+          "target": "idle"
+        }
+      ],
+      "source": "formed",
+      "support_count": 1
+    }
+  ],
+  "states": [
+    "idle",
+    "observing",
+    "formed"
+  ]
+}
