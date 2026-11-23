@@ -11,6 +11,7 @@ import pytest
 from mailcpu.counted_observer_stream import (
     CountedObserverStream,
     CountedStreamReceipt,
+    CountedTransfer,
     EmitRule,
     verify_counted_stream_receipt,
 )
@@ -84,6 +85,24 @@ def _reference(
     return emissions, counts, states
 
 
+def test_count_cocycle_is_associative_and_matches_hand_composition() -> None:
+    """Mathematics: composition is a true associative state/count semidirect product."""
+
+    a = CountedTransfer((1, 2, 0), (1, 0, 3))
+    b = CountedTransfer((2, 0, 1), (4, 2, 0))
+    c = CountedTransfer((0, 2, 1), (2, 1, 5))
+    assert a.then(b) == CountedTransfer((0, 1, 2), (3, 0, 7))
+    assert a.then(b).then(c) == a.then(b.then(c))
+    assert a.then(CountedTransfer.identity(3)) == a
+    assert CountedTransfer.identity(3).then(a) == a
+    for n in range(20):
+        repeated = CountedTransfer.identity(3)
+        for _ in range(n):
+            repeated = repeated.then(a)
+        assert a.power(n) == repeated
+    assert a.power(10**100).destinations == a.power((10**100) % 3).destinations
+
+
 def test_genuinely_nonlinear_feedback_and_no_fixed_point() -> None:
     """Mathematics: the feedback map is not affine, and the selected orbit cycles."""
 
@@ -101,6 +120,8 @@ def test_genuinely_nonlinear_feedback_and_no_fixed_point() -> None:
     assert stream.quotient_state_after(10**100) == stream.quotient_state_after(
         (10**100) % 6
     )
+    assert stream.count_via_cocycle(10**100) == stream.count_after(10**100)
+    assert stream.quotient_via_cocycle(10**100) == stream.quotient_state_after(10**100)
 
 
 @pytest.mark.parametrize("word", [("shift",), ("shift", "flip"), ("flip", "shift")])
@@ -300,6 +321,9 @@ def test_many_synthetic_total_deterministic_sources_match_native_counting() -> N
         )
         events, counts, _ = _reference(source, stream.initial_state, word, rules, 180)
         assert [stream.count_after(i) for i in range(181)] == counts
+        for n in (0, 1, 3, 17, 180, 10**80 + 7):
+            assert stream.count_via_cocycle(n) == stream.count_after(n)
+            assert stream.quotient_via_cocycle(n) == stream.quotient_state_after(n)
         for k, (iteration, offset, mailbox, value) in enumerate(events):
             event = stream.event(k)
             assert (event.word_iteration, event.action_offset,
