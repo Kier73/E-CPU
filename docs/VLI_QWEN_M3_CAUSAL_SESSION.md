@@ -160,6 +160,28 @@ state identity.
   regression tests and all SOI-010 original M1 worker/restore tests
   execute in the same four-platform workflow.
 
+**Verified Linux/Windows matrix:** 46 tests passed in each of
+Linux Python 3.11/3.14 and Windows Python 3.11/3.14, including
+original M2 host regression tests, original M3 session/transition
+regressions and the new original numerical Qwen M1/M3 experiments:
+https://github.com/Kier73/E-CPU/actions/runs/45096226953
+
+### Cross-platform artifact identity repaired in E-CPU M2
+
+This experiment surfaced a more general source-admission invariant.
+The original M2 source enumerator initially sorted Path objects,
+whose comparisons can use case-insensitive ordering on Windows.
+The immutable manifest expects **case-sensitive POSIX-relative
+lexicographic component order** on every platform.
+
+E-CPU now sorts enumerated source records by their actual canonical
+relative path strings before constructing the manifest. This is a
+general M2 source-identity fix, not a model-specific workaround.
+The mixed-case directory regression verifies the same source
+inventory order and repeated digest on Linux and Windows.
+This prevents otherwise valid model/compiler artifact trees from
+being refused because the execution host changed operating systems.
+
 Full CI:
 https://github.com/Kier73/E-CPU/actions/workflows/vli-qwen-m3.yml
 
