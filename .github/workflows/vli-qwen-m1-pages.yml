@@ -1,0 +1,54 @@
+name: Original VL-I Qwen GDN/GQA state in E-CPU M1
+
+on:
+  push:
+    paths:
+      - "mailcpu/vli_qwen_pages.py"
+      - "tests/test_vli_qwen_m1_pages.py"
+      - ".github/workflows/vli-qwen-m1-pages.yml"
+  pull_request:
+    paths:
+      - "mailcpu/vli_qwen_pages.py"
+      - "tests/test_vli_qwen_m1_pages.py"
+      - ".github/workflows/vli-qwen-m1-pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  eight-original-layers:
+    name: 8 original VL-I GDN/GQA layers in E-CPU M1 (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, python: "3.11"}
+          - {os: ubuntu-latest, python: "3.14"}
+          - {os: windows-latest, python: "3.11"}
+          - {os: windows-latest, python: "3.14"}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Kier73/VL-64
+          ref: fea0d29d5a8a1edb03d9c66edd5ca4b15a1395d3
+          path: original-vl64
+      - uses: actions/checkout@v4
+        with:
+          repository: Kier73/VL-I
+          ref: 939b49291bb719ab531730088f759574db471c00
+          path: original-vli
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install actual source and E-CPU M1 storage
+        run: |
+          python -m pip install -e ".[dev]"
+          python -m pip install -e "./original-vl64"
+          python -m pip install -e "./original-vli[test]"
+      - name: Test original architecture and causal state via E-CPU source pages
+        env:
+          PYTHONPATH: ${{ github.workspace }}/original-vl64:${{ github.workspace }}/original-vl64/tests:${{ github.workspace }}/original-vli/tests
+        run: python -m pytest -q tests/test_vli_qwen_m1_pages.py original-vli/tests/test_qwen_architecture_process_recovery.py
