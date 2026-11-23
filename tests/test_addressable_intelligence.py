@@ -47,7 +47,7 @@ from mailcpu.vli_neural_session import (
 from mailcpu.vli_temporal_session import read_vli_temporal_checkpoint
 
 pytest.importorskip("vli.generative_response")
-pytest.importorskip("experiments.model_fabric.slice_ground")
+pytest.importorskip("vld.accel")
 from vli.generative_response import GeneratedModelGround, GenerativeConversation
 
 SLICE = (
@@ -56,13 +56,15 @@ SLICE = (
     / "2026-11-18-pretrained-bf16-slice-ground.json"
 )
 GENESIS = hashlib.sha256(b"mailcpu-recovery-lineage-genesis-v1").hexdigest()
+PINNED_TRAINED_HEAD = "36da1db26b256984abf73cfbeaf51fa7d67ed90ea7f473813e5376158bd37a74"
 
 
 def _source():
     """Admit original pretrained observations by independent historical pin."""
     raw = SLICE.read_bytes()
     source = json.loads(raw)
-    return source, source["ground_digest"]
+    assert source["ground_digest"] == PINNED_TRAINED_HEAD
+    return source, PINNED_TRAINED_HEAD
 
 
 def _compiled():
