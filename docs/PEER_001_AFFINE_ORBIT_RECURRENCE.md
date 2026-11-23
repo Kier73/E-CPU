@@ -59,6 +59,31 @@ else:
     ...
 ```
 
+### Portable static witness
+
+`issue_affine_orbit_witness(program, initial_registers)` computes the proved
+`LEAP` or `DIVERGES` result and binds it to SHA-256 identities of the
+canonical **typed instruction tuple** and starting register valuation.
+Hexadecimal integer encodings preserve values of arbitrary supported width.
+
+```python
+from mailcpu.affine_orbit import (
+    AffineOrbitWitness,
+    issue_affine_orbit_witness,
+    verify_affine_orbit_witness,
+)
+
+issued = issue_affine_orbit_witness(program, {})
+transferred = AffineOrbitWitness.from_snapshot(issued.snapshot())
+assert verify_affine_orbit_witness(transferred, program, {})
+```
+
+The receiver reconstructs the symbolic orbit from the exact program and
+starting state. Tampering, mismatched program/valuation and noncanonical
+snapshot fields are rejected. The digest is content identity, not an
+authorization signature; the Hypervisor remains responsible for execution
+admission and any cross-host authority decisions.
+
 Exponentiation uses logarithmically many matrix multiplications:
 `O(d^3 log n)` scalar operations for naive dense matrices. Integer-bit
 cost remains independently relevant; `max_registers` and `max_bits`
@@ -154,8 +179,8 @@ Dedicated CI: `.github/workflows/mailcpu-peer-orbit.yml`.
 
 ## Next experiments
 
-1. Encode an admitted affine leap as a typed, versioned structural-memory
-   witness with exact program digest and initial-state digest.
+1. Connect the new typed affine witness to Structural Memory and its
+   checkpointable provenance graph, without bypassing admission.
 2. Enable an external observer to independently reconstruct the matrix
    and verify the counter proof before admitting a leap.
 3. Connect exact leaps to the navigator and Virtual Layer through a
