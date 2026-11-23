@@ -779,3 +779,93 @@ def test_signed_vli_host_kill_after_result_publishes_only_verified_source(tmp_pa
     assert latest.checkpoint_digest == accepted.checkpoint_digest
     assert read_vli_temporal_checkpoint(latest.state_bytes)["events"][0]["host"] == "host-b"
     assert _read_result(latest.state_bytes, "signed-killed-publisher", 1)["source_authentication"]["publisher"] == source
+
+
+
+def test_real_vli_interpreter_executes_under_original_ecpu_hypervisor_authority() -> None:
+    """True E-CPU Hypervisor admits a real VL-I source operation; no-capability peer is denied."""
+    from mailcpu import (
+        Capability, HypervisorAction, HypervisorPolicy, LexicalDecisionModel,
+        OperatorRegistry, SystemIdentity, SystemSeed, SystemSeedEnvelope,
+        VirtualBudget, VirtualGroundRef, VirtualLayerRuntime, VirtualLayerWorkload,
+        VirtualOperatorRef,
+    )
+    from mailcpu.computational_host import register_computational_host_operator
+    from mailcpu.vli_temporal_host import VLI_TEMPORAL_OPERATOR_ID
+
+    reference = _reference()
+    machine = HeadlessOS()
+    machine.hypervisor.classifier = LexicalDecisionModel()
+    machine.hypervisor.policy = HypervisorPolicy(embedding_review_confidence=1.0)
+    identity = SystemIdentity("real-vli-hypervisor-system", 1)
+    envelope = SystemSeedEnvelope(
+        identity, "executor", "real-vli", SystemSeed.from_system(machine),
+    )
+    assert machine.seed_admission.admit(envelope).accepted
+    ground = VirtualGroundRef.from_envelope(envelope)
+    registry = OperatorRegistry()
+    spec = register_computational_host_operator(
+        registry, reference, operator_id=VLI_TEMPORAL_OPERATOR_ID,
+    )
+    assert spec.required_rights == frozenset({"compute"})
+    runtime = VirtualLayerRuntime(
+        registry, "vli-native-execution-node", frozenset({"cpu"}),
+    )
+    authorized_pid = machine.environment.kernel.spawn(
+        "real-vli-authorized-service",
+        capabilities=(Capability("/virtual-layer/operators", frozenset({"compute"})),),
+        parent_pid=machine.environment.init_pid,
+    )
+    unauthorized_pid = machine.environment.kernel.spawn(
+        "real-vli-unauthorized-service",
+        parent_pid=machine.environment.init_pid,
+    )
+
+    def typed_workload(name: str):
+        """Bind VL-I source computation to the original admissible seed and Hypervisor."""
+        return VirtualLayerWorkload(
+            workload_id=name,
+            system=identity,
+            ground=ground,
+            intention={"goal": {"kind": "source-qualified-temporal-observation"}},
+            operators=(VirtualOperatorRef(VLI_TEMPORAL_OPERATOR_ID, 1, "cpu"),),
+            input_value={
+                "operation": "temporal.ingest",
+                "input": {
+                    "snapshot": create_vli_temporal_genesis(
+                        "environment:time-source-drift", observer="continuing-vli",
+                    ),
+                    "host": "authorized-original-vli",
+                    "sample": _sample(0, 1),
+                },
+            },
+            budget=VirtualBudget(
+                max_energy=1_000_000, max_bytes=1_048_576, max_virtual_ticks=1000,
+            ),
+            logical_time=1,
+            eligible_nodes=("vli-native-execution-node",),
+            max_hops=2,
+        )
+
+    approved = runtime.execute_operator(
+        machine, authorized_pid, "vli-source-controller", "vli-channel",
+        1, 1, typed_workload("vli-authorized-1"), VLI_TEMPORAL_OPERATOR_ID,
+    )
+    assert approved.action is HypervisorAction.ALLOW
+    assert approved.executed is True
+    assert approved.effect["kind"] == "virtual_layer.operator_result"
+    native_output = approved.effect["result"]["output"]
+    assert native_output["result"]["active_status"] == "INSUFFICIENT"
+    assert native_output["snapshot"]["events"][0]["time"] == "0/1"
+    receipt = ComputationalHostReceipt.from_dict(approved.effect["result"]["receipt"])
+    assert receipt.status == "EXECUTED"
+    assert receipt.artifact_manifest_digest == reference.manifest.manifest_digest
+    assert machine.environment.kernel.journal.verify()
+
+    refused = runtime.execute_operator(
+        machine, unauthorized_pid, "vli-source-controller", "vli-denied-channel",
+        2, 1, typed_workload("vli-unauthorized-2"), VLI_TEMPORAL_OPERATOR_ID,
+    )
+    assert refused.executed is False
+    assert refused.action is not HypervisorAction.ALLOW
+    assert machine.environment.kernel.journal.verify()
