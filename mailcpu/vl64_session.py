@@ -14,6 +14,7 @@ import json
 import re
 from typing import Any, Callable, Mapping
 
+from .fs import FsError
 from .computational_host import (
     ComputationalBackendError,
     ComputationalHostReceipt,
@@ -75,7 +76,7 @@ def _decode(raw: bytes, label: str) -> dict[str, Any]:
 
 def encode_vl64_session_operation(operation: str, arguments: Mapping[str, Any]) -> bytes:
     """Bind a known host operation and finite JSON arguments without caller code."""
-    if operation not in {"affine.navigate", "intention.realize", "ground.cycle", "page.cow", "core.verify", "vm.nested"}:
+    if operation not in {"affine.navigate", "intention.realize", "ground.cycle", "page.cow", "core.verify", "vm.nested", "page.session"}:
         raise ComputationalTransitionError("unknown VL-64 session operation")
     if not isinstance(arguments, Mapping):
         raise ComputationalTransitionError("VL-64 arguments must be a mapping")
@@ -93,7 +94,7 @@ def _input(raw: bytes) -> tuple[str, dict[str, Any]]:
     record = _decode(raw, "VL-64 session input")
     if set(record) != {"schema", "operation", "arguments"} or record["schema"] != VL64_SESSION_INPUT_SCHEMA:
         raise ComputationalTransitionError("VL-64 session input fields or schema differ")
-    if record["operation"] not in {"affine.navigate", "intention.realize", "ground.cycle", "page.cow", "core.verify", "vm.nested"}:
+    if record["operation"] not in {"affine.navigate", "intention.realize", "ground.cycle", "page.cow", "core.verify", "vm.nested", "page.session"}:
         raise ComputationalTransitionError("VL-64 operation is unadmitted")
     if not isinstance(record["arguments"], dict):
         raise ComputationalTransitionError("VL-64 arguments are not a JSON mapping")
@@ -168,6 +169,37 @@ class VL64QuorumSessionBackend:
             raise ComputationalTransitionError("VL-64 operation_id cannot be represented as a VFS result path")
         machine = restore_headless_state(state_bytes)
         operation, arguments = _input(input_bytes)
+        if operation == "page.session":
+            if set(arguments) != {"offset", "write_hex"}:
+                raise ComputationalTransitionError("page.session input requires offset and write_hex")
+            try:
+                current_page_bytes = machine.environment.kernel.fs.read_file("/vl64/session/page-state.json")
+            except FsError as exc:
+                if "not found" not in str(exc):
+                    raise ComputationalTransitionError("VL-64 saved application state is unreadable") from exc
+                previous_hex = ""
+            else:
+                try:
+                    current_page = json.loads(current_page_bytes)
+                except (UnicodeError, ValueError) as exc:
+                    raise ComputationalTransitionError("VL-64 saved application state is corrupt") from exc
+                if not isinstance(current_page, dict) or set(current_page) != {
+                    "schema", "state_hex", "state_digest", "logical_time",
+                } or current_page["schema"] != "mailcpu.vl64-persistent-page.v1":
+                    raise ComputationalTransitionError("VL-64 saved application schema differs")
+                previous_hex = current_page["state_hex"]
+                if not isinstance(previous_hex, str) or len(previous_hex) != 512:
+                    raise ComputationalTransitionError("VL-64 saved application state has wrong length")
+                try:
+                    decoded_page = bytes.fromhex(previous_hex)
+                except ValueError as exc:
+                    raise ComputationalTransitionError("VL-64 saved application state has invalid bytes") from exc
+                if (previous_hex != decoded_page.hex()
+                    or hashlib.sha256(decoded_page + bytes(4096 - 256)).hexdigest() != current_page["state_digest"]
+                    or type(current_page["logical_time"]) is not int
+                    or current_page["logical_time"] >= context.logical_time):
+                    raise ComputationalTransitionError("VL-64 saved application state fails integrity or time check")
+            arguments = {"state_hex": previous_hex, **arguments}
         self.remote_calls += 1
         remote = self.execute_remote(operation, context.operation_id, arguments, context)
         if not isinstance(remote, dict) or set(remote) != {"context_binding_digest", "output", "receipt"}:
@@ -201,6 +233,32 @@ class VL64QuorumSessionBackend:
         reference = self.reference_host.execute(request)
         if remote["output"] != reference.output:
             raise ComputationalTransitionError("remote VL-64 result differs from independent reference")
+        if operation == "page.session":
+            page_result = remote["output"]["result"]
+            if not isinstance(page_result, dict) or set(page_result) != {
+                "state_hex", "state_digest", "manifest_digest", "page_bytes",
+            }:
+                raise ComputationalTransitionError("VL-64 persistent page result has invalid fields")
+            page_hex = page_result["state_hex"]
+            if not isinstance(page_hex, str) or len(page_hex) != 512:
+                raise ComputationalTransitionError("VL-64 persistent page result has wrong length")
+            try:
+                page_raw = bytes.fromhex(page_hex)
+            except ValueError as exc:
+                raise ComputationalTransitionError("VL-64 persistent page result has invalid bytes") from exc
+            if (page_hex != page_raw.hex()
+                or page_result["page_bytes"] != 4096
+                or hashlib.sha256(page_raw + bytes(4096 - 256)).hexdigest() != page_result["state_digest"]):
+                raise ComputationalTransitionError("VL-64 persistent page result digest differs")
+            machine.install_source(
+                "/vl64/session/page-state.json",
+                _canonical({
+                    "schema": "mailcpu.vl64-persistent-page.v1",
+                    "state_hex": page_hex,
+                    "state_digest": page_result["state_digest"],
+                    "logical_time": context.logical_time,
+                }).decode("utf-8"),
+            )
         # Host-local M2 receipt remains outside the state: a replacement host
         # may produce an equivalent semantic output and a different host receipt.
         state_record = {
