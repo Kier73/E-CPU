@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - "mailcpu/external_virtual_structure.py"
+      - "mailcpu/external_virtual_runtime.py"
       - "tests/test_external_surface_streams.py"
       - "scripts/observe_hosted_surface.py"
       - "docs/HOSTED_EXTERNAL_SURFACES.md"
@@ -11,6 +12,7 @@ on:
   pull_request:
     paths:
       - "mailcpu/external_virtual_structure.py"
+      - "mailcpu/external_virtual_runtime.py"
       - "tests/test_external_surface_streams.py"
       - "scripts/observe_hosted_surface.py"
       - "docs/HOSTED_EXTERNAL_SURFACES.md"
