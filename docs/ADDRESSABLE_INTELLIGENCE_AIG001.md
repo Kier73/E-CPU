@@ -245,6 +245,42 @@ fabric**, where source information and observer context
 are the input to processor construction rather than merely
 the input to a conventional model inference API.
 
+### First independently retained measurement
+
+The original pretrained capsule/revision, original decoder and
+complete observer receipt were exercised on the Linux Python 3.14
+GitHub Actions environment in run
+https://github.com/Kier73/E-CPU/actions/runs/45098400023.
+
+**Observed 64 novel hidden inputs:** 64 stable pair comparisons, zero
+disagreements with independent four-coordinate FP64 reference,
+zero near ties, all 64 certified before the full 576-coordinate
+dyadic dot product, mean 385.90625 coordinates, range 249..568.
+
+The exact historical trained payload contains **5,760 BF16 bytes**,
+of which **3,456** logically define the compiled behavior.
+No new remote source bytes were fetched. Four finite observed
+state coordinates generate **8 new VLD ReLU hidden units**, check
+**8/8** derived finite state/action transitions, and then
+execute a separate four-turn VL-I causal conversation.
+
+**Actual wall time, first CI runner:** cold original source
+qualification plus compiled direction 12.764 ms;
+warm full 4-row FP64 reference for 64 vectors 12.589 ms;
+warm exact integer-certificate readout for the same
+64 vectors 47.731 ms; finite neural construction 64.857 ms;
+original VL-I four-turn runtime 23.746 ms.
+
+The first implementation's proof-carrying integer arithmetic is
+approximately **3.8x slower** in the measured warm comparison
+despite examining **33% fewer signed dot-product coordinates**.
+The certificate also requires constructing vector energy sums
+and big-integer bound checks. A native vectorized/int-interval
+implementation, source-read amortization study and larger
+multi-intention workloads are the next performance tests.
+The result is a qualified behavioral *construction and
+continuity* experiment, not a claimed latency speedup.
+
 ## To Do — progressively richer formed intelligence
 
 - Replace the retained fixed trained slice with arbitrary
