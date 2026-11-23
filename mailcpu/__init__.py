@@ -1,6 +1,15 @@
 """MailCPU native headless virtual environment and communication-backed runtime."""
 
 from .interpreter import QueueInterpreter, ReferenceInterpreter
+from .counted_observer_stream import (
+    CountedCycleSummary,
+    CountedEvent,
+    CountedObserverStream,
+    CountedStreamReceipt,
+    CountedStreamRequest,
+    EmitRule,
+    verify_counted_stream_receipt,
+)
 from .affine_stream import (
     AffineSendStream,
     StreamObservation,
@@ -1044,6 +1053,13 @@ from .observed_orbit_pipeline import (
 )
 
 __all__ = [
+    "CountedCycleSummary",
+    "CountedEvent",
+    "CountedObserverStream",
+    "CountedStreamReceipt",
+    "CountedStreamRequest",
+    "EmitRule",
+    "verify_counted_stream_receipt",
     "AffineSendStream",
     "StreamObservation",
     "StreamObservationReceipt",
