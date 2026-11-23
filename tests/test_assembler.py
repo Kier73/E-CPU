@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from mailcpu import AssemblyError, assemble, disassemble
-from mailcpu.model import OPCODE_ARITY, Op
+from mailcpu.model import OPCODE_ARITY, Instruction, Op, Program
 
 
 _EXACT_ARITY_OPERANDS = {
@@ -70,3 +70,36 @@ def test_assembly_reports_invalid_source_instead_of_lowering_it() -> None:
         assemble("set r0 missing")
     with pytest.raises(AssemblyError, match="outside"):
         assemble("branch r0 4\nhalt")
+
+
+@pytest.mark.parametrize(
+    "register",
+    ("name with spaces", "name#comment", "a,b", "quote'and\\\"double",
+     "x\\\\y", "new\\nline", "tab\\tvalue", "@u:literal", "λ-cpu"),
+)
+def test_disassembly_round_trips_every_validated_register_name(register: str) -> None:
+    """Mathematics: encoded lexical operands preserve symbolic name identity over UTF-8."""
+
+    program = Program((
+        Instruction(Op.SET, (register, 19)),
+        Instruction(Op.COPY, ("receiver", register)),
+        Instruction(Op.SEND, ("mailbox", register)),
+        Instruction(Op.HALT),
+    ))
+    assert assemble(disassemble(program)) == program
+
+
+def test_quoted_commas_are_data_not_delimiters() -> None:
+    """Mathematics: shell-quoted commas remain inside a single mailbox token."""
+
+    program = assemble('SET "x,y" 3\\nSEND "message,queue" "x,y"\\nHALT\\n')
+    assert program.instructions[0].args == ("x,y", 3)
+    assert program.instructions[1].args == ("message,queue", "x,y")
+    assert assemble(disassemble(program)) == program
+
+
+def test_unicode_numerals_do_not_enter_canonical_assembly() -> None:
+    """Mathematics: numerals are ASCII tokens and cannot depend on Unicode digit aliases."""
+
+    with pytest.raises(AssemblyError, match="expected integer"):
+        assemble("SET a ١٢٣\\nHALT\\n")
