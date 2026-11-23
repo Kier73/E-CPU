@@ -1,0 +1,41 @@
+name: Stream-hosted HeadlessOS process continuity
+
+on:
+  push:
+    paths:
+      - "tests/test_stream_hosted_os.py"
+      - "tests/test_stream_os_quorum.py"
+      - "mailcpu/stream_os_session.py"
+      - ".github/workflows/stream-hosted-os.yml"
+  pull_request:
+    paths:
+      - "tests/test_stream_hosted_os.py"
+      - "tests/test_stream_os_quorum.py"
+      - "mailcpu/stream_os_session.py"
+      - ".github/workflows/stream-hosted-os.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  os-over-tcp:
+    name: Native OS / M3 quorum / TCP (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, python: "3.11"}
+          - {os: ubuntu-latest, python: "3.14"}
+          - {os: windows-latest, python: "3.11"}
+          - {os: windows-latest, python: "3.14"}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install E-CPU
+        run: python -m pip install -e ".[dev]"
+      - name: Test process migration, crash cuts and M3 quorum admission
+        run: python -m pytest -q tests/test_stream_hosted_os.py tests/test_stream_os_quorum.py tests/test_computational_transition.py tests/test_computational_session.py
