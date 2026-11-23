@@ -258,6 +258,19 @@ exact idempotent replay. This proves full execution and continuation of the
 Qwen recurrent/KV state and full decoder continuation are the next
 independently qualified neural tier.
 
+[SOI-010](docs/VLI_QWEN_CAUSAL_M1_PAGES.md) now extends model
+continuity to **original VL-I Qwen causal state**: six GDN recurrent
+and convolution layers and two gated GQA attention KV histories are
+serialized by their original VL-I/VL-64 checkpoint routines into
+E-CPU's immutable 4-KiB M1 page store. A genuine worker process can
+publish its eight-layer state, die by hard kill, and have a fresh
+Python interpreter reconstruct all layer states and continue the
+next token position with the same result/causal head as uninterrupted
+execution. This first test uses the published tiny F32 Qwen
+architecture fixture; carrying actual original 27B trained tensor
+ranges and quorum-fenced whole-decoder execution is the next
+verified model-host tier.
+
 The verified implementations distinguish native MailCPU instruction
 execution, host-bound Python interpretation, signed source provenance,
 logical application-state durability and physical source truth. The
