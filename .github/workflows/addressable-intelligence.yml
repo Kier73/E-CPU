@@ -48,4 +48,4 @@ jobs:
       - name: Verify exact pretrained behavior, generated neural law and M3 process recovery
         env:
           PYTHONPATH: ${{ github.workspace }}/original-vl64
-        run: python -m pytest -q tests/test_addressable_intelligence.py tests/test_vli_neural_model_host.py tests/test_intention_sufficiency.py tests/test_vli_neural_model_host.py
+        run: python -m pytest -q tests/test_addressable_intelligence.py tests/test_vli_neural_model_host.py tests/test_intention_sufficiency.py
