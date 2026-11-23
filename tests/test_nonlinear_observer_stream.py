@@ -198,9 +198,28 @@ class TestNCRConditionalObserverStream(unittest.TestCase):
         unknown["authorization"] = "claimed"
         with self.assertRaises(BootstrapRefused):
             NonlinearStreamReceipt.from_snapshot(unknown)
-        false_word = replace(legit, word=(1,))
+        # After rank-drain, different action words can be observationally
+        # equivalent: a changed word at a settled state may still be a valid
+        # *different* mathematical claim. Request identity is a separate pin.
+        equivalent = replace(legit, word=(1,))
+        self.assertTrue(verify_nonlinear_stream_receipt(
+            equivalent, packet=self.raw, receiver_expected_sha256=self.digest,
+            source_commit=PINNED_SOURCE,
+        ))
         self.assertFalse(verify_nonlinear_stream_receipt(
-            false_word, packet=self.raw, receiver_expected_sha256=self.digest,
+            equivalent, packet=self.raw, receiver_expected_sha256=self.digest,
+            source_commit=PINNED_SOURCE, expected_request=observer.request,
+        ))
+        self.assertTrue(verify_nonlinear_stream_receipt(
+            legit, packet=self.raw, receiver_expected_sha256=self.digest,
+            source_commit=PINNED_SOURCE, expected_request=observer.request,
+        ))
+        # Before stabilization, selecting a different source action actually
+        # changes the output and is rejected even without a request pin.
+        early = observer.issue_receipt(0)
+        different = replace(early, word=(1,))
+        self.assertFalse(verify_nonlinear_stream_receipt(
+            different, packet=self.raw, receiver_expected_sha256=self.digest,
             source_commit=PINNED_SOURCE,
         ))
 
