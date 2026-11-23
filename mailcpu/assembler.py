@@ -15,7 +15,11 @@ def _tokens(line: str, line_number: int) -> list[str]:
     """Mathematics: tokenize a source line as the finite word sequence `w_1 ... w_n` under shell quoting."""
 
     try:
-        return shlex.split(line.replace(",", " "), comments=True, posix=True)
+        lexer = shlex.shlex(line, posix=True)
+        lexer.whitespace_split = True
+        lexer.commenters = "#"
+        lexer.whitespace += ","
+        return list(lexer)
     except ValueError as exc:
         raise AssemblyError(f"line {line_number}: {exc}") from exc
 
@@ -24,9 +28,22 @@ def _parse_integer(token: str, line_number: int) -> int:
     """Mathematics: parse an operand in `Z` using Python's base-0 numeral homomorphism `parse : token -> integer`."""
 
     try:
+        if not token.isascii():
+            raise ValueError("non-ASCII numeral")
         return int(token, 0)
     except ValueError as exc:
         raise AssemblyError(f"line {line_number}: expected integer, got {token!r}") from exc
+
+
+def _decode_operand(token: str, line_number: int) -> str:
+    """Mathematics: decode the self-delimiting UTF-8 hexadecimal operand alphabet."""
+
+    if not token.startswith("@u:"):
+        return token
+    try:
+        return bytes.fromhex(token[3:]).decode("utf-8")
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise AssemblyError(f"line {line_number}: malformed encoded operand") from exc
 
 
 def _branch_target(token: str, labels: dict[str, int], line_number: int) -> int:
@@ -64,6 +81,7 @@ def assemble(source: str) -> Program:
     instructions: list[Instruction] = []
     for line_number, tokens in parsed:
         opcode_text, *operands = tokens
+        operands = [_decode_operand(token, line_number) for token in operands]
         try:
             opcode = Op(opcode_text.upper())
         except ValueError as exc:
@@ -102,6 +120,11 @@ def assemble(source: str) -> Program:
 def _format_operand(value: object) -> str:
     """Mathematics: serialize each operand under the injective textual encoding `encode : A -> tokens`."""
 
+    if isinstance(value, str) and (
+        value.startswith("@u:")
+        or any(char.isspace() or char in ",#'\\\"" or ord(char) < 32 for char in value)
+    ):
+        return "@u:" + value.encode("utf-8").hex()
     return str(value)
 
 
