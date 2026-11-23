@@ -304,10 +304,9 @@ def test_model_neural_forward_maintains_causal_chat_across_four_new_hosts(tmp_pa
         semantic = _result(updated.state_bytes, index + 1, f"neural-turn-{index}")
         assert semantic["turn"] == expected["turn"]
         assert semantic["response"] == expected["response"]
-        assert semantic["turn"]["previous"] == (
-            "nonmatching" if False else prior and
-            (read_vli_model_checkpoint(prior.state_bytes)[1]["head"])
-        )
+        assert semantic["turn"]["previous"] == read_vli_model_checkpoint(
+            prior.state_bytes
+        )[1]["head"]
         assert semantic["turn"]["neural_forward_steps"] == 1
         assert semantic["response"]["phase"] == "RENDERED"
         assert semantic["response"]["step_receipt"]["neural_step_executed"]
