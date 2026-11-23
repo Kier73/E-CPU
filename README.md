@@ -46,6 +46,20 @@ x ~F y  iff  for every action word w:
 
 The implementation refines observation-equivalent partitions to a fixed point, independently checks pairwise distinguishability, derives `ceil(log2(number_of_classes))` register bits and selects either `form.execute.compact.v1` or `form.execute.general.v1`. `realize_formed_intention` then binds the generated handler to explicitly admitted SAB-001 interpreter/observer loci and verifies the result against original-source replay. In its eight-state fixture, a parity intention forms a **two-state, one-bit** processor, while identity forms an **eight-state, three-bit** processor. Removing the cheapest interpreter changes the route while preserving the machine fingerprint and output.
 
+The [ONP-001 observation-formed processor](docs/OBSERVATION_FORMS_PROCESSOR_ONP001.md)
+now connects the *preceding* step: **observation itself constructs the
+computational law from which the processor is formed**. An observer supplies
+an intention and admitted source/host capabilities, **not** the original
+program or hidden parameters. E-CPU's existing IOS-001 planner selects the
+least-cost sufficient active observations, authenticated witnesses qualify
+their values, IPS-003 synthesizes the missing instruction sequence, and
+SAB-008's native Ground executor runs and independently verifies it.
+The 13-state arithmetic demonstration identifies one law among 169 candidates
+from two source observations, challenges a third coordinate, constructs two
+native DAG operations, and produces the intended result at an **unobserved**
+target coordinate. A held-out contradiction, ambiguous Ground, unauthorized
+provider or execution locus, or missing primitive causes an explicit refusal.
+
 The broader architecture follows **intention → sufficient Ground → formed interpreter → receiver-admitted observer/path composition → execution → checked observation**. [Research issue #204](https://github.com/Kier73/E-CPU/issues/204) tracks continuation; [IPS-002](docs/INVERSE_ARCHITECTURE_SYNTHESIS_IPS002.md) explores inverse route formation, and [VL-I PFI-001](https://github.com/Kier73/VL-I/blob/main/docs/PROBLEM_FORMED_INTERPRETER_PFI001.md) explores generated observer-relative processors.
 
 This README now links mathematical claims to exact source and tests through the [implementation-first documentation procedure](docs/IMPLEMENTATION_FIRST_DOCUMENTATION.md). That procedure keeps evidence and next experiments explicit while allowing readers to diagnose current capability from its formulas and APIs.
