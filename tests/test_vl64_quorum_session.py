@@ -331,7 +331,7 @@ def test_old_real_vl64_worker_cannot_publish_after_new_host_wins_m3(tmp_path: Pa
     assert _result(latest.state_bytes, "winner", 1)["result"]["value"] == __import__("vld").affine_navigate(
         5, 2, 3, 10**12 + 13, 257
     )
-    assert "obsolete" not in restore_headless_state(latest.state_bytes).environment.kernel.fs.listdir("/vl64/results")
+    assert not any("obsolete" in item for item in restore_headless_state(latest.state_bytes).environment.kernel.fs.listdir("/vl64/results"))
 
 
 def test_lost_worker_result_recovers_from_latest_m3_os_state(tmp_path: Path) -> None:
@@ -366,3 +366,115 @@ def test_lost_worker_result_recovers_from_latest_m3_os_state(tmp_path: Path) -> 
     assert _result(recovery.state_bytes, "retry-op", 1)["result"]["value"] == __import__("vld").affine_navigate(
         5, 1, 3, 10**12 + 13, 257
     )
+
+
+
+def _crash_cut_remote(cut, reference, process_ids):
+    """Execute real VL-64 then kill its independent interpreter at a known cut."""
+    def execute(operation, operation_id, arguments, context):
+        """Return published bytes only when the kill cut occurs after publication."""
+        request = {
+            "schema": "mailcpu.vl64-one-shot-host.v1",
+            "host_id": "host-a",
+            "context_binding_digest": context.binding_digest,
+            "artifact_manifest_digest": reference.manifest.manifest_digest,
+            "backend_fingerprint": reference.profile.fingerprint,
+            "operation_id": operation_id,
+            "session_id": context.session_id,
+            "logical_time": context.logical_time,
+            "operation": operation,
+            "arguments": arguments,
+        }
+        payload = json.dumps(request, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        process = subprocess.Popen(
+            [sys.executable, "-m", "mailcpu.vl64_worker", "--crash-cut", cut],
+            cwd=Path(__file__).resolve().parents[1],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        process_ids.append(process.pid)
+        try:
+            if cut == "before_publish":
+                output, error = process.communicate(payload, timeout=30)
+                assert process.returncode != 0
+                assert not output
+                raise ConnectionError("worker killed after computation before publication")
+            assert process.stdin is not None and process.stdout is not None
+            process.stdin.write(payload)
+            process.stdin.close()
+            line = process.stdout.readline()
+            assert line, "worker never published VL-64 result before hard kill"
+            assert process.poll() is None, "worker completed before deliberate hard kill"
+            process.kill()
+            process.wait(timeout=20)
+            assert process.returncode != 0
+            return json.loads(line)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=20)
+            for stream in (process.stdin, process.stdout, process.stderr):
+                if stream is not None:
+                    stream.close()
+    return execute
+
+
+def test_real_vl64_worker_killed_before_publication_recovers_same_m3_lineage(tmp_path: Path) -> None:
+    """No committed VL-64 work is invented when its host dies with private output."""
+    reference = _reference()
+    backing = PageBacking()
+    store = _store(tmp_path, backing, reference)
+    initial = store.create_session(_initial_os())
+    process_ids = []
+    interrupted, interrupted_adapter = _adapter(
+        store, reference, _crash_cut_remote("before_publish", reference, process_ids),
+    )
+    with pytest.raises(ComputationalTransitionError, match="backend failed"):
+        interrupted_adapter.apply(_affine(1), operation_id="hard-kill-before")
+    assert interrupted.remote_calls == 1
+    assert store.load_latest().checkpoint_digest == initial.checkpoint_digest
+    accepted_backend, accepted_adapter = _adapter(
+        _store(tmp_path, backing, reference), reference,
+        _remote("host-b", process_ids, reference),
+    )
+    accepted = accepted_adapter.apply(
+        _affine(1), operation_id="hard-kill-before",
+        expected_revision=initial.revision,
+        expected_checkpoint_digest=initial.checkpoint_digest,
+    )
+    assert accepted.revision == 2
+    assert accepted_backend.remote_calls == 1
+    assert len(process_ids) == len(set(process_ids)) == 2
+    assert _result(accepted.state_bytes, "hard-kill-before", 1)["result"]["value"] == (
+        __import__("vld").affine_navigate(5, 1, 3, 10**12 + 13, 257)
+    )
+
+
+def test_real_vl64_worker_killed_after_result_publish_commits_then_replays(tmp_path: Path) -> None:
+    """OS state is quorum-committed once even though worker died before its final ACK."""
+    reference = _reference()
+    backing = PageBacking()
+    store = _store(tmp_path, backing, reference)
+    initial = store.create_session(_initial_os())
+    processes = []
+    backend, adapter = _adapter(
+        store, reference, _crash_cut_remote("after_publish", reference, processes),
+    )
+    accepted = adapter.apply(
+        _affine(1), operation_id="hard-kill-after",
+        expected_revision=initial.revision,
+        expected_checkpoint_digest=initial.checkpoint_digest,
+    )
+    assert accepted.revision == 2
+    assert backend.remote_calls == 1
+    assert len(processes) == 1
+    assert _result(accepted.state_bytes, "hard-kill-after", 1)["result"]["value"] == (
+        __import__("vld").affine_navigate(5, 1, 3, 10**12 + 13, 257)
+    )
+    replay, replay_adapter = _adapter(
+        _store(tmp_path, backing, reference), reference,
+        lambda *_args: (_ for _ in ()).throw(AssertionError("worker was relaunched")),
+    )
+    duplicate = replay_adapter.apply(_affine(1), operation_id="hard-kill-after")
+    assert duplicate.replayed
+    assert duplicate.checkpoint_digest == accepted.checkpoint_digest
+    assert replay.remote_calls == 0
