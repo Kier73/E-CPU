@@ -393,8 +393,14 @@ def test_offline_certificate_rejects_forged_remote_receipt(tmp_path) -> None:
     assert verify_certificate_against_member_journals(membership, proposal, genuine, paths)
 
 
-def test_owner_real_process_exit_after_decision_fsync_recovers_five_member_quorum(tmp_path) -> None:
-    """Mathematics: a dead owner process leaves one immutable decision; fresh processes rejoin its three-of-five certificate."""
+
+@pytest.mark.parametrize(
+    "cut", ("owner_prepare", "owner_vote_observation", "owner_decision")
+)
+def test_owner_real_process_death_recovers_five_member_quorum_at_durable_cuts(
+    tmp_path, cut: str
+) -> None:
+    """Mathematics: three hard owner-process deaths resume one exact quorum history from durable journal bytes."""
 
     membership = SeedCommitMembership("system-A", 1, ("A", "B", "C", "D", "E"), "A", 1, GENESIS)
     proposal = _proposal(membership)
@@ -413,27 +419,49 @@ membership = SeedCommitMembership("system-A", 1, ("A", "B", "C", "D", "E"), "A",
 proposal = SeedCommitProposal(membership.digest, "system-A", 1, "A", 1, 1, "0" * 64, "a" * 64, "1" * 64)
 ledger = DurableSeedCommitLedger(sys.argv[1], "A", membership)
 owner_vote = ledger.prepare(proposal)
+if sys.argv[3] == "owner_prepare":
+    os._exit(91)
 peer_votes = [SeedPrepareVote.from_snapshot(v) for v in json.loads(sys.argv[2])]
+for vote in peer_votes:
+    ledger.observe_vote(proposal, vote)
+if sys.argv[3] == "owner_vote_observation":
+    os._exit(92)
 certificate = SeedCommitCertificate(membership.digest, proposal.digest, (owner_vote, *peer_votes))
 ledger.commit(proposal, certificate)
-os._exit(91)
+os._exit(93)
 '''
     completed = subprocess.run(
         [sys.executable, "-c", child, str(paths["A"]),
-         json.dumps([prepared[member].snapshot() for member in ("B", "C")])],
+         json.dumps([prepared[member].snapshot() for member in ("B", "C")]), cut],
         check=False, capture_output=True, text=True,
     )
-    assert completed.returncode == 91, completed.stderr
+    expected_exit = {"owner_prepare": 91, "owner_vote_observation": 92, "owner_decision": 93}
+    assert completed.returncode == expected_exit[cut], completed.stderr
 
-    # No Python state or socket object from the dead owner is reused.
+    # A new runtime reopens only the durable owner journal, not the killed process.
     reopened = DurableSeedCommitLedger(paths["A"], "A", membership)
-    assert reopened.committed_state() == (1, NEXT)
     assert reopened.verify()
     recovered_proposal = reopened.proposal_at(1)
     assert recovered_proposal == proposal
-    certificate = reopened.certificate(proposal)
-    assert certificate is not None
-    assert verify_certificate_against_member_journals(membership, proposal, certificate, paths)
+    owner_vote = reopened.prepared_vote(proposal)
+    assert owner_vote is not None
+    observed = reopened.observed_votes(proposal)
+    assert len(observed) == (0 if cut == "owner_prepare" else 2)
+
+    certificate = SeedCommitCertificate(
+        membership.digest, proposal.digest,
+        (owner_vote, prepared["B"], prepared["C"]),
+    )
+    assert verify_certificate_against_member_journals(
+        membership, proposal, certificate, paths
+    )
+    if cut == "owner_decision":
+        assert reopened.committed_state() == (1, NEXT)
+        assert reopened.certificate(proposal) == certificate
+    else:
+        assert reopened.committed_state() is None
+        reopened.commit(proposal, certificate)
+    assert reopened.committed_state() == (1, NEXT)
     with pytest.raises(SeedCommitLedgerError, match="already prepared"):
         reopened.prepare(_proposal(membership, result=OTHER))
 
