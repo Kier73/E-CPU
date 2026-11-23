@@ -245,6 +245,22 @@ fabric**, where source information and observer context
 are the input to processor construction rather than merely
 the input to a conventional model inference API.
 
+### Cross-platform verification
+
+The expanded original-source integration workflow completed successfully
+on **Linux Python 3.11/3.14 and Windows Python 3.11/3.14**:
+**20 tests passed in each job (80 test executions)**.
+https://github.com/Kier73/E-CPU/actions/runs/45098400023
+
+All four *independent platform/interpreter jobs* measured the same
+**64/64 held-out original-model preferences**, zero numerical
+disagreements, **64/64 early certificates**, the exact same
+**385.90625 / 576** average dot coordinates and the same
+generated model Ground digest
+d9a3fe1a641b1f2bff920fe9cb4e80410be075908b969b6ab7742863e70e636f.
+Wall time varied by operating system and machine; all four
+preserved exactly the same source/behavior/formational identity.
+
 ### First independently retained measurement
 
 The original pretrained capsule/revision, original decoder and
