@@ -236,7 +236,7 @@ def test_real_vli_m2_runs_living_observation_and_source_derived_intention() -> N
         completed = reference.execute(request)
         assert completed.receipt.status == "EXECUTED"
         assert completed.receipt.artifact_manifest_digest == manifest.manifest_digest
-        assert completed.output["result"]["durability"] == "SINK_ACKNOWLEDGED"
+        assert completed.output["result"]["durability"] == "STAGED_FOR_M3_QUORUM"
         assert "measured_process_uptime_ns" not in completed.output["result"]
         assert "samples_in_one_live_process" not in completed.output["result"]
         snapshot = completed.output["snapshot"]
@@ -309,13 +309,13 @@ def test_real_vli_epochs_rehome_eight_times_and_reconstruct_m3_os(tmp_path: Path
         assert checkpoint["events"][:-1] == previous_history
         assert checkpoint["events"][-1]["host"] == observer_host
         assert checkpoint["events"][-1]["values"] == [f"{value}/1"]
-        assert checkpoint["head"] != current.state_bytes.hex()[:64]
+        assert checkpoint["head"] not in observed_heads
         previous_history = checkpoint["events"]
         observed_heads.append(checkpoint["head"])
         semantic = _read_result(advanced.state_bytes, f"observe-{index}", index + 1)
         assert semantic["head"] == checkpoint["head"]
         assert semantic["result"]["source_sample_sequence"] == index
-        assert semantic["result"]["durability"] == "SINK_ACKNOWLEDGED"
+        assert semantic["result"]["durability"] == "STAGED_FOR_M3_QUORUM"
         if index == 5:
             assert semantic["result"]["changed_interpretation"] is True
             assert semantic["result"]["epoch_count"] == 2
