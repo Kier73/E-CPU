@@ -3,7 +3,7 @@
 ## Origin and objective
 
 This integration is derived from three peer explorations supplied as
-\`orbit_leap.py\`, \`bm_lift.py\`, and \`ec_probes.py\`. The peer algorithms were
+`orbit_leap.py`, `bm_lift.py`, and `ec_probes.py`. The peer algorithms were
 adapted to E-CPU's typed MailCPU instruction model and verification practices.
 
 The new path connects **native instruction transitions → symbolic structural
@@ -15,15 +15,15 @@ authority.
 
 ## A. Symbolic orbit leap: a verified computational structure
 
-Implementation: \`mailcpu/affine_orbit.py\` and
-\`tests/test_affine_orbit.py\`.
+Implementation: `mailcpu/affine_orbit.py` and
+`tests/test_affine_orbit.py`.
 
-The admitted native instruction fragment is \`SET\`, \`COPY\`, and \`ADD\`,
-together with exactly one backward \`BRANCH\` and a terminal \`HALT\`.
+The admitted native instruction fragment is `SET`, `COPY`, and `ADD`,
+together with exactly one backward `BRANCH` and a terminal `HALT`.
 The prefix, loop body, and suffix are finite affine maps on the homogeneous
-register vector \`x=(r_1,...,r_d,1)\`.
+register vector `x=(r_1,...,r_d,1)`.
 
-\`\`\`text
+```text
 P = affine map of prefix
 B = affine map of branch body (one iteration)
 S = affine map of suffix before HALT
@@ -32,19 +32,19 @@ c(k) = c(0) + k * delta
 n = least positive integer with c(n) = 0
 x_final = S * B^n * P * x_initial
 steps = prefix_length + n * (body_length + 1) + suffix_length
-\`\`\`
+```
 
-The proof requires the \`c\` row of \`B\` to be the identity in \`c\`
+The proof requires the `c` row of `B` to be the identity in `c`
 plus a constant and contributions from **unchanged registers only**.
-If \`delta != 0\` and \`-c(0)/delta\` is a positive integer, its exact
-iteration count yields \`LEAP\`. If no positive integer zero exists, the
-same invariant yields \`DIVERGES\`. If the control/counter expression
-cannot be proved in this fragment, the verdict is \`REFUSED\`.
+If `delta != 0` and `-c(0)/delta` is a positive integer, its exact
+iteration count yields `LEAP`. If no positive integer zero exists, the
+same invariant yields `DIVERGES`. If the control/counter expression
+cannot be proved in this fragment, the verdict is `REFUSED`.
 
 No interpreter trace is synthesized; a leap returns final registers,
 program counter, counted semantic steps, and the counter witness.
 
-\`\`\`python
+```python
 from mailcpu.affine_orbit import leap_affine_loop
 
 result = leap_affine_loop(program, initial_registers={"seed": 3})
@@ -57,35 +57,35 @@ elif result.verdict == "DIVERGES":
 else:
     # Outside this fragment or the allocation budget.
     ...
-\`\`\`
+```
 
 Exponentiation uses logarithmically many matrix multiplications:
-\`O(d^3 log n)\` scalar operations for naive dense matrices. Integer-bit
-cost remains independently relevant; \`max_registers\` and \`max_bits\`
+`O(d^3 log n)` scalar operations for naive dense matrices. Integer-bit
+cost remains independently relevant; `max_registers` and `max_bits`
 admit bounded dimensions and coefficient arithmetic before each large
 matrix multiplication. The bound is conservative; refusal makes no
 semantic claim. No global execution step budget was increased.
 
 ## B. Recurrence observer: finite evidence, conditional future
 
-Implementation: \`mailcpu/recurrence_observer.py\` and
-\`tests/test_recurrence_observer.py\`.
+Implementation: `mailcpu/recurrence_observer.py` and
+`tests/test_recurrence_observer.py`.
 
-For an observed exact sequence \`s_0, ..., s_(N-1)\`, Berlekamp–Massey
-over rational numbers finds minimal order \`L\` and coefficients
-\`c_1, ..., c_L\` fitting the observed window:
+For an observed exact sequence `s_0, ..., s_(N-1)`, Berlekamp–Massey
+over rational numbers finds minimal order `L` and coefficients
+`c_1, ..., c_L` fitting the observed window:
 
-\`\`\`text
+```text
 s[k] = c[1]*s[k-1] + ... + c[L]*s[k-L]
 every observed equation k >= L is re-verified
 N >= 2*L + margin  (default margin = 3)
-\`\`\`
+```
 
 Verdicts:
 
-- \`WINDOW_VERIFIED\`: all available equations are exact and the sample
+- `WINDOW_VERIFIED`: all available equations are exact and the sample
   count exceeds the stated redundancy margin.
-- \`UNRESOLVED\`: observation does not establish even that evidence level.
+- `UNRESOLVED`: observation does not establish even that evidence level.
 
 An observed fit is **not a mathematical proof about unseen samples**.
 A deliberately corrupted next Fibonacci term demonstrates why a window
@@ -93,8 +93,8 @@ certificate must never authorize future state publication by itself.
 
 Two independent evaluators implement conditional extrapolation:
 
-- \`nth_recurrence_matrix\`: companion matrix power.
-- \`nth_recurrence_polynomial\`: polynomial exponentiation in the
+- `nth_recurrence_matrix`: companion matrix power.
+- `nth_recurrence_polynomial`: polynomial exponentiation in the
   characteristic quotient ring (Kitamasa-style reduction).
 
 They agree for the same *assumed* recurrence. Their agreement does
@@ -103,7 +103,7 @@ The Fibonacci MailCPU test crosschecks the observed coefficients with
 the independent symbolic affine map, which *does* establish the
 relevant exact transition law for that program.
 
-\`\`\`python
+```python
 from mailcpu.recurrence_observer import (
     infer_recurrence_window,
     nth_recurrence_matrix,
@@ -116,20 +116,20 @@ if window.verdict == "WINDOW_VERIFIED":
     value_a = nth_recurrence_matrix(window.coefficients, window.samples[:window.order], 100)
     value_b = nth_recurrence_polynomial(window.coefficients, window.samples[:window.order], 100)
     assert value_a == value_b
-\`\`\`
+```
 
 Only exact integer/rational values are admitted. The evaluators have
 an exact-rational bit-cost gate.
 
 ## C. Adversarial peer probes
 
-Source: \`ec_probes.py\`. Results from its interpreter P1–P3, P5, P8–P10
+Source: `ec_probes.py`. Results from its interpreter P1–P3, P5, P8–P10
 probes were integrated into the earlier interpreter audit
-(\`docs/AUDIT_001_INTERPRETER_QUORUM.md\` and existing conformance tests).
+(`docs/AUDIT_001_INTERPRETER_QUORUM.md` and existing conformance tests).
 
 The still-open journal and resource findings are represented as
 **strict expected-failure regression targets** in
-\`tests/test_peer_audit_probes.py\`: non-string mapping key collisions,
+`tests/test_peer_audit_probes.py`: non-string mapping key collisions,
 tuple/list payload collisions, snapshot sequence coercion, nonfinite
 number admission, and multiplicative integer bit growth under an
 instruction-only step budget.
@@ -142,15 +142,15 @@ explicit versioning and migration plan.
 
 ## Verification
 
-\`\`\`bash
+```bash
 python -m pytest -q \
     tests/test_affine_orbit.py \
     tests/test_recurrence_observer.py \
     tests/test_peer_audit_probes.py \
     tests/test_conformance.py
-\`\`\`
+```
 
-Dedicated CI: \`.github/workflows/mailcpu-peer-orbit.yml\`.
+Dedicated CI: `.github/workflows/mailcpu-peer-orbit.yml`.
 
 ## Next experiments
 
