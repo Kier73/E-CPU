@@ -60,5 +60,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: hss002-live-deepseek-virtual-structure
-          path: artifacts/deepseek-live-source-addresses.json
+          path: artifacts/deepseek-virtual-structure.json
           if-no-files-found: warn
