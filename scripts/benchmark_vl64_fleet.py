@@ -125,6 +125,8 @@ def _worker_case(index: int) -> dict[str, Any]:
         }),
         ("ground.cycle", {"initial": index % 4, "steps": 10**12 + index}),
         ("page.cow", {"payload_hex": ("vl64-vm-%04d" % index).encode().hex()}),
+        ("core.verify", {}),
+        ("vm.nested", {"payload_hex": ("nested-vm-%04d" % index).encode().hex()}),
     )
     receipts = []
     outputs = []
@@ -170,6 +172,10 @@ def _worker_case(index: int) -> dict[str, Any]:
         raise RuntimeError("VL-64 observed cycle result is wrong")
     if not outputs[3]["isolated"]:
         raise RuntimeError("VL-64 PageSpace fork did not isolate its writes")
+    if outputs[4]["status"] != "PASS" or outputs[4]["total_assertions"] != 5:
+        raise RuntimeError("VL-64 complete core verification failed")
+    if not outputs[5]["isolated"] or not outputs[5]["wx_refused"]:
+        raise RuntimeError("nested real VL-64 HeadlessOS failed CoW or W^X protection")
 
     observed = observe_headless_os_state(operating_system)
     state = operating_system.snapshot()
@@ -247,9 +253,9 @@ def benchmark_case(
         len(results) == admitted
         and len(set(identities)) == admitted
         and len({item["host_pid"] for item in results}) == admitted
-        and len({d for item in results for d in item["operation_receipt_digests"]}) == admitted * 4
+        and len({d for item in results for d in item["operation_receipt_digests"]}) == admitted * 6
         and all(item["guest_resident_pages"] == 2
-                and item["vl64_operations"] == 4
+                and item["vl64_operations"] == 6
                 and item["checkpoint_recovered"]
                 and item["journal_valid"]
                 for item in results)
@@ -266,7 +272,7 @@ def benchmark_case(
         "guest_resident_pages": admitted * 2,
         "guest_resident_bytes": admitted * 2 * PAGE_SIZE,
         "real_vl64_host_process_count": len({item["host_pid"] for item in results}),
-        "vl64_operation_count": 4 * admitted,
+        "vl64_operation_count": 6 * admitted,
         "all_vm_checks_passed": all_valid,
         "total_snapshot_bytes": sum(item["os_snapshot_bytes"] for item in results),
         "fleet_wall_ns": perf_counter_ns() - began,
