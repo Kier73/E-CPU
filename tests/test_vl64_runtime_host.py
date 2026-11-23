@@ -162,10 +162,23 @@ def test_real_vl64_core_is_admitted_and_hosted_under_e_cpu_hypervisor() -> None:
     assert page["result"]["isolated"]
     assert page["result"]["parent_digest"] != page["result"]["child_digest"]
 
+    verified, _ = _execute(
+        machine, identity, ground, runtime, pid, 0, "core.verify", {}, 5,
+    )
+    assert verified["result"]["status"] == "PASS"
+    assert verified["result"]["total_assertions"] == 5
+
+    nested, _ = _execute(
+        machine, identity, ground, runtime, pid, 0,
+        "vm.nested", {"payload_hex": b"embedded-vl64-os".hex()}, 6,
+    )
+    assert nested["result"]["isolated"]
+    assert nested["result"]["wx_refused"]
+
     assert machine.environment.kernel.journal.verify()
     restored = HeadlessOS.from_snapshot(machine.snapshot())
     assert compare_headless_os_states(machine, restored).equivalent
-    assert adapter.executions == 4
+    assert adapter.executions == 6
     host.unload()
     assert not host.is_loaded
 
