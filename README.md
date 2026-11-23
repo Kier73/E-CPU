@@ -285,6 +285,19 @@ The first verified source is the original tiny F32 Qwen architecture
 fixture, not pretrained 27B inference; see the linked document for
 the qualified original-weight and full-decoder path.
 
+[AIG-001](docs/ADDRESSABLE_INTELLIGENCE_AIG001.md) explores
+**intention-compiled intelligence from externally hosted model structure**.
+Using VL-64's actual source-qualified SmolLM2 BF16 trained tensor
+observations, E-CPU forms an exact integer-certified pairwise
+Q-projection operator for a requested model behavior; the original
+four-row projection is an independent numerical reference, not a
+mandatory execution path. The same qualified behavior observations
+become a new VLD-generated VL-I neural model, which E-CPU hosts
+through its existing M2/M3 process-replacement and quorum authority.
+This distinguishes reconstructing a particular pretrained
+behavior from forming an original stateful processor from the
+observed model's computational structure.
+
 The verified implementations distinguish native MailCPU instruction
 execution, host-bound Python interpretation, signed source provenance,
 logical application-state durability and physical source truth. The
