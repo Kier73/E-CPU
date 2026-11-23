@@ -341,7 +341,9 @@ class AffineOrbitWitness:
         ):
             raise AffineOrbitRefused("witness register valuation is malformed")
         registers = tuple((name, _decode_optional_hex(value)) for name, value in r["registers"])
-        if any(value is None for _, value in registers) or tuple(sorted(registers)) != registers:
+        if (any(value is None for _, value in registers)
+                or len({name for name, _ in registers}) != len(registers)
+                or tuple(sorted(registers)) != registers):
             raise AffineOrbitRefused("witness registers must be unique sorted integer names")
         result = AffineLeapResult(
             r["verdict"], r["reason"],
