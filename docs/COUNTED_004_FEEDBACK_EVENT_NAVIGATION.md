@@ -81,6 +81,22 @@ This is a cocycle: exact counts are transported with the state change.
 It is associative, so count summaries admit powering, independently of
 whether the source's original transition is linear.
 
+The implementation provides a reusable `CountedTransfer(destinations,
+emission_counts)` with exact `then()` composition and
+`power(n)` by exponentiation by squaring. For Q quotient states,
+`power(n)` requires O(Q log n) integer/map operations. The query-facing
+cycle inversion remains O(1) big-integer operations after preprocessing.
+
+`CountedObserverStream` builds the one-word transfer on **every** quotient
+state, not only on the requested orbit. On admission it independently
+powers the cocycle through `mu+lambda` and checks both the final quotient
+state and cumulative event count against its cycle construction.
+
+The public `count_via_cocycle(n)` and `quotient_via_cocycle(n)`
+methods provide a second exact navigation path. Tests compare both
+methods with direct reference replay and the cycle-index formulas,
+including distant logical coordinates.
+
 ## Exact event ordinal inversion
 
 A deterministic endomorphism on a finite reachable quotient has an
@@ -202,9 +218,10 @@ period, not by executing `10^100` nonlinear transitions.
   most Q; at most Q word iterations are compiled.
 - Preprocessing: O(Q * word_length * emission_rules) predicate and
   transition evaluations, plus existing quotient construction/checking.
-- Query: O(1) big-integer arithmetic operations after admission.
-  Bit-complexity grows with the requested event index; up to 4096
-  logical-coordinate bits are admitted.
+- Query by cycle: O(1) big-integer arithmetic operations after admission.
+  Alternative query through count cocycle powering: O(Q log n) exact
+  additions/map indexing. Bit-complexity grows with the requested event
+  index; up to 4096 logical-coordinate bits are admitted.
 - Memory: O(Q * word_length * emission_rules) templates.
 - Each typed receipt is checked by an independent new construction of
   the observer quotient and counted orbit from the receiver's source,
