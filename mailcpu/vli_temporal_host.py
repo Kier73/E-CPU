@@ -188,6 +188,9 @@ class VLITemporalBackendAdapter:
                 key: value for key, value in raw_decision.items()
                 if key not in {"measured_process_uptime_ns", "samples_in_one_live_process"}
             }
+            # The native VL-I sink above only stages a candidate in this
+            # process. Only the enclosing E-CPU M3 CAS may declare durability.
+            result["durability"] = "STAGED_FOR_M3_QUORUM"
         elif request.operation == "temporal.inquire":
             living_observer = living.LiveTemporalObserver(ground, host="intention-observer")
             result = living_observer.intention(strategy=args["strategy"])
