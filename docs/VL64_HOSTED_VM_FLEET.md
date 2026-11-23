@@ -4,31 +4,36 @@
 
 The E-CPU core hosts a **real, pinned VL-64 0.7.0 source package** through
 its original M2 ComputationalBackendAdapter and Virtual Layer Hypervisor. A
-benchmark on one Linux GitHub Actions runner created **32 separate fresh
+benchmark on one Linux GitHub Actions runner created **64 separate fresh
 Python processes**, each independently booting a HeadlessOS, its native
 MailCPUVirtualMachine, scheduler, virtual guest memory and kernel, and
 binding a genuine imported vld runtime to a locally registered M2 operator.
 
-Run: https://github.com/Kier73/E-CPU/actions/runs/45088291787
+Run (original 4-op baseline): https://github.com/Kier73/E-CPU/actions/runs/45088291787
+
+Current six-operation, 64-instance benchmark and cross-platform CI:
+https://github.com/Kier73/E-CPU/actions/runs/45088977273
 Pinned VL-64 source commit: fea0d29d5a8a1edb03d9c66edd5ca4b15a1395d3
 
 | Observation | Measured |
 |---|---:|
-| Accepted HeadlessOS/VM instances | 32 |
-| Distinct actual Python host-process IDs | 32 |
+| Accepted HeadlessOS/VM instances | 64 |
+| Distinct actual Python host-process IDs | 64 |
 | Peak simultaneous Python VM-host workers (orchestrator ceiling) | 8 |
-| Native VL-64 operations via M2/Hypervisor | 128 |
-| Full guest working-set bytes (2 pages/VM) | 262,144 B |
-| Combined full OS snapshot encoding | 8,027,228 B |
-| Total fleet wall time in this runner trial | 7.0086 s |
-| Checkpoints and math/receipt checks | 32/32 accepted |
-| VM count refused under 64-page budget | 0 |
+| Native VL-64 operations via M2/Hypervisor | 384 |
+| Full guest working-set bytes (2 pages/VM) | 524,288 B |
+| Combined full OS snapshot encoding | 20,880,424 B |
+| Total fleet wall time in this runner trial | 10.2635 s |
+| Checkpoints and math/receipt checks | 64/64 accepted |
+| VM count refused under 128-page budget | 8 of 72 requested |
+| Actual VL-64 core source footprint | 65,460 bytes |
+| Host RSS at completion (mean, Linux) | 46,038,592 B per Python process |
 | Source package content digest | c7e670767c7f4470b96f8c4fae3fe8199d708165b7e779b0af7dd873c9e17256 |
 
-This 32-instance result establishes an admitted count for the **declared
+This 64-instance result establishes an admitted count for the **declared
 logical guest-page budget and bounded VL-64 workload**. It is a density
 sample, not an exhaustive physical RAM maximum or sustained throughput claim.
-The 262 KiB count is guest pages, not host Python resident memory. The
+The 512 KiB count is guest pages, not host Python resident memory; measured post-work Python RSS averaged about 46.04 MB per host. The
 benchmark schedules up to eight worker processes at once; each VM still
 receives a unique process on execution.
 
@@ -66,13 +71,16 @@ supplied as user-authored code. Current operations:
 - intention.realize — genuine vld.IntentionCompiler with selected plan receipt;
 - ground.cycle — genuine vld.ObservedGround with observed closed cycle;
 - page.cow — genuine vld.PageSpace parent/child copy-on-write.
+- core.verify — genuine vld.run_self_verification (five invariants).
+- vm.nested — genuine vld.HeadlessOS fork, CoW bytes, descriptors and W^X refusal.
+- page.session — mutable vld.PageSpace application bytes preserved by M3.
 
 M2 results bind the exact source manifest digest, implementation/profile
 fingerprint, request/input digest, host ID, logical time, output bytes and a
 deterministic EXECUTED receipt. The enclosing Virtual Layer/Hypervisor
 operation is responsible for deciding and recording the committed effect.
 
-The current operation set is small but uses four different classes of the
+The finite operation set uses genuine VL-64 operators across different classes of the
 actual VL-64 runtime. Broader functions are added through explicitly
 registered backend methods, not broad reflective Python execution.
 
@@ -173,3 +181,48 @@ actual host RSS and not inferred from 4 KiB guest page totals.
 The platform has demonstrably hosted real VL-64 packages at 32 independent
 observer-host loci. Hosting a complete VL-I process is a next integration
 task, not an extrapolated claim from the four pure VL-64 methods.
+
+
+## SOI-005 — Persistent genuine VL-64 application memory
+
+The first durable VL-64 service stores a bounded 256-byte live
+application region (executed through the actual 4 KiB vld.PageSpace)
+at the native virtual OS path /vl64/session/page-state.json.
+The caller supplies only an offset and write bytes; the M3
+controller reconstructs the authoritative previous state from its
+quorum-verified OS snapshot, checks its full-page digest and prior
+logical timestamp, then binds these bytes into the source-admitted
+M2 request. The remote worker may propose a successor but cannot
+supply an alternative historical source.
+
+After the independent M2 reference re-executes the same actual vld
+PageSpace transition and agrees with the remote output, the controller
+writes the new application memory and digest inside native HeadlessOS
+VFS and uses original M3 CAS to commit its complete successor state.
+The host-specific M2 execution receipt remains outside the
+quorum-committed state; that state retains portable semantic results.
+
+The tests advance the same PageSpace via three separate real Python
+interpreter hosts, reopening the M3 store on every revision:
+
+    initial -> "vl64" -> "vl64-m3-" -> "vl64-m3-state"
+
+They verify byte identity, full-page SHA-256, logical time, earlier
+results, M3 lineage, exact no-reexecution retries and refusal of a
+corrupted predecessor application state **before remote execution**.
+
+This qualifies a portable bounded mutable application memory, not
+the entire arbitrary VL-I Python process heap or pretrained neural
+KV cache. Scaling means moving large state into M1 page manifests
+and recovering only the page ranges a new observer needs.
+
+## SOI-006 — Synchronized fleet capacity
+
+The new simultaneous_gate mode requires every admitted VM/host
+subprocess to boot its native E-CPU OS, load the source-admitted VL-64
+backend, publish a ready PID and block before the orchestrator
+releases *any* application operations. The report records the exact
+simultaneous_live_ready_count. A requested gate larger than
+max_concurrent_processes fails admission before subprocess startup.
+Use the published CI artifact to distinguish 64 processes over time
+from 64 actually live and prepared simultaneously.
