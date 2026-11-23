@@ -36,6 +36,6 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - name: Install E-CPU
-        run: python -m pip install -e ".[dev,vgi]"
+        run: python -m pip install -e ".[dev]"
       - name: Test process migration, crash cuts and M3 quorum admission
         run: python -m pytest -q tests/test_stream_hosted_os.py tests/test_stream_os_quorum.py tests/test_computational_transition.py tests/test_computational_session.py
