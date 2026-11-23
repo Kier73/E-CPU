@@ -57,7 +57,9 @@ def _names_of(instructions: Sequence[Instruction]) -> set[str]:
     return names
 
 
-def _symbolic(instructions: Sequence[Instruction], names: tuple[str, ...]) -> list[list[int]]:
+def _symbolic(
+    instructions: Sequence[Instruction], names: tuple[str, ...], *, max_bits: int
+) -> list[list[int]]:
     """Mathematics: compose each assignment as one integer homogeneous affine matrix."""
 
     indices = {name: index for index, name in enumerate(names)}
@@ -81,6 +83,8 @@ def _symbolic(instructions: Sequence[Instruction], names: tuple[str, ...]) -> li
                 left + right
                 for left, right in zip(rows[indices[args[1]]], rows[indices[args[2]]])
             ]
+        if any(abs(value).bit_length() > max_bits for value in row):
+            raise AffineOrbitRefused("symbolic coefficient exceeds the integer-bit admission")
         rows[indices[args[0]]] = row
     return rows + [[0] * count + [1]]
 
@@ -180,9 +184,9 @@ def leap_affine_loop(
         names = tuple(sorted(_names_of(ins) | set(initial_registers)))
         if len(names) > max_registers:
             raise AffineOrbitRefused("register dimension exceeds admission")
-        prefix_matrix = _symbolic(prefix, names)
-        body_matrix = _symbolic(body, names)
-        suffix_matrix = _symbolic(suffix[:-1], names)
+        prefix_matrix = _symbolic(prefix, names, max_bits=max_bits)
+        body_matrix = _symbolic(body, names, max_bits=max_bits)
+        suffix_matrix = _symbolic(suffix[:-1], names, max_bits=max_bits)
         homogeneous = len(names)
         vector = [initial_registers.get(name, 0) for name in names] + [1]
         after_prefix = _apply(prefix_matrix, vector, max_bits=max_bits)
