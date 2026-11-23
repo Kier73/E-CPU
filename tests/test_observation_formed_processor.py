@@ -140,9 +140,9 @@ def test_observation_ground_has_no_algorithm_until_measured():
 
 
 def test_sufficiency_refuses_indistinguishable_one_coordinate():
-    req = request()
+    req = request(12, 9)
     witness_offers = offers(req, positions=(0, 4, 8), costs=(1, 1, 1))
-    sensor, log = sensors()
+    sensor, log = sensors(modulus=12)
     with pytest.raises(ObservationFormationRefused, match="permitted observations"):
         run(req=req, probe_offers=witness_offers, sensor=sensor)
     assert log == []  # no demand for observations without a provable plan
