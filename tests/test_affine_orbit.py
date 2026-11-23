@@ -84,7 +84,7 @@ def test_affine_randomized_independent_differential_corpus() -> None:
 
     rng = random.Random(7)
     tallies = {"LEAP": 0, "DIVERGES": 0, "REFUSED": 0}
-    for _ in range(400):
+    for _ in range(3000):
         program = _random_loop(rng)
         leap = leap_affine_loop(program)
         tallies[leap.verdict] += 1
