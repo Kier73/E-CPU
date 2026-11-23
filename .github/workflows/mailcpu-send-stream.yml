@@ -1,0 +1,41 @@
+name: MailCPU selective SEND stream
+
+on:
+  pull_request:
+    paths:
+      - "mailcpu/affine_stream.py"
+      - "mailcpu/__init__.py"
+      - "tests/test_affine_stream.py"
+      - "tests/test_nonlinear_output_lift_probe.py"
+      - "docs/PEER_002_STREAM_AND_NONLINEAR_LIFTS.md"
+      - ".github/workflows/mailcpu-send-stream.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  stream:
+    name: stream (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install
+        run: python -m pip install -e . pytest
+      - name: Stream, orbit, recurrence and conformance regressions
+        run: >-
+          python -m pytest -q
+          tests/test_affine_stream.py
+          tests/test_nonlinear_output_lift_probe.py
+          tests/test_affine_orbit.py
+          tests/test_recurrence_observer.py
+          tests/test_conformance.py
+          tests/test_peer_audit_probes.py
