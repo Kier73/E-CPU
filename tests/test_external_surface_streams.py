@@ -236,3 +236,107 @@ def test_metadata_refusal_on_wrong_revision_duplicate_file_or_paginated_escape()
         MetadataNavigator(duplicate).discover(PAGE)
     with pytest.raises(StructureRefused,match="revision"):
         source_page("https://huggingface.co/"+REPO+"/tree/development")
+
+
+def test_external_source_structural_read_executes_through_original_ecpu_hypervisor():
+    """Original native VL runs the hosted source Ground under an admitted OS."""
+    from mailcpu import (
+        Capability, HeadlessOS, HypervisorAction, HypervisorPolicy,
+        LexicalDecisionModel, OperatorRegistry, SystemIdentity, SystemSeed,
+        SystemSeedEnvelope, VirtualBudget, VirtualGroundRef,
+        VirtualLayerRuntime, VirtualLayerWorkload, VirtualOperatorRef,
+    )
+    from mailcpu.external_virtual_runtime import (
+        OPERATOR_ID, register_virtual_structure,
+    )
+    structure, metadata = surface(extent=10**27)
+    os = HeadlessOS()
+    os.hypervisor.classifier = LexicalDecisionModel()
+    os.hypervisor.policy = HypervisorPolicy(embedding_review_confidence=1.0)
+    identity = SystemIdentity("hosted-source-virtual-interpreter", 1)
+    envelope = SystemSeedEnvelope(identity, "executor", "virtual-layer",
+                                  SystemSeed.from_system(os))
+    assert os.seed_admission.admit(envelope).accepted
+    ground = VirtualGroundRef.from_envelope(envelope)
+    registry = OperatorRegistry()
+    spec = register_virtual_structure(registry, structure)
+    runtime = VirtualLayerRuntime(registry, "node-a", frozenset({"cpu"}))
+    work = VirtualLayerWorkload(
+        workload_id="hosted-deepseek-structural-read-001", system=identity,
+        ground=ground, intention={"goal": "locate external model file without moving it"},
+        operators=(VirtualOperatorRef(OPERATOR_ID, 1, "cpu"),),
+        input_value={
+            "source_head":structure.ground_digest,"operation":"source.extent",
+            "arguments":{
+                "path":"model-00001-of-00048.safetensors",
+                "offset":10**25,"length":10**21,
+            },
+        },
+        budget=VirtualBudget(30000, 30000, 100),
+        logical_time=17, eligible_nodes=("node-a",),
+    )
+    pid=os.environment.kernel.spawn(
+        "virtual-structure-interpreter",
+        capabilities=(Capability("/virtual-layer/operators",
+                                 frozenset({"compute"})),),
+        parent_pid=os.environment.init_pid,
+    )
+    first=runtime.execute_operator(
+        os,pid,"origin","virtual-layer",1,17,work,OPERATOR_ID,
+    )
+    assert first.action is HypervisorAction.ALLOW
+    assert first.executed
+    assert first.effect["kind"]=="virtual_layer.operator_result"
+    result=first.effect["result"]
+    assert result["model_payload_reads"]==0
+    assert result["result"]["offset"]==10**25
+    assert result["result"]["length"]==10**21
+    assert result["source_head"]==structure.ground_digest
+    assert result["position_digest"]==compile_virtual_read(
+        structure,"source.extent",work.input_value["arguments"]).digest
+    repeat=runtime.execute_operator(
+        os,pid,"origin","virtual-layer",1,17,work,OPERATOR_ID,
+    )
+    assert repeat.replayed and repeat.effect==first.effect
+    # Native Hypervisor remains the authority, not the external website.
+    limited=os.environment.kernel.spawn(
+        "unauthorized-external-structure",
+        capabilities=(Capability("/safe",frozenset({"read"})),),
+        parent_pid=os.environment.init_pid,
+    )
+    denied=runtime.execute_operator(
+        os,limited,"origin","virtual-layer",2,17,work,OPERATOR_ID,
+    )
+    assert denied.action is HypervisorAction.DENY
+    assert not denied.executed
+    assert len(metadata.calls)==3
+    assert os.environment.kernel.journal.verify()
+
+
+def test_native_operator_registry_rebinds_description_on_replacement_host():
+    """The new observer accepts only the same source and source-local handler."""
+    from mailcpu import OperatorRegistry, VirtualLayerError
+    from mailcpu.external_virtual_runtime import OPERATOR_ID, register_virtual_structure
+    source,_ = surface()
+    receiver=OperatorRegistry()
+    register_virtual_structure(receiver,source)
+    snapshot=receiver.snapshot()
+    recovered=OperatorRegistry.from_snapshot(snapshot)
+    assert recovered.digest==receiver.digest
+    with pytest.raises(VirtualLayerError,match="trusted local implementation"):
+        recovered.resolve(OPERATOR_ID,1)
+    # The replacement host must install its own approved function.
+    restored=SourceStructure.restore(source.to_dict(),source.ground_digest)
+    new=OperatorRegistry()
+    spec=register_virtual_structure(new,restored)
+    assert new.digest==receiver.digest
+    assert spec.digest==receiver.contract(OPERATOR_ID,1).digest
+    handler=new.resolve(OPERATOR_ID,1)[1]
+    correct={
+        "source_head":source.ground_digest,"operation":"source.layer",
+        "arguments":{"index":127},
+    }
+    position=handler(correct,None)
+    assert position["result"]["declared_layers"]==128
+    with pytest.raises(StructureRefused,match="differs"):
+        handler({**correct,"source_head":"f"*64},None)
