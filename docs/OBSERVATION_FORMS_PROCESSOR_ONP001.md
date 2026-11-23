@@ -214,7 +214,64 @@ catalogue changes the synthesizer's result, and can produce an explicit
 `not_derivable_in_supplied_palette` refusal even after sufficient
 source observation.
 
-## 5. Negative controls and interpretation
+## 5. From observed law to host-selected processor
+
+The next implementation step is already part of ONP-001:
+`realize_observed_processor_on_fabric(...)` accepts a **verified existing
+observation-formation receipt** and E-CPU's native
+`SubstrateObservation`, `BootstrapPolicy` and `CarrierBinding`
+objects.
+
+It does not ask the user for the source-state machine or a chosen
+host/route. Instead it derives the `FiniteObserverLaw` from the
+authenticated observations and their verified affine semantics:
+
+```text
+states       = v00, v01, ..., v(m-1)
+action       = step
+transition   = v(x) --step--> v((a*x+c) mod m)
+observation  = value(x) = x
+```
+
+This law is fed directly to the existing INTENT-001
+`realize_formed_intention` algorithm, which forms the minimal
+future-observation processor under the requested field `value` and
+selects its current authorized execution path through the
+existing SAB-001 `AdaptiveBootstrap` planner.
+
+The resulting receipt explicitly binds the original signed observation
+evidence, generated finite law, formed machine fingerprint, target
+intention, selected execution path and reconstructed result.
+
+For the 13-state experiment, retaining `value` creates a 13-class
+processor with 4 theoretical register bits. Two differently priced
+execution loci (`alpha`, `beta`) and an independently positioned
+observer (`witness`) are present in the **observed** host/path
+inventory. No execution locus is named in the mathematical intention.
+
+The receiver-admitted planner chooses `alpha` initially. Remove
+`alpha` from the observed inventory and the system forms the same
+machine on `beta`:
+
+```text
+same source evidence  -> same formed machine fingerprint
+same intended result  -> same output observation
+different availability -> different plan/path fingerprint
+new source probes      -> 0
+```
+
+A `shadow` host can advertise a cheaper operation but cannot execute
+it without the appropriate *receiver-owned* realizer binding and policy
+permission. The adapter reuses native INTENT-001, rather than
+introducing another private scheduler or authority system.
+
+Both remote-path examples here use SAB-001's locally bound simulated
+carriers/interpreters. Real independent machine-host execution and
+authenticated transport belong to the already implemented E-CPU
+Computational Fabric / mutual-TLS layers and are the next physical
+integration benchmark.
+
+## 6. Negative controls and interpretation
 
 The automated tests check:
 
@@ -228,6 +285,8 @@ The automated tests check:
 - Exact native DAG, port-frame and independent ground-receipt reconstruction.
 - Tamper detection for source witnesses, model identity, artifact/program and result.
 - Two different intentions over the same source law forming separate realizations.
+- Host/path selection from observed receiver-authorized offers, reformation after preferred
+  host disappearance, and refusal of cheap but unbound advertised capabilities.
 
 ### Exact scientific scope
 
