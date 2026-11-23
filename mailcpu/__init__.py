@@ -6,6 +6,7 @@ from .nonlinear_observer_stream import (
     NCRConditionalObserverStream,
     NonlinearEmittedEvent,
     NonlinearStreamReceipt,
+    NonlinearStreamRequest,
     admit_ncr_stream_ground,
     verify_nonlinear_stream_receipt,
 )
@@ -1056,6 +1057,7 @@ __all__ = [
     "NCRConditionalObserverStream",
     "NonlinearEmittedEvent",
     "NonlinearStreamReceipt",
+    "NonlinearStreamRequest",
     "admit_ncr_stream_ground",
     "verify_nonlinear_stream_receipt",
     "AffineSendStream",
