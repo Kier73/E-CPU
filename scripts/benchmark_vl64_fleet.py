@@ -19,6 +19,8 @@ import math
 import os
 from pathlib import Path
 import subprocess
+import tempfile
+import time
 import sys
 from time import perf_counter_ns
 from typing import Any
@@ -74,7 +76,7 @@ def _canonical(value: object) -> bytes:
     ).encode("utf-8")
 
 
-def _worker_case(index: int) -> dict[str, Any]:
+def _worker_case(index: int, *, gate_root: Path | None = None) -> dict[str, Any]:
     """Construct and execute one complete VM/OS plus genuine vld host process."""
     started = perf_counter_ns()
     manifest, source_root = admit_vl64_runtime()
@@ -126,6 +128,16 @@ def _worker_case(index: int) -> dict[str, Any]:
         capabilities=(Capability("/virtual-layer/operators", frozenset({"compute"})),),
         parent_pid=operating_system.environment.init_pid,
     )
+    if gate_root is not None:
+        # All workers must have booted their E-CPU OS and admitted a real VL-64
+        # runtime before the parent releases any of their application work.
+        host.load()
+        (gate_root / f"ready-{index:04d}.txt").write_text(str(os.getpid()), encoding="ascii")
+        deadline = time.monotonic() + 90
+        while not (gate_root / "release").exists():
+            if time.monotonic() >= deadline:
+                raise RuntimeError("VL-64 synchronized-host barrier expired")
+            time.sleep(0.02)
     cases = (
         ("affine.navigate", {
             "a": 5, "b": index % 257, "x0": index % 257,
@@ -228,6 +240,7 @@ def benchmark_case(
     *,
     max_concurrent_processes: int = 8,
     max_total_resident_pages: int = 64,
+    simultaneous_gate: bool = False,
 ) -> dict[str, Any]:
     """Run a process-isolated fleet with exact guest-page capacity and invariants."""
     if type(vm_count) is not int or vm_count <= 0 or vm_count > 256:
@@ -236,31 +249,63 @@ def benchmark_case(
         raise ValueError("max_concurrent_processes must be between 1 and 64")
     if type(max_total_resident_pages) is not int or max_total_resident_pages < 2:
         raise ValueError("max_total_resident_pages must admit at least two pages")
+    if type(simultaneous_gate) is not bool:
+        raise ValueError("simultaneous_gate must be Boolean")
     admitted = min(vm_count, max_total_resident_pages // 2)
+    if simultaneous_gate and admitted > max_concurrent_processes:
+        raise ValueError("simultaneous_gate requires enough process slots for every admitted VM")
     began = perf_counter_ns()
     script = str(Path(__file__).resolve())
     results: list[dict[str, Any]] = []
 
-    def launch(index: int) -> dict[str, Any]:
-        """Start a fresh Python interpreter; accept one valid exact JSON receipt."""
-        child = subprocess.run(
-            [PYTHON, script, "--worker", str(index)],
-            cwd=Path(__file__).resolve().parents[1],
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-        if child.returncode != 0:
-            raise RuntimeError(f"VL-64 VM {index} failed: {child.stderr[-3000:]}")
-        result = json.loads(child.stdout)
-        if result.get("vm_index") != index:
-            raise RuntimeError("VL-64 VM result has incorrect index")
-        return result
+    with tempfile.TemporaryDirectory(prefix="ecpu-vl64-fleet-") as gate_dir:
+        gate_root = Path(gate_dir) if simultaneous_gate else None
 
-    with ThreadPoolExecutor(max_workers=min(admitted, max_concurrent_processes)) as executor:
-        futures = [executor.submit(launch, index) for index in range(admitted)]
-        for future in as_completed(futures):
-            results.append(future.result())
+        def launch(index: int) -> dict[str, Any]:
+            """Start a fresh Python interpreter; accept one valid exact JSON receipt."""
+            cmd = [PYTHON, script, "--worker", str(index)]
+            if gate_root is not None:
+                cmd.extend(("--gate-root", str(gate_root)))
+            child = subprocess.run(
+                cmd,
+                cwd=Path(__file__).resolve().parents[1],
+                capture_output=True,
+                text=True,
+                timeout=150,
+            )
+            if child.returncode != 0:
+                raise RuntimeError(f"VL-64 VM {index} failed: {child.stderr[-3000:]}")
+            result = json.loads(child.stdout)
+            if result.get("vm_index") != index:
+                raise RuntimeError("VL-64 VM result has incorrect index")
+            return result
+
+        with ThreadPoolExecutor(max_workers=min(admitted, max_concurrent_processes)) as executor:
+            futures = [executor.submit(launch, index) for index in range(admitted)]
+            simultaneous_ready_count = 0
+            if gate_root is not None:
+                try:
+                    deadline = time.monotonic() + 90
+                    while time.monotonic() < deadline:
+                        ready = [
+                            gate_root / f"ready-{index:04d}.txt"
+                            for index in range(admitted)
+                        ]
+                        if all(path.is_file() for path in ready):
+                            observed_pids = [path.read_text(encoding="ascii") for path in ready]
+                            if len(set(observed_pids)) != admitted:
+                                raise RuntimeError("VL-64 synchronized host PIDs collide")
+                            simultaneous_ready_count = len(ready)
+                            break
+                        if any(future.done() and future.exception() is not None for future in futures):
+                            raise RuntimeError("VL-64 host failed before readiness barrier")
+                        time.sleep(0.02)
+                    if simultaneous_ready_count != admitted:
+                        raise RuntimeError("not all admitted VM hosts reached readiness barrier")
+                finally:
+                    (gate_root / "release").write_text("continue", encoding="ascii")
+            for future in as_completed(futures):
+                results.append(future.result())
     results.sort(key=lambda item: item["vm_index"])
     identities = [item["os_observation_digest"] for item in results]
     all_valid = (
@@ -284,6 +329,7 @@ def benchmark_case(
         "admitted_vm_count": admitted,
         "refused_vm_count": vm_count - admitted,
         "max_concurrent_host_processes": max_concurrent_processes,
+        "simultaneous_live_ready_count": simultaneous_ready_count,
         "max_total_resident_pages": max_total_resident_pages,
         "guest_resident_pages": admitted * 2,
         "guest_resident_bytes": admitted * 2 * PAGE_SIZE,
@@ -307,15 +353,18 @@ def main() -> None:
     parser.add_argument("--vm-count", type=int, default=16)
     parser.add_argument("--max-concurrent", type=int, default=8)
     parser.add_argument("--guest-page-budget", type=int, default=64)
+    parser.add_argument("--simultaneous-gate", action="store_true")
+    parser.add_argument("--gate-root", type=Path)
     parser.add_argument("--output", type=Path)
     options = parser.parse_args()
     if options.worker is not None:
-        result = _worker_case(options.worker)
+        result = _worker_case(options.worker, gate_root=options.gate_root)
     else:
         result = benchmark_case(
             options.vm_count,
             max_concurrent_processes=options.max_concurrent,
             max_total_resident_pages=options.guest_page_budget,
+            simultaneous_gate=options.simultaneous_gate,
         )
     rendered = json.dumps(result, sort_keys=True, indent=2)
     if options.output is not None:
