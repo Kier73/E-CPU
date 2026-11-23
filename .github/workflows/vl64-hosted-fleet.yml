@@ -1,0 +1,79 @@
+name: VL-64 hosted VM fleet (real runtime)
+
+on:
+  push:
+    paths:
+      - "mailcpu/vl64_runtime.py"
+      - "mailcpu/vl64_session.py"
+      - "mailcpu/vl64_worker.py"
+      - "tests/test_vl64_runtime_host.py"
+      - "tests/test_vl64_hosted_fleet_process.py"
+      - "tests/test_vl64_quorum_session.py"
+      - "scripts/benchmark_vl64_fleet.py"
+      - ".github/workflows/vl64-hosted-fleet.yml"
+  pull_request:
+    paths:
+      - "mailcpu/vl64_runtime.py"
+      - "mailcpu/vl64_session.py"
+      - "mailcpu/vl64_worker.py"
+      - "tests/test_vl64_runtime_host.py"
+      - "tests/test_vl64_hosted_fleet_process.py"
+      - "tests/test_vl64_quorum_session.py"
+      - "scripts/benchmark_vl64_fleet.py"
+      - ".github/workflows/vl64-hosted-fleet.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  genuine-vl64:
+    name: VL-64 on E-CPU (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, python: "3.11"}
+          - {os: ubuntu-latest, python: "3.14"}
+          - {os: windows-latest, python: "3.11"}
+          - {os: windows-latest, python: "3.14"}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install E-CPU and exact VL-64 runtime
+        run: |
+          python -m pip install -e ".[dev]"
+          python -m pip install "git+https://github.com/Kier73/VL-64.git@fea0d29d5a8a1edb03d9c66edd5ca4b15a1395d3"
+      - name: Test native Hypervisor-governed VL-64 M2 hosting
+        run: python -m pytest -q tests/test_vl64_runtime_host.py tests/test_vl64_hosted_fleet_process.py tests/test_vl64_quorum_session.py tests/test_computational_host.py tests/test_vm_fleet_capacity.py tests/test_computational_session.py tests/test_computational_transition.py
+
+
+  capacity:
+    name: 32 and 64 independent VL-64 interpreter/OS instances
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install exact E-CPU and VL-64 packages
+        run: |
+          python -m pip install -e ".[dev]"
+          python -m pip install "git+https://github.com/Kier73/VL-64.git@fea0d29d5a8a1edb03d9c66edd5ca4b15a1395d3"
+      - name: Benchmark 32 E-CPU VMs with genuine VL-64 runtimes
+        run: python scripts/benchmark_vl64_fleet.py --vm-count 32 --max-concurrent 8 --guest-page-budget 64 --output vl64-hosted-fleet-32.json
+      - name: Benchmark 64 admitted E-CPU VMs and 8 budget refusals
+        run: python scripts/benchmark_vl64_fleet.py --vm-count 72 --max-concurrent 8 --guest-page-budget 128 --output vl64-hosted-fleet-64-budget.json
+      - name: Synchronize 64 live and prepared E-CPU / VL-64 VM hosts
+        run: python scripts/benchmark_vl64_fleet.py --vm-count 64 --max-concurrent 64 --guest-page-budget 128 --simultaneous-gate --output vl64-hosted-fleet-64-simultaneous.json
+      - name: Upload exact capacity report
+        uses: actions/upload-artifact@v4
+        with:
+          name: vl64-hosted-fleet-32
+          path: |
+            vl64-hosted-fleet-32.json
+            vl64-hosted-fleet-64-budget.json
+            vl64-hosted-fleet-64-simultaneous.json
