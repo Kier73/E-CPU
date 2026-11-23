@@ -123,7 +123,7 @@ def _affine_args(raw: object) -> tuple[int, int, int, int, int]:
     a = _integer(value["a"], "a", 0, modulus - 1)
     b = _integer(value["b"], "b", 0, modulus - 1)
     x0 = _integer(value["x0"], "x0", 0, modulus - 1)
-    steps = _integer(value["steps"], "steps", 0, 10**12)
+    steps = _integer(value["steps"], "steps", 0, 10**15)
     return a, b, x0, steps, modulus
 
 
@@ -185,7 +185,7 @@ class VL64BackendAdapter:
         elif operation == "ground.cycle":
             fields = _fields(request.input_value, {"initial", "steps"})
             initial = _integer(fields["initial"], "initial", 0, 3)
-            steps = _integer(fields["steps"], "steps", 0, 10**12)
+            steps = _integer(fields["steps"], "steps", 0, 10**15)
             # Witnessed full 4-state cycle; all transitions actually supplied.
             ground = vld.ObservedGround({"counter": (0,)})
             training = tuple(
