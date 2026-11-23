@@ -129,6 +129,7 @@ def _execute_tcp(state: bytes, operation: bytes, context) -> bytes:
         revision=context.revision,
         ticks=step["ticks"],
         consume_fd=step["read_fd"],
+        context_binding_digest=context.binding_digest,
     )
     return json.dumps(
         result["state"], sort_keys=True, separators=(",", ":"), ensure_ascii=False,
@@ -216,8 +217,10 @@ def test_worker_hard_kill_before_candidate_publication_preserves_quorum_tip(tmp_
             json.loads(state), identity=context.session_id,
             revision=context.revision, ticks=step["ticks"],
             consume_fd=step["read_fd"], cut="before_publish",
+            context_binding_digest=context.binding_digest,
         )
         assert receipt["kind"] == "prepared"
+        assert receipt["context_binding_digest"] == context.binding_digest
         raise ConnectionError("worker exited before accepted successor publication")
 
     interrupted_backend, interrupted_adapter = _adapter(store, dies_before_send)
@@ -253,8 +256,10 @@ def test_worker_death_after_tcp_successor_pre_ack_commits_once(tmp_path: Path) -
             json.loads(state), identity=context.session_id,
             revision=context.revision, ticks=step["ticks"],
             consume_fd=step["read_fd"], cut="after_publish",
+            context_binding_digest=context.binding_digest,
         )
         assert receipt["parent_revision"] == context.revision
+        assert receipt["context_binding_digest"] == context.binding_digest
         assert receipt["virtual_io_hex"] == b"queued".hex()
         return json.dumps(
             receipt["state"], sort_keys=True, separators=(",", ":"), ensure_ascii=False,
