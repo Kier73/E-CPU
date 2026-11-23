@@ -244,6 +244,20 @@ also admits signed source observations under an M3-pinned public key; every
 signed historical source packet is reverified after rehosting, while the
 publisher private key never enters the worker.
 
+[SOI-009](docs/VLI_NEURAL_MODEL_RUNTIME_CONTINUITY.md) hosts the
+**actual original VL-I COORD-002 neural model runtime** with its full
+VLD-generated ReLU weights, independent whole-domain verification, forward
+evaluation, VLD response DAG and causal conversation checkpoints. The model
+description, generated-weight identity, rendered response views, and original
+conversation history are reconstructed from the M3-committed HeadlessOS
+on new interpreter processes. Tests also run distinct M3 model sessions
+concurrently, preserve the original living TIME-001 Ground in the same OS,
+and exercise hard worker kills, forged output refusal, stale CAS and
+exact idempotent replay. This proves full execution and continuation of the
+*described finite neural model*; original large pretrained model weights,
+Qwen recurrent/KV state and full decoder continuation are the next
+independently qualified neural tier.
+
 The verified implementations distinguish native MailCPU instruction
 execution, host-bound Python interpretation, signed source provenance,
 logical application-state durability and physical source truth. The
