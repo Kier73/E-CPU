@@ -158,10 +158,10 @@ actual host RSS and not inferred from 4 KiB guest page totals.
 
 ## To Do — toward full VL-I hosting
 
-1. **Long-lived interpreter/application state.** Today the admitted methods
-   are pure and the durable application record retains semantic outputs.
-   Add typed mutable VL-64 Ground / intention history / page-space snapshots
-   and a schema migration path for interpreter or VL-I session state.
+1. **Expand persistent interpreter/application state.** SOI-005 now
+   rehosts a real bounded PageSpace through three process changes.
+   Extend this to typed mutable Grounds, intention history, page manifests,
+   schema migration, and complete VL-I application session state.
 2. **Native E-CPU remote host authority.** Replace one-shot local subprocess
    transport with E-CPU authenticated mTLS execution and receiver-fenced
    IPS-008 external effect admission. The M3 quorum remains authoritative.
@@ -178,9 +178,10 @@ actual host RSS and not inferred from 4 KiB guest page totals.
    qualified operations with independently checkable proof/witness paths
    preserving equivalent semantic refusal behavior.
 
-The platform has demonstrably hosted real VL-64 packages at 32 independent
-observer-host loci. Hosting a complete VL-I process is a next integration
-task, not an extrapolated claim from the four pure VL-64 methods.
+The platform has demonstrably hosted 64 independent real VL-64 runtime
+instances, including a synchronized 64-host readiness barrier and a
+stateful PageSpace rehoming experiment. A complete VL-I interpreter/model
+runtime remains a distinct typed hosting integration in active development.
 
 
 ## SOI-005 — Persistent genuine VL-64 application memory
@@ -224,5 +225,23 @@ backend, publish a ready PID and block before the orchestrator
 releases *any* application operations. The report records the exact
 simultaneous_live_ready_count. A requested gate larger than
 max_concurrent_processes fails admission before subprocess startup.
-Use the published CI artifact to distinguish 64 processes over time
-from 64 actually live and prepared simultaneously.
+**Observed successful experiment:** 64 of 64 distinct processes were
+simultaneously live and ready, with the same 64 subsequently completing
+384 real VL-64 operations. This run completed in 16.9557 seconds;
+post-work Linux RSS averaged 46,141,376 bytes per process. Guest pages
+are tracked separately. The observed barrier proves concurrent host
+residency and prepared runtime admission, rather than simultaneous CPU
+instruction issue. CI evidence and JSON artifacts:
+https://github.com/Kier73/E-CPU/actions/runs/45089219414
+
+**Cross-platform integration:** the focused suite passed 61 tests
+per environment on Linux Python 3.11/3.14 and Windows Python 3.11/3.14:
+https://github.com/Kier73/E-CPU/actions/runs/45089230154
+
+The 64-process synchronized test operates on one physical Linux
+runner; its Python processes are genuinely separate but its M3
+test authorities and M1 page backing remain within the same
+runner's failure domain. This measurement qualifies 64 hosted
+runtime instances for the tested workloads, not complete
+machine-isolated arbitrary operating systems or foreign guest
+kernel execution.
