@@ -116,6 +116,17 @@ def admit_ncr_stream_ground(
 
 
 @dataclass(frozen=True, slots=True)
+class NonlinearStreamRequest:
+    """Receiver-owned intention selecting exactly one nonlinear emission interpretation."""
+
+    initial: int
+    word: tuple[int, ...]
+    value_bit: int
+    gate_bit: int | None
+    mailbox: str
+
+
+@dataclass(frozen=True, slots=True)
 class NonlinearEmittedEvent:
     """One emitted value, indexed by emission ordinal and source-word iteration."""
 
@@ -269,6 +280,9 @@ class NCRConditionalObserverStream:
         self.gate_bit = gate_bit
         self.mailbox = mailbox
         self.stabilization_iteration = cycles
+        self.request = NonlinearStreamRequest(
+            initial, word, value_bit, gate_bit, mailbox
+        )
         self._transient: tuple[NonlinearEmittedEvent, ...]
         transient = []
         state = initial
@@ -363,6 +377,7 @@ def verify_nonlinear_stream_receipt(
     packet: bytes,
     receiver_expected_sha256: str,
     source_commit: str,
+    expected_request: NonlinearStreamRequest | None = None,
 ) -> bool:
     """Mathematics: independently re-admit the exact source and reconstruct one event.
 
@@ -376,6 +391,15 @@ def verify_nonlinear_stream_receipt(
         if (receipt.packet_sha256 != receiver_expected_sha256
                 or receipt.source_commit != source_commit):
             return False
+        if expected_request is not None:
+            if not isinstance(expected_request, NonlinearStreamRequest):
+                return False
+            offered = NonlinearStreamRequest(
+                receipt.initial, receipt.word, receipt.value_bit,
+                receipt.gate_bit, receipt.mailbox,
+            )
+            if offered != expected_request:
+                return False
         admitted = admit_ncr_stream_ground(
             packet, receiver_expected_sha256=receiver_expected_sha256,
             source_commit=source_commit,
