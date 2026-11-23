@@ -58,7 +58,12 @@ The 13-state arithmetic demonstration identifies one law among 169 candidates
 from two source observations, challenges a third coordinate, constructs two
 native DAG operations, and produces the intended result at an **unobserved**
 target coordinate. A held-out contradiction, ambiguous Ground, unauthorized
-provider or execution locus, or missing primitive causes an explicit refusal.
+provider or execution locus, or missing primitive causes an explicit refusal. The
+verified observation-derived law also flows into INTENT-001 to form an
+independent finite Moore processor, then into SAB-001's observed host/path
+planner. Losing the preferred host changes placement but preserves the
+formed processor's fingerprint and verified result without reobserving
+the source.
 
 The broader architecture follows **intention → sufficient Ground → formed interpreter → receiver-admitted observer/path composition → execution → checked observation**. [Research issue #204](https://github.com/Kier73/E-CPU/issues/204) tracks continuation; [IPS-002](docs/INVERSE_ARCHITECTURE_SYNTHESIS_IPS002.md) explores inverse route formation, and [VL-I PFI-001](https://github.com/Kier73/VL-I/blob/main/docs/PROBLEM_FORMED_INTERPRETER_PFI001.md) explores generated observer-relative processors.
 
