@@ -1,0 +1,70 @@
+name: Original VL-I temporal intelligence on E-CPU M3
+
+on:
+  push:
+    paths:
+      - "mailcpu/vli_temporal_host.py"
+      - "mailcpu/vli_temporal_session.py"
+      - "mailcpu/vli_signed_source.py"
+      - "mailcpu/vli_temporal_worker.py"
+      - "tests/test_vli_temporal_host.py"
+      - ".github/workflows/vli-temporal-hosted.yml"
+  pull_request:
+    paths:
+      - "mailcpu/vli_temporal_host.py"
+      - "mailcpu/vli_temporal_session.py"
+      - "mailcpu/vli_signed_source.py"
+      - "mailcpu/vli_temporal_worker.py"
+      - "tests/test_vli_temporal_host.py"
+      - ".github/workflows/vli-temporal-hosted.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-vli-m3:
+    name: Native VL-I in E-CPU M3 (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, python: "3.11"}
+          - {os: ubuntu-latest, python: "3.14"}
+          - {os: windows-latest, python: "3.11"}
+          - {os: windows-latest, python: "3.14"}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install native E-CPU and pinned original VL-I
+        run: |
+          python -m pip install -e ".[dev]"
+          python -m pip install "cryptography>=46,<47"
+          python -m pip install "git+https://github.com/Kier73/VL-I.git@939b49291bb719ab531730088f759574db471c00"
+      - name: Test original source-backed living VL-I process rehomes
+        run: python -m pytest -q tests/test_vli_temporal_host.py tests/test_computational_session.py tests/test_computational_transition.py
+
+
+  original-vli-parity:
+    name: Pinned original VL-I TIME-001/002/005 tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Kier73/VL-I
+          ref: 939b49291bb719ab531730088f759574db471c00
+          path: original-vli
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install original pinned VL-I source and TIME-005 crypto
+        run: |
+          python -m pip install -e ".[dev]"
+          python -m pip install -e "./original-vli[test]"
+          python -m pip install "cryptography>=46,<47"
+      - name: Run original source continuity and signed publisher suites
+        run: python -m pytest -q original-vli/tests/test_temporal_intelligence.py original-vli/tests/test_live_temporal_intelligence.py original-vli/tests/test_authenticated_temporal_source.py

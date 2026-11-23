@@ -219,6 +219,38 @@ The current architecture already contains several important components of this m
 
 These components have distinct semantics and state owners. Their value comes from composing them through explicit identities and contracts, not from forcing every domain into one instruction set.
 
+## Verified hosted systems: many VL-64 runtimes and living VL-I
+
+[SOI-003–006](docs/VL64_HOSTED_VM_FLEET.md) admits the actual 65,460-byte
+VL-64 source core as a content-addressed M2 computational artifact and hosts
+its real operations through E-CPU's original Hypervisor. A Linux capacity
+benchmark ran **64 independent HeadlessOS/VM instances with 64 distinct
+Python interpreter hosts**, while a synchronized experiment required all
+**64 hosts to be simultaneously alive and runtime-ready** before executing
+384 genuine VL-64 operations. An independently measured mean Python RSS
+of about 46 MB per worker is distinguished from its 8 KiB native VM guest
+working set. E-CPU M3 preserves bounded mutable real VL-64 PageSpace
+application memory through fresh worker-process replacement.
+
+[SOI-007/008](docs/VLI_TEMPORAL_OS_HOSTING.md) moves from component hosting
+to **continuous intelligence state**. It admits all 65 source modules of the
+original VL-I runtime, runs the original TIME-001 Ground and TIME-002
+LiveTemporalObserver in disposable, separately executing Python hosts, and
+keeps their accepted causal history, changing interpretations and
+intention-directed rational navigation in quorum-verified HeadlessOS state.
+Eight new hosts successfully advanced one evolving Ground across two
+interpretation epochs. The original TIME-005 Ed25519 publisher protocol now
+also admits signed source observations under an M3-pinned public key; every
+signed historical source packet is reverified after rehosting, while the
+publisher private key never enters the worker.
+
+The verified implementations distinguish native MailCPU instruction
+execution, host-bound Python interpretation, signed source provenance,
+logical application-state durability and physical source truth. The
+[VL-I hosting document](docs/VLI_TEMPORAL_OS_HOSTING.md) identifies the
+next measurable developments for full model-runtime execution and
+independent-machine continuity.
+
 ## In development
 
 E-CPU is not being defined as a conventional VM with a distributed scheduler added around it. MailCPU's instruction machine remains one concrete execution environment and one way to represent and realize selected work.
