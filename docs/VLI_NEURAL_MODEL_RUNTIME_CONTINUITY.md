@@ -194,6 +194,17 @@ Unit/integration tests run the original model:
    with independent quorum journal directories and model state, and
    replace all four worker hosts while preserving each accepted head.
 
+**Observed CI result (Linux/Windows, Python 3.11 and 3.14):**
+28 passing E-CPU tests in *each* of the four OS/Python environments,
+including independent parallel neural-M3 sessions and hard-killed worker
+continuity:
+https://github.com/Kier73/E-CPU/actions/runs/45094851545
+
+The same CI run independently verifies the pinned original VL-I
+COORD-002 generation implementation: **20 passing tests and
+9 subtests**, including full original VLD compiled-neural-domain
+equivalence and model causal checkpoint replay.
+
 The original upstream VL-I COORD-002 neural suite executes separately
 using the same pinned original source/compiler. CI also includes
 selected E-CPU ComputationalSession and transition regression tests.
