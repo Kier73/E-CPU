@@ -196,6 +196,63 @@ The report explicitly records:
 - \`structural_interpretation_mean_ns\`: speed of interpretation
   after the Ground is established.
 
+## Live DeepSeek result — original source, no weight acquisition
+
+The source-backed Linux GitHub Actions observer navigated the actual
+DeepSeek-V4.1-Flash-1017 public Hugging Face metadata API at revision:
+
+    08c8657f02291e11b6f6b63e0e16014f8e748518
+
+A complete live observation measured:
+
+| Source or interpreter quantity | Value |
+| --- | ---: |
+| Declared external source size | 510,311,062,017 bytes |
+| Files named in the external structure | 84 |
+| Safetensors shards named | 48 |
+| Separate metadata API observations | 2 |
+| Total metadata description observed | 45,488 bytes |
+| Model payload bytes/ranges/shards acquired | **0 / 0 / 0** |
+| Largest shard, last-byte virtual address | offset 101,537,926,639 |
+| Virtual address-only control frames per intention | 3 |
+| Warm structural interpretation across 2,000 repetitions | 37.7–68.4 microseconds/operation |
+| Source-observation discovery wall time | 135–167 ms |
+
+The last-byte address is simply a source-relative coordinate within a
+file the source host still owns; the observer did **not** access the
+corresponding original weight byte.
+
+Source: live [metadata and interpretation GitHub Actions run](https://github.com/Kier73/E-CPU/actions/runs/45100835198).
+The warm timings are two independent GitHub runner measurements with
+variable machine load, not a guaranteed latency ceiling. They also do
+not include external network latency once the source description is
+observed, nor a neural forward pass.
+
+### Native E-CPU Virtual Layer integration
+
+[external_virtual_runtime.py](../mailcpu/external_virtual_runtime.py)
+binds this structural interpretation as a true native
+\`OperatorSpec("external.structure.interpret", 1)\`, running through
+\`VirtualLayerRuntime.execute_operator\` under the existing
+\`HeadlessOS\`, \`HypervisorPolicy\`, \`OperatorRegistry\`,
+receiver capability checks and event replay.
+
+The receiver's original native Virtual Layer executes the pure
+interpretation and returns a causal operator-result receipt. A second
+call with identical event identity replays the same result rather
+than re-interpreting the source. An unauthorized process is denied.
+A new observer can reconstruct the identical source Ground and
+operator registry using description-only state; its code handler
+must be bound independently on the receiving host.
+
+The native Hypervisor does not grant permission to run the
+external model or acquire its weights.
+
+The focused cross-platform workflow verified **45 tests on each
+of Linux and Windows, Python 3.11 and 3.14**, for
+**180 passing test executions**, alongside the successful live
+DeepSeek metadata-only structural run.
+
 ## To Do — source-local neural interpretation
 
 The intended next construction is **a typed operator interface living at
