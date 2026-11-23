@@ -126,7 +126,8 @@ signature, publisher identity, sequence, values, time and packet
 digest **for every historical accepted source event** against the
 public key in the recovered source root. With the signed trust root
 present, an unsigned temporal.ingest call is refused. The trust root
-cannot silently be changed through the ordinary sample interface.
+is admitted only at the empty verified VL-I Ground genesis and
+cannot silently be changed or retroactively applied after unsigned history.
 
 This authenticates the publisher's statements, not the physical
 truth of those statements. The publisher and public key are
@@ -161,9 +162,29 @@ winning M3 predecessor CAS. A completed operation replay must not
 reenter another observer host.
 
 All source signatures are checked with the original VL-I TIME-005
-function, not an E-CPU substitute. M3 and M1 quorum journals are
-separate persisted stores, reused without introducing another
-authority mechanism.
+function, not an E-CPU substitute. The tests reuse M1 immutable page
+bytes in a controller-owned in-memory backing across reopened M3
+sessions; M3's A/B/C authority journals are independently fsynced on
+the same physical runner. Replaced Python observer processes are genuinely
+independent; this is not controller-power-loss or three-machine
+storage-failure recovery. No parallel authority system is introduced.
+
+## Native Hypervisor authority
+
+The same original VL-I source package is also installed as a
+versioned E-CPU Virtual Layer operator through the existing
+register_computational_host_operator factory. An admitted HeadlessOS
+seeds its own SystemIdentity and VirtualGroundRef. A native kernel
+process granted compute capability may invoke real
+LiveTemporalObserver.ingest through VirtualLayerRuntime.execute_operator;
+a second process without that capability is refused before execution.
+Both outcomes remain in the real E-CPU kernel journal.
+
+This directly tests native E-CPU admission of the VL-I runtime.
+M3's one-shot subprocess session experiment currently invokes its
+trusted registered M2 host through the session adapter; composing
+per-revision remote Hypervisor authorization, mutual-TLS session
+transport and IPS-008 effect admission is a next network-host step.
 
 ## Reproduction
 
@@ -174,12 +195,16 @@ python -m pip install "git+https://github.com/Kier73/VL-I.git@939b49291bb719ab53
 python -m pytest -q tests/test_vli_temporal_host.py tests/test_computational_session.py tests/test_computational_transition.py
 ~~~
 
-Initial unsiged TIME-001/002 integration: 28 tests passed per
+Initial unsigned TIME-001/002 integration: 28 tests passed per
 Linux/Windows × Python 3.11/3.14 matrix:
 https://github.com/Kier73/E-CPU/actions/runs/45090065168
 
-TIME-005 source-authenticated continuation adds four signed-source
-tests to this matrix:
+TIME-005 source-authenticated continuation adds original Ed25519 tests,
+including trust-root immutability, and the actual E-CPU Hypervisor
+capability admission/denial test. These invoke the genuine VL-I
+source code and retain M3 as the state publication authority.
+
+The focused cross-platform matrix:
 https://github.com/Kier73/E-CPU/actions/runs/45090292189
 
 ## To Do toward a full hosted VL-I
