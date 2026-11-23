@@ -204,8 +204,21 @@ including trust-root immutability, and the actual E-CPU Hypervisor
 capability admission/denial test. These invoke the genuine VL-I
 source code and retain M3 as the state publication authority.
 
-The focused cross-platform matrix:
-https://github.com/Kier73/E-CPU/actions/runs/45090292189
+The completed original-VL-I E-CPU hosting matrix passed
+**34 tests on each of the four** Linux/Windows × Python 3.11/3.14
+environments, including real Hypervisor authorization, TIME-005
+signed-source recovery, refusal of retroactive publisher identity and
+all preexisting selected M3 regressions:
+https://github.com/Kier73/E-CPU/actions/runs/45090628655
+
+A separate job checks this integration against VL-I's **own original**
+pinned TIME-001, TIME-002 and TIME-005 tests, including upstream
+publisher and process-death behavior. **35 tests and 12 subtests passed**:
+https://github.com/Kier73/E-CPU/actions/runs/45090751704
+
+The native upstream check independently validates the implementation
+being hosted; the E-CPU test matrix validates this implementation's
+host, transport boundary, application state and quorum continuation.
 
 ## To Do toward a full hosted VL-I
 
