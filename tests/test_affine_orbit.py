@@ -3,8 +3,15 @@
 from __future__ import annotations
 
 import random
+import json
+from dataclasses import replace
 
-from mailcpu.affine_orbit import leap_affine_loop
+import pytest
+
+from mailcpu.affine_orbit import (
+    AffineOrbitRefused, AffineOrbitWitness, leap_affine_loop,
+    issue_affine_orbit_witness, verify_affine_orbit_witness,
+)
 from mailcpu.interpreter import QueueInterpreter, ReferenceInterpreter
 from mailcpu.model import Instruction, Op, Program, RunStatus
 
@@ -184,3 +191,59 @@ def test_affine_large_identity_orbit_navigates_without_step_by_step_execution() 
     assert result.register_map()["c"] == 0
     assert result.register_map()["v"] == 7
     assert result.steps == 3 + 2 * n + 1
+
+
+def test_digest_bound_affine_witness_round_trips_across_json_and_recomputes() -> None:
+    """Mathematics: another observer can check P, initial state and final orbit without an n-step trace."""
+
+    program = _fib_program(120)
+    witness = issue_affine_orbit_witness(program)
+    imported = AffineOrbitWitness.from_snapshot(json.loads(json.dumps(witness.snapshot())))
+    assert imported == witness
+    assert imported.digest == witness.digest
+    assert verify_affine_orbit_witness(imported, program)
+    assert not verify_affine_orbit_witness(imported, _fib_program(121))
+    assert not verify_affine_orbit_witness(imported, program, {"external": 4})
+    assert not verify_affine_orbit_witness(
+        replace(imported, program_digest="f" * 64), program
+    )
+    assert not verify_affine_orbit_witness(
+        replace(imported, result=replace(imported.result, iterations=119)), program
+    )
+
+
+def test_affine_witness_import_rejects_tamper_and_noncanonical_encoding() -> None:
+    """Mathematics: versioned witnesses preserve exact integer and digest identities."""
+
+    program = _fib_program(12)
+    payload = issue_affine_orbit_witness(program).snapshot()
+    payload["result"]["registers"][0][1] = "0x123"
+    with pytest.raises(AffineOrbitRefused, match="digest"):
+        AffineOrbitWitness.from_snapshot(payload)
+    canonical = issue_affine_orbit_witness(program).snapshot()
+    canonical["result"]["registers"][0][1] = "0x01"
+    with pytest.raises(AffineOrbitRefused, match="noncanonical"):
+        AffineOrbitWitness.from_snapshot(canonical)
+    canonical = issue_affine_orbit_witness(program).snapshot()
+    canonical["version"] = True
+    with pytest.raises(AffineOrbitRefused, match="version"):
+        AffineOrbitWitness.from_snapshot(canonical)
+
+
+def test_affine_witness_can_preserve_proved_divergence_but_not_refusal() -> None:
+    """Mathematics: a digest-bound divergence proof is distinct from an unproved program."""
+
+    program = Program((
+        Instruction(Op.SET, ("c", 5)),
+        Instruction(Op.SET, ("k", -2)),
+        Instruction(Op.ADD, ("c", "c", "k")),
+        Instruction(Op.BRANCH, ("c", 2)),
+        Instruction(Op.HALT),
+    ))
+    witness = issue_affine_orbit_witness(program)
+    assert witness.result.verdict == "DIVERGES"
+    assert verify_affine_orbit_witness(
+        AffineOrbitWitness.from_snapshot(witness.snapshot()), program
+    )
+    with pytest.raises(AffineOrbitRefused):
+        issue_affine_orbit_witness(Program((Instruction(Op.HALT),)))
