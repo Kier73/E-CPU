@@ -87,6 +87,21 @@ class TestNCRConditionalObserverStream(unittest.TestCase):
             gate_bit=gate_bit, value_bit=value_bit, mailbox="mailcpu.observed",
         )
 
+    def test_true_nonaffine_source_is_verified_without_state_enumeration(self):
+        """Mathematics: a quadratic Boolean interaction is not an affine GF2 source map."""
+
+        operator = self.family.operators[0]
+        left, right = 1 << 1, 1 << 2
+        # A GF(2) affine map would have zero second Boolean derivative.
+        second_difference = (
+            operator.apply(left | right)
+            ^ operator.apply(left)
+            ^ operator.apply(right)
+            ^ operator.apply(0)
+        ) & 1
+        self.assertEqual(second_difference, 1)
+        self.assertGreaterEqual(self.admitted.feature_dimension, 2)
+
     def test_every_requested_output_agrees_with_original_nonlinear_source(self):
         """Mathematics: both observer-value and event-time addresses match direct source transitions."""
 
