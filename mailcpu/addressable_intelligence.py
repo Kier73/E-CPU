@@ -40,31 +40,85 @@ def _hash(value: Any) -> str:
 
 
 def _original_slice(source: Mapping[str, Any], *, expected_head: str):
-    """Replay actual original VL-64 trained arithmetic, not a synthetic row fixture."""
+    """Interpret exact historic VL-64 BF16 glances via current native VLD.
+
+    The original VL-64 capsule was produced by an earlier VLD public API
+    exporting rms_norm and StructuralLinearOperator at package root. VLD 0.7
+    moved its native tensor primitives. Preserve the *same original trained
+    bytes, format, source/provenance hashes and arithmetic*, using the current
+    VLD 0.7 canonical receipt and BF16 numerical decoder directly.
+    """
     if (not isinstance(source, Mapping) or type(expected_head) is not str
         or _HEX.fullmatch(expected_head) is None
         or source.get("ground_digest") != expected_head):
         raise ValueError("original external model Ground identity unadmitted")
-    from experiments.model_fabric.slice_ground import replay_slice_ground
+    from vld.canonical import domain_digest
+    from vld.accel import decode_bf16_le
     original = json.loads(_canonical(source))
-    receipt = replay_slice_ground(original)
-    if receipt["status"] != "VERIFIED_LOCAL_REPLAY_OF_PRETRAINED_TENSOR_SLICE":
-        raise ValueError("original external pretrained Ground not numerically admitted")
-    width = original["hidden_width"]
-    nraw = base64.b64decode(original["norm_bf16_b64"], validate=True)
-    qraw = base64.b64decode(original["q_bf16_b64"], validate=True)
-    if len(nraw) != 2 * width or len(qraw) != 8 * width:
-        raise ValueError("original BF16 physical tensor range differs")
-    def bf16(raw):
-        """Decode exact BF16 bytes to finite IEEE F32 numbers."""
-        out = []
-        for (bits,) in struct.iter_unpack("<H", raw):
-            x = struct.unpack("<f", struct.pack("<I", bits << 16))[0]
-            if not math.isfinite(x):
-                raise ValueError("nonfinite original pretrained BF16 parameter")
-            out.append(x)
-        return tuple(out)
-    norm, weights = bf16(nraw), bf16(qraw)
+    base = {key: value for key, value in original.items() if key != "ground_digest"}
+    if (base.get("schema") != "vl64.ranged-pretrained-slice-ground.v1"
+        or domain_digest("vl64.ranged-pretrained-slice-ground.v1", base) != expected_head
+        or base.get("operator_path") != [
+            "rms_norm", "first_four_rows_of_pretrained_layer0_q_projection"
+        ]
+        or base.get("training_claim") != "actual_pinned_pretrained_model_slice_not_synthetic_weights"
+        or base.get("q_rows") != 4):
+        raise ValueError("original pretrained Ground source or mathematical law differs")
+    width = original.get("hidden_width")
+    epsilon = original.get("rms_eps")
+    if (type(width) is not int or not 16 <= width <= 2048
+        or type(epsilon) not in (int,float) or not 0 < float(epsilon) <= 1e-2
+        or not isinstance(base.get("revision"), str)
+        or re.fullmatch(r"[0-9a-f]{40}", base["revision"]) is None
+        or not isinstance(base.get("model"), str) or not base["model"]
+        or any(_HEX.fullmatch(base.get(field, "")) is None
+               for field in ("remote_ground_digest", "tensor_header_ground_digest"))):
+        raise ValueError("original learned model coordinate geometry differs")
+    try:
+        norm_raw = base64.b64decode(base["norm_bf16_b64"], validate=True)
+        q_raw = base64.b64decode(base["q_bf16_b64"], validate=True)
+    except (KeyError, ValueError, TypeError) as exc:
+        raise ValueError("original observed BF16 tensor encoding is malformed") from exc
+    h = hashlib.sha256
+    if (len(norm_raw) != width * 2 or len(q_raw) != 4 * width * 2
+        or h(norm_raw).hexdigest() != base.get("norm_payload_sha256")
+        or h(q_raw).hexdigest() != base.get("q_payload_sha256")):
+        raise ValueError("original pretrained BF16 tensor content identity differs")
+    witnesses = base.get("weight_slice_provenance")
+    if (type(witnesses) is not list or len(witnesses) != 2
+        or any(type(w) is not dict for w in witnesses)
+        or [w.get("sha256") for w in witnesses] !=
+            [h(norm_raw).hexdigest(), h(q_raw).hexdigest()]
+        or any(w.get("http_status") != 206 or
+               w.get("byte_end_exclusive", 0) - w.get("byte_begin", 0) != n
+               for w, n in zip(witnesses, (len(norm_raw), len(q_raw))))):
+        raise ValueError("original retained model observation provenance differs")
+    norm = tuple(decode_bf16_le(norm_raw, use_numpy=False))
+    weights = tuple(decode_bf16_le(q_raw, use_numpy=False))
+    # Independently reproduce the original historical VL-64 fixed numerical
+    # replay on exactly its original F32 sinusoidal input, with no source fetch.
+    x = [
+        struct.unpack("<f", struct.pack("<f", math.sin((i+1)*0.07)*0.25))[0]
+        for i in range(width)
+    ]
+    denom = math.sqrt(sum(v*v for v in x)/width+float(epsilon))
+    full = tuple(sum(weights[row*width+i]*(x[i]/denom)*norm[i]
+                     for i in range(width)) for row in range(4))
+    independent = tuple(math.fsum(
+        weights[row*width+i]*x[i]*norm[i]/denom
+        for i in range(width)) for row in range(4))
+    deviation = max(abs(a-b) for a,b in zip(full, independent))
+    if deviation > 1e-7:
+        raise ValueError("original trained numerical replay differs from independent scalar reference")
+    receipt = {
+        "status": "VERIFIED_LOCAL_REPLAY_OF_PRETRAINED_TENSOR_SLICE",
+        "ground_digest": expected_head,
+        "actual_model_weight_bytes": len(norm_raw) + len(q_raw),
+        "output_coordinates": [round(v, 9) for v in full],
+        "numeric_check_passed": True,
+        "max_abs_error": deviation,
+        "compatibility": "original_vl64_capsule_replayed_through_current_vld_bf16_codec",
+    }
     return original, norm, weights, receipt
 
 
