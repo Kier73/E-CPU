@@ -7,6 +7,8 @@ weights identity and conversation state across disposable Python processes.
 """
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+
 import hashlib
 import json
 from pathlib import Path
@@ -88,10 +90,10 @@ def _reference():
     )
 
 
-def _store(tmp: Path, backing: PageBacking, reference):
+def _store(tmp: Path, backing: PageBacking, reference, *, session_id="original-vli-neural-m3-session"):
     """Use E-CPU's actual M1 page objects and 3 separately fsynced quorum journals."""
     membership = SeedCommitMembership(
-        "original-vli-neural-m3-session", 1, ("A", "B", "C"), "A", 1, GENESIS,
+        session_id, 1, ("A", "B", "C"), "A", 1, GENESIS,
     )
     authorities = {
         peer: RecoveryLineageAuthority(
@@ -487,3 +489,66 @@ def test_hard_killed_neural_worker_before_and_after_publication(tmp_path: Path) 
     assert len(set(pids)) == len(pids) == 2
     assert read_vli_model_checkpoint(accepted.state_bytes)[1]["state"] == "formed"
     assert _store(tmp_path, backing, reference).load_latest().checkpoint_digest == accepted.checkpoint_digest
+
+
+
+def test_four_independent_m3_neural_models_execute_concurrently_and_rehome(tmp_path: Path) -> None:
+    """Four unrelated majority states run true VL-I neural turns in eight unique subprocesses."""
+    def one_conversation(index: int):
+        """Admit one distinct authority domain, run original model, replace worker and recover."""
+        root = tmp_path / f"independent-model-{index}"
+        reference = _reference()
+        backing = PageBacking()
+        session_id = f"vli-neural-fleet-{index}"
+        store = _store(root, backing, reference, session_id=session_id)
+        initial_os = bootstrap_vli_neural_model(
+            MODEL_FILE.read_bytes(), observer=f"fleet-conversation-{index}",
+        )
+        current = store.create_session(initial_os)
+        launched = []
+        heads = []
+        for sequence, (action, prompt) in enumerate((
+            ("inspect", f"Inspect model fleet session {index}"),
+            ("advance", f"Advance model fleet session {index}"),
+        ), start=1):
+            host = "host-a" if sequence == 1 else "host-b"
+            fresh_store = _store(root, backing, reference, session_id=session_id)
+            backend, adapter = _adapter(
+                fresh_store, reference, host, _remote(host, reference, launched),
+            )
+            current = adapter.apply(
+                encode_vli_model_turn(prompt, action, views=VIEWS),
+                operation_id=f"fleet-turn-{sequence}",
+                expected_revision=current.revision,
+                expected_checkpoint_digest=current.checkpoint_digest,
+            )
+            assert backend.remote_calls == 1
+            checkpoint = read_vli_model_checkpoint(current.state_bytes)[1]
+            assert len(checkpoint["events"]) == sequence
+            assert checkpoint["observer"] == f"fleet-conversation-{index}"
+            assert _result(current.state_bytes, sequence, f"fleet-turn-{sequence}")[
+                "turn"
+            ] == checkpoint["events"][-1]
+            heads.append(checkpoint["head"])
+        reopened = _store(root, backing, reference, session_id=session_id).load_latest()
+        assert reopened.checkpoint_digest == current.checkpoint_digest
+        assert len(set(launched)) == 2
+        return {
+            "index": index, "session_id": reopened.session_id,
+            "head": heads[-1], "worker_pids": launched,
+            "revision": reopened.revision,
+            "source": reference.manifest.manifest_digest,
+            "vld": reference.profile.configuration["vld_source_digest"],
+        }
+
+    # The four Python controller threads launch separate true model-host
+    # interpreters concurrently, not four emulated model names in one VM.
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = [pool.submit(one_conversation, index) for index in range(4)]
+        observations = [f.result(timeout=150) for f in futures]
+    assert all(row["revision"] == 3 for row in observations)
+    assert len({row["session_id"] for row in observations}) == 4
+    assert len({row["head"] for row in observations}) == 4
+    assert len({pid for row in observations for pid in row["worker_pids"]}) == 8
+    assert len({row["source"] for row in observations}) == 1
+    assert len({row["vld"] for row in observations}) == 1
