@@ -30,6 +30,13 @@ from .generative_ground_construction import (
 from .ground_native_realization import (
     RealizationPolicy, TwoPortArithmeticGate,
 )
+from .intention_formed_fabric import (
+    FiniteObserverLaw, FormedRealization, realize_formed_intention,
+)
+from .substrate_bootstrap import (
+    BootstrapPolicy, BootstrapRefused, CarrierBinding, SubstrateObservation,
+    canonical,
+)
 from .intention_sufficiency import (
     FiniteGround, FiniteState, MeasurementCapability, SufficiencyRefused,
     plan_sufficiency, resolve_sufficiency, verify_sufficiency_plan,
@@ -487,3 +494,81 @@ def verify_observed_processor(
     except (GroundConstructionError, SufficiencyRefused, TypeError, KeyError,
             IndexError, ValueError, AttributeError) as exc:
         raise ObservationFormationRefused("observation-to-processor verification failed") from exc
+
+@dataclass(frozen=True)
+class ObservedFabricRealization:
+    """Observed source proof tied to a newly formed, host-independent processor."""
+
+    observation_receipt_digest: str
+    derived_source_digest: str
+    formed: FormedRealization
+
+    @property
+    def digest(self) -> str:
+        return canonical_value_digest({
+            "schema": _SCHEMA + ".fabric",
+            "observation": self.observation_receipt_digest,
+            "source": self.derived_source_digest,
+            "machine": self.formed.machine.fingerprint,
+            "task": self.formed.task.fingerprint,
+            "path": self.formed.plan.fingerprint,
+            "result": self.formed.report["output"],
+        })
+
+
+def realize_observed_processor_on_fabric(
+    observed: ObservedProcessorRealization,
+    *,
+    offers: Sequence[ProbeOffer],
+    primitives: Sequence[AffinePrimitive],
+    observation_policy: RealizationPolicy,
+    trusted_keys: Mapping[str, bytes],
+    inventory: SubstrateObservation,
+    fabric_policy: BootstrapPolicy,
+    carriers: Sequence[CarrierBinding],
+    admitted_interpreters: Sequence[str],
+    admitted_observers: Sequence[str],
+    ingress: str,
+    observer: str,
+    coordinate: int,
+    now: int,
+    locus: str = "onp001-local",
+) -> ObservedFabricRealization:
+    """Use the observed law to form the machine and select an admissible host/path.
+
+    The source finite Moore law is *generated* from independently verified
+    source readings. INTENT-001 then chooses the observer-relative quotient
+    and SAB-001 bootstrap selects its current authorized execution route.
+    The original observed source object is never passed as a processor.
+    """
+    if not isinstance(observed, ObservedProcessorRealization):
+        raise ObservationFormationRefused("verified source observation required")
+    verify_observed_processor(
+        observed, observed.intention, offers, primitives, observation_policy,
+        trusted_keys, now=now, locus=locus,
+    )
+    m = observed.intention.modulus
+    coefficients = observed.sufficiency_resolution["result"]
+    a, c = coefficients["multiplier"], coefficients["offset"]
+    source = FiniteObserverLaw(
+        states=tuple(f"v{x:02d}" for x in range(m)),
+        actions=("step",),
+        fields=("value",),
+        transitions=tuple(((a*x+c)%m,) for x in range(m)),
+        observations=tuple((x,) for x in range(m)),
+    )
+    formed = realize_formed_intention(
+        source, ("value",), f"v{observed.intention.query_input:02d}",
+        ("step",), inventory, fabric_policy, carriers,
+        admitted_interpreters=admitted_interpreters,
+        admitted_observers=admitted_observers,
+        ingress=ingress, observer=observer, coordinate=coordinate,
+    )
+    value = formed.report["output"]["observation"]["value"]
+    if (formed.machine.source_digest != source.fingerprint
+            or value != observed.realization.output
+            or value != (a*observed.intention.query_input+c)%m):
+        raise ObservationFormationRefused("host-routed formed result differs from source evidence")
+    return ObservedFabricRealization(
+        observed.digest, source.fingerprint, formed,
+    )
