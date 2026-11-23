@@ -124,6 +124,7 @@ class NonlinearStreamRequest:
     value_bit: int
     gate_bit: int | None
     mailbox: str
+    index: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -280,9 +281,6 @@ class NCRConditionalObserverStream:
         self.gate_bit = gate_bit
         self.mailbox = mailbox
         self.stabilization_iteration = cycles
-        self.request = NonlinearStreamRequest(
-            initial, word, value_bit, gate_bit, mailbox
-        )
         self._transient: tuple[NonlinearEmittedEvent, ...]
         transient = []
         state = initial
@@ -302,6 +300,16 @@ class NCRConditionalObserverStream:
         self._transient = tuple(transient)
         self._tail_value: int | None = (
             (terminal >> value_bit) & 1 if self._enabled(terminal) else None
+        )
+
+    def request(self, index: int) -> NonlinearStreamRequest:
+        """Mathematics: bind the full observer intention including the output ordinal."""
+
+        if type(index) is not int or index < 0 or index.bit_length() > _MAX_LOGICAL_BITS:
+            raise BootstrapRefused("requested emission ordinal must be a bounded integer")
+        return NonlinearStreamRequest(
+            self.initial, self.word, self.value_bit,
+            self.gate_bit, self.mailbox, index,
         )
 
     def _advance(self, state: int) -> int:
@@ -396,7 +404,7 @@ def verify_nonlinear_stream_receipt(
                 return False
             offered = NonlinearStreamRequest(
                 receipt.initial, receipt.word, receipt.value_bit,
-                receipt.gate_bit, receipt.mailbox,
+                receipt.gate_bit, receipt.mailbox, receipt.event.index,
             )
             if offered != expected_request:
                 return False
