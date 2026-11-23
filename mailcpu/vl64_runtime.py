@@ -27,7 +27,7 @@ from .computational_host import (
 VL64_OPERATOR_ID = "vl64.core.run"
 VL64_SOURCE_LIMIT = 65_536
 VL64_PROTOCOL = "mailcpu.vl64-runtime-host.v1"
-_SUPPORTED = frozenset({"affine.navigate", "intention.realize", "ground.cycle", "page.cow"})
+_SUPPORTED = frozenset({"affine.navigate", "intention.realize", "ground.cycle", "page.cow", "core.verify", "vm.nested"})
 
 
 def _installed_vld():
@@ -159,7 +159,45 @@ class VL64BackendAdapter:
         if operation not in _SUPPORTED:
             raise ComputationalBackendError("VL-64 operation is not in the host admission catalogue")
         vld = self._runtime
-        if operation == "affine.navigate":
+        if operation == "core.verify":
+            _fields(request.input_value, set())
+            report = vld.run_self_verification()
+            if report["status"] != "PASS" or report["total_assertions"] != 5:
+                raise ComputationalBackendError("VL-64 core invariant self-verification failed")
+            output = {"status": report["status"], "checks": report["checks"],
+                      "total_assertions": report["total_assertions"]}
+        elif operation == "vm.nested":
+            fields = _fields(request.input_value, {"payload_hex"})
+            raw = fields["payload_hex"]
+            if not isinstance(raw, str) or len(raw) > 1024 or len(raw) % 2:
+                raise ComputationalBackendError("nested VL-64 VM payload must be bounded hex")
+            try:
+                data = bytes.fromhex(raw)
+            except ValueError as exc:
+                raise ComputationalBackendError("nested VL-64 VM payload invalid") from exc
+            nested = vld.HeadlessOS()
+            nested.mprotect(0, "RW")
+            nested.page_space.write_page(0, 0, data)
+            nested.write_fd(3, data)
+            child = nested.fork()
+            child.page_space.write_page(0, 0, data[::-1])
+            child.write_fd(3, b"!")
+            try:
+                child.mprotect(0, "RWX")
+            except PermissionError:
+                wx_refused = True
+            else:
+                wx_refused = False
+            output = {
+                "parent_digest": hashlib.sha256(nested.page_space.read_page(0)).hexdigest(),
+                "child_digest": hashlib.sha256(child.page_space.read_page(0)).hexdigest(),
+                "isolated": nested.page_space.read_page(0)[:len(data)] == data
+                    and child.page_space.read_page(0)[:len(data)] == data[::-1]
+                    and nested.read_fd(3) == data
+                    and child.read_fd(3) == data + b"!",
+                "wx_refused": wx_refused,
+            }
+        elif operation == "affine.navigate":
             a, b, x0, steps, modulus = _affine_args(request.input_value)
             result = vld.affine_navigate(a, b, x0, steps, modulus)
             output = {"value": result, "modulus": modulus, "steps": steps}
