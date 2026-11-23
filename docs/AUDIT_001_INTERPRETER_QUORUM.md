@@ -98,16 +98,18 @@ rollback protection.
 configuration `{A,B,C,D,E}` with majority `q=3`:
 
 1. `B` and `C` fsync the exact proposal vote.
-2. An independent owner Python process opens `A.log`, fsyncs prepare and
-   commit with certificate `{A,B,C}`, then invokes `os._exit(91)`.
+2. An independent owner Python process opens `A.log` and is killed via
+   `os._exit(91/92/93)` at each of three durable cuts: after local PREPARE,
+   after observing both remote votes, and after local COMMIT.
 3. The parent creates a **new owner ledger** from persisted bytes only,
-   checks the decision and certificate, refuses a conflicting slot value,
-   and independently verifies the three durable prepare receipts.
+   checks recovered votes and any existing decision, refuses conflicting
+   slot values, independently verifies the three durable prepare receipts,
+   and commits the exact certificate when the death preceded COMMIT.
 4. `B` and `C` recover and commit the same certificate; a fresh reopen
    counts exactly three durable matching decisions.
 
 This establishes durable ledger reconstruction after real owner-process
-death at the decision boundary. It does not represent recovery of a killed
+death at three ledger boundaries. It does not represent recovery of a killed
 owner's live client ingress and peer socket graph.
 
 ```bash
