@@ -1,6 +1,21 @@
 """MailCPU native headless virtual environment and communication-backed runtime."""
 
 from .interpreter import QueueInterpreter, ReferenceInterpreter
+from .affine_orbit import (
+    AffineLeapResult,
+    AffineOrbitRefused,
+    AffineOrbitWitness,
+    issue_affine_orbit_witness,
+    leap_affine_loop,
+    verify_affine_orbit_witness,
+)
+from .recurrence_observer import (
+    RecurrenceObservationError,
+    RecurrenceWindow,
+    infer_recurrence_window,
+    nth_recurrence_matrix,
+    nth_recurrence_polynomial,
+)
 from .memory import (
     MemoryQuotaExceeded,
     PageFault,
@@ -1023,6 +1038,17 @@ from .observed_orbit_pipeline import (
 )
 
 __all__ = [
+    "AffineLeapResult",
+    "AffineOrbitRefused",
+    "AffineOrbitWitness",
+    "issue_affine_orbit_witness",
+    "leap_affine_loop",
+    "verify_affine_orbit_witness",
+    "RecurrenceObservationError",
+    "RecurrenceWindow",
+    "infer_recurrence_window",
+    "nth_recurrence_matrix",
+    "nth_recurrence_polynomial",
     "TensorStreamError",
     "compile_matmul_tile",
     "execute_tiled_matmul",
