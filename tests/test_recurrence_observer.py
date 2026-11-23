@@ -76,7 +76,7 @@ def test_random_exact_recurrences_crosscheck_two_independent_lifters() -> None:
     """Mathematics: both companion matrix and quotient-ring algorithms match direct recurrence."""
 
     rng = random.Random(11)
-    for _ in range(120):
+    for _ in range(600):
         order = rng.randint(1, 5)
         rec = [rng.randint(-2, 2) for _ in range(order)]
         rec[-1] = rec[-1] or 1
