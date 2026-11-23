@@ -1,0 +1,51 @@
+name: Intention-compiled pretrained model glances into E-CPU neural continuity
+
+on:
+  push:
+    paths:
+      - "mailcpu/addressable_intelligence.py"
+      - "tests/test_addressable_intelligence.py"
+      - ".github/workflows/addressable-intelligence.yml"
+  pull_request:
+    paths:
+      - "mailcpu/addressable_intelligence.py"
+      - "tests/test_addressable_intelligence.py"
+      - ".github/workflows/addressable-intelligence.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  addressable-model-ground:
+    name: Pinned pretrained read to new neural model (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, python: "3.11", pathsep: ":"}
+          - {os: ubuntu-latest, python: "3.14", pathsep: ":"}
+          - {os: windows-latest, python: "3.11", pathsep: ";"}
+          - {os: windows-latest, python: "3.14", pathsep: ";"}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Kier73/VL-64
+          ref: fea0d29d5a8a1edb03d9c66edd5ca4b15a1395d3
+          path: original-vl64
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install original VLD, VL-I, VL-64 and E-CPU
+        run: |
+          python -m pip install -e ".[dev]"
+          python -m pip install "git+https://github.com/Kier73/Virtual-Layer-Dynamics.git@985ba5c2fbcc40842aed9f45f42587749620b98e"
+          python -m pip install "git+https://github.com/Kier73/VL-I.git@939b49291bb719ab531730088f759574db471c00"
+          python -m pip install -e "./original-vl64"
+      - name: Verify exact pretrained behavior, generated neural law and M3 process recovery
+        env:
+          PYTHONPATH: ${{ github.workspace }}/original-vl64
+        run: python -m pytest -q tests/test_addressable_intelligence.py tests/test_vli_neural_model_host.py tests/test_intention_sufficiency.py tests/test_vli_neural_model_host.py
