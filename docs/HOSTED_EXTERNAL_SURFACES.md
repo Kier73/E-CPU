@@ -184,7 +184,7 @@ a configuration, tokenizer and inference-source file. It exercises:
 
 Reproduce the live experiment:
 
-    python scripts/observe_hosted_surface.py \
+    python -m scripts.observe_hosted_surface \
       --url https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/tree/main \
       --rounds 2000 --out artifacts/deepseek-virtual-structure.json
 
