@@ -100,3 +100,42 @@ def random_program(seed: int, length: int = 12) -> Program:
             instructions.append(Instruction(Op.SEND, ("random-out", rng.choice(registers))))
     instructions.append(Instruction(Op.HALT))
     return Program(tuple(instructions))
+
+
+def random_communication_program(seed: int, length: int = 16) -> Program:
+    """Mathematics: sample bounded-backtrack SEND/WAIT/MUL programs over shared FIFO mailboxes."""
+
+    if length < 6:
+        raise ValueError("communication program length must be at least 6")
+    rng = random.Random(seed)
+    registers = ("r0", "r1", "r2")
+    mailboxes = ("shared-0", "shared-1")
+    instructions: list[Instruction] = [
+        Instruction(Op.SET, ("one", 1)),
+        Instruction(Op.SET, ("two", 2)),
+        Instruction(Op.SET, ("r0", rng.randint(-3, 3))),
+    ]
+    for index in range(3, length - 1):
+        choice = rng.randrange(9)
+        destination = rng.choice(registers)
+        if choice == 0:
+            instructions.append(Instruction(Op.SET, (destination, rng.randint(-5, 5))))
+        elif choice == 1:
+            instructions.append(Instruction(Op.COPY, (destination, rng.choice(registers))))
+        elif choice == 2:
+            instructions.append(Instruction(Op.ADD, (destination, rng.choice(registers), "one")))
+        elif choice == 3:
+            # Multiplication by a pinned factor bounds bit growth under a step budget.
+            instructions.append(Instruction(Op.MUL, (destination, rng.choice(registers), "two")))
+        elif choice == 4:
+            instructions.append(Instruction(Op.COMPARE, (destination, rng.choice(registers), "one")))
+        elif choice == 5:
+            instructions.append(
+                Instruction(Op.BRANCH, (rng.choice(registers), rng.randrange(3, length)))
+            )
+        elif choice in (6, 7):
+            instructions.append(Instruction(Op.SEND, (rng.choice(mailboxes), rng.choice(registers))))
+        else:
+            instructions.append(Instruction(Op.WAIT, (rng.choice(mailboxes), destination)))
+    instructions.append(Instruction(Op.HALT))
+    return Program(tuple(instructions))
