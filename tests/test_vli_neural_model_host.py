@@ -534,7 +534,7 @@ def test_four_independent_m3_neural_models_execute_concurrently_and_rehome(tmp_p
         assert reopened.checkpoint_digest == current.checkpoint_digest
         assert len(set(launched)) == 2
         return {
-            "index": index, "session_id": reopened.session_id,
+            "index": index, "session_id": reopened.checkpoint.session_id,
             "head": heads[-1], "worker_pids": launched,
             "revision": reopened.revision,
             "source": reference.manifest.manifest_digest,
