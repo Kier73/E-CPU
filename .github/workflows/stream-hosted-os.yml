@@ -20,13 +20,21 @@ permissions:
 
 jobs:
   os-over-tcp:
-    name: Native OS / M3 quorum / TCP
-    runs-on: ubuntu-latest
+    name: Native OS / M3 quorum / TCP (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, python: "3.11"}
+          - {os: ubuntu-latest, python: "3.14"}
+          - {os: windows-latest, python: "3.11"}
+          - {os: windows-latest, python: "3.14"}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: ${{ matrix.python }}
       - name: Install E-CPU
         run: python -m pip install -e ".[dev,vgi]"
       - name: Test process migration, crash cuts and M3 quorum admission
