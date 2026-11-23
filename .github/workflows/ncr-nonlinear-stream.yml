@@ -1,0 +1,51 @@
+name: NCR-STREAM-003 nonlinear conditional observer
+
+on:
+  pull_request:
+    paths:
+      - "mailcpu/nonlinear_observer_stream.py"
+      - "mailcpu/__init__.py"
+      - "tests/test_nonlinear_observer_stream.py"
+      - "docs/NCR_STREAM_003_NONLINEAR_OBSERVATION.md"
+      - ".github/workflows/ncr-nonlinear-stream.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  nonlinear-observer:
+    name: nonlinear stream (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.11", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install E-CPU
+        run: python -m pip install ".[dev]"
+      - name: Retrieve independent NCR mathematics
+        run: git clone --filter=blob:none https://github.com/Kier73/Navigable-Compute.git ../ncr-pinned-source
+      - name: Checkout reviewed mathematical source
+        run: git -C ../ncr-pinned-source checkout --detach 559a1a813012d13ed37c04e2a117467e34ed3cb1
+      - name: Verify pinned source revision
+        run: python -c "import subprocess; sha=subprocess.check_output(['git','-C','../ncr-pinned-source','rev-parse','HEAD'],text=True).strip(); assert sha=='559a1a813012d13ed37c04e2a117467e34ed3cb1', sha"
+      - name: Install exact mathematical verifier
+        run: python -m pip install -e ../ncr-pinned-source
+      - name: Refuse silent external-source test skip
+        run: python -c "from navigable_compute.nonlinear_koopman_wire import decode_nonlinear; print('NCR-007 independent source verifier pinned')"
+      - name: Compile conditional stream and tests
+        run: python -m compileall -q mailcpu/nonlinear_observer_stream.py tests/test_nonlinear_observer_stream.py
+      - name: Verify exact nonlinear stream addressing and existing bridges
+        run: >-
+          python -m pytest -q
+          tests/test_nonlinear_observer_stream.py
+          tests/test_cross_repository_nonlinear_ground.py
+          tests/test_nonlinear_output_lift_probe.py
+          tests/test_affine_stream.py
