@@ -4,12 +4,14 @@ on:
   push:
     paths:
       - "mailcpu/observation_formed_processor.py"
+      - "examples/observation_forms_processor_demo.py"
       - "tests/test_observation_formed_processor.py"
       - "docs/OBSERVATION_FORMS_PROCESSOR_ONP001.md"
       - ".github/workflows/observation-formed-processor.yml"
   pull_request:
     paths:
       - "mailcpu/observation_formed_processor.py"
+      - "examples/observation_forms_processor_demo.py"
       - "tests/test_observation_formed_processor.py"
       - "docs/OBSERVATION_FORMS_PROCESSOR_ONP001.md"
       - ".github/workflows/observation-formed-processor.yml"
@@ -40,3 +42,5 @@ jobs:
         run: python -m pip install -e ".[dev]"
       - name: Verify observation-constructed processor and existing computation
         run: python -m pytest -q tests/test_observation_formed_processor.py tests/test_intention_sufficiency.py tests/test_generative_ground_construction.py tests/test_intention_formed_fabric.py tests/test_ground_native_realization.py
+      - name: Reproduce observer-created native processor experiment
+        run: python examples/observation_forms_processor_demo.py
