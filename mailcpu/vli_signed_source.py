@@ -9,7 +9,6 @@ Signatures authenticate the *publisher's assertion*, not physical sensor truth.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 from typing import Any
@@ -89,6 +88,18 @@ def bind_vli_signed_source(
     machine = restore_headless_state(state_bytes)
     if source_root(machine) is not None:
         raise ComputationalTransitionError("signed source root cannot silently be replaced")
+    # A policy may only be introduced at the beginning of observation history:
+    # never retroactively label existing unsigned events as authenticated.
+    prior = _read_json(machine, "/vli/temporal/state.json", max_bytes=4_194_304)
+    if not isinstance(prior, dict) or prior.get("events") != []:
+        raise ComputationalTransitionError("signed source must be bound before the first observation")
+    from vli.temporal_intelligence import verify_temporal_snapshot
+    try:
+        verify_temporal_snapshot(
+            prior, expected_head=prior["head"], expected_identity=prior["identity"],
+        )
+    except (ValueError, KeyError, TypeError) as exc:
+        raise ComputationalTransitionError("signed source initial Ground is not verified") from exc
     # A syntactically valid public key becomes the authorized trust root only
     # when the caller creates M3 genesis with this committed OS state.
     machine.install_source(
@@ -122,7 +133,6 @@ def verify_signed_history(machine, checkpoint: dict[str, Any]) -> dict[str, str]
     events = checkpoint.get("events")
     if not isinstance(events, list) or len(events) > 128:
         raise ComputationalTransitionError("VL-I signed-source event count is invalid")
-    last_source_time: str | None = None
     last_clock = 0
     for index, event in enumerate(events):
         packet = _read_json(machine, f"{SOURCE_PACKET_ROOT}/{index:04d}.json")
@@ -137,7 +147,6 @@ def verify_signed_history(machine, checkpoint: dict[str, Any]) -> dict[str, str]
             or packet["captured_monotonic_ns"] < last_clock):
             raise ComputationalTransitionError("VL-I signed packet or source-Ground alignment differs")
         last_clock = packet["captured_monotonic_ns"]
-        last_source_time = packet["time"]
     return root
 
 
