@@ -303,6 +303,60 @@ class _EventTemplate:
 
 
 @dataclass(frozen=True, slots=True)
+class CountedTransfer:
+    """Exact finite quotient map with an additive event-count cocycle."""
+
+    destinations: tuple[int, ...]
+    emission_counts: tuple[int, ...]
+
+    def __post_init__(self) -> None:
+        """Mathematics: check total state map and nonnegative finite event counts."""
+
+        size = len(self.destinations)
+        if (not 1 <= size <= 64 or len(self.emission_counts) != size
+                or any(type(x) is not int or not 0 <= x < size for x in self.destinations)
+                or any(type(x) is not int or x < 0 for x in self.emission_counts)):
+            raise BootstrapRefused("counted transfer requires a bounded total nonnegative source")
+
+    @classmethod
+    def identity(cls, size: int) -> "CountedTransfer":
+        """Mathematics: the zero-action identity emits zero events."""
+
+        if type(size) is not int or not 1 <= size <= 64:
+            raise BootstrapRefused("invalid identity count Ground dimension")
+        return cls(tuple(range(size)), (0,) * size)
+
+    def then(self, following: "CountedTransfer") -> "CountedTransfer":
+        """Mathematics: (F2,C2)∘(F1,C1)=(F2∘F1,C1+C2∘F1)."""
+
+        if not isinstance(following, CountedTransfer) or (
+            len(following.destinations) != len(self.destinations)
+        ):
+            raise BootstrapRefused("counted composition requires a shared state chart")
+        return CountedTransfer(
+            tuple(following.destinations[target] for target in self.destinations),
+            tuple(
+                own + following.emission_counts[target]
+                for own, target in zip(self.emission_counts, self.destinations)
+            ),
+        )
+
+    def power(self, iterations: int) -> "CountedTransfer":
+        """Mathematics: exponentiate the exact count cocycle without visiting each time."""
+
+        remaining = _coordinate(iterations)
+        accumulator = CountedTransfer.identity(len(self.destinations))
+        factor = self
+        while remaining:
+            if remaining & 1:
+                accumulator = accumulator.then(factor)
+            remaining >>= 1
+            if remaining:
+                factor = factor.then(factor)
+        return accumulator
+
+
+@dataclass(frozen=True, slots=True)
 class CountedCycleSummary:
     """Exact finite-quotient event-count composition and proof coordinates."""
 
@@ -412,6 +466,34 @@ class CountedObserverStream:
             source.fingerprint, machine.fingerprint, mu, lam,
             len(self._prefix), len(self._cycle), groups,
         )
+        # Independently construct the finite-state count cocycle on every
+        # observer class, not only along this starting state's orbit.
+        # It supplies a second exact route to any cumulative event count.
+        transfers: list[int] = []
+        rates: list[int] = []
+        for original_group in range(groups):
+            candidate = original_group
+            total_events = 0
+            for action in word:
+                candidate = machine.transitions[candidate][action_positions[action]]
+                observations = machine.outputs[candidate]
+                for rule in rules:
+                    if rule.on_action is not None and rule.on_action != action:
+                        continue
+                    if rule.when_field is not None:
+                        observed = observations[field_positions[rule.when_field]]
+                        if (type(observed) is not type(rule.when_equals)
+                                or observed != rule.when_equals):
+                            continue
+                    total_events += 1
+            transfers.append(candidate)
+            rates.append(total_events)
+        self.transfer = CountedTransfer(tuple(transfers), tuple(rates))
+        self._initial_group = start
+        checked = self.transfer.power(mu + lam)
+        if (checked.destinations[start] != state
+                or checked.emission_counts[start] != self._prefix_counts[mu + lam]):
+            raise BootstrapRefused("counted orbit and independently powered cocycle disagree")
 
     def length(self) -> int | None:
         """Mathematics: return finite count or None for a positive-emission period."""
@@ -431,6 +513,16 @@ class CountedObserverStream:
             + repetitions * self.summary.period_emissions
             + self._prefix_counts[mu + remainder] - self._prefix_counts[mu]
         )
+
+    def count_via_cocycle(self, iterations: int) -> int:
+        """Mathematics: independently count n word emissions using logarithmic powering."""
+
+        return self.transfer.power(iterations).emission_counts[self._initial_group]
+
+    def quotient_via_cocycle(self, iterations: int) -> int:
+        """Mathematics: independently navigate a quotient state by cocycle powering."""
+
+        return self.transfer.power(iterations).destinations[self._initial_group]
 
     def quotient_state_after(self, iterations: int) -> int:
         """Mathematics: seek the same observed state after n words via its exact orbit period."""
