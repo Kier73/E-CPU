@@ -201,3 +201,29 @@ ingress service.
    duplicate-reference-verification cost, end-to-end recovery time and
    authenticated multi-hop overhead separately. Explore proof-carrying
    transition receipts to replace duplicate interpretation where qualified.
+
+
+### M3 context correlation across SOI-001's TCP frames
+
+The test carrier now optionally carries a 64-hex-digit
+ComputationalTransitionContext.binding_digest on each request, and the worker
+echoes it with its prepared or published successor. The caller checks this
+unchanged exact digest on both ordinary execution and crash-cut receipts.
+It binds the **correlation of a returned TCP computation** to the M3 context
+used to request it, rather than relying on transport sequence or OS worker PID.
+
+The binding_digest is a canonical SHA-256 commitment to session, predecessor
+revision and checkpoint, quorum lineage, current M1 state digest, artifact,
+state schema, backend, interpretation, operation, input and logical time.
+It is not a MAC, signature, TLS peer identity or authorization token. An
+untrusted host could copy the digest. Semantic state verification and M3
+quorum CAS remain mandatory; authenticated E-CPU fabric delivery is the next
+network authority composition.
+
+### Verification matrix
+
+The dedicated workflow runs the SOI-001/SOI-002 suite plus existing M3
+transition and session regressions on Linux and Windows with Python 3.11 and
+3.14. This keeps platform-dependent process kill, TCP receive, journal
+reopening and checkpoint encoding behavior directly observable. Mainline's
+general repository verification remains a separate gate.
