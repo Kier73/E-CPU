@@ -39,10 +39,14 @@ The actual original model tensor capsules have this geometry:
     Q = 4 x 576 BF16 pretrained layer-0 query projection weights
     initial observed trained payload = (576+4*576)*2 = 5,760 bytes
 
-The full original VL-64 replay validates the complete pinned BF16
-slice, calculates the actual source-derived normalized input and
-all four trained query projection coordinates, and checks independent
-scalar numerical reference math.
+The original VL-64 source capsule is admitted and its exact trained BF16
+bytes, original source witnesses, and source digest are verified. Its
+original fixed numerical replay law is independently reconstructed
+through current VLD's BF16 decoder, covering the original normalized
+input, all four trained query coordinates, and an independent scalar
+reference. The historical VL-64 runner exposes an older VLD import API;
+this adapter preserves the actual original data and arithmetic while
+using the current VLD numerical implementation.
 
 A request for **which of two selected Q coordinates is larger**
 does not need to compute the entire 4-row query projection.
