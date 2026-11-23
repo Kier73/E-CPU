@@ -1,0 +1,69 @@
+name: Original VL-I generated neural model on E-CPU M3
+
+on:
+  push:
+    paths:
+      - "mailcpu/vli_neural_model.py"
+      - "mailcpu/vli_neural_session.py"
+      - "mailcpu/vli_neural_worker.py"
+      - "tests/test_vli_neural_model_host.py"
+      - "tests/fixtures/vli_original_described_neural_model.json"
+      - ".github/workflows/vli-neural-model-hosted.yml"
+  pull_request:
+    paths:
+      - "mailcpu/vli_neural_model.py"
+      - "mailcpu/vli_neural_session.py"
+      - "mailcpu/vli_neural_worker.py"
+      - "tests/test_vli_neural_model_host.py"
+      - "tests/fixtures/vli_original_described_neural_model.json"
+      - ".github/workflows/vli-neural-model-hosted.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  genuine-neural-host:
+    name: Real VL-I neural M3 (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, python: "3.11"}
+          - {os: ubuntu-latest, python: "3.14"}
+          - {os: windows-latest, python: "3.11"}
+          - {os: windows-latest, python: "3.14"}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install E-CPU and both pinned actual model runtimes
+        run: |
+          python -m pip install -e ".[dev]"
+          python -m pip install "git+https://github.com/Kier73/Virtual-Layer-Dynamics.git@985ba5c2fbcc40842aed9f45f42587749620b98e"
+          python -m pip install "git+https://github.com/Kier73/VL-I.git@939b49291bb719ab531730088f759574db471c00"
+      - name: Validate genuine VL-I neural model and E-CPU M3 recovery
+        run: python -m pytest -q tests/test_vli_neural_model_host.py tests/test_computational_transition.py tests/test_computational_session.py
+
+  original-neural:
+    name: Original VL-I COORD-002 complete neural source tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Kier73/VL-I
+          ref: 939b49291bb719ab531730088f759574db471c00
+          path: original-vli
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install original runtime versions
+        run: |
+          python -m pip install -e ".[dev]"
+          python -m pip install "git+https://github.com/Kier73/Virtual-Layer-Dynamics.git@985ba5c2fbcc40842aed9f45f42587749620b98e"
+          python -m pip install -e "./original-vli[test]"
+      - name: Verify actual generated weights, full-domain neural equivalence and conversational recovery
+        run: python -m pytest -q original-vli/tests/test_generative_response.py
