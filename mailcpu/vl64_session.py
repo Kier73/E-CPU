@@ -75,7 +75,7 @@ def _decode(raw: bytes, label: str) -> dict[str, Any]:
 
 def encode_vl64_session_operation(operation: str, arguments: Mapping[str, Any]) -> bytes:
     """Bind a known host operation and finite JSON arguments without caller code."""
-    if operation not in {"affine.navigate", "intention.realize", "ground.cycle", "page.cow"}:
+    if operation not in {"affine.navigate", "intention.realize", "ground.cycle", "page.cow", "core.verify", "vm.nested"}:
         raise ComputationalTransitionError("unknown VL-64 session operation")
     if not isinstance(arguments, Mapping):
         raise ComputationalTransitionError("VL-64 arguments must be a mapping")
@@ -93,7 +93,7 @@ def _input(raw: bytes) -> tuple[str, dict[str, Any]]:
     record = _decode(raw, "VL-64 session input")
     if set(record) != {"schema", "operation", "arguments"} or record["schema"] != VL64_SESSION_INPUT_SCHEMA:
         raise ComputationalTransitionError("VL-64 session input fields or schema differ")
-    if record["operation"] not in {"affine.navigate", "intention.realize", "ground.cycle", "page.cow"}:
+    if record["operation"] not in {"affine.navigate", "intention.realize", "ground.cycle", "page.cow", "core.verify", "vm.nested"}:
         raise ComputationalTransitionError("VL-64 operation is unadmitted")
     if not isinstance(record["arguments"], dict):
         raise ComputationalTransitionError("VL-64 arguments are not a JSON mapping")
