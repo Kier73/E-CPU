@@ -271,6 +271,20 @@ architecture fixture; carrying actual original 27B trained tensor
 ranges and quorum-fenced whole-decoder execution is the next
 verified model-host tier.
 
+[SOI-011](docs/VLI_QWEN_M3_CAUSAL_SESSION.md) connects the same
+**original VL-I Qwen eight-layer causal state to M3**: all six GDN
+recurrent/convolution histories and two GQA KV histories are
+transferred as immutable M1 objects, while the *accepted* numerical
+model head and layer checkpoints live inside a full quorum-fenced
+native E-CPU HeadlessOS session. Distinct real Qwen worker processes
+can resume different token positions; a late old worker cannot
+overwrite a newer accepted M3 revision even if its mathematical
+output is correct. Host-specific source range-read records are kept
+separate from the model's stable numerical/causal state identity.
+The first verified source is the original tiny F32 Qwen architecture
+fixture, not pretrained 27B inference; see the linked document for
+the qualified original-weight and full-decoder path.
+
 The verified implementations distinguish native MailCPU instruction
 execution, host-bound Python interpretation, signed source provenance,
 logical application-state durability and physical source truth. The
