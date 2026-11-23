@@ -1,0 +1,43 @@
+name: VL-64 hosted VM fleet (real runtime)
+
+on:
+  push:
+    paths:
+      - "mailcpu/vl64_runtime.py"
+      - "tests/test_vl64_runtime_host.py"
+      - "scripts/benchmark_vl64_fleet.py"
+      - ".github/workflows/vl64-hosted-fleet.yml"
+  pull_request:
+    paths:
+      - "mailcpu/vl64_runtime.py"
+      - "tests/test_vl64_runtime_host.py"
+      - "scripts/benchmark_vl64_fleet.py"
+      - ".github/workflows/vl64-hosted-fleet.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  genuine-vl64:
+    name: VL-64 on E-CPU (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, python: "3.11"}
+          - {os: ubuntu-latest, python: "3.14"}
+          - {os: windows-latest, python: "3.11"}
+          - {os: windows-latest, python: "3.14"}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install E-CPU and exact VL-64 runtime
+        run: |
+          python -m pip install -e ".[dev]"
+          python -m pip install "git+https://github.com/Kier73/VL-64.git@fea0d29d5a8a1edb03d9c66edd5ca4b15a1395d3"
+      - name: Test native Hypervisor-governed VL-64 M2 hosting
+        run: python -m pytest -q tests/test_vl64_runtime_host.py tests/test_computational_host.py tests/test_vm_fleet_capacity.py
