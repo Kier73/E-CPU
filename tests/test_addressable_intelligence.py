@@ -148,7 +148,7 @@ def test_canonical_model_source_and_adversarial_observation_refusal() -> None:
     compiled = _compiled()
     changed = copy.deepcopy(source)
     changed["revision"] = "0" * 40
-    with pytest.raises(ValueError, match="identity"):
+    with pytest.raises(ValueError, match="source or mathematical law"):
         compile_trained_model_intention(changed, expected_source_head=head)
     changed = copy.deepcopy(source)
     changed["q_payload_sha256"] = "0" * 64
