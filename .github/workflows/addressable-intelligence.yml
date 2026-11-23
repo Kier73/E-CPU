@@ -5,11 +5,13 @@ on:
     paths:
       - "mailcpu/addressable_intelligence.py"
       - "tests/test_addressable_intelligence.py"
+      - "scripts/benchmark_addressable_intelligence.py"
       - ".github/workflows/addressable-intelligence.yml"
   pull_request:
     paths:
       - "mailcpu/addressable_intelligence.py"
       - "tests/test_addressable_intelligence.py"
+      - "scripts/benchmark_addressable_intelligence.py"
       - ".github/workflows/addressable-intelligence.yml"
   workflow_dispatch:
 
@@ -49,3 +51,13 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}/original-vl64
         run: python -m pytest -q tests/test_addressable_intelligence.py tests/test_vli_neural_model_host.py tests/test_intention_sufficiency.py
+      - name: Benchmark actual trained readout and original generated model
+        env:
+          PYTHONPATH: ${{ github.workspace }}/original-vl64
+        run: python scripts/benchmark_addressable_intelligence.py --trials 64 --out artifacts/addressable-intelligence-benchmark.json
+      - name: Preserve complete model source and numerical observation receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: aig001-${{ matrix.os }}-py${{ matrix.python }}
+          path: artifacts/addressable-intelligence-benchmark.json
+
