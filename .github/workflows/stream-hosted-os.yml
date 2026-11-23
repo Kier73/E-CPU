@@ -4,10 +4,14 @@ on:
   push:
     paths:
       - "tests/test_stream_hosted_os.py"
+      - "tests/test_stream_os_quorum.py"
+      - "mailcpu/stream_os_session.py"
       - ".github/workflows/stream-hosted-os.yml"
   pull_request:
     paths:
       - "tests/test_stream_hosted_os.py"
+      - "tests/test_stream_os_quorum.py"
+      - "mailcpu/stream_os_session.py"
       - ".github/workflows/stream-hosted-os.yml"
   workflow_dispatch:
 
@@ -16,7 +20,7 @@ permissions:
 
 jobs:
   os-over-tcp:
-    name: Transport full OS state over TCP
+    name: Native OS / M3 quorum / TCP
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,5 +29,5 @@ jobs:
           python-version: "3.13"
       - name: Install E-CPU
         run: python -m pip install -e ".[dev,vgi]"
-      - name: Test HeadlessOS process and virtual stream continuity
-        run: python -m pytest -q tests/test_stream_hosted_os.py
+      - name: Test process migration, crash cuts and M3 quorum admission
+        run: python -m pytest -q tests/test_stream_hosted_os.py tests/test_stream_os_quorum.py tests/test_computational_transition.py tests/test_computational_session.py
