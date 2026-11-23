@@ -27,7 +27,7 @@ from .computational_host import (
 VL64_OPERATOR_ID = "vl64.core.run"
 VL64_SOURCE_LIMIT = 65_536
 VL64_PROTOCOL = "mailcpu.vl64-runtime-host.v1"
-_SUPPORTED = frozenset({"affine.navigate", "intention.realize", "ground.cycle", "page.cow", "core.verify", "vm.nested"})
+_SUPPORTED = frozenset({"affine.navigate", "intention.realize", "ground.cycle", "page.cow", "core.verify", "vm.nested", "page.session"})
 
 
 def _installed_vld():
@@ -159,7 +159,35 @@ class VL64BackendAdapter:
         if operation not in _SUPPORTED:
             raise ComputationalBackendError("VL-64 operation is not in the host admission catalogue")
         vld = self._runtime
-        if operation == "core.verify":
+        if operation == "page.session":
+            fields = _fields(request.input_value, {"state_hex", "offset", "write_hex"})
+            previous_hex, write_hex = fields["state_hex"], fields["write_hex"]
+            if (not isinstance(previous_hex, str) or len(previous_hex) not in (0, 512)
+                or not isinstance(write_hex, str) or len(write_hex) > 512
+                or len(write_hex) % 2):
+                raise ComputationalBackendError("VL-64 persistent page arguments exceed bounds")
+            try:
+                previous = bytes.fromhex(previous_hex)
+                delta = bytes.fromhex(write_hex)
+            except ValueError as exc:
+                raise ComputationalBackendError("VL-64 persistent page contains invalid hex") from exc
+            if previous_hex != previous.hex() or write_hex != delta.hex():
+                raise ComputationalBackendError("VL-64 page hex must have canonical encoding")
+            position = _integer(fields["offset"], "offset", 0, 255)
+            if position + len(delta) > 256:
+                raise ComputationalBackendError("VL-64 write exceeds the admitted application page")
+            actual = vld.PageSpace()
+            if previous:
+                actual.write_page(0, 0, previous)
+            actual.write_page(0, position, delta)
+            page = actual.read_page(0)
+            output = {
+                "state_hex": page[:256].hex(),
+                "state_digest": hashlib.sha256(page).hexdigest(),
+                "manifest_digest": actual.commit_manifest()["digest"],
+                "page_bytes": len(page),
+            }
+        elif operation == "core.verify":
             _fields(request.input_value, set())
             report = vld.run_self_verification()
             if report["status"] != "PASS" or report["total_assertions"] != 5:
