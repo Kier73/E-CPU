@@ -38,8 +38,8 @@ def _hex(value: int) -> str:
 def _unhex(value: Any) -> int:
     """Mathematics: admit only the unique lowercase hexadecimal integer spelling."""
 
-    if type(value) is not str:
-        raise BootstrapRefused("stream integer must be canonical hexadecimal text")
+    if type(value) is not str or len(value) > 2 + (_MAX_LOGICAL_BITS + 3) // 4:
+        raise BootstrapRefused("stream integer must be bounded canonical hexadecimal text")
     try:
         parsed = int(value, 16)
     except (ValueError, TypeError) as exc:
