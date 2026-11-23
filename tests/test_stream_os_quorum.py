@@ -318,7 +318,7 @@ def test_os_wire_input_and_snapshot_are_exact_and_bounded() -> None:
         encode_headless_step(ticks=0)
     with pytest.raises(ComputationalTransitionError, match="read_size"):
         encode_headless_step(ticks=1, read_size=1)
-    with pytest.raises(ComputationalTransitionError, match="canonical"):
+    with pytest.raises(ComputationalTransitionError, match="cannot be decoded"):
         restore_headless_state(b'{"vm": {}, "vm": {}}')
     with pytest.raises(ComputationalTransitionError, match="fields"):
         execute_headless_step(source, b'{"read_fd":null,"read_size":0,"schema":"mailcpu.headless-pure-step.v1","ticks":1,"unmodeled":true}')
