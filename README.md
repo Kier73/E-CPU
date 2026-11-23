@@ -298,6 +298,21 @@ This distinguishes reconstructing a particular pretrained
 behavior from forming an original stateful processor from the
 observed model's computational structure.
 
+[HSS-002](docs/HOSTED_EXTERNAL_SURFACES.md) refines the external-model
+research direction to **source-local data and Virtual Layer interpretation**.
+A large model is an immutable externally hosted address space, not a byte
+payload to bring into E-CPU. From only its source-host metadata descriptions,
+a receiver forms typed structural Grounds, virtual file/layer coordinates,
+and a three-frame intention/realization control stream; model weight
+payload reads are **zero**. The same source-relative operation runs through
+the original native Hypervisor-governed VirtualLayerRuntime and is
+reconstructable by a new observer using source identities alone. The first
+live observation uses DeepSeek's 48-shard external repository: 510.31 GB
+declared source data, with structural navigation independent of the model
+payload size. Full trained numerical behavior calls for a separately
+qualified source-local interpreter or sufficient mathematical law; model
+data relocation is not the intended execution mechanism.
+
 The verified implementations distinguish native MailCPU instruction
 execution, host-bound Python interpretation, signed source provenance,
 logical application-state durability and physical source truth. The
