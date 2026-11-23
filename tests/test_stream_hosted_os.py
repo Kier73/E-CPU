@@ -88,6 +88,13 @@ def _worker(port: int) -> None:
         if not isinstance(request.get("identity"), str):
             raise ValueError("missing OS identity")
 
+        binding = request.get("context_binding_digest")
+        if binding is not None and (
+            not isinstance(binding, str) or len(binding) != 64
+            or any(character not in "0123456789abcdef" for character in binding)
+        ):
+            raise ValueError("invalid M3 context binding digest")
+
         machine = HeadlessOS.from_snapshot(request["state"])
         observe_headless_os_state(machine)
         received = None
@@ -109,6 +116,7 @@ def _worker(port: int) -> None:
             connection.sendall(_frame({
                 "schema": SCHEMA,
                 "kind": "prepared",
+                "context_binding_digest": binding,
                 "state_digest": hashlib.sha256(_canonical(state)).hexdigest(),
                 "worker_pid": os.getpid(),
             }))
@@ -121,6 +129,7 @@ def _worker(port: int) -> None:
             "revision": request["revision"] + 1,
             "worker_pid": os.getpid(),
             "virtual_io_hex": None if received is None else received.hex(),
+            "context_binding_digest": binding,
             "state": state,
         }))
         if request.get("cut") == "after_publish":
@@ -134,6 +143,7 @@ def _remote_step(
     revision: int,
     ticks: int,
     consume_fd: int | None = None,
+    context_binding_digest: str | None = None,
 ) -> dict[str, object]:
     """Rehost one OS continuation in a newly spawned, independently living process."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
@@ -157,6 +167,7 @@ def _remote_step(
                     "revision": revision,
                     "ticks": ticks,
                     "consume_fd": consume_fd,
+                    "context_binding_digest": context_binding_digest,
                     "state": snapshot,
                 }))
                 result = _receive(connection)
@@ -170,6 +181,7 @@ def _remote_step(
     assert result["identity"] == identity
     assert result["parent_revision"] == revision
     assert result["revision"] == revision + 1
+    assert result["context_binding_digest"] == context_binding_digest
     assert result["worker_pid"] != os.getpid()
     return result
 
@@ -276,6 +288,7 @@ def test_stream_rejects_truncation_and_unbounded_envelopes() -> None:
 def _remote_crash_cut(
     snapshot: dict[str, object], *, identity: str,
     revision: int, ticks: int, cut: str, consume_fd: int | None = None,
+    context_binding_digest: str | None = None,
 ) -> dict[str, object]:
     """Kill a genuinely separate OS worker at a known pre/post-publication cut."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
@@ -295,6 +308,7 @@ def _remote_crash_cut(
                     "schema": SCHEMA, "identity": identity,
                     "revision": revision, "ticks": ticks,
                     "consume_fd": consume_fd, "state": snapshot, "cut": cut,
+                    "context_binding_digest": context_binding_digest,
                 }))
                 receipt = _receive(connection)
                 assert worker.poll() is None, "worker exited before crash cut"
@@ -305,6 +319,7 @@ def _remote_crash_cut(
             if worker.poll() is None:
                 worker.kill()
                 worker.communicate(timeout=10)
+    assert receipt["context_binding_digest"] == context_binding_digest
     return receipt
 
 
