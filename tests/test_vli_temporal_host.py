@@ -571,3 +571,211 @@ def test_real_vli_worker_hard_kill_cut_preserves_only_admitted_m3_state(tmp_path
     final = _store(tmp_path, backing, ref).load_latest()
     assert final.checkpoint_digest == completed.checkpoint_digest
     assert _read_result(final.state_bytes, "cut-after", 1)["result"]["active_status"] == "INSUFFICIENT"
+
+
+
+def _signed_publisher():
+    """External publisher owns its actual Ed25519 private signing key."""
+    pytest.importorskip("cryptography")
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from vli.authenticated_temporal_source import public_key_hex
+    secret = Ed25519PrivateKey.generate()
+    return secret, public_key_hex(secret)
+
+
+def _signed_packet(secret, source, index, value):
+    """Use the real VL-I TIME-005 external publisher, not a fabricated signature."""
+    from vli.authenticated_temporal_source import sign_source_observation
+    return sign_source_observation(
+        secret, source=source, sequence=index,
+        time=f"{index}/1", value=f"{value}/1",
+    )
+
+
+def test_ed25519_signed_original_vli_ground_survives_six_process_rehosts(tmp_path: Path) -> None:
+    """The original TIME-005 publisher signature and TIME-001 Ground both survive M3."""
+    from mailcpu.vli_signed_source import (
+        bind_vli_signed_source, verify_signed_history,
+    )
+    from vli.authenticated_temporal_source import _packet_digest
+
+    source = "external-ed25519-observation-publisher"
+    secret, public_key = _signed_publisher()
+    reference = _reference()
+    backing = PageBacking()
+    store = _store(tmp_path, backing, reference)
+    initial = bind_vli_signed_source(_initial(), source=source, public_key=public_key)
+    current = store.create_session(initial)
+    pids = []
+    heads = []
+    values = [1, 3, 5, 23, 24, 25]
+    for index, value in enumerate(values):
+        packet = _signed_packet(secret, source, index, value)
+        host_id = "host-a" if index % 2 == 0 else "host-b"
+        backend, adapter = _adapter(
+            _store(tmp_path, backing, reference), reference, host_id,
+            _remote(host_id, reference, pids),
+        )
+        accepted = adapter.apply(
+            encode_vli_temporal_operation("temporal.ingest_signed", {
+                "packet": packet,
+            }),
+            operation_id=f"signed-{index}",
+            expected_revision=current.revision,
+            expected_checkpoint_digest=current.checkpoint_digest,
+        )
+        assert backend.remote_calls == 1
+        assert accepted.revision == current.revision + 1
+        assert packet["signature"] != ""
+        semantic = _read_result(accepted.state_bytes, f"signed-{index}", index + 1)
+        assert semantic["source_authentication"] == {
+            "kind": "VL-I-TIME005-ED25519",
+            "packet_digest": _packet_digest(packet),
+            "publisher": source,
+        }
+        assert semantic["result"]["durability"] == "STAGED_FOR_M3_QUORUM"
+        observed = read_vli_temporal_checkpoint(accepted.state_bytes)
+        assert observed["events"][-1]["source_digest"] == _packet_digest(packet)
+        assert observed["events"][-1]["host"] == host_id
+        assert verify_signed_history(restore_headless_state(accepted.state_bytes), observed)
+        heads.append(observed["head"])
+        current = accepted
+
+    assert len(set(pids)) == len(pids) == 6
+    assert len(set(heads)) == 6
+    recovered = _store(tmp_path, backing, reference).load_latest()
+    assert recovered.revision == 7
+    assert recovered.checkpoint_digest == current.checkpoint_digest
+    ground = read_vli_temporal_checkpoint(recovered.state_bytes)
+    assert [e["status"] for e in TemporalIntelligenceGround.restore(
+        ground, expected_head=ground["head"], expected_identity=ground["identity"]
+    ).epochs] == ["QUALIFIED_SAMPLES_ONLY", "QUALIFIED_SAMPLES_ONLY"]
+    assert recovered.state_bytes == current.state_bytes
+
+
+def test_signed_vli_observation_refuses_unsigned_tampered_and_stale_sources(tmp_path: Path) -> None:
+    """Pinned public-key source policy governs input before remote Python execution."""
+    from mailcpu.vli_signed_source import bind_vli_signed_source
+    source = "trusted-externally-signed-environment"
+    secret, public_key = _signed_publisher()
+    ref = _reference()
+    backing = PageBacking()
+    store = _store(tmp_path, backing, ref)
+    genesis = store.create_session(bind_vli_signed_source(
+        _initial(), source=source, public_key=public_key,
+    ))
+
+    def never_remote(*_args):
+        """A refused source packet must never enter a physical VL-I host."""
+        raise AssertionError("rejected publisher request reached remote host")
+
+    bad_backend, bad = _adapter(store, ref, "host-a", never_remote)
+    with pytest.raises(ComputationalTransitionError, match="unsigned"):
+        bad.apply(
+            encode_vli_temporal_operation("temporal.ingest", {
+                "sample": _sample(0, 1),
+            }), operation_id="unsigned-refused",
+        )
+    first_packet = _signed_packet(secret, source, 0, 1)
+    tampered = dict(first_packet)
+    tampered["values"] = ["999/1"]
+    with pytest.raises(ComputationalTransitionError, match="signature"):
+        bad.apply(
+            encode_vli_temporal_operation("temporal.ingest_signed", {
+                "packet": tampered,
+            }), operation_id="signature-refused",
+        )
+    wrong_secret, _ = _signed_publisher()
+    with pytest.raises(ComputationalTransitionError, match="signature"):
+        bad.apply(
+            encode_vli_temporal_operation("temporal.ingest_signed", {
+                "packet": _signed_packet(wrong_secret, source, 0, 1),
+            }), operation_id="untrusted-publisher",
+        )
+    assert bad_backend.remote_calls == 0
+    assert store.load_latest().checkpoint_digest == genesis.checkpoint_digest
+
+    real_backend, real_adapter = _adapter(
+        store, ref, "host-b", _remote("host-b", ref, []),
+    )
+    accepted = real_adapter.apply(
+        encode_vli_temporal_operation("temporal.ingest_signed", {
+            "packet": first_packet,
+        }), operation_id="accepted-signed",
+        expected_revision=genesis.revision,
+        expected_checkpoint_digest=genesis.checkpoint_digest,
+    )
+    assert accepted.revision == 2
+    stale_backend, stale_adapter = _adapter(
+        _store(tmp_path, backing, ref), ref, "host-a", never_remote,
+    )
+    with pytest.raises(ComputationalTransitionError, match="sequence"):
+        stale_adapter.apply(
+            encode_vli_temporal_operation("temporal.ingest_signed", {
+                "packet": first_packet,
+            }), operation_id="stale-source-sequence",
+        )
+    assert stale_backend.remote_calls == 0
+    assert _store(tmp_path, backing, ref).load_latest().checkpoint_digest == accepted.checkpoint_digest
+
+
+def test_signed_vli_historical_source_packet_tampering_is_detected_at_restore(tmp_path: Path) -> None:
+    """Rehashing the OS snapshot does not replace original publisher authentication."""
+    from mailcpu.vli_signed_source import bind_vli_signed_source, SOURCE_PACKET_ROOT
+    source = "sensor-history-signatures"
+    secret, public_key = _signed_publisher()
+    ref = _reference()
+    backing = PageBacking()
+    store = _store(tmp_path, backing, ref)
+    starting = store.create_session(bind_vli_signed_source(
+        _initial(), source=source, public_key=public_key,
+    ))
+    packet = _signed_packet(secret, source, 0, 1)
+    _, adapter = _adapter(store, ref, "host-a", _remote("host-a", ref, []))
+    current = adapter.apply(
+        encode_vli_temporal_operation("temporal.ingest_signed", {
+            "packet": packet,
+        }), operation_id="history-valid",
+    )
+    machine = restore_headless_state(current.state_bytes)
+    altered = dict(packet)
+    altered["values"] = ["300/1"]
+    machine.install_source(
+        f"{SOURCE_PACKET_ROOT}/0000.json",
+        json.dumps(altered, sort_keys=True, separators=(",", ":")),
+    )
+    with pytest.raises(ComputationalTransitionError, match="signature"):
+        read_vli_temporal_checkpoint(serialize_headless_state(machine))
+
+
+def test_signed_vli_host_kill_after_result_publishes_only_verified_source(tmp_path: Path) -> None:
+    """Publisher signature remains verified even if the executing Python host dies."""
+    from mailcpu.vli_signed_source import bind_vli_signed_source
+    source = "signed-physical-worker-death"
+    secret, public_key = _signed_publisher()
+    ref = _reference()
+    backing = PageBacking()
+    store = _store(tmp_path, backing, ref)
+    initial = store.create_session(bind_vli_signed_source(
+        _initial(), source=source, public_key=public_key,
+    ))
+    pids = []
+    backend, adapter = _adapter(
+        store, ref, "host-b",
+        _remote("host-b", ref, pids, crash_cut="after_publish"),
+    )
+    accepted = adapter.apply(
+        encode_vli_temporal_operation("temporal.ingest_signed", {
+            "packet": _signed_packet(secret, source, 0, 1),
+        }),
+        operation_id="signed-killed-publisher",
+        expected_revision=initial.revision,
+        expected_checkpoint_digest=initial.checkpoint_digest,
+    )
+    assert accepted.revision == 2
+    assert backend.remote_calls == 1
+    assert len(pids) == 1
+    latest = _store(tmp_path, backing, ref).load_latest()
+    assert latest.checkpoint_digest == accepted.checkpoint_digest
+    assert read_vli_temporal_checkpoint(latest.state_bytes)["events"][0]["host"] == "host-b"
+    assert _read_result(latest.state_bytes, "signed-killed-publisher", 1)["source_authentication"]["publisher"] == source
