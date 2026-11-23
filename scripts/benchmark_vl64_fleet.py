@@ -55,6 +55,18 @@ REPORT_SCHEMA = "mailcpu.vl64-hosted-fleet-benchmark.v1"
 PYTHON = sys.executable
 
 
+def _linux_rss_bytes() -> int | None:
+    """Measure actual Python process resident bytes when Linux procfs is available."""
+    if not sys.platform.startswith("linux"):
+        return None
+    try:
+        with open("/proc/self/statm", "r", encoding="ascii") as source:
+            pages = int(source.read().split()[1])
+        return pages * int(os.sysconf("SC_PAGE_SIZE"))
+    except (OSError, ValueError, IndexError):
+        return None
+
+
 def _canonical(value: object) -> bytes:
     """Make deterministic receipt bytes independent of display formatting."""
     return json.dumps(
@@ -196,6 +208,8 @@ def _worker_case(index: int) -> dict[str, Any]:
         "backend_fingerprint": profile.fingerprint,
         "os_observation_digest": observed.digest,
         "os_snapshot_bytes": len(_canonical(state)),
+        "host_rss_bytes_at_completion": _linux_rss_bytes(),
+        "vl64_source_bytes": manifest.total_size_bytes,
         "guest_resident_pages": recovered.vm.resident_pages(),
         "guest_resident_bytes": 2 * PAGE_SIZE,
         "native_supervisor_steps": native.steps,
@@ -262,6 +276,8 @@ def benchmark_case(
     )
     if not all_valid:
         raise RuntimeError("fleet isolation, receipt identity or checkpoint invariant failed")
+    measured_rss = [value["host_rss_bytes_at_completion"] for value in results
+                    if value["host_rss_bytes_at_completion"] is not None]
     return {
         "schema": REPORT_SCHEMA,
         "requested_vm_count": vm_count,
@@ -275,6 +291,10 @@ def benchmark_case(
         "vl64_operation_count": 6 * admitted,
         "all_vm_checks_passed": all_valid,
         "total_snapshot_bytes": sum(item["os_snapshot_bytes"] for item in results),
+        "vl64_source_bytes_per_host": results[0]["vl64_source_bytes"] if results else 0,
+        "host_rss_bytes_at_completion_min": min(measured_rss) if measured_rss else None,
+        "host_rss_bytes_at_completion_mean": (sum(measured_rss) // len(measured_rss)) if measured_rss else None,
+        "host_rss_bytes_at_completion_max": max(measured_rss) if measured_rss else None,
         "fleet_wall_ns": perf_counter_ns() - began,
         "vm_results": results,
     }
