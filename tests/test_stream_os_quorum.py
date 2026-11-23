@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from threading import Event, Thread
 from pathlib import Path
 
 import pytest
@@ -322,3 +323,62 @@ def test_os_wire_input_and_snapshot_are_exact_and_bounded() -> None:
         restore_headless_state(b'{"vm": {}, "vm": {}}')
     with pytest.raises(ComputationalTransitionError, match="fields"):
         execute_headless_step(source, b'{"read_fd":null,"read_size":0,"schema":"mailcpu.headless-pure-step.v1","ticks":1,"unmodeled":true}')
+
+
+def test_delayed_old_tcp_host_cannot_publish_after_quorum_winner(tmp_path: Path) -> None:
+    """Two independently executed successors compete; only current M3 base may win."""
+    machine, _pid, _fd = _machine()
+    backing = MemoryPageBacking()
+    store = _store(tmp_path, backing)
+    initial = store.create_session(serialize_headless_state(machine))
+    published_by_old = Event()
+    release_old = Event()
+    old_outcome: list[BaseException | object] = []
+
+    def delayed_old_host(state: bytes, operation: bytes, context) -> bytes:
+        """Complete a real remote TCP execution but delay its local CAS publication."""
+        candidate = _execute_tcp(state, operation, context)
+        published_by_old.set()
+        if not release_old.wait(timeout=30):
+            raise RuntimeError("old host did not observe competing commit")
+        return candidate
+
+    old_backend, old_adapter = _adapter(store, delayed_old_host)
+    new_backend, new_adapter = _adapter(store)
+
+    def old_writer() -> None:
+        """Try to publish an independently verified but superseded OS state."""
+        try:
+            old_outcome.append(old_adapter.apply(
+                encode_headless_step(ticks=8), operation_id="obsolete-host-result",
+                expected_revision=initial.revision,
+                expected_checkpoint_digest=initial.checkpoint_digest,
+            ))
+        except BaseException as exc:
+            old_outcome.append(exc)
+
+    worker = Thread(target=old_writer, name="old-os-host-publication", daemon=True)
+    worker.start()
+    try:
+        assert published_by_old.wait(timeout=20), "old host never produced a TCP successor"
+        winner = new_adapter.apply(
+            encode_headless_step(ticks=9), operation_id="current-host-result",
+            expected_revision=initial.revision,
+            expected_checkpoint_digest=initial.checkpoint_digest,
+        )
+        assert winner.revision == 2
+        assert winner.checkpoint.predecessor_checkpoint_digest == initial.checkpoint_digest
+    finally:
+        release_old.set()
+        worker.join(timeout=30)
+    assert not worker.is_alive()
+    assert len(old_outcome) == 1
+    assert isinstance(old_outcome[0], ComputationalSessionConflictError)
+    assert old_backend.remote_calls == new_backend.remote_calls == 1
+    latest = store.load_latest()
+    assert latest.checkpoint_digest == winner.checkpoint_digest
+    assert latest.state_bytes == winner.state_bytes
+    reference = restore_headless_state(initial.state_bytes)
+    reference.run(9)
+    assert compare_headless_os_states(restore_headless_state(latest.state_bytes), reference).equivalent
+
