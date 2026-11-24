@@ -41,7 +41,9 @@ def measured(goal, observed, trials=5):
         try:
             r2,_=formed_realize(goal, observed, cap)
         except NonlinearRealizationRefused as exc:
-            if "enumeration budget" not in str(exc):raise
+            if str(exc) not in ("formed baseline source enumeration budget exceeded",
+                                "formed source exceeds 64-state quotient envelope"):
+                raise
         else:
             compare_realizations(r0,r2)
             formed.append(r2)
