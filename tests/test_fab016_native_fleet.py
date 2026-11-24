@@ -126,8 +126,7 @@ def test_native_application_density(tmp_path,count):
                 work=[]
                 for identity in identities[offset:offset+4]:
                     store=_store(tmp_path,backing,identity)
-                    base=store.load_latest()
-                    assert index.lookup(root,identity)==_head(base)
+                    base=index.resolve_current(root,identity,store)
                     work.append((identity,store,base,pool.submit(_candidate,base.state_bytes,request)))
                 changes=[]
                 for identity,store,base,future in work:
@@ -153,13 +152,20 @@ def test_native_application_density(tmp_path,count):
     backing,index_backing=_page_services(tmp_path)
     index=FabricHeadIndex(index_backing,NS)
     for identity in identities:
-        recovered=_store(tmp_path,backing,identity).load_latest()
+        store=_store(tmp_path,backing,identity)
+        recovered=index.resolve_current(root,identity,store)
         assert recovered.revision==3 and index.lookup(root,identity)==_head(recovered)
+        with pytest.raises(ValueError,match='differs from native M3'):
+            index.resolve_current(initial_root,identity,store)
         assert index.lookup(initial_root,identity).revision==1
         assert index.lookup(initial_root,identity)!=_head(recovered)
         machine=restore_headless_state(recovered.state_bytes)
         assert machine.environment.kernel.fs.read_file("/home/program-output")==_payload(identity)
         assert machine.environment.kernel.journal.verify()
+    with pytest.raises(ValueError,match='native session identity differ'):
+        index.resolve_current(root,identities[0],_store(tmp_path,backing,identities[1]))
+    with pytest.raises(ValueError,match='not indexed'):
+        index.resolve_current(index.empty_root(),identities[0],_store(tmp_path,backing,identities[0]))
     state_files=list((tmp_path/"state-pages").glob("*.page"))
     index_files=list((tmp_path/"index-pages").glob("*.page"))
     assert state_files and index_files
