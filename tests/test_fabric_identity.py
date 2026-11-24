@@ -236,3 +236,32 @@ def test_native_relative_quantum_continues_beyond_legacy_ceiling(tmp_path):
         execute_headless_step(base.state_bytes,encode_headless_quantum(ticks=1))
     with pytest.raises(ComputationalTransitionError,match="schema differs"):
         execute_headless_quantum(base.state_bytes,encode_headless_step(ticks=1))
+
+
+def test_terminal_syscall_coordinate_roundtrip_and_active_refusal():
+    """Preserve the native terminal successor PC, never an out-of-range active PC."""
+    from mailcpu.scheduler import DeterministicScheduler
+    machine=HeadlessOS()
+    pid=machine.launch_source("SYSCALL code exit code=7\n","terminal")
+    machine.run(1)
+    report=machine.process(pid)
+    assert report.status=="exited" and report.pc==1 and report.exit_code==7
+    raw=serialize_headless_state(machine)
+    recovered=restore_headless_state(raw)
+    assert recovered.process(pid)==report
+    assert serialize_headless_state(recovered)==raw
+    assert recovered.run(100)==()
+    for pc,status,halted in ((2,"halted",True),(1,"runnable",False),(1,"blocked",False),
+                             (1,"suspended",False),(-1,"halted",True)):
+        snap=machine.vm.scheduler.snapshot()
+        task=snap["tasks"][str(pid)]
+        task.update(pc=pc,status=status,halted=halted)
+        with pytest.raises(ValueError,match="invalid scheduler machine coordinates"):
+            DeterministicScheduler.from_snapshot(snap,machine.environment.kernel.bus,
+                                                 machine.environment.kernel.journal,
+                                                 machine.vm._dispatch_program_syscall)
+    other=HeadlessOS()
+    q=other.launch_source("halt\n","explicit-halt")
+    other.run(1)
+    assert other.process(q).pc==0
+    assert serialize_headless_state(restore_headless_state(serialize_headless_state(other)))==serialize_headless_state(other)
