@@ -27,6 +27,12 @@ def attach(sock, code, option):
     if libc.setsockopt(sock.fileno(), socket.SOL_SOCKET, option, ctypes.byref(descriptor), ctypes.sizeof(descriptor)):
         raise OSError(ctypes.get_errno(), 'BPF attach failed')
 
+def ground_identity(values, width):
+    """Use the native SAB canonical JSON convention for the semantic identity."""
+    codes(values, width)
+    return sha256(json.dumps(['fab008.truth.v1', width, values], sort_keys=True,
+                             separators=(',', ':'), ensure_ascii=False, allow_nan=False).encode()).hexdigest()
+
 def codes(values, width):
     """Compile a finite table and strict coordinate guard into native cBPF."""
     if type(width) is not int or width not in (1, 2) or type(values) is not tuple or len(values) not in (2, 4, 8, 16) or any(type(v) is not int or not 0 <= v < 1 << width for v in values):
@@ -122,6 +128,8 @@ def form_adder(nand):
 
 def byte_add(table,a,b):
     """Wire eight actual native full-adder calls."""
+    if any(type(x) is not int or not 0 <= x <= 255 for x in (a,b)):
+        raise ValueError('invalid byte operand')
     carry=result=0
     for i in range(8):
         r=table.observe(((a>>i)&1)|(((b>>i)&1)<<1)|(carry<<2))
@@ -151,7 +159,7 @@ def experiment(full=True):
                     raise RuntimeError('addition mismatch')
                 digest.update(struct.pack('!BBH',a,b,result)); count+=1
         elapsed=time.perf_counter()-start
-    return dict(table=values,ground=sha256(json.dumps(['fab008.truth.v1',2,values]).encode()).hexdigest(),packed=hex(sum(v<<(2*i) for i,v in enumerate(values))),formation_packets=72,rebound_checks=16,refusal_controls=8,byte_additions=count,composition_packets=count*8,seconds=elapsed,digest=digest.hexdigest(),selector_instructions=7)
+    return dict(table=values,ground=ground_identity(values,2),packed=hex(sum(v<<(2*i) for i,v in enumerate(values))),formation_packets=72,rebound_checks=16,refusal_controls=8,byte_additions=count,composition_packets=count*8,seconds=elapsed,digest=digest.hexdigest(),selector_instructions=7)
 
 if __name__=='__main__':
     print(json.dumps(experiment('--quick' not in sys.argv),indent=2))
