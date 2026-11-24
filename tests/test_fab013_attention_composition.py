@@ -64,6 +64,8 @@ def test_attention_composition(tmp_path):
                                   "child" if node.payload["depth"] else "self")
             evidence = sha256(json.dumps({
                 "node": node.digest, "process": os.process(p).to_dict(),
+                "predecessors": {dep: dag.result(dep) for dep in node.dependencies},
+                "page": payloads[node.node_id][1],
                 "memory": os.syscall(p, "mem_info"),
             }, sort_keys=True).encode()).hexdigest()
             available[scope] = (node, Offer(scope, node.revision, evidence, Budget(3,1,1,1)))
