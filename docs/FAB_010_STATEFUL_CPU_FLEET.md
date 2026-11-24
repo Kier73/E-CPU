@@ -28,6 +28,12 @@ On one Linux kernel, four physical worker threads, exact full-scale source blob 
 
 These are actual virtual instruction executions in four threads, not millions of physical CPU cores or OS processes. The benchmark is a fixed bounded workload, not a general VM performance claim. Timings exclude some setup and verification; comparing independent temporal requests against shared sequential traversal is not a navigation speedup claim.
 
+## Realization equivalence and hosted refusal
+
+A hosted full-network run returned EPERM at 127.246.55.222. This is recorded as a substrate refusal; it is not treated as a missing/accepted coordinate or bypassed. The hosted native controls (4,096-machine runs at 1, 3, 4 and 16 workers and 40 direct temporal probes checked by the existing E-CPU law navigator) passed. The same CPU semantics are now separately testable with --resident: direct logical coordinates without networking, explicitly reported as zero packets. Native mode remains separately runnable, including as workflow_dispatch; neither mode's report can satisfy the other mode's packet-count requirement.
+
+Exact refined source blob 09970f699d82a30a83ad7e153d7b464b12cd6b01 repeated both full local modes: all machine, secondary and temporal checksums identical to the original full run. Native activation 11.287265 s, primary post-activation execution 0.473936 s, secondary 0.327183 s, motion navigation sweep 10.688598 s. Resident activation 0.142010 s, primary post-activation execution 0.985021 s, secondary 0.523239 s, motion navigation sweep 0.507154 s. Resident timings exclude initialization and other checks and do not establish a statistically controlled speedup. The native run independently checked all 33,554,432 address events; the resident run independently resolved the same number of logical coordinates. Both retain 896 MiB of primary, secondary and mailbox state.
+
 ## Reproduce
 
 ```sh
@@ -35,8 +41,10 @@ cc -O3 -std=c11 -Wall -Wextra -Werror -pthread examples/fab_127/fab010.c -o /tmp
 /tmp/fab010 --selftest
 /tmp/fab010 --probe 16777215
 /tmp/fab010 12 4
-/tmp/fab010 24 4
-python examples/fab_127/verify_fab010.py /tmp/fab010
+/tmp/fab010 24 4 | tee fab010-native.txt
+/tmp/fab010 --resident 24 4 | tee fab010-resident.txt
+python examples/fab_127/verify_fab010.py /tmp/fab010 fab010-native.txt native
+python examples/fab_127/verify_fab010.py /tmp/fab010 fab010-resident.txt resident
 ```
 
 Use an authorized isolated Linux loopback environment. The full run retains about 1 GiB including verification data, plus runtime and kernel allocations. It does not modify system routes. Missing or mismatched packets fail rather than fabricating a result. Full address support varies across hosts, so the dedicated hosted run is a separate evidence requirement.
