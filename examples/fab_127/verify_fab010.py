@@ -19,21 +19,26 @@ def probe(executable, coordinate):
     if (t,pc,value) != (coordinate,r,expected):
         raise ValueError("native law disagreement")
 
-def report(path):
+def report(path, mode):
     """Require all primary, secondary and temporal counts and checksums."""
     rows = Path(path).read_text().splitlines()
     if len(rows) != 4:
         raise ValueError("incomplete sweep")
+    if mode not in ("native", "resident"):
+        raise ValueError("unknown realization mode")
+    packets = 16777216 if mode == "native" else 0
     expected = [
-        {"CPUs":16777216, "packets":16777216},
+        {"CPUs":16777216, "packets":packets, "coordinates":16777216},
         {"machines":16777216, "halted":16777216, "instructions":124518400,
          "sends":16777216, "receives":16777216, "taken_branches":9699328,
          "checksum":36349145441370112, "state_bytes":536870912},
         {"secondary_contexts":16777216, "secondary_instructions":150994944,
          "secondary_checksum":36028801104216064, "primary_preserved":16777216,
          "retained_state_bytes":939524096},
-        {"motion_positions":16777216, "packets":16777216, "checksum":36033477933371508},
+        {"motion_positions":16777216, "packets":packets, "coordinates":16777216, "checksum":36033477933371508},
     ]
+    if any(not row.endswith("mode="+mode) for row in (rows[0], rows[-1])):
+        raise ValueError("realization mode differs")
     for row, fields in zip(rows, expected):
         actual = dict(re.findall(r"(\w+)=([0-9]+)(?=\s|$)", row))
         if any(actual.get(k) != str(v) for k,v in fields.items()):
@@ -48,7 +53,7 @@ def main():
         probe(exe, coordinate)
     print("40 live temporal probes verified by native E-CPU law")
     if len(sys.argv)>2:
-        report(sys.argv[2])
+        report(sys.argv[2], sys.argv[3] if len(sys.argv)>3 else "native")
 
 if __name__ == "__main__":
     main()
