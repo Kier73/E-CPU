@@ -23,7 +23,7 @@ def gate_source():
     """Original source states x3=x1&x2; x5=x3|x4; no algorithm in intention."""
     return NonlinearIntention(
         5,
-        ((-1,-2,3),(1,-3),(2,-3),(-3,-4,5),(3,-5),(4,-5)),
+        ((-1,-2,3),(1,-3),(2,-3),(3,4,-5),(-3,5),(-4,5)),
         ((1,),(2,),(4,)), (5,),
     )
 
