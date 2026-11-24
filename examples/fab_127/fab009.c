@@ -62,7 +62,9 @@ static struct group open_group(int jump,int length,unsigned increment){struct gr
 static void close_group(struct group*g){for(int i=0;i<g->n;i++)close(g->fd[i]);close(g->tx);close(g->ep);}
 static void send_coordinate(struct group*g,unsigned coordinate){
  g->dst.sin_addr.s_addr=htonl(0x7f000000|coordinate);unsigned char data[255]={0};size_t size=g->n==1?255:0;
- require(sendto(g->tx,data,size,0,(void*)&g->dst,sizeof(g->dst))==(ssize_t)size,"send failure");
+ ssize_t sent;do{sent=sendto(g->tx,data,size,0,(void*)&g->dst,sizeof(g->dst));}while(sent<0&&errno==EINTR);
+ if(sent<0){fprintf(stderr,"send coordinate %06x: %s (errno=%d)\n",coordinate,strerror(errno),errno);exit(1);}
+ require(sent==(ssize_t)size,"send length mismatch");
 }
 static unsigned receive_coordinate(struct group*g,unsigned*coordinate){
  struct epoll_event event;int n=epoll_wait(g->ep,&event,1,1000);require(n==1,"missing path observation");unsigned idx=event.data.u32;
