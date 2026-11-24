@@ -22,7 +22,7 @@ from mailcpu.substrate_bootstrap import BootstrapRefused
 def _nonlinear_feedback(state: int) -> int:
     """Mathematics: a three-bit feedback shift with a genuinely quadratic AND term."""
 
-    b0, b1, b2 = (state >> i) & 1 for i in range(3)
+    b0, b1, b2 = ((state >> i) & 1 for i in range(3))
     feedback = b2 ^ (b0 & b1) ^ b0
     return ((state << 1) & 7) | feedback
 
