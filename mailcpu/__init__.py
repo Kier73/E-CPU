@@ -1,6 +1,15 @@
 """MailCPU native headless virtual environment and communication-backed runtime."""
 
 from .interpreter import QueueInterpreter, ReferenceInterpreter
+from .nonlinear_observer_stream import (
+    AdmittedNCRStreamGround,
+    NCRConditionalObserverStream,
+    NonlinearEmittedEvent,
+    NonlinearStreamReceipt,
+    NonlinearStreamRequest,
+    admit_ncr_stream_ground,
+    verify_nonlinear_stream_receipt,
+)
 from .affine_stream import (
     AffineSendStream,
     StreamObservation,
@@ -1044,6 +1053,13 @@ from .observed_orbit_pipeline import (
 )
 
 __all__ = [
+    "AdmittedNCRStreamGround",
+    "NCRConditionalObserverStream",
+    "NonlinearEmittedEvent",
+    "NonlinearStreamReceipt",
+    "NonlinearStreamRequest",
+    "admit_ncr_stream_ground",
+    "verify_nonlinear_stream_receipt",
     "AffineSendStream",
     "StreamObservation",
     "StreamObservationReceipt",
