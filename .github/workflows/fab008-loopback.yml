@@ -1,0 +1,28 @@
+name: FAB-008 loopback truth Ground
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/loopback_truth_fabric.py'
+      - 'mailcpu/substrate_bootstrap.py'
+      - 'tests/test_loopback_truth_fabric.py'
+      - '.github/workflows/fab008-loopback.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -e . pytest
+      - run: python -m pytest -q tests/test_loopback_truth_fabric.py
+      - run: python -m mailcpu.loopback_truth_fabric > fab008-report.json
+      - run: |
+          python -c "import json; r=json.load(open('fab008-report.json')); assert r['byte_additions']==65536 and r['composition_packets']==524288 and r['digest']=='5613dffac5ad5b3f9e4f9110bc158d78b73068bfaeeba267a8bcba2b97849c22'"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fab008-report
+          path: fab008-report.json
