@@ -1,0 +1,57 @@
+name: ITR-003 shared proof intention realization
+
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/shared_intention_realization.py'
+      - 'mailcpu/inverse_nonlinear_realization.py'
+      - 'tests/test_shared_intention_realization.py'
+      - 'examples/shared_intention_benchmark.py'
+      - '.github/workflows/itr003-shared-intention.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'mailcpu/shared_intention_realization.py'
+      - 'tests/test_shared_intention_realization.py'
+      - 'examples/shared_intention_benchmark.py'
+      - '.github/workflows/itr003-shared-intention.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  shared-intention:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ['3.11', '3.13']
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Kier73/In-Formation-Space
+          ref: 199acff952eee79dc19bd561333c35f1da4d57ba
+          path: upstream/ifs
+          sparse-checkout: |
+            experiments/pnp-ground-navigation/cut_intention
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install -e . 'pytest>=8'
+      - name: Check actual CIG shared proofs and E-CPU realizations
+        run: |
+          python -c "import os,sys,pytest; sys.path.insert(0,os.path.abspath('upstream/ifs/experiments/pnp-ground-navigation/cut_intention')); sys.path.insert(0,os.path.abspath('tests')); raise SystemExit(pytest.main(['-q','tests/test_shared_intention_realization.py','tests/test_inverse_nonlinear_realization.py','tests/test_intention_formed_fabric.py']))"
+      - name: Matched formation and query campaign
+        run: |
+          python -c "import os,sys,runpy; sys.path.insert(0,os.path.abspath('upstream/ifs/experiments/pnp-ground-navigation/cut_intention')); runpy.run_path('examples/shared_intention_benchmark.py',run_name='__main__')" > itr003-results.json
+      - name: Display measured ledger
+        run: python -c "import json; print(json.dumps(json.load(open('itr003-results.json',encoding='utf-8-sig')),indent=2))"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: itr003-${{ matrix.os }}-py${{ matrix.python-version }}
+          path: itr003-results.json
