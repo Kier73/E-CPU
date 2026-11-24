@@ -1,0 +1,32 @@
+name: FAB-020 verified head attention
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/computational_session.py'
+      - 'mailcpu/head_attention.py'
+      - 'mailcpu/attention.py'
+      - 'tests/test_head_attention.py'
+      - 'examples/fab_127/benchmark_head_attention.py'
+      - '.github/workflows/fab020-head-attention.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -e . pytest
+      - run: |
+          set -o pipefail
+          python -m pytest -vv -s tests/test_head_attention.py tests/test_computational_session.py tests/test_computational_transition.py tests/test_attention.py | tee fab020-native.txt
+      - run: python examples/fab_127/benchmark_head_attention.py > fab020-controller.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fab020-observation
+          path: fab020-*
