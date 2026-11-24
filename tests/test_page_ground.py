@@ -83,3 +83,55 @@ def test_native_m1_selective_range(tmp_path):
     assert alternate.read_range(m,100,4)==b'abcd'
     with pytest.raises(ComputationalObjectError): alternate.verify(m)
     structural.close()
+
+
+def test_native_m3_page_representation(tmp_path):
+    """Preserve native checkpoint identity and exact successor across backing reopen."""
+    from mailcpu.computational_session import ComputationalSessionStore, ComputationalSessionIntegrityError
+    from mailcpu.recovery_lineage import RecoveryLineageAuthority, RecoveryLineageCoordinator
+    from mailcpu.seed_commit_quorum import SeedCommitMembership
+
+    bases=[random.Random(i).randbytes(PAGE_SIZE) for i in range(16)]
+    path=tmp_path/'ground.db'
+    backing=PageGroundBacking(path,create=True,bases=bases)
+    genesis=digest(b'mailcpu-recovery-lineage-genesis-v1')
+    namespace=digest(b'fab019-test')
+    membership=SeedCommitMembership(f'fab127.{namespace}.ffffff',1,('A','B','C'),'A',1,genesis)
+
+    def session(backing):
+        """Open original native M3 over the selected native M1 backing."""
+        authorities={m:RecoveryLineageAuthority(membership,m,tmp_path/'authorities'/f'{m}.jsonl')
+                     for m in membership.member_ids}
+        return ComputationalSessionStore(tmp_path/'sessions',ComputationalObjectStore(backing),
+                  RecoveryLineageCoordinator(membership,authorities),
+                  artifact_manifest_digest=digest(b'fixture'),backend_fingerprint=digest(b'backend'),
+                  state_schema_id='fab019.fixed-page-state.v1')
+
+    initial=bytearray(b''.join(bases)); initial[100:104]=b'abcd'; initial=bytes(initial)
+    store=session(backing); first=store.create_session(initial); exported=store.export_latest()
+    assert backing.counts()[2][0]==1
+    backing.close()
+    backing=PageGroundBacking(path); store=session(backing)
+    restored=store.restore_export(exported)
+    assert restored.checkpoint_digest==first.checkpoint_digest and restored.state_bytes==initial
+    nxt=bytearray(initial); nxt[12*PAGE_SIZE+100:12*PAGE_SIZE+104]=b'efgh'; nxt=bytes(nxt)
+    second=store.commit_state(nxt,expected_revision=first.revision,expected_checkpoint_digest=first.checkpoint_digest,
+                  transition_id='change-page',operation_id='operation',input_digest=digest(b'efgh'),logical_time=2)
+    assert second.revision==2 and backing.counts()[2][0]==2
+    assert store.load_latest().state_bytes==nxt
+    backing.close()
+    backing=PageGroundBacking(path); store=session(backing)
+    current=store.load_latest()
+    assert current.checkpoint_digest==second.checkpoint_digest
+    manifest=current.checkpoint.state_manifest
+    assert store.object_store.read_range(manifest,100,4)==b'abcd'
+    target=manifest.chunks[12].page_digest
+    before=store.lineage.high_water()
+    original=backing._row(target)
+    backing.db.execute('UPDATE page SET body=? WHERE digest=?',(b'bad',target)); backing.db.commit()
+    assert store.object_store.read_range(manifest,100,4)==b'abcd'
+    with pytest.raises(ComputationalSessionIntegrityError): store.load_latest()
+    assert store.lineage.high_water()==before
+    backing.db.execute('UPDATE page SET body=? WHERE digest=?',(original[2],target)); backing.db.commit()
+    assert store.load_latest().checkpoint_digest==second.checkpoint_digest
+    backing.close()
