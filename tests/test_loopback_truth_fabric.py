@@ -3,7 +3,7 @@ import random
 import sys
 import pytest
 
-from mailcpu.loopback_truth_fabric import KernelTable, codes, experiment, form_adder
+from mailcpu.loopback_truth_fabric import KernelTable, codes, experiment, form_adder, ground_identity, byte_add
 from mailcpu.substrate_bootstrap import (
     AdaptiveBootstrap, BootstrapPolicy, BootstrapRefused, BootstrapTask,
     OperationOffer, ResourceObservation, SubstrateObservation,
@@ -24,6 +24,10 @@ def test_compiler_shape():
     assert len(selector) == 7
     assert selector[3][3] == 0xe994
     assert len(gate) == 16
+    assert ground_identity((0,1,1,2,1,2,2,3),2) == digest(["fab008.truth.v1",2,(0,1,1,2,1,2,2,3)])
+    for a,b in [(-1,0),(0,256),(True,1)]:
+        with pytest.raises(ValueError):
+            byte_add(None,a,b)
 
 @linux
 def test_quick_native():
