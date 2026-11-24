@@ -80,7 +80,7 @@ class FabricHeadIndex:
         return digest
 
     def empty_root(self):
-        """Form an explicit all-uninitialized root; no machine object allocation."""
+        """Form a root with no indexed observations; absence does not prove nonexistence."""
         return self._put(self._empty(0,0)).hex()
 
     @staticmethod
@@ -94,7 +94,7 @@ class FabricHeadIndex:
         return MachineHead(rev,digest.hex())
 
     def lookup(self, root, identity):
-        """Resolve one coordinate in at most four verified page reads."""
+        """Resolve an observed head in at most four verified page reads; None means unindexed."""
         _identity(identity)
         digest=_digest(root)
         prefix=0
@@ -146,3 +146,24 @@ class FabricHeadIndex:
             return digest if digest!=ZERO and bytes(node)==old else self._put(node)
 
         return rewrite(base,0,0,entries).hex()
+
+    def resolve_current(self, root, identity, store):
+        """Match an indexed head to native M3's currently verified checkpoint.
+
+        The store must be provided by a trusted local resolver. No execution
+        capability is granted; a later transition still requires native CAS.
+        """
+        from .computational_session import ComputationalSessionStore
+
+        _identity(identity)
+        if not isinstance(store, ComputationalSessionStore):
+            raise TypeError('native computational session store required')
+        if store.session_id != f'fab127.{self.namespace.hex()}.{identity:06x}':
+            raise ValueError('machine and native session identity differ')
+        head = self.lookup(root, identity)
+        if head is None:
+            raise ValueError('machine head is not indexed')
+        current = store.load_latest()
+        if head != MachineHead(current.revision, current.checkpoint_digest):
+            raise ValueError('indexed head differs from native M3')
+        return current
