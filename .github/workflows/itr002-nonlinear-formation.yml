@@ -1,0 +1,56 @@
+name: ITR-002 inverse nonlinear intention realization
+
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/inverse_nonlinear_realization.py'
+      - 'tests/test_inverse_nonlinear_realization.py'
+      - 'examples/inverse_nonlinear_benchmark.py'
+      - 'docs/INVERSE_NONLINEAR_REALIZATION_ITR002.md'
+      - '.github/workflows/itr002-nonlinear-formation.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'mailcpu/inverse_nonlinear_realization.py'
+      - 'tests/test_inverse_nonlinear_realization.py'
+      - 'examples/inverse_nonlinear_benchmark.py'
+      - '.github/workflows/itr002-nonlinear-formation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  cig-nonlinear-realization:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ['3.11', '3.13']
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Kier73/In-Formation-Space
+          ref: 199acff952eee79dc19bd561333c35f1da4d57ba
+          path: upstream/ifs
+          sparse-checkout: |
+            experiments/pnp-ground-navigation/cut_intention
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install E-CPU and test runner
+        run: python -m pip install -e . 'pytest>=8'
+      - name: Actual CIG-017, E-CPU processor, and SAB-001 regression tests
+        run: |
+          python -c "import os,sys,pytest; sys.path.insert(0,os.path.abspath('upstream/ifs/experiments/pnp-ground-navigation/cut_intention')); sys.path.insert(0,os.path.abspath('tests')); raise SystemExit(pytest.main(['-q','tests/test_inverse_nonlinear_realization.py','tests/test_intention_formed_fabric.py','tests/test_observation_formed_processor.py','tests/test_intention_realization_latency.py']))"
+      - name: Timed cold, warm and independently formed nonlinear results
+        run: |
+          python -c "import os,sys; sys.path.insert(0,os.path.abspath('upstream/ifs/experiments/pnp-ground-navigation/cut_intention')); import runpy; runpy.run_path('examples/inverse_nonlinear_benchmark.py',run_name='__main__')" > itr002-results.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: itr002-${{ matrix.os }}-py${{ matrix.python-version }}
+          path: itr002-results.json
