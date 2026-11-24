@@ -23,7 +23,10 @@ from mailcpu.stream_os_session import (
     OS_STATE_SCHEMA, OS_STEP_INPUT_SCHEMA, OS_TRANSITION_ID,
     OS_BACKEND_FINGERPRINT, OS_INTERPRETATION_FINGERPRINT,
     HeadlessOSQuorumTransitionBackend, encode_headless_step,
-    serialize_headless_state, restore_headless_state,
+    serialize_headless_state, restore_headless_state, execute_headless_step,
+    OS_QUANTUM_INPUT_SCHEMA, OS_QUANTUM_TRANSITION_ID,
+    OS_QUANTUM_BACKEND_FINGERPRINT, OS_QUANTUM_INTERPRETATION_FINGERPRINT,
+    HeadlessOSQuorumQuantumBackend, encode_headless_quantum, execute_headless_quantum,
 )
 
 NAMESPACE = sha256(b"lab-fabric").hexdigest()
@@ -68,21 +71,22 @@ def test_bad_session():
             FabricMachineAddress.from_session_id(s)
 
 
-def _store(root: Path, address: FabricMachineAddress) -> ComputationalSessionStore:
+def _store(root: Path, address: FabricMachineAddress, *, quantum=False) -> ComputationalSessionStore:
     """Open native durable local CAS and three independently journaled M3 members."""
     # One local page service, shared by machines by immutable content hash.
     # This test does not claim page replication or independent failure domains.
     node = ReplicatedMailboxNode(ReplicatedMailboxStore(root/"mailbox.jsonl", "local"))
     backing = RemotePageStore(root/"pages", node, page_size=4096)
     membership = SeedCommitMembership(address.session_id, 1, ("A","B","C"), "A", 1, GENESIS)
-    machine_root = root / "machines" / f"{address.identity:06x}"
+    machine_root = root / "machines" / address.namespace / f"{address.identity:06x}"
     authorities = {member: RecoveryLineageAuthority(
         membership, member, machine_root/"authorities"/f"{member}.jsonl"
     ) for member in membership.member_ids}
     return ComputationalSessionStore(
         machine_root/"sessions", ComputationalObjectStore(backing,chunk_size=4096),
         RecoveryLineageCoordinator(membership,authorities),
-        artifact_manifest_digest=ARTIFACT, backend_fingerprint=OS_BACKEND_FINGERPRINT,
+        artifact_manifest_digest=ARTIFACT,
+        backend_fingerprint=OS_QUANTUM_BACKEND_FINGERPRINT if quantum else OS_BACKEND_FINGERPRINT,
         state_schema_id=OS_STATE_SCHEMA, state_media_type="application/json",
     )
 
@@ -101,7 +105,7 @@ def _initial(payload: bytes):
     return serialize_headless_state(machine),pid
 
 
-def _backend(address, calls, *, abort=False, wrong=None):
+def _backend(address, calls, *, abort=False, wrong=None, quantum=False):
     """Run native closed-state continuation in a fresh interpreter; optional abrupt loss."""
     def execute(state, request, context):
         """Refuse misrouted work and compute the successor in an independent process."""
@@ -109,17 +113,18 @@ def _backend(address, calls, *, abort=False, wrong=None):
         calls.append(context.operation_id)
         if wrong is not None:
             return wrong
+        entry = "execute_headless_quantum" if quantum else "execute_headless_step"
         script=(
             "import os,sys\n"
-            "from mailcpu.stream_os_session import execute_headless_step\n"
-            "result=execute_headless_step(sys.stdin.buffer.read(),bytes.fromhex(sys.argv[1]))\n"
+            f"from mailcpu.stream_os_session import {entry}\n"
+            f"result={entry}(sys.stdin.buffer.read(),bytes.fromhex(sys.argv[1]))\n"
             "sys.stdout.buffer.write(result);sys.stdout.buffer.flush()\n"
             "if sys.argv[2]=='abort': os._exit(17)\n"
         )
         result=subprocess.run([sys.executable,"-c",script,request.hex(),"abort" if abort else "ok"],
                               input=state,capture_output=True,check=True,timeout=60)
         return result.stdout
-    return HeadlessOSQuorumTransitionBackend(execute)
+    return (HeadlessOSQuorumQuantumBackend if quantum else HeadlessOSQuorumTransitionBackend)(execute)
 
 
 def _apply(store, backend, base, ticks, operation):
@@ -192,3 +197,42 @@ def test_independent_machine_application_continuation(tmp_path):
         assert os.environment.kernel.journal.verify()
     assert calls==["finish","finish","finish","finish"]
     assert final[a].checkpoint_digest!=final[b].checkpoint_digest
+
+
+def test_native_relative_quantum_continues_beyond_legacy_ceiling(tmp_path):
+    """Three fresh realizers advance one quorum OS beyond 200 absolute ticks."""
+    address=FabricMachineAddress(NAMESPACE,0x812345)
+    store=_store(tmp_path,address,quantum=True)
+    machine=HeadlessOS()
+    pid=machine.launch_source("set value 0\nset one 1\nloop:\nadd value value one\nbranch one loop\n","continuous")
+    base=store.create_session(serialize_headless_state(machine))
+    expected=SessionRejoinAddress.bootstrap(store)
+    contract=ComputationalTransitionContract(
+        OS_QUANTUM_TRANSITION_ID,OS_STATE_SCHEMA,OS_QUANTUM_INPUT_SCHEMA,
+        OS_QUANTUM_INTERPRETATION_FINGERPRINT,OS_QUANTUM_BACKEND_FINGERPRINT,
+        4096,4_194_304,
+    )
+    calls=[]
+    for epoch in range(1,4):
+        store=_store(tmp_path,address,quantum=True)
+        assert address.bind_session(store,expected)==expected
+        backend=_backend(address,calls,quantum=True)
+        adapter=ComputationalSessionTransitionAdapter(store,contract,backend)
+        if epoch==1:
+            with pytest.raises(ComputationalTransitionError,match="schema differs"):
+                adapter.apply(encode_headless_step(ticks=100),operation_id="legacy",
+                              expected_revision=base.revision,expected_checkpoint_digest=base.checkpoint_digest)
+            assert backend.remote_calls==0
+        base=adapter.apply(encode_headless_quantum(ticks=100),operation_id=f"epoch-{epoch}",
+                           expected_revision=base.revision,expected_checkpoint_digest=base.checkpoint_digest)
+        restored=restore_headless_state(base.state_bytes)
+        assert restored.vm.scheduler.tick==epoch*100
+        assert restored.process(pid).registers["value"]==epoch*50-1
+        assert restored.process(pid).status=="runnable"
+        assert base.revision==epoch+1
+    assert calls==["epoch-1","epoch-2","epoch-3"]
+    assert _store(tmp_path,address,quantum=True).load_latest().checkpoint_digest==base.checkpoint_digest
+    with pytest.raises(ComputationalTransitionError,match="schema differs"):
+        execute_headless_step(base.state_bytes,encode_headless_quantum(ticks=1))
+    with pytest.raises(ComputationalTransitionError,match="schema differs"):
+        execute_headless_quantum(base.state_bytes,encode_headless_step(ticks=1))
