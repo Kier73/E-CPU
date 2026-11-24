@@ -16,13 +16,14 @@ from test_inverse_nonlinear_realization import (  # noqa: E402
     capacity, gate_source, source_chain, source_chain_model, state_for,
 )
 from mailcpu.inverse_nonlinear_realization import (  # noqa: E402
-    ReceiverProofMemory, direct_realize, formed_realize, compare_realizations,
+    ReceiverProofMemory, ReceiverSourceSectionMemory, realize_from_observation_code,
+    direct_realize, formed_realize, compare_realizations,
     NonlinearRealizationRefused,
 )
 
 
 def measured(goal, observed, trials=5):
-    cold, warm, formed = [], [], []
+    cold, warm, formed, section_cold, section_warm = [], [], [], [], []
     for _ in range(trials):
         cap=capacity(); memory=ReceiverProofMemory()
         r0=direct_realize(goal, observed, cap, memory)
@@ -30,6 +31,13 @@ def measured(goal, observed, trials=5):
         if not r0.proof_constructed or r1.proof_constructed or r0.result!=r1.result:
             raise RuntimeError("source proof reuse did not preserve verified result")
         cold.append(r0); warm.append(r1)
+        # Separate cold seed; no source model is given to this pathway.
+        section_proofs=ReceiverProofMemory()
+        sections=ReceiverSourceSectionMemory()
+        s0=realize_from_observation_code(goal,r0.source_code,cap,section_proofs,sections)
+        s1=realize_from_observation_code(goal,r0.source_code,cap,section_proofs,sections)
+        assert s0.result==s1.result==r0.result
+        section_cold.append(s0); section_warm.append(s1)
         try:
             r2,_=formed_realize(goal, observed, cap)
         except NonlinearRealizationRefused as exc:
@@ -50,6 +58,8 @@ def measured(goal, observed, trials=5):
             "intention_digest":goal.fingerprint,
             "cold_proof_direct":summary(cold),
             "warm_proof_direct":summary(warm),
+            "cold_total_image_section_direct":summary(section_cold),
+            "warm_total_image_section_direct":summary(section_warm),
             "cold_independent_formed":summary(formed),
             "trials":trials}
 
