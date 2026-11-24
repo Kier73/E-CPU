@@ -7,7 +7,6 @@ from mailcpu import HeadlessOS, ComputationNode, NavigableComputationDAG, Capabi
 from mailcpu.law_certifier import Law
 from mailcpu.providers import StructuralMemoryFileRef
 from mailcpu.memory import ResidentQuotaExceeded
-from mailcpu.kernel import KernelError
 
 PAGE = 4096
 BASE = 2 * PAGE
@@ -74,9 +73,10 @@ def test_attention_composition(tmp_path):
         os.inject(pid, "inbox", [data[0] + predecessor])
         os.resume(pid)
         before = os.vm.scheduler.tick
-        os.run(before + 4)
+        os.run(before + 3)
         result = os.process(pid)
-        assert result.status == "exited" and result.steps == 4
+        assert result.status == "runnable" and result.steps == 3
+        os.suspend(pid)
         assert result.registers["result"] == data[0] + predecessor + 1
         assert os.syscall(pid, "mem_reclaim", count=1, pages=[2]) == (2,)
         assert os.vm.resident_pages() == 8
@@ -96,4 +96,8 @@ def test_attention_composition(tmp_path):
         assert os.syscall(pid, "mem_read", address=BASE, size=PAGE) == data
         os.syscall(pid, "mem_reclaim", count=1, pages=[2])
     assert os.vm.resident_pages() == 8
+    for pid in pids.values():
+        os.resume(pid)
+    os.run(os.vm.scheduler.tick + len(pids))
+    assert all(os.process(pid).status == "exited" for pid in pids.values())
     assert os.environment.kernel.journal.verify()
