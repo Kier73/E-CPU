@@ -1,16 +1,6 @@
 """MailCPU native headless virtual environment and communication-backed runtime."""
 
 from .interpreter import QueueInterpreter, ReferenceInterpreter
-from .counted_observer_stream import (
-    CountedCycleSummary,
-    CountedEvent,
-    CountedObserverStream,
-    CountedStreamReceipt,
-    CountedStreamRequest,
-    CountedTransfer,
-    EmitRule,
-    verify_counted_stream_receipt,
-)
 from .affine_stream import (
     AffineSendStream,
     StreamObservation,
@@ -31,6 +21,16 @@ from .recurrence_observer import (
     infer_recurrence_window,
     nth_recurrence_matrix,
     nth_recurrence_polynomial,
+)
+from .counted_observer_stream import (
+    CountedCycleSummary,
+    CountedEvent,
+    CountedObserverStream,
+    CountedStreamReceipt,
+    CountedStreamRequest,
+    CountedTransfer,
+    EmitRule,
+    verify_counted_stream_receipt,
 )
 from .memory import (
     MemoryQuotaExceeded,
@@ -1054,14 +1054,6 @@ from .observed_orbit_pipeline import (
 )
 
 __all__ = [
-    "CountedCycleSummary",
-    "CountedEvent",
-    "CountedObserverStream",
-    "CountedStreamReceipt",
-    "CountedStreamRequest",
-    "CountedTransfer",
-    "EmitRule",
-    "verify_counted_stream_receipt",
     "AffineSendStream",
     "StreamObservation",
     "StreamObservationReceipt",
@@ -1481,6 +1473,14 @@ __all__ = [
     "TrajectoryWriter",
     "VirtualEnvironment",
     "VirtualKernel",
+    "CountedCycleSummary",
+    "CountedEvent",
+    "CountedObserverStream",
+    "CountedStreamReceipt",
+    "CountedStreamRequest",
+    "CountedTransfer",
+    "EmitRule",
+    "verify_counted_stream_receipt",
     "VirtualMemory",
     "UnsupportedRegimeError",
     "canonical_result",
