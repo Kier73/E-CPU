@@ -389,7 +389,7 @@ def compare_realizations(direct: NonlinearRealization,
     """Reject any comparison with different intention, code or result."""
     if (not isinstance(direct, NonlinearRealization)
         or not isinstance(formed, NonlinearRealization)
-        or direct.mode != "source-qualified-direct-decoder"
+        or direct.mode not in ("source-qualified-direct-decoder", "section-derived-direct-decoder")
         or formed.mode != "independently-formed-finite-processor"
         or (direct.intention_digest, direct.source_code, direct.result)
         != (formed.intention_digest, formed.source_code, formed.result)):
@@ -404,3 +404,86 @@ def compare_realizations(direct: NonlinearRealization,
             "formed_path": formed.path_digest,
             "direct_proof_digest": direct.proof_digest,
             "formed_machine_digest": formed.machine_digest}
+
+
+class ReceiverSourceSectionMemory:
+    """CIG-021 independently checked total-image section, retained locally.
+
+    A section establishes mathematical source reachability of an observation
+    *code*. It never authenticates a physical sensor measurement or host.
+    """
+    def __init__(self) -> None:
+        self._sections: dict[str, bytes] = {}
+
+    def get_or_construct(self, goal: NonlinearIntention) -> tuple[dict[str, Any], bool]:
+        """Construct and independently check source image before reusing it."""
+        if not isinstance(goal, NonlinearIntention):
+            raise NonlinearRealizationRefused("typed source intention required")
+        key = canonical_value_digest({
+            "schema": SCHEMA + ".source-section", "n": goal.variables,
+            "source": goal.source, "q": goal.observations,
+        })
+        previous = self._sections.get(key)
+        if previous is not None:
+            return json.loads(previous), False
+        try:
+            section = importlib.import_module("source_section")
+            verifier = importlib.import_module("verify_source_section")
+        except ImportError as exc:
+            raise NonlinearRealizationRefused(
+                "ITR-002 requires pinned CIG-021 source-section modules"
+            ) from exc
+        certificate = section.compile_section(
+            goal.variables, goal.source, goal.observations
+        )
+        if certificate is None or not verifier.verify_section(
+            goal.variables, goal.source, goal.observations, certificate
+        ):
+            raise NonlinearRealizationRefused(
+                "no verified total observation-image section for original source"
+            )
+        encoded = _wire(certificate)
+        if len(encoded) > MAX_RECEIPT_BYTES:
+            raise NonlinearRealizationRefused("source-section proof exceeds receiver budget")
+        self._sections[key] = encoded
+        return json.loads(encoded), True
+
+    def __len__(self) -> int:
+        return len(self._sections)
+
+
+def realize_from_observation_code(
+    goal: NonlinearIntention, code: int, capacity: NonlinearCapacity,
+    proofs: ReceiverProofMemory, sections: ReceiverSourceSectionMemory,
+    *, clock_ns: Callable[[], int] = perf_counter_ns,
+) -> NonlinearRealization:
+    """Intention and observed *code* suffice when a source section is proved.
+
+    No source model is passed by the caller. CIG-021 proves surjectivity of q
+    on original source models, then constructs a compatible model for the
+    receiver's private independent check. CIG-017 proves f=g(q) universally.
+    Together they qualify a virtual mathematical observation, not the origin
+    or authenticity of an independently arriving physical measurement.
+    """
+    if (type(code) is not int or not isinstance(goal, NonlinearIntention)
+        or not 0 <= code < (1 << len(goal.observations))
+        or not isinstance(sections, ReceiverSourceSectionMemory)):
+        raise NonlinearRealizationRefused("bounded typed observation code required")
+    t0 = clock_ns()
+    certificate, _ = sections.get_or_construct(goal)
+    section = importlib.import_module("source_section")
+    model = section.section_witness(
+        goal.variables, goal.observations, certificate, code
+    )
+    observed = SourceObservation(model)
+    if qualify_observation(goal, observed) != code:
+        raise NonlinearRealizationRefused("source-section witness did not realize observation code")
+    t1 = clock_ns()
+    result = direct_realize(goal, observed, capacity, proofs, clock_ns=clock_ns)
+    return NonlinearRealization(
+        "section-derived-direct-decoder", result.intention_digest,
+        result.source_code, result.result, result.proof_digest,
+        result.machine_digest, result.path_digest, result.report_digest,
+        {"section_construction_and_witness_audit": t1 - t0,
+         **result.spans_ns}, result.proof_constructed, 0,
+    )
