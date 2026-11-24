@@ -54,6 +54,7 @@ def _cig():
 
 
 def _wire(value: Any) -> bytes:
+    """Encode canonical finite JSON for immutable receiver memory."""
     return json.dumps(value, sort_keys=True, separators=(",", ":"),
                       ensure_ascii=False, allow_nan=False).encode("utf-8")
 
@@ -134,6 +135,7 @@ class ReceiverProofMemory:
     def get_or_construct(self, goal: NonlinearIntention, *, mode: str = "auto",
                          width: int = 12, cells: int = 2_000_000,
                          decoder_bits: int = 6) -> tuple[dict[str, Any], bool]:
+        """Construct and independently check an exact source-bound proof, or reuse admitted bytes."""
         if not isinstance(goal, NonlinearIntention):
             raise NonlinearRealizationRefused("typed intention required")
         if (mode not in ("auto", "paired") or type(width) is not int
@@ -209,6 +211,7 @@ class NonlinearRealization:
 
     @property
     def total_ns(self) -> int:
+        """Sum measured inclusive realization phases in nanoseconds."""
         return sum(self.spans_ns.values())
 
 
@@ -252,6 +255,7 @@ def direct_realize(goal: NonlinearIntention, observed: SourceObservation,
         {"code": code, "source": goal.fingerprint}, require_oracle=True,
     )
     def decode(request: Any) -> dict[str, Any]:
+        """Evaluate the admitted decoder using only the qualified observation code."""
         if (type(request) is not dict or request !=
             {"code": code, "source": goal.fingerprint}):
             raise BootstrapRefused("substituted source code or intention")
@@ -261,14 +265,17 @@ def direct_realize(goal: NonlinearIntention, observed: SourceObservation,
         return {"value": value, "proof": proof_digest}
 
     def check_decode(request: Any, result: Any) -> bool:
+        """Independently compare the returned bit with original-source truth."""
         return (request == {"code": code, "source": goal.fingerprint}
                 and type(result) is dict
                 and result == {"value": expected, "proof": proof_digest})
 
     def project(result: Any) -> dict[str, Any]:
+        """Project the verified decoder result onto the requested observation."""
         return {"value": result["value"], "proof": result["proof"]}
 
     def check_project(prior: Any, result: Any) -> bool:
+        """Check that observation projection preserves verified source truth."""
         return (type(prior) is dict and prior ==
                 {"value": expected, "proof": proof_digest}
                 and result == prior)
