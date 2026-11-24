@@ -73,3 +73,23 @@ Warm direct calls reuse a **previously independently admitted** proof, not a gue
 Run the exact workload through actual CIG-017 and E-CPU on Linux and Windows, Python 3.11 and 3.13. Five full trials per workload/path; compare **median intention-to-verified-result duration**, with phase totals and proof-memory reuse recorded. Publish result JSON in Actions artifacts and repository docs only after observed CI logs are checked. Direct and formed variants may have different costs; no speed advantage is presumed. Repeated CIG proof admission is charged in cold trials; proof construction is **not** charged in warm trials, but the original cold seed cost must be included when discussing amortization.
 
 The next experiment uses CIG-019 shared interpolant proof memory for **multiple** target intentions, E-CPU's ITR-001 measured formation ledger, and live `TransferableExecutionClaimStore` for placement-independent result acceptance. It should compare source-verified incremental proof reuse against complete reformation and account for actual network hops. Until then, this result is a controlled local source-and-fabric experiment.
+
+## CIG-021 extension — No full source witness required as an input
+
+The next path follows directly from the original CIG source-image work. The CIG-021 `source_section.compile_section(n,C,q)` producer and **independent** `verify_source_section.verify_section` can establish, for an admitted source grammar, a total constructive section
+
+\[
+ s:\{0,1\}^{|q|}\longrightarrow\{0,1\}^n,
+ \qquad C(s(u))\;\wedge\;q(s(u))=u\quad\forall u.
+\]
+
+`ReceiverSourceSectionMemory` retains the independently checked section as immutable canonical bytes keyed by source and observer contract. `realize_from_observation_code(goal,u,capacity,proofs,sections)` then:
+
+1. Reuses or constructs and independently checks the actual CIG-021 section certificate.
+2. Produces a compatible source witness `s(u)` *internally* and independently checks source satisfaction and `q(s(u))=u`.
+3. Reuses or produces the CIG-017 proof of `f=g(q)`, and runs `g(u)` through the existing E-CPU admitted decoder host and path.
+4. Uses the source witness only for the **receiver-side independent oracle**; the executable handler and carriers receive the observation code but never the model bits.
+
+Thus the supplied request includes **no model state, decoder, program or selected host**. The resulting code is a **mathematically realizable virtual coordinate**, not a physical sensor reading. The source-section proof makes every declared observation code legal under the original source; it does not authenticate how a real-world sensor obtained a code. Ineligible sources or uncovered clauses refuse rather than invent a section. The added source-section formation and proof-admission time is explicitly included in cold timing; a warm request reuses the exact previously checked section and target decoder.
+
+On the controlled alternating 23-variable nonlinear source, this direct section route is intended to cover all 4096 input observation codes using bounded CIG-017/021 circuit descriptions, while the complete original-state enumeration baseline deliberately refuses `n>16`. This distinction is one of **source-structure-dependent formation cost**, not a general guarantee about every CNF source. Tests compare decoded results with separately constructed original-source witnesses and independently check a forged section-gate table is refused.
