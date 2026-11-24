@@ -27,9 +27,11 @@ class IntentionReceipt:
 
     @property
     def total_ns(self) -> int:
+        """Return complete measured intervals without omitting preparation or verification."""
         return sum(self.measured_ns.values())
 
     def to_dict(self) -> dict[str, Any]:
+        """Export source, goal, verification and timing identities as finite JSON."""
         return {
             "schema": SCHEMA, "mode": self.mode,
             "intention_digest": self.intention_digest,
