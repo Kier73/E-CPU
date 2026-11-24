@@ -115,6 +115,7 @@ class KernelTable:
 def form_adder(nand):
     """Derive a full-adder table from 72 actual NAND path observations."""
     def g(a,b):
+        """Wire two observed bits into the NAND coordinate."""
         return nand.observe(a | (b<<1))
     values = []
     for x in range(8):
