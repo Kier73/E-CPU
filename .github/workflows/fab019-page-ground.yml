@@ -1,0 +1,28 @@
+name: FAB-019 independent page Grounds
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/page_ground.py'
+      - 'tests/test_page_ground.py'
+      - 'examples/fab_127/benchmark_page_ground.py'
+      - '.github/workflows/fab019-page-ground.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  page-ground:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -e . pytest
+      - run: python -m pytest -vv tests/test_page_ground.py tests/test_computational_session.py
+      - run: python examples/fab_127/benchmark_page_ground.py fab019-measured > fab019-page-ground.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fab019-page-ground
+          path: fab019-page-ground.json
