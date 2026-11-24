@@ -1,0 +1,32 @@
+name: FAB-017 structural snapshot density
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/snapshot_delta.py'
+      - 'tests/test_snapshot_delta.py'
+      - 'tests/test_fab017_native_snapshot_density.py'
+      - 'examples/fab_127/benchmark_snapshot_delta.py'
+      - '.github/workflows/fab017-snapshot-density.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  density:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -e . pytest
+      - run: python -m pytest -vv tests/test_snapshot_delta.py
+      - run: python examples/fab_127/benchmark_snapshot_delta.py > fab017-synthetic.json
+      - run: |
+          set -o pipefail
+          python -m pytest -vv -s tests/test_fab017_native_snapshot_density.py | tee fab017-native.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fab017-density
+          path: fab017-*
