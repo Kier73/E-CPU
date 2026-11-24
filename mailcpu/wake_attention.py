@@ -108,8 +108,9 @@ class WakeController:
                 or len(message.body)!=1 or type(message.body[0]) is not str):
             raise ValueError('invalid wake envelope')
         event=WakeEvent.decode(message.body[0].encode('ascii'))
-        if event.namespace!=self.namespace or message.addr!=event.session_id:
-            raise ValueError('wake route differs')
+        expected_id=self.mailbox.node_id+':once:'+_digest(('wake:'+event.event_id).encode('utf-8'))
+        if event.namespace!=self.namespace or message.addr!=event.session_id or message.message_id!=expected_id:
+            raise ValueError('wake route or operation identity differs')
         return event
 
     @staticmethod
