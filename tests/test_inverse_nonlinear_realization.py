@@ -232,3 +232,57 @@ def test_receipt_phase_costs_and_content_bound_identity():
     assert report["direct_proof_digest"]==a.proof_digest
     assert report["formed_machine_digest"]==b.machine_digest
     assert json.loads(json.dumps(report))==report
+
+
+def test_cig021_source_section_reconstructs_all_small_observation_codes():
+    from mailcpu.inverse_nonlinear_realization import (
+        ReceiverSourceSectionMemory, realize_from_observation_code,
+    )
+    goal=gate_source();sections=ReceiverSourceSectionMemory();proofs=ReceiverProofMemory()
+    for code in range(8):
+        realized=realize_from_observation_code(goal,code,capacity(),proofs,sections)
+        a=code&1;b=(code>>1)&1;c=(code>>2)&1
+        independent=state_for(a,b,c)
+        formed,_=formed_realize(goal,independent,capacity())
+        assert realized.result==((a&b)|c)
+        assert realized.source_code==code
+        assert compare_realizations(realized,formed)["result"]==realized.result
+        assert realized.source_probes==0
+    assert len(sections)==len(proofs)==1
+
+
+def test_cig021_source_section_23_variables_without_full_state_input():
+    from mailcpu.inverse_nonlinear_realization import (
+        ReceiverSourceSectionMemory, realize_from_observation_code,
+    )
+    goal=source_chain(12);proofs=ReceiverProofMemory();sections=ReceiverSourceSectionMemory()
+    for code in (0,1,7,255,0xB63,0xFFF):
+        result=realize_from_observation_code(goal,code,capacity(),proofs,sections)
+        observed=source_chain_model(12,code)
+        expected=direct_realize(goal,observed,capacity(),proofs)
+        assert result.result==expected.result
+        assert result.proof_digest==expected.proof_digest
+        assert result.source_code==code
+    assert len(sections)==len(proofs)==1
+
+
+def test_cig021_source_section_refuses_unsupported_image_and_forged_gate():
+    from mailcpu.inverse_nonlinear_realization import (
+        ReceiverSourceSectionMemory, realize_from_observation_code,
+    )
+    constrained=NonlinearIntention(1,((-1,),),((1,),),(1,))
+    with pytest.raises(NonlinearRealizationRefused,match="total observation-image"):
+        realize_from_observation_code(constrained,0,capacity(),
+                        ReceiverProofMemory(),ReceiverSourceSectionMemory())
+    goal=gate_source();sections=ReceiverSourceSectionMemory()
+    certificate,built=sections.get_or_construct(goal)
+    assert built
+    from verify_source_section import verify_section
+    assert verify_section(goal.variables,goal.source,goal.observations,certificate)
+    forged=copy.deepcopy(certificate)
+    forged["gates"][0]["table"][0]^=1
+    assert not verify_section(goal.variables,goal.source,goal.observations,forged)
+    checked,again=sections.get_or_construct(goal)
+    assert not again and checked==certificate
+    with pytest.raises(NonlinearRealizationRefused):
+        realize_from_observation_code(goal,8,capacity(),ReceiverProofMemory(),sections)
