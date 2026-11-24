@@ -1,0 +1,23 @@
+name: FAB-013 native attention composition
+on:
+  pull_request:
+    paths:
+      - 'tests/test_fab013_attention_composition.py'
+      - '.github/workflows/fab013-attention.yml'
+      - 'mailcpu/memory.py'
+      - 'mailcpu/headless.py'
+      - 'mailcpu/structural_memory_pages.py'
+      - 'mailcpu/computation_dag.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  composition:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -e . pytest
+      - run: python -m pytest -vv tests/test_fab013_attention_composition.py tests/test_native_cpu.py tests/test_computation_dag.py
