@@ -1,6 +1,5 @@
 """FAB-013: compose native OS, dependency readiness and demand-backed memory."""
 from hashlib import sha256
-import json
 
 import pytest
 
@@ -30,6 +29,7 @@ def test_attention_composition(tmp_path):
     for machine in MACHINES:
         parent = os.launch_source(PROGRAM, f"machine-{machine:06x}")
         child = os.launch_source(PROGRAM, f"child-{machine:06x}", parent_pid=parent)
+        assert os.process(child).parent_pid == parent
         for depth, pid in enumerate((parent, child)):
             key = f"m{machine:06x}.p{depth}"
             pids[key] = pid
@@ -91,7 +91,6 @@ def test_attention_composition(tmp_path):
             assert os.vm.resident_pages() == 8
     assert order == ["m000000.p1", "mffffff.p1", "m000000.p0", "mffffff.p0"]
     assert grants == {0: 2, 0xffffff: 2}
-    assert os.process(pids["m000000.p1"]).parent_pid == pids["m000000.p0"]
     for key,pid in pids.items():
         data,_ = payloads[key]
         assert os.syscall(pid, "mem_read", address=BASE, size=PAGE) == data
