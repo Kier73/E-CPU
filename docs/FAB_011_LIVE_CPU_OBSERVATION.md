@@ -14,13 +14,15 @@ For a program of length L, write the prefix map P_r(x)=m_r*x+b_r mod 2^32, and t
 
 where initial(i)=(2654435761*i+17) mod 2^32. Composition is (m,b)∘(n,c)=(mn,mc+b) mod 2^32. The program loader builds prefixes and 28 repeated-square powers; navigation uses the set bits of q. No snapshot is assembled from different instruction times, and no global synchronous state is inferred. The clock refuses exhaustion rather than wrapping. The actual interpreter never invokes the navigator to advance a state.
 
+The refined compiler first executes three calibration contexts per program with initial registers 0, 1 and 0xdeadbeef. For every prefix, the first two actual interpreter observations determine m = y(1) - y(0) and b = y(0). The third independently challenges the candidate; all three PC/tick observations and the declared affine prefix are checked. Only these verified observed coefficients form the navigator. The four-program set requires 39 calibration instructions; the alternate set requires 30. This exploits an already admitted affine language, not unconstrained inference from three samples.
+
 Before starting, each loaded program is checked for 4096 sequential instruction states against the formed law. Every live observation checks the entire packed state against the direct law and checks nonregression against the previous observed time. A final pass verifies every CPU and checks that the sum of its clocks equals the exact worker instruction count. A separate Python checker replays 64 unique final samples (including both address extremes) from the loaded source; hosted CI also compares these with the existing E-CPU `lcg_navigate`. The temporal equivalence is exact for the admitted affine language; future symbolic predictions are not physical future observations.
 
 Native sampling uses an empty UDP datagram, kernel-supplied destination IP_PKTINFO and sender checks. It addresses up to 4096 unique CPU identities per epoch via an odd-multiplier permutation, including both ends of the space. It then reads and verifies the same atomic resident state. The full scans are direct resident reads, not 67 million UDP packets. No physical kernel computation of the CPU instruction is asserted here.
 
 ## Measured local evidence
 
-Linux, four available CPU quota, 2026-11-24. Initial full run: 1,716,868,411 interpreter instructions. Refined run before adding inter-scan progress coordination: 1,771,394,362 instructions. Both verified 67,108,864 live observations across four complete scans. The exact committed C blob 42a4ebd0522d410aefaec68f997832c2e076a55d then repeated the full run:
+Linux, four available CPU quota, 2026-11-24. Initial full run: 1,716,868,411 interpreter instructions. Refined run before adding inter-scan progress coordination: 1,771,394,362 instructions. Both verified 67,108,864 live observations across four complete scans. A progress-coordinated run of C blob 42a4ebd0522d410aefaec68f997832c2e076a55d verified 1,019,215,860 instructions. The final observation-formed C blob 2e1d20ad041a17a717bafee59ebf53eef0d4ef6a then repeated the full run:
 
 | Measurement | Exact final source run |
 |---|---:|
@@ -31,14 +33,14 @@ Linux, four available CPU quota, 2026-11-24. Initial full run: 1,716,868,411 int
 | Final full-space verification | 16,777,216 |
 | Resident CPU bytes | 134,217,728 |
 | Observer clock bytes | 67,108,864 |
-| Epoch 1 workers / instructions | 3 / 704,643,060 |
-| Epoch 2 workers / instructions | 4 / 314,572,800 |
-| Total instructions | 1,019,215,860 |
-| Epoch durations | 1.262752 s / 0.582184 s |
-| Final instruction clock range | 48–85 |
+| Epoch 1 workers / instructions | 3 / 704,643,059 |
+| Epoch 2 workers / instructions | 4 / 624,951,296 |
+| Total instructions | 1,329,594,355 |
+| Epoch durations | 1.257083 s / 0.916068 s |
+| Final instruction clock range | 58–97 |
 | Final sample replays | 64/64 |
 
-All four scans observed every CPU advance relative to its previous scan in this run. Both epochs passed 4096 native samples. The final total exactly equals the sum of CPU clocks. A second loaded program set (including MUL 0 and a noninvertible map) ran 262,144 CPUs, 32,331,070 instructions, 1,048,576 live snapshots and 8192 native samples, with a 3-to-2 worker change and 64 independent final sample replays. A 16-CPU 1-to-3 worker test and an invalid JUMP 1 refusal passed. Instruction counts depend on scheduling and observation duration; they are not a fixed-workload speedup, physical instruction count or CPU-core count.
+All four scans observed every CPU advance relative to its previous scan in this run. Both epochs passed 4096 native samples. The final total exactly equals the sum of CPU clocks. A second loaded program set (including MUL 0 and a noninvertible map) ran 262,144 CPUs, 36,787,575 instructions, 1,048,576 live snapshots and 8192 native samples, with a 3-to-2 worker change and 64 independent final sample replays. A 16-CPU 1-to-3 worker test and an invalid JUMP 1 refusal passed. Instruction counts depend on scheduling and observation duration; they are not a fixed-workload speedup, physical instruction count or CPU-core count.
 
 ## Reproduce
 
