@@ -137,6 +137,8 @@ The intent is not to materialize every possible state. It is to describe the law
 
 This goal is relative to the computational languages and Grounds admitted by E-CPU. Expanding that descriptive and operational capacity is active development.
 
+**127-Fabric (FAB-006/007/008):** [Kernel-native address arithmetic and observation-formed truth Grounds](docs/FAB_008_OBSERVATION_FORMED_LOOPBACK.md) execute finite operations through Linux socket filters, express results as selected paths with empty UDP payloads, and form a seven-instruction full-adder selector from 72 native NAND observations. The new Ground was locally checked across all 65,536 byte additions; native SAB policy and receipt integration is covered by dedicated Linux CI. The current realization coordinates dependent gates in userspace.
+
 ## The computational model
 
 A Computational Ground can be described as:
