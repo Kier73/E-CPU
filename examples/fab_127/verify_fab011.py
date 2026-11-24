@@ -21,6 +21,8 @@ def check(program_path, report_path, native_law=False):
     assert int(rows[0]['programs']) == len(programs)
     assert int(rows[0]['state_bytes']) == 8*count
     assert int(rows[0]['observer_bytes']) == 4*count
+    assert int(rows[1]['probe_instructions']) == 3*sum(map(len, programs))
+    assert int(rows[1]['heldout_contexts']) == len(programs)
     scans = [r for r in rows if 'pass' in r]
     assert [(int(r['epoch']), int(r['pass'])) for r in scans] == [(1,0),(1,1),(2,0),(2,1)]
     for r in scans:
