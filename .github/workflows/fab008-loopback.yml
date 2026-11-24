@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'mailcpu/loopback_truth_fabric.py'
+      - 'examples/fab_127/**'
       - 'mailcpu/substrate_bootstrap.py'
       - 'tests/test_loopback_truth_fabric.py'
       - '.github/workflows/fab008-loopback.yml'
@@ -19,10 +20,17 @@ jobs:
           python-version: '3.13'
       - run: python -m pip install -e . pytest
       - run: python -m pytest -q tests/test_loopback_truth_fabric.py
+      - run: python examples/fab_127/loopback_kernel_fabric.py > fab006-report.json
+      - run: python examples/fab_127/loopback_route_fabric.py > fab007-report.json
+      - run: |
+          python -c "import json; a=json.load(open('fab006-report.json')); b=json.load(open('fab007-report.json')); assert a['total']==b['total']==393216 and a['observations_sha256']==b['observations_sha256']=='61de34788f2f9485815b22bacc1c9db0c3c39c4c734f384e552c64a186a5e82e'"
       - run: python -m mailcpu.loopback_truth_fabric > fab008-report.json
       - run: |
           python -c "import json; r=json.load(open('fab008-report.json')); assert r['byte_additions']==65536 and r['composition_packets']==524288 and r['digest']=='5613dffac5ad5b3f9e4f9110bc158d78b73068bfaeeba267a8bcba2b97849c22'"
       - uses: actions/upload-artifact@v4
         with:
           name: fab008-report
-          path: fab008-report.json
+          path: |
+            fab006-report.json
+            fab007-report.json
+            fab008-report.json
