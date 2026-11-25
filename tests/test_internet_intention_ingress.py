@@ -237,3 +237,15 @@ def test_disallowed_source_types_and_unrecognized_ops_refuse_cleanly(manifest):
     invalid["nodes"][0]["params"]["repository"] = ["Kier73/E-CPU"]
     with pytest.raises(ingress.IntentionRefused):
         ingress.admit_manifest(invalid)
+
+
+def test_per_quantum_read_budget_refuses_unfunded_second_http_observation(manifest):
+    limited = copy.deepcopy(manifest)
+    limited["budget"]["max_reads_per_quantum"] = 1
+    limited = ingress.admit_manifest(limited)
+    dag = ingress.graph_template(limited)
+    assert ingress.execute_one(limited, dag, fake_get) == "a-ecpu-commit"
+    assert ingress.execute_one(limited, dag, fake_get) == "b-vgi-commit"
+    with pytest.raises(ingress.IntentionRefused, match="request budget exhausted"):
+        ingress.execute_one(limited, dag, fake_get)
+    assert "c-http-etag" not in dag.committed_nodes
