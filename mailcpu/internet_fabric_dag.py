@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -88,7 +89,7 @@ def validate_result(node_id: str, result: dict, dag: NavigableComputationDAG) ->
                 type(result["conditional_status"]) is int and result["conditional_status"] == 304 and
                 type(result["changed_status"]) is int and result["changed_status"] == 200 and
                 result["body_sha256"] == prior["body_sha256"] and
-                result["validator_sha256"] == internet.digest(prior["etag"]) ,
+                result["validator_sha256"] == hashlib.sha256(prior["etag"].encode("utf-8")).hexdigest() ,
                 "native HTTP conditional result invalid")
     elif node_id == "git-compare":
         require(set(result) == {"base", "head", "merge_base", "ahead", "behind",
@@ -195,7 +196,7 @@ def run_one(dag: NavigableComputationDAG, fetch) -> str | None:
         etag = headers.get("etag")
         require(_is_etag(etag), "Git object ETag is missing")
         result = {"sha": internet.HEAD, "body_sha256":
-                  __import__("hashlib").sha256(raw).hexdigest(), "etag": etag}
+                  hashlib.sha256(raw).hexdigest(), "etag": etag}
     elif node_id == "http-conditional":
         prior = dag.result("git-commit")
         status, _, raw = fetch(internet.COMMIT_URL, prior["etag"])
@@ -204,11 +205,11 @@ def run_one(dag: NavigableComputationDAG, fetch) -> str | None:
                                            '"internet006-not-this-etag"')
         require(other_status == 200 and
                 internet.strict_json(other_body).get("sha") == internet.HEAD and
-                __import__("hashlib").sha256(other_body).hexdigest() == prior["body_sha256"],
+                hashlib.sha256(other_body).hexdigest() == prior["body_sha256"],
                 "nonmatching conditional did not retain exact Git representation")
         result = {"conditional_status": 304, "changed_status": 200,
                   "body_sha256": prior["body_sha256"],
-                  "validator_sha256": internet.digest(prior["etag"])}
+                  "validator_sha256": hashlib.sha256(prior["etag"].encode("utf-8")).hexdigest()}
     elif node_id == "git-compare":
         status, _, raw = fetch(internet.COMPARE_URL, None)
         require(status == 200, "Git graph operator did not return HTTP 200")
@@ -222,7 +223,7 @@ def run_one(dag: NavigableComputationDAG, fetch) -> str | None:
         result = {"base": internet.BASE, "head": internet.HEAD,
                   "merge_base": internet.BASE, "ahead": 11, "behind": 0,
                   "status": "ahead",
-                  "body_sha256": __import__("hashlib").sha256(raw).hexdigest()}
+                  "body_sha256": hashlib.sha256(raw).hexdigest()}
     elif node_id == "compose":
         result = compose_receipt(dag)
     else:
