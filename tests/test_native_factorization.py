@@ -12,7 +12,6 @@ def h(x):
     """Fixture digest."""
     return sha256(x).hexdigest()
 
-
 CTX=h(b'context'); OTHER=h(b'other-context')
 
 
