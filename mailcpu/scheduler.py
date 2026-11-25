@@ -695,7 +695,12 @@ class DeterministicScheduler:
                 steps=int(raw["steps"]),
             )
             status = TaskStatus(raw["status"])
-            if not 0 <= state.pc < len(program.instructions) or state.steps < 0 or state.steps > scheduler.tick:
+            # A terminal SYSCALL advances PC before halting; its successor
+            # coordinate can be exactly one past the final instruction.
+            pc_valid = 0 <= state.pc < len(program.instructions) or (
+                status is TaskStatus.HALTED and state.halted and state.pc == len(program.instructions)
+            )
+            if not pc_valid or state.steps < 0 or state.steps > scheduler.tick:
                 raise ValueError(f"invalid scheduler machine coordinates: {pid}")
             if state.halted != (status is TaskStatus.HALTED):
                 raise ValueError(f"scheduler halted/status mismatch: {pid}")

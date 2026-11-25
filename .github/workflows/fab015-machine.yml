@@ -1,0 +1,36 @@
+name: FAB-015 machine application continuity
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/fabric_identity.py'
+      - 'mailcpu/stream_os_session.py'
+      - 'tests/test_fabric_identity.py'
+      - '.github/workflows/fab015-machine.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  machine-continuity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -e . pytest
+      - run: python -m pytest -vv tests/test_fabric_identity.py tests/test_headless_relation.py tests/test_computational_session.py tests/test_continuous_session.py tests/test_remote_memory.py
+      - run: |
+          python - <<'PY'
+          from mailcpu.fabric_identity import pack_ipv4, unpack_ipv4, MACHINE_COUNT
+          import time, json
+          start=time.perf_counter()
+          total=0
+          for k in range(MACHINE_COUNT):
+              i=(5*k+3)&(MACHINE_COUNT-1)
+              j=unpack_ipv4(pack_ipv4(i))
+              if i!=j: raise RuntimeError('identity mismatch')
+              total+=j
+          assert total==MACHINE_COUNT*(MACHINE_COUNT-1)//2
+          print(json.dumps({'identities':MACHINE_COUNT,'sum':total,'seconds':time.perf_counter()-start}))
+          PY

@@ -1,0 +1,32 @@
+# FAB-015 — Addressed application environments
+
+## Order of operation
+
+1. Full 127/8 address space: FAB-006–009 native loopback and mathematical coordinates; FAB-010–012 compact CPU execution, temporal observation and explicit effect retention.
+2. Persistent machine identity: canonical fabric namespace plus 24-bit address. This names a potential OS, not a running OS or permission to execute.
+3. Native application state: closed HeadlessOS state, M1 content-addressed byte pages, M3 quorum-anchored successor, and fresh worker realization.
+4. Repeated bounded native execution: relative scheduler quanta, independent of absolute tick and M3 revision.
+5. Allocation: connect FAB-013/014's native readiness and resource observations to active machine scopes. Verify resource usage and admission separately.
+6. Expand reliability evidence from individual active machines to sharded, concurrently active native environments; measure actual host overhead, state growth, replication and recovery. Extend closed-state virtual I/O to admitted external effects with existing reliable receipt/fencing machinery.
+
+## Canonical machine address
+
+For an approved fabric namespace digest N and i in [0,2^24), the unsigned IPv4 integer is 0x7f000000 OR i, and its stable M3 session ID is `fab127.<N>.<six lowercase hex digits>`. The inverse integer map masks the low 24 bits; the inverse session map checks the exact canonical syntax. Every 127/8 endpoint is representable, including .0.0.0 and .255.255.255. Namespace distinguishes identical loopback addresses in different fabrics. No per-address runtime object or session is allocated by naming. The address is not routability, authentication, or proof of an admitted state.
+
+`FabricMachineAddress.bind_session(store, expected)` checks that the existing M3 store and locally trusted `SessionRejoinAddress` identify exactly the requested machine. It then checks the current quorum-backed store through `SessionRejoinAddress.bootstrap` and compares the entire artifact/schema/membership scope. It never chooses membership or authorizes work. The caller is responsible for the trusted local mapping and receiver admission. Multiple machines can share a content-addressed page store without sharing mutable session heads. A changed membership or artifact requires separately admitted rebinding, not automatic acceptance.
+
+Local exact source blob 9a74c36e950b5a7019a1188e4374dc74380233cb: 15 Python tests pass, including 65,543 sampled and endpoint textual/session/packed round trips. Exhaustive integer-codec permutation (5k+3) mod 2^24: 16,777,216/16,777,216 matches, sum 140737479966720, 8.076923 seconds. This is a naming sweep, not a new packet or OS execution sweep. Earlier FAB evidence is separately scoped.
+
+## Relative execution quantum
+
+The existing `mailcpu.headless-pure-step.v1` contract calls the scheduler with an absolute ceiling in [1,200]. Reusing a request with ticks=100 when the scheduler already reached 100 cannot advance the machine. The new `mailcpu.headless-relative-quantum.v1` contract defines ceiling = current native scheduler tick + requested ticks, with 1 <= ticks <= 200, independently of M3 revision. A blocked or halted machine may consume fewer transitions; elapsed time and actual transition counts remain distinct. It retains the existing native closed-domain check, full-state comparison and M3 transition adapter. Separate input schema, transition identity, backend and interpretation fingerprints distinguish the new semantics. Legacy requests preserve their absolute meaning and reject the new schema; new requests reject legacy schema. An existing legacy session requires explicit compatible migration to a new backend; this PR does not authorize a migration.
+
+## Native application verification
+
+The new test uses two independent real HeadlessOS instances at the extreme identities. Each loads the same application pattern with different data. Native virtual syscalls open a file, reserve a page, write private bytes, transfer bytes to its file and exit. At a three-instruction cut, PC/registers, mutable memory and open descriptor are retained in M1 and M3. Fresh interpreter subprocesses realize each successor; existing HeadlessOS closed-state relation independently verifies it before M3 CAS. The test reopens actual local page files and three lineage journals for each machine, rejects cross-session and altered membership scope, refuses a subprocess that computes a candidate but exits abnormally, refuses a wrong valid OS candidate, then finishes both machines, challenges exact retry and stale predecessor, and checks the final file and private memory. Another native test proposes three 100-tick grants across freshly opened stores and independently executing subprocesses, requiring ticks 100, 200, 300 and exact register values. Separate schema negative controls protect the original protocol.
+
+These are **test designs pending hosted verification** as of this commit. Local full naming tests are verified; direct repository checkout could not be resolved in the local environment. All test authorities and page files share one administrative failure domain; the native test's RemotePageStore uses a local page CAS with no remote peer. The closed-state comparator currently refuses external page backing/callbacks inside the guest; the CAS is outside the guest snapshot. Physical host loss, independent replicas, and full-space application-state residency have separate evidence requirements. No arbitrary binary or conventional OS compatibility claim follows from a native MailCPU application using conventional-style virtual syscalls.
+
+## Scaling insight
+
+Machine capacity, active OS instances, retained application states, simultaneously executing workers and independent history coordinates must be measured separately. A dense array of 16M full Python OS objects is not the intended realizer. Use a canonical boot description for inactive potential identities, sparse admitted session heads, content-addressed immutable pages, private mutable changes and bounded attention-driven workers. Inactive means not yet initialized; a previously committed identity must refuse missing evidence rather than regenerate blank state. At scale use sharded durable metadata, existing quorum ownership and an incrementally maintained ready index; no implicit authorization from reachability. FAB-015 deliberately starts with the original native OS semantics before applying the large-scale FAB realizers to them.

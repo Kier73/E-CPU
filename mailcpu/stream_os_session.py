@@ -24,6 +24,14 @@ from .headless_relation import HeadlessRelationError, compare_headless_os_states
 OS_STATE_SCHEMA = "mailcpu.headless-snapshot.v1"
 OS_STEP_INPUT_SCHEMA = "mailcpu.headless-pure-step.v1"
 OS_TRANSITION_ID = "headless.os.continue.v1"
+OS_QUANTUM_INPUT_SCHEMA = "mailcpu.headless-relative-quantum.v1"
+OS_QUANTUM_TRANSITION_ID = "headless.os.quantum.v1"
+OS_QUANTUM_BACKEND_FINGERPRINT = hashlib.sha256(
+    b"mailcpu.headless-relative-quantum-reference-backend.v1"
+).hexdigest()
+OS_QUANTUM_INTERPRETATION_FINGERPRINT = hashlib.sha256(
+    b"mailcpu.headless-os-relative-scheduler-quantum.v1"
+).hexdigest()
 OS_BACKEND_FINGERPRINT = hashlib.sha256(
     b"mailcpu.headless-closed-state-reference-backend.v1"
 ).hexdigest()
@@ -107,12 +115,20 @@ def encode_headless_step(*, ticks: int, read_fd: int | None = None, read_size: i
     })
 
 
-def _step(machine: HeadlessOS, step_bytes: bytes) -> HeadlessOS:
+def encode_headless_quantum(*, ticks: int, read_fd: int | None = None, read_size: int = 0) -> bytes:
+    """Encode an additional scheduler quantum, preserving the legacy absolute-tick protocol."""
+    record = dict(_decode(encode_headless_step(ticks=ticks, read_fd=read_fd, read_size=read_size),
+                          "HeadlessOS quantum"))
+    record["schema"] = OS_QUANTUM_INPUT_SCHEMA
+    return _canonical(record)
+
+
+def _step(machine: HeadlessOS, step_bytes: bytes, *, schema: str = OS_STEP_INPUT_SCHEMA) -> HeadlessOS:
     """Apply only snapshot-covered virtual I/O and an explicit scheduler budget."""
     record = _decode(step_bytes, "HeadlessOS operation")
     if set(record) != {"schema", "ticks", "read_fd", "read_size"}:
         raise ComputationalTransitionError("HeadlessOS operation has unknown or missing fields")
-    if record["schema"] != OS_STEP_INPUT_SCHEMA:
+    if schema not in (OS_STEP_INPUT_SCHEMA, OS_QUANTUM_INPUT_SCHEMA) or record["schema"] != schema:
         raise ComputationalTransitionError("HeadlessOS operation schema differs")
     ticks, fd, size = record["ticks"], record["read_fd"], record["read_size"]
     if type(ticks) is not int or not 1 <= ticks <= 200:
@@ -131,7 +147,8 @@ def _step(machine: HeadlessOS, step_bytes: bytes) -> HeadlessOS:
             raise ComputationalTransitionError("virtual read syscall refused") from exc
         if not isinstance(result, bytes):
             raise ComputationalTransitionError("virtual read did not produce byte evidence")
-    machine.run(max_ticks=ticks)
+    ceiling = machine.vm.scheduler.tick + ticks if schema == OS_QUANTUM_INPUT_SCHEMA else ticks
+    machine.run(max_ticks=ceiling)
     observe_headless_os_state(machine)
     return machine
 
@@ -140,6 +157,8 @@ class HeadlessOSQuorumTransitionBackend:
     """Verify a proposed remote OS successor before an M3 adapter may quorum-commit it."""
 
     backend_fingerprint = OS_BACKEND_FINGERPRINT
+    interpretation_fingerprint = OS_INTERPRETATION_FINGERPRINT
+    input_schema = OS_STEP_INPUT_SCHEMA
 
     def __init__(
         self,
@@ -170,7 +189,7 @@ class HeadlessOSQuorumTransitionBackend:
             raise ComputationalTransitionError("M3 HeadlessOS state schema differs")
         if context.execution_backend_fingerprint != self.backend_fingerprint:
             raise ComputationalTransitionError("HeadlessOS backend fingerprint differs")
-        if context.interpretation_fingerprint != OS_INTERPRETATION_FINGERPRINT:
+        if context.interpretation_fingerprint != self.interpretation_fingerprint:
             raise ComputationalTransitionError("HeadlessOS interpretation fingerprint differs")
         if hashlib.sha256(state_bytes).hexdigest() != context.state_digest:
             raise ComputationalTransitionError("M3 state bytes differ from bound state digest")
@@ -179,13 +198,14 @@ class HeadlessOSQuorumTransitionBackend:
         # Verify the source before any remote work; the reference state is
         # reconstructed independently from the remote observer's implementation.
         reference = restore_headless_state(state_bytes)
-        _decode(input_bytes, "HeadlessOS operation")
+        if _decode(input_bytes, "HeadlessOS operation").get("schema") != self.input_schema:
+            raise ComputationalTransitionError("HeadlessOS operation schema differs")
         self.remote_calls += 1
         candidate = self.execute_remote(state_bytes, input_bytes, context)
         if not isinstance(candidate, bytes) or len(candidate) > self.max_state_bytes:
             raise ComputationalTransitionError("remote OS proposal must be bounded state bytes")
         restored = restore_headless_state(candidate)
-        _step(reference, input_bytes)
+        _step(reference, input_bytes, schema=self.input_schema)
         relation = compare_headless_os_states(reference, restored)
         if not relation.equivalent:
             raise ComputationalTransitionError(
@@ -200,4 +220,19 @@ def execute_headless_step(state_bytes: bytes, input_bytes: bytes) -> bytes:
     """Execute an isolated pure OS step for a separately bound observer-host."""
     machine = restore_headless_state(state_bytes)
     _step(machine, input_bytes)
+    return serialize_headless_state(machine)
+
+
+class HeadlessOSQuorumQuantumBackend(HeadlessOSQuorumTransitionBackend):
+    """Native closed-state continuation with an additional, bounded scheduler quantum."""
+
+    backend_fingerprint = OS_QUANTUM_BACKEND_FINGERPRINT
+    interpretation_fingerprint = OS_QUANTUM_INTERPRETATION_FINGERPRINT
+    input_schema = OS_QUANTUM_INPUT_SCHEMA
+
+
+def execute_headless_quantum(state_bytes: bytes, input_bytes: bytes) -> bytes:
+    """Realize a relative scheduler quantum without resetting the logical clock."""
+    machine = restore_headless_state(state_bytes)
+    _step(machine, input_bytes, schema=OS_QUANTUM_INPUT_SCHEMA)
     return serialize_headless_state(machine)
