@@ -280,6 +280,46 @@ class ComputationalSessionSnapshot:
         }
 
 
+@dataclass(frozen=True)
+class ComputationalSessionHead:
+    """Checkpoint and quorum coordinates observed without reading M1 state bytes.
+
+    Constructing this value alone is not authority. Observe it through the
+    owning session store; revalidate before materialization or admission.
+    """
+
+    checkpoint: ComputationalSessionCheckpoint
+    lineage_manifest: RecoveryStateManifest
+    proof: RecoveryLineageProof
+
+    def __post_init__(self) -> None:
+        """Bind the observed metadata to one exact checkpoint and lineage proposal."""
+        if not isinstance(self.checkpoint, ComputationalSessionCheckpoint):
+            raise TypeError("checkpoint must be a ComputationalSessionCheckpoint")
+        if not isinstance(self.lineage_manifest, RecoveryStateManifest):
+            raise TypeError("lineage_manifest must be a RecoveryStateManifest")
+        if not isinstance(self.proof, RecoveryLineageProof):
+            raise TypeError("proof must be a RecoveryLineageProof")
+        if (
+            self.lineage_manifest.generation != self.checkpoint.revision
+            or self.lineage_manifest.machine_id != self.checkpoint.session_id
+            or self.lineage_manifest.state_digest != _sha256(self.checkpoint.canonical_bytes())
+            or self.lineage_manifest.predecessor_digest != self.checkpoint.predecessor_lineage_digest
+            or self.proof.proposal.result_state_digest != self.lineage_manifest.digest
+        ):
+            raise ComputationalSessionIntegrityError("session head checkpoint and lineage coordinates differ")
+
+    @property
+    def revision(self) -> int:
+        """Return the observed committed revision."""
+        return self.checkpoint.revision
+
+    @property
+    def checkpoint_digest(self) -> str:
+        """Return the immutable observed checkpoint identity."""
+        return self.checkpoint.checkpoint_digest
+
+
 BackendCompatibility = Callable[[str, str, str], bool]
 
 
@@ -470,12 +510,12 @@ class ComputationalSessionStore:
             )
             return self._seal_checkpoint(checkpoint, recovery_manifest)
 
-    def load_latest(
+    def observe_head(
         self,
         *,
         backend_compatibility: BackendCompatibility | None = None,
-    ) -> ComputationalSessionSnapshot:
-        """Mathematics: Admit only the checkpoint whose recovery-state manifest equals the quorum-supported latest root."""
+    ) -> ComputationalSessionHead:
+        """Verify the quorum checkpoint metadata without resolving any M1 state pages."""
         with self._lock:
             try:
                 proof = self.lineage.latest_proof()
@@ -507,17 +547,54 @@ class ComputationalSessionStore:
                 raise ComputationalSessionIntegrityError(f"checkpoint is not the latest quorum-anchored state: {exc}") from exc
             if verified_proof.proposal.digest != proof.proposal.digest:
                 raise ComputationalSessionIntegrityError("quorum high-water proof changed during checkpoint admission")
-            try:
-                self.object_store.verify(checkpoint.state_manifest)
-                state_bytes = self.object_store.read_bytes(checkpoint.state_manifest)
-            except Exception as exc:
-                raise ComputationalSessionIntegrityError("session state object failed M1 integrity verification") from exc
-            return ComputationalSessionSnapshot(
-                checkpoint=checkpoint,
-                state_bytes=state_bytes,
-                lineage_manifest=recovery_manifest,
-                proof=verified_proof,
-            )
+            return ComputationalSessionHead(checkpoint, recovery_manifest, verified_proof)
+
+    def _materialize_head(self, head: ComputationalSessionHead) -> ComputationalSessionSnapshot:
+        """Resolve every M1 state page using an already verified local head."""
+        try:
+            self.object_store.verify(head.checkpoint.state_manifest)
+            state_bytes = self.object_store.read_bytes(head.checkpoint.state_manifest)
+        except Exception as exc:
+            raise ComputationalSessionIntegrityError("session state object failed M1 integrity verification") from exc
+        return ComputationalSessionSnapshot(
+            checkpoint=head.checkpoint,
+            state_bytes=state_bytes,
+            lineage_manifest=head.lineage_manifest,
+            proof=head.proof,
+        )
+
+    def load_latest(
+        self,
+        *,
+        backend_compatibility: BackendCompatibility | None = None,
+    ) -> ComputationalSessionSnapshot:
+        """Verify the latest quorum head and all of its native M1 state bytes."""
+        with self._lock:
+            head = self.observe_head(backend_compatibility=backend_compatibility)
+            return self._materialize_head(head)
+
+    def load_observed(
+        self,
+        observed: ComputationalSessionHead,
+        *,
+        backend_compatibility: BackendCompatibility | None = None,
+    ) -> ComputationalSessionSnapshot:
+        """Reject stale or foreign metadata before reading any M1 state pages.
+
+        The returned bytes are pinned to the revalidated checkpoint. A later
+        transition still requires the original native predecessor CAS.
+        """
+        if not isinstance(observed, ComputationalSessionHead):
+            raise TypeError("observed must be a ComputationalSessionHead")
+        with self._lock:
+            current = self.observe_head(backend_compatibility=backend_compatibility)
+            if (
+                current.checkpoint != observed.checkpoint
+                or current.lineage_manifest.digest != observed.lineage_manifest.digest
+                or current.proof.proposal.digest != observed.proof.proposal.digest
+            ):
+                raise ComputationalSessionConflictError("observed session head is stale or foreign")
+            return self._materialize_head(current)
 
     def resume_pending(
         self,
