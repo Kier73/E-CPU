@@ -1,0 +1,49 @@
+name: FAB-018 structural M1 and native M3 continuation
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/snapshot_catalog.py'
+      - 'mailcpu/structural_object_store.py'
+      - 'mailcpu/snapshot_delta.py'
+      - 'tests/test_snapshot_catalog.py'
+      - 'tests/test_structural_object_store.py'
+      - 'tests/test_fab018_native_m3_structural.py'
+      - 'examples/fab_127/benchmark_structural_m1.py'
+      - '.github/workflows/fab018-structural-m1.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  structural-m1:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -e . pytest
+      - run: python -m pytest -vv tests/test_snapshot_delta.py tests/test_snapshot_catalog.py tests/test_structural_object_store.py
+      - run: python examples/fab_127/benchmark_structural_m1.py fab018-measured/representations.sqlite > fab018-m1.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fab018-m1
+          path: fab018-m1.json
+  native-continuation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -e . pytest
+      - run: |
+          set -o pipefail
+          python -m pytest -vv -s tests/test_fab018_native_m3_structural.py | tee fab018-native.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fab018-native
+          path: fab018-native.txt
