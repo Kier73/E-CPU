@@ -28,7 +28,7 @@ def continuation_decision(
     ref: str,
     event_name: str,
 ) -> bool:
-    """Return true only after a newly published, accepted, nonterminal operation.
+    """Return true only when one admitted operation has a valid successor.
 
     The report must describe the same immutable intention and exactly one
     *successful* hosted quantum. Mere status='recoverable', an empty report,
@@ -52,9 +52,8 @@ def continuation_decision(
         report["schema"] != "mailcpu.internet007.report.v1"
         or report["intention_id"] != qualified["intention_id"]
         or report["manifest_digest"] != ingress.digest(qualified)
-        or report["mode"] != "step"
+        or report["mode"] not in ("step", "initialize")
         or type(report["revision"]) is not int
-        or type(report["previous_revision"]) is not int
         or type(report["max_cost_usd"]) is not int
         or report["max_cost_usd"] != 0
         or report["authority"] != "owner-approved-manifest-and-Git-CAS-not-M3-quorum"
@@ -63,7 +62,27 @@ def continuation_decision(
         raise QuantumContinuationRefused("report violates admitted intention or zero-cost authority")
     count = len(qualified["nodes"])
     revision = report["revision"]
-    if not 1 <= revision <= count or report["previous_revision"] != revision - 1:
+    if report["mode"] == "initialize":
+        if (event_name != "workflow_dispatch" or revision != 0 or
+            report["previous_revision"] is not None or
+            report["operation"] != "genesis" or
+            report["status"] != "recoverable" or
+            report["state_digest"] != ingress.genesis(qualified)["digest"] or
+            not ingress.hash40(report["published_blob_sha"])):
+            raise QuantumContinuationRefused("unqualified explicit genesis publication")
+        return True
+    if (
+        revision == count
+        and report["previous_revision"] == count
+        and report["operation"] is None
+        and report["published_blob_sha"] is None
+        and report["status"] == "complete"
+    ):
+        # A terminal state is a successful no-op, not a failed online run.
+        return False
+    if type(report["previous_revision"]) is not int or (
+        not 1 <= revision <= count or report["previous_revision"] != revision - 1
+    ):
         raise QuantumContinuationRefused("report does not advance exactly one native computation")
     expected = ingress.execution_order(qualified)
     if report["operation"] != expected[revision - 1]:
