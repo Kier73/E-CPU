@@ -1,0 +1,65 @@
+name: INTERNET-006 native online DAG
+
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/internet_fabric_dag.py'
+      - 'tests/test_internet_fabric_dag.py'
+      - 'docs/INTERNET_006_NATIVE_ONLINE_DAG.md'
+      - '.github/workflows/internet-006-native-dag.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'mailcpu/internet_fabric_dag.py'
+      - 'tests/test_internet_fabric_dag.py'
+      - 'docs/INTERNET_006_NATIVE_ONLINE_DAG.md'
+      - '.github/workflows/internet-006-native-dag.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '43 */3 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install E-CPU tests
+        run: python -m pip install -e . pytest
+      - name: Verify online DAG and source path semantics
+        run: python -m pytest -q tests/test_internet_fabric_dag.py tests/test_internet_free_fabric.py tests/test_computation_dag.py
+
+  one-quantum:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    concurrency:
+      group: internet-005-state-branch
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install E-CPU
+        run: python -m pip install -e .
+      - name: Execute exactly one native ready DAG operation
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python -m mailcpu.internet_fabric_dag --live --publish --output internet006-result.json
+      - name: Preserve verified online quantum evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: internet006-${{ github.run_id }}
+          path: internet006-result.json
+          if-no-files-found: ignore
