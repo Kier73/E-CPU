@@ -234,6 +234,15 @@ def state_url() -> str:
 
 
 def read_remote_state(token: str) -> tuple[dict | None, str | None]:
+    branch_url = f"{API_BASE}/git/ref/heads/{STATE_BRANCH}"
+    ref_status, _, ref_raw = request("GET", branch_url, token)
+    require(ref_status == 200, "isolated state branch is missing; refuse reset")
+    ref = strict_json(ref_raw)
+    obj = ref.get("object")
+    require(ref.get("ref") == "refs/heads/" + STATE_BRANCH and
+            type(obj) is dict and type(obj.get("sha")) is str and
+            HEX40.fullmatch(obj["sha"]) is not None,
+            "isolated state branch identity is invalid")
     status, _, raw = request("GET", state_url(), token)
     if status == 404:
         return None, None
