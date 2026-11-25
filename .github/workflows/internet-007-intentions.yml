@@ -61,7 +61,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     concurrency:
-      group: internet-007-${{ inputs.intention_file || 'public-source-grounds' }}
+      group: internet-005-state-branch
       cancel-in-progress: false
     permissions:
       contents: write
