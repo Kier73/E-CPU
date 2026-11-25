@@ -1,0 +1,30 @@
+{
+  "schema": "mailcpu.internet007.github-service-live-proof.v1",
+  "phase": 3,
+  "execution": "three-independent-connector-invocations",
+  "phase1_commit": "83728a1761d16897ec9f0c44cfc041a9760d998c",
+  "phase1_blob_sha": "492828194e7127a32ec77056a6db232aad70a6c8",
+  "phase2_commit": "7f841c4c0c42421a88e4a8f0e2b2cb6950a846b9",
+  "phase2_blob_sha": "00b9d2de1cfd17a7c3378b00a56c2de1cbbc616e",
+  "native_git_commit_ancestry": {
+    "ahead": 1,
+    "behind": 0,
+    "merge_base": "83728a1761d16897ec9f0c44cfc041a9760d998c"
+  },
+  "source_graph_forward": [
+    11,
+    0
+  ],
+  "source_graph_inverse": [
+    0,
+    11
+  ],
+  "vgi_source_sha": "ae3f949b7d0b2aaa42236bc7cc37e9857384b174",
+  "claim": "remote-Git-service-computation-and-durable-Git-state-across-independent-observer-invocations",
+  "not_claimed": [
+    "native-ECPU-Python-DAG-execution",
+    "GitHub-Actions-runner-recovery",
+    "M3-recovery-quorum",
+    "in-network-physical-router-arithmetic"
+  ]
+}
