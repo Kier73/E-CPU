@@ -52,6 +52,7 @@ jobs:
         run: |
           python -m pytest -q \
             tests/test_internet_intention_ingress.py \
+            tests/test_internet_quantum_continuation.py \
             tests/test_internet_fabric_dag.py \
             tests/test_computation_dag.py
 
@@ -65,6 +66,7 @@ jobs:
       cancel-in-progress: false
     permissions:
       contents: write
+      actions: write
     env:
       INTENTION_FILE: ${{ inputs.intention_file || 'intentions/internet007/public-source-grounds.json' }}
       MODE: ${{ inputs.mode || 'step' }}
@@ -90,3 +92,26 @@ jobs:
           name: internet007-${{ github.run_id }}
           path: internet007-result.json
           if-no-files-found: ignore
+
+      - name: Admit at most one successor quantum
+        if: success()
+        id: next
+        run: |
+          python -m mailcpu.internet_quantum_continuation \
+            --intention-file "$INTENTION_FILE" \
+            --report internet007-result.json \
+            --github-output "$GITHUB_OUTPUT"
+      - name: Request next independent hosted runner
+        if: steps.next.outputs.dispatch == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/internet-007-intentions.yml/dispatches" \
+            -f ref=main \
+            -f "inputs[intention_file]=${INTENTION_FILE}" \
+            -f "inputs[mode]=step" || {
+              echo "::warning::Hosted continuation dispatch was refused. The existing state is retained for a manual or scheduled retry."
+              exit 1
+            }
