@@ -1,0 +1,83 @@
+name: FAB-027-028 recoverable dependent fabric
+on:
+  pull_request:
+    paths:
+      - 'examples/fab_127/fab025.c'
+      - 'examples/fab_127/fab027.c'
+      - 'examples/fab_127/fab028.c'
+      - 'examples/fab_127/recoverable_fabric.py'
+      - '.github/workflows/fab027-028-recovery.yml'
+  workflow_dispatch:
+    inputs:
+      full:
+        description: Run full 24-bit geometry
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  recovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        track: [fleet, graph]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Build and verify recovery
+        env:
+          FULL: ${{ inputs.full }}
+          TRACK: ${{ matrix.track }}
+        run: |
+          set -euxo pipefail
+          bits=12
+          shards=8
+          if [ "$FULL" = true ]; then bits=24; shards=16; fi
+          gcc -O3 -std=c11 -Wall -Wextra -Werror -pthread examples/fab_127/fab027.c -o /tmp/fab027
+          gcc -O3 -std=c11 -Wall -Wextra -Werror -pthread examples/fab_127/fab028.c -o /tmp/fab028
+          script=examples/fab_127/recoverable_fabric.py
+          if [ "$TRACK" = fleet ]; then
+            python "$script" fleet retained /tmp/fab027 --bits "$bits" --shards "$shards" --phase init > init.json
+            python "$script" fleet retained /tmp/fab027 --bits "$bits" --shards "$shards" --interrupt > interrupted.json || test $? = 17
+            python "$script" fleet retained /tmp/fab027 --bits "$bits" --shards "$shards" --workers 3 > resumed.json
+            python "$script" fleet retained /tmp/fab027 --bits "$bits" --shards "$shards" --phase verify > verified.json
+            python - <<'PY'
+          import json
+          a,b,c,d=(json.load(open(x+'.json')) for x in ('init','interrupted','resumed','verified'))
+          assert b['failed']==1 and c['reused']==b['committed']
+          assert c['committed']==a['shards'] and c['new_commits']==a['shards']-c['reused']
+          assert a['instructions']+c['instructions']==d['instructions']
+          assert c['checksum']==d['checksum'] and c['debits']==d['debits'] and c['digests']==d['digests']
+          with open('retained/final-000.bin','r+b') as f:
+              f.seek(80); x=f.read(1); f.seek(80); f.write(bytes([x[0]^1]))
+          PY
+            if python "$script" fleet retained /tmp/fab027 --bits "$bits" --shards "$shards" --phase verify; then exit 1; fi
+            rm retained/initial-000.json
+            if python "$script" fleet retained /tmp/fab027 --bits "$bits" --shards "$shards"; then exit 1; fi
+          else
+            python "$script" graph retained /tmp/fab028 --bits "$bits" --interrupt > interrupted.json || test $? = 17
+            python "$script" graph retained /tmp/fab028 --bits "$bits" --workers 3 > resumed.json
+            python "$script" graph retained /tmp/fab028 --bits "$bits" > verified.json
+            python - <<'PY'
+          import json
+          a,b,c=(json.load(open(x+'.json')) for x in ('interrupted','resumed','verified'))
+          assert a['failed']==1 and a['layers']==4
+          assert b['reused']==a['new_commits']==5
+          assert c['new_commits']==0 and c['reused']==b['layers']+1
+          assert b['final_digest']==c['final_digest']
+          assert b['oracle']['distance_sum']==c['oracle']['distance_sum']
+          assert c['reports'][-1]['unresolved']==0 and c['oracle']['nodes']==c['nodes']
+          with open('retained/layer-002.bin','r+b') as f:
+              f.seek(-1,2); x=f.read(1); f.seek(-1,2); f.write(bytes([x[0]^1]))
+          PY
+            if python "$script" graph retained /tmp/fab028 --bits "$bits"; then exit 1; fi
+          fi
+          rm -rf retained
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fab027-028-${{ matrix.track }}
+          path: '*.json'
