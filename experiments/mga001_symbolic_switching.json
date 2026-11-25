@@ -1,0 +1,31 @@
+{
+  "controlBits": 128,
+  "physicalStateBits": 208,
+  "guardFeatures": 2,
+  "closedFeatures": 3,
+  "pullbacks": 6,
+  "quotientStates": 8,
+  "direct": 128,
+  "semigroup": 128,
+  "closure": 128,
+  "distinctPaths": 6,
+  "maxPath": 6,
+  "insufficientGuardWitness": [
+    2,
+    6
+  ],
+  "unclosedFeatureRejected": true,
+  "huge": {
+    "coordinate": "10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000123",
+    "control": "ffffffffffffffffffffffffffffff1d",
+    "payload": [
+      "169175195666",
+      "345679010491"
+    ],
+    "initialControl": "7",
+    "initialPayload": [
+      "123456789120",
+      "98765432128"
+    ]
+  }
+}

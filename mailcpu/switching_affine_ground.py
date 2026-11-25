@@ -157,6 +157,11 @@ def navigate(law,ground,x,t):
     verify(law,ground)
     if law.index(x)!=ground.start or type(t) is not int or t<0:
         raise BootstrapRefused("invalid navigation coordinate or source residue")
+    return _navigate_ordered(law,ground,x,t)
+
+
+def _navigate_ordered(law,ground,x,t):
+    """Internal action realization after caller has verified path and coordinate."""
     m=law.modulus
     mu=ground.transient
     if t<mu:

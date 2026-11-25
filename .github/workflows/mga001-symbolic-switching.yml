@@ -1,0 +1,33 @@
+name: MGA-001-J symbolic switching
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/symbolic_switching_ground.py'
+      - 'mailcpu/switching_affine_ground.py'
+      - 'tests/test_symbolic_switching_ground.py'
+      - 'experiments/mga001_symbolic_switching*'
+      - '.github/workflows/mga001-symbolic-switching.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  symbolic-switching:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -m unittest discover -s tests -p test_symbolic_switching_ground.py -v
+      - run: python -m unittest discover -s tests -p test_switching_affine_ground.py -v
+      - name: Reproduce independent campaign
+        shell: bash
+        run: |
+          node experiments/mga001_symbolic_switching.js > "$RUNNER_TEMP/symbolic.json"
+          diff --strip-trailing-cr -u experiments/mga001_symbolic_switching.json "$RUNNER_TEMP/symbolic.json"
