@@ -31,6 +31,16 @@ from .recurrence_observer import (
     nth_recurrence_matrix,
     nth_recurrence_polynomial,
 )
+from .counted_observer_stream import (
+    CountedCycleSummary,
+    CountedEvent,
+    CountedObserverStream,
+    CountedStreamReceipt,
+    CountedStreamRequest,
+    CountedTransfer,
+    EmitRule,
+    verify_counted_stream_receipt,
+)
 from .memory import (
     MemoryQuotaExceeded,
     PageFault,
@@ -1479,6 +1489,14 @@ __all__ = [
     "TrajectoryWriter",
     "VirtualEnvironment",
     "VirtualKernel",
+    "CountedCycleSummary",
+    "CountedEvent",
+    "CountedObserverStream",
+    "CountedStreamReceipt",
+    "CountedStreamRequest",
+    "CountedTransfer",
+    "EmitRule",
+    "verify_counted_stream_receipt",
     "VirtualMemory",
     "UnsupportedRegimeError",
     "canonical_result",
