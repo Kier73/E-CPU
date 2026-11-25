@@ -213,3 +213,27 @@ def test_response_budget_and_string_resource_policy_are_strict(manifest):
     m["nodes"][0]["params"]["repository"] = ["Kier73/E-CPU"]
     with pytest.raises((ingress.IntentionRefused, TypeError)):
         ingress.admit_manifest(m)
+
+
+def test_second_repository_intention_runs_without_new_runtime_code():
+    filename = (MANIFEST_PATH.parent / "cross-source-structures.json")
+    manifest = ingress.admit_manifest(json.loads(filename.read_text()))
+    history, dag, applied = advance(manifest)
+    assert applied == ["a-ifs", "b-vli", "z-join"]
+    assert history[-1]["revision"] == 3
+    assert dag.is_complete
+    assert len(dag.result("z-join")["dependencies"]) == 2
+    assert history[-1]["manifest_digest"] != ingress.digest(
+        json.loads(MANIFEST_PATH.read_text())
+    )
+
+
+def test_disallowed_source_types_and_unrecognized_ops_refuse_cleanly(manifest):
+    invalid = copy.deepcopy(manifest)
+    invalid["nodes"][0]["operator"] = ["github.git.commit"]
+    with pytest.raises(ingress.IntentionRefused):
+        ingress.admit_manifest(invalid)
+    invalid = copy.deepcopy(manifest)
+    invalid["nodes"][0]["params"]["repository"] = ["Kier73/E-CPU"]
+    with pytest.raises(ingress.IntentionRefused):
+        ingress.admit_manifest(invalid)
