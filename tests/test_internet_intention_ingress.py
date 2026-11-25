@@ -191,6 +191,8 @@ def test_recovered_state_missing_fails_in_step_mode(manifest, monkeypatch):
 
 
 def test_git_checkpoint_uses_original_blob_for_cas(monkeypatch, manifest):
+    monkeypatch.setenv("GITHUB_RUN_ID", "12345001")
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "1")
     history, _, _ = advance(manifest)
     messages = []
     def write(method, url, token, *, data=None, **kw):

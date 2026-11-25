@@ -1,0 +1,81 @@
+name: INTERNET-007 independent continuity proof
+
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/internet_intention_proof.py'
+      - 'mailcpu/internet_intention_ingress.py'
+      - 'tests/test_internet_intention_proof.py'
+      - 'docs/INTERNET_007_INDEPENDENT_PROOF.md'
+      - '.github/workflows/internet-007-proof.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'mailcpu/internet_intention_proof.py'
+      - 'mailcpu/internet_intention_ingress.py'
+      - 'tests/test_internet_intention_proof.py'
+      - 'docs/INTERNET_007_INDEPENDENT_PROOF.md'
+      - '.github/workflows/internet-007-proof.yml'
+  workflow_dispatch:
+    inputs:
+      require_complete:
+        description: 'Fail unless all five semantic operations have verified distinct successful hosted runs'
+        required: true
+        default: true
+        type: boolean
+  schedule:
+    - cron: '53 */6 * * *'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  offline-controls:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install E-CPU and pytest
+        run: python -m pip install -e . pytest
+      - name: Verify native DAG proof and forged-history refusal
+        run: |
+          python -m pytest -q \
+            tests/test_internet_intention_proof.py \
+            tests/test_internet_intention_ingress.py \
+            tests/test_internet_fabric_dag.py
+
+  independent-history:
+    if: github.event_name != 'pull_request'
+    needs: offline-controls
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install E-CPU
+        run: python -m pip install -e .
+      - name: Read exact Git history and corroborate independent hosted runs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REQUIRE_COMPLETE: ${{ inputs.require_complete || 'false' }}
+        run: |
+          if [ "$REQUIRE_COMPLETE" = "true" ]; then
+            python -m mailcpu.internet_intention_proof \
+              --require-complete --output internet007-proof.json
+          else
+            python -m mailcpu.internet_intention_proof \
+              --output internet007-proof.json
+          fi
+      - name: Retain read-only continuity evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: internet007-proof-${{ github.run_id }}
+          path: internet007-proof.json
+          if-no-files-found: ignore

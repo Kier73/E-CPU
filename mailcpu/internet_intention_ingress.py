@@ -474,7 +474,14 @@ def publish(token: str, manifest: dict, state: dict,
             old_blob: str | None) -> str:
     validate_state(manifest, state)
     require(old_blob is None or hash40(old_blob), "old Git blob identity invalid")
-    body = {"message": f"INTERNET-007 {manifest['intention_id']} revision {state['revision']}",
+    run_id = os.environ.get("GITHUB_RUN_ID")
+    attempt = os.environ.get("GITHUB_RUN_ATTEMPT")
+    require(type(run_id) is str and re.fullmatch(r"[1-9][0-9]{0,19}", run_id) is not None and
+            type(attempt) is str and re.fullmatch(r"[1-9][0-9]{0,4}", attempt) is not None,
+            "online publication requires a concrete hosted workflow invocation")
+    message = (f"INTERNET-007 {manifest['intention_id']} revision {state['revision']} "
+               f"[run={run_id} attempt={attempt}]")
+    body = {"message": message,
             "branch": BRANCH,
             "content": base64.b64encode(canonical(state) + b"\n").decode("ascii")}
     if old_blob is not None:
