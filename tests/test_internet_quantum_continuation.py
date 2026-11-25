@@ -134,3 +134,36 @@ def test_workflow_has_bounded_actions_dispatch_and_token_scope():
     assert 'continue-on-error: true' in text
     assert "internet-005-state-branch" in text
     assert "repos/${GITHUB_REPOSITORY}/actions/workflows/" in text
+
+
+def test_explicit_genesis_dispatch_starts_exactly_one_first_worker(manifest):
+    state = ingress.genesis(manifest)
+    report = accepted_report(manifest)
+    report.update({
+        "mode": "initialize", "revision": 0,
+        "previous_revision": None, "operation": "genesis",
+        "state_digest": state["digest"], "status": "recoverable",
+    })
+    assert choose(manifest, report)
+    with pytest.raises(continuation.QuantumContinuationRefused):
+        continuation.continuation_decision(
+            manifest, report, repository="Kier73/E-CPU",
+            ref="refs/heads/main", event_name="schedule",
+        )
+    tampered = copy.deepcopy(report)
+    tampered["state_digest"] = "e" * 64
+    with pytest.raises(continuation.QuantumContinuationRefused):
+        choose(manifest, tampered)
+
+
+def test_completed_dag_noop_is_success_without_new_dispatch(manifest):
+    terminal = accepted_report(manifest, len(manifest["nodes"]))
+    terminal.update({
+        "previous_revision": len(manifest["nodes"]),
+        "operation": None, "published_blob_sha": None,
+    })
+    assert choose(manifest, terminal) is False
+    altered = copy.deepcopy(terminal)
+    altered["status"] = "recoverable"
+    with pytest.raises(continuation.QuantumContinuationRefused):
+        choose(manifest, altered)
