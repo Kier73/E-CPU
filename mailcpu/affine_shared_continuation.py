@@ -11,6 +11,7 @@ import re
 
 from .law_certifier import lcg_navigate
 from .affine_verification_ground import AffineVerificationGround
+from .affine_vocabulary import AffineVocabulary
 from .runtime_qualification import affine_expected
 from .shared_result_bank import PureContract, ResultBank
 from .shared_observation_ground import plan_shared, execute_shared
@@ -81,7 +82,7 @@ def _contract(orbit, locus, authority):
 def _expected(orbit, t, verification_ground):
     if verification_ground is None:
         return orbit.expected(t)
-    if type(verification_ground) is not AffineVerificationGround:
+    if type(verification_ground) not in (AffineVerificationGround, AffineVocabulary):
         raise BootstrapRefused("independently admitted verification Ground required")
     return verification_ground.expected(orbit, t)
 
