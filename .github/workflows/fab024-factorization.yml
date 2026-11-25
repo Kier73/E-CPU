@@ -1,0 +1,34 @@
+name: FAB-024 intention factorization
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/factorized_intentions.py'
+      - 'mailcpu/native_factorization.py'
+      - 'mailcpu/shared_result_bank.py'
+      - 'mailcpu/computation_dag.py'
+      - 'tests/test_factorized_intentions.py'
+      - 'tests/test_native_factorization.py'
+      - 'examples/fab_127/benchmark_factorized_intentions.py'
+      - 'examples/fab_127/benchmark_native_factorization.py'
+      - '.github/workflows/fab024-factorization.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  factorization:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -e . pytest
+      - run: python -m pytest -vv tests/test_factorized_intentions.py tests/test_native_factorization.py tests/test_shared_result_bank.py
+      - run: python examples/fab_127/benchmark_factorized_intentions.py fab024-pure > fab024-pure.json
+      - run: python examples/fab_127/benchmark_native_factorization.py fab024-native > fab024-native.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fab024-results
+          path: fab024-*.json
