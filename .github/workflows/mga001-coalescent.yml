@@ -1,0 +1,32 @@
+name: MGA-001-G coalescent vocabulary
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/affine_coalescent.py'
+      - 'mailcpu/affine_shared_continuation.py'
+      - 'tests/test_affine_coalescent.py'
+      - 'experiments/mga001_coalescence*'
+      - '.github/workflows/mga001-coalescent.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  coalescence:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -m unittest discover -s tests -p test_affine_coalescent.py -v
+      - name: Reproduce independent campaign
+        shell: bash
+        run: |
+          node experiments/mga001_coalescence.js > "$RUNNER_TEMP/coalescence.json"
+          diff --strip-trailing-cr -u experiments/mga001_coalescence.json "$RUNNER_TEMP/coalescence.json"
