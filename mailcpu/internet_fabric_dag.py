@@ -144,6 +144,13 @@ def validate_snapshot(snapshot: object) -> NavigableComputationDAG:
     return dag
 
 
+def genesis() -> dict:
+    """Explicit, committed initial state: absence must never cause a silent reset."""
+    fields = {"schema": SCHEMA, "workspace_id": WORKSPACE_ID,
+              "revision": 0, "previous_digest": None, "dag": None}
+    return fields | {"digest": internet.digest(fields)}
+
+
 def checkpoint(previous: dict | None, dag: NavigableComputationDAG) -> dict:
     if previous is not None:
         validate_checkpoint(previous)
@@ -165,15 +172,21 @@ def validate_checkpoint(state: object) -> dict:
                            "dag", "digest"}, "checkpoint schema is invalid")
     require(state["schema"] == SCHEMA and state["workspace_id"] == WORKSPACE_ID,
             "checkpoint scope is invalid")
-    require(type(state["revision"]) is int and 1 <= state["revision"] <= len(ORDER),
+    require(type(state["revision"]) is int and 0 <= state["revision"] <= len(ORDER),
             "checkpoint revision invalid")
-    require((state["revision"] == 1 and state["previous_digest"] is None) or
+    require((state["revision"] == 0 and state["previous_digest"] is None) or
+            (state["revision"] == 1 and (state["previous_digest"] is None or
+                                         _is_hash(state["previous_digest"]))) or
             (state["revision"] > 1 and _is_hash(state["previous_digest"])),
             "checkpoint lineage invalid")
     require(_is_hash(state["digest"]) and
             state["digest"] == internet.digest({k: v for k, v in state.items() if k != "digest"}),
             "checkpoint digest mismatch")
     require(len(internet.canonical(state)) <= STATE_LIMIT, "checkpoint exceeds byte budget")
+    if state["revision"] == 0:
+        require(state["dag"] is None and state == genesis(),
+                "the workspace must begin at the exact admitted genesis")
+        return state
     dag = validate_snapshot(state["dag"])
     require(len(dag.committed_nodes) == state["revision"],
             "checkpoint revision disagrees with committed DAG effects")
@@ -247,9 +260,7 @@ def read_state(token: str) -> tuple[dict | None, str | None]:
             type(obj) is dict and _is_hash(obj.get("sha"), 40),
             "state branch identity malformed")
     status, _, response = internet.request("GET", _state_url(), token)
-    if status == 404:
-        return None, None
-    require(status == 200, "state checkpoint could not be read")
+    require(status == 200, "genesis/checkpoint file missing; refusing workspace reset")
     envelope = internet.strict_json(response)
     require(envelope.get("encoding") == "base64" and
             type(envelope.get("content")) is str and _is_hash(envelope.get("sha"), 40),
@@ -297,7 +308,7 @@ def main() -> int:
     require(type(token) is str and bool(token), "explicit GitHub token needed")
     state, blob = read_state(token)
     dag = (NavigableComputationDAG.from_snapshot(state["dag"])
-           if state else graph_template())
+           if state and state["revision"] > 0 else graph_template())
     if state is not None:
         validate_snapshot(dag.snapshot())
     def get(url: str, etag: str | None):
