@@ -77,8 +77,12 @@ requires the exact repository and `main` branch, an approved source
 manifest, correct intention ID and digest, a zero-dollar budget, one
 monotonic native DAG operation matching its expected dependency order,
 a successful Git blob-SHA checkpoint publication, and a nonterminal
-`recoverable` result. It requests **at most one** next run per accepted
-quantum. Revision five is terminal and cannot self-dispatch.
+`recoverable` result. A separately approved `initialize` invocation may
+create exactly one new genesis and request the first worker; it cannot reset
+an existing intention. A fully committed terminal DAG may also be revisited:
+its no-op report is successful but requests **no** successor and writes
+no new state. At most one next run is requested per nonterminal quantum.
+Revision five is terminal and cannot self-dispatch.
 
 The live job carries only `contents:write` and `actions:write` and uses
 the built-in GitHub token to call the existing workflow's specific
