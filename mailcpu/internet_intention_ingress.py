@@ -102,7 +102,8 @@ def admit_manifest(value: object) -> dict:
         }, "operation contract differs")
         n = entry["id"]
         require(type(n) is str and NODE.fullmatch(n) is not None and
-                n not in mapping and entry["operator"] in OPERATORS,
+                n not in mapping and type(entry["operator"]) is str and
+                entry["operator"] in OPERATORS,
                 "unsupported or duplicated computational operation")
         deps = entry["dependencies"]
         require(type(deps) is list and len(deps) <= 32 and
@@ -114,17 +115,20 @@ def admit_manifest(value: object) -> dict:
         op = entry["operator"]
         if op == "github.git.commit":
             require(not deps and set(params) == {"repository", "sha"} and
+                    type(params["repository"]) is str and
                     params["repository"] in REPOS and hash40(params["sha"]),
                     "Git object operator has an invalid pinned source")
         elif op == "github.git.compare":
             exp = params.get("expect")
             require(not deps and set(params) == {"repository", "base", "head", "expect"} and
+                    type(params["repository"]) is str and
                     params["repository"] in REPOS and hash40(params["base"]) and
                     hash40(params["head"]) and type(exp) is dict and
                     set(exp) == {"merge_base", "ahead", "behind", "status"} and
                     hash40(exp["merge_base"]) and
                     type(exp["ahead"]) is int and 0 <= exp["ahead"] <= 100000 and
                     type(exp["behind"]) is int and 0 <= exp["behind"] <= 100000 and
+                    type(exp["status"]) is str and
                     exp["status"] in ("ahead", "behind", "diverged", "identical"),
                     "Git graph requires pinned, independently expected results")
         elif op == "http.etag.check":
@@ -149,10 +153,11 @@ def admit_manifest(value: object) -> dict:
 def graph_template(manifest: Mapping) -> NavigableComputationDAG:
     ident = digest(manifest)
     return NavigableComputationDAG(
-        ComputationNode(
+        (ComputationNode(
             item["id"], 1, item["operator"], "authorized-public-internet",
             ident, tuple(item["dependencies"]), item["params"],
-        ) for item in manifest["nodes"]
+        ) for item in manifest["nodes"]),
+        max_nodes=manifest["budget"]["max_nodes"],
     )
 
 
@@ -488,7 +493,8 @@ def read_manifest(path: str) -> dict:
     require(type(path) is str and MANIFEST_FILE.fullmatch(path) is not None,
             "unapproved intention manifest path")
     source = Path(path)
-    require(source.is_file() and source.stat().st_size <= MAX_MANIFEST_BYTES,
+    require(source.is_file() and not source.is_symlink() and
+            source.stat().st_size <= MAX_MANIFEST_BYTES,
             "manifest file absent or oversized")
     try:
         manifest = foundation.strict_json(source.read_bytes())
