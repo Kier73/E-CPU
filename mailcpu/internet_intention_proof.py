@@ -98,6 +98,8 @@ def verify_history(manifest: dict, history: Sequence[GitCheckpoint],
     require(type(history) in (list, tuple) and
             1 <= len(history) <= min(MAX_READ_STATES, len(manifest["nodes"]) + 1),
             "history size outside admitted intention")
+    require(all(isinstance(entry, GitCheckpoint) for entry in history),
+            "history contains an untyped Git checkpoint")
     expected_order = ingress.execution_order(manifest)
     genesis_sha = GENESIS_COMMITS.get(manifest["intention_id"])
     require(genesis_sha is not None and history[0].commit_sha == genesis_sha,
