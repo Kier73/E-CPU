@@ -114,20 +114,28 @@ class ResultBank:
             raise ValueError('pure result verification refused')
         return output
 
+    def lookup(self, contract, source, verify):
+        """Return a reverified retained value, or None; never produce on a miss."""
+        if not isinstance(contract, PureContract):
+            raise TypeError('invalid pure contract')
+        key = contract.key(source)
+        row = self.db.execute('SELECT contract,source,output,output_digest FROM result WHERE key=?', (key,)).fetchone()
+        if row is None:
+            return None
+        if row[:2] != (contract.digest, source) or type(row[2]) is not bytes or _hash(row[2]) != row[3]:
+            raise ValueError('stored result identity differs')
+        return self._check(contract, source, row[2], verify)
+
     def resolve(self, contract, source, produce, verify):
         """Recover a verified result or form and durably admit a new one.
 
         Concurrent producers can duplicate work, but conflicting immutable
         publication is refused. No producer is trusted merely by its digest.
         """
-        if not isinstance(contract, PureContract):
-            raise TypeError('invalid pure contract')
+        retained = self.lookup(contract, source, verify)
+        if retained is not None:
+            return retained
         key = contract.key(source)
-        row = self.db.execute('SELECT contract,source,output,output_digest FROM result WHERE key=?', (key,)).fetchone()
-        if row is not None:
-            if row[:2] != (contract.digest, source) or type(row[2]) is not bytes or _hash(row[2]) != row[3]:
-                raise ValueError('stored result identity differs')
-            return self._check(contract, source, row[2], verify)
         self.produced += 1
         output = self._check(contract, source, produce(source), verify)
         row = (contract.digest, source, output, _hash(output))
