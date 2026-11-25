@@ -41,6 +41,10 @@ class SwitchingLaw:
                 raise BootstrapRefused("invalid homogeneous affine matrix")
 
     @property
+    def state_count(self):
+        return self.residue_modulus**2
+
+    @property
     def fingerprint(self):
         return digest(["mga001.switching.v1",self.modulus,self.residue_modulus,self.matrices])
 
@@ -81,7 +85,7 @@ class PathGround:
 def form(law,start,*,max_visits=None):
     law.representative(start)
     if max_visits is None:
-        max_visits=law.residue_modulus**2
+        max_visits=law.state_count
     if type(max_visits) is not int or max_visits<1:
         raise BootstrapRefused("invalid path budget")
     r=start
@@ -116,7 +120,7 @@ def verify(law,ground):
     path=ground.path
     mu=ground.transient
     if (type(path) is not tuple or not path or path[0]!=ground.start
-            or any(type(r) is not int or not 0<=r<law.residue_modulus**2 for r in path)
+            or any(type(r) is not int or not 0<=r<law.state_count for r in path)
             or len(set(path))!=len(path) or type(mu) is not int or not 0<=mu<len(path)
             or type(ground.prefix) is not tuple or len(ground.prefix)!=len(path)+1
             or type(ground.cycle_prefix) is not tuple or len(ground.cycle_prefix)!=len(path)-mu+1):
