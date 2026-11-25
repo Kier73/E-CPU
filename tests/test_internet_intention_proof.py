@@ -204,6 +204,7 @@ def test_github_actions_run_lookup_rejects_unfinished_and_different_workflows(mo
         return 200, {}, foundation.canonical({
             "id": 3434, "run_attempt": 1,
             "name": "INTERNET-007 native intention ingress",
+            "path": ".github/workflows/internet-007-intentions.yml",
             "head_branch": "main", "event": "schedule",
             "status": "completed", "conclusion": "success",
         })
@@ -216,6 +217,7 @@ def test_github_actions_run_lookup_rejects_unfinished_and_different_workflows(mo
         return 200, {}, foundation.canonical({
             "id": 3434, "run_attempt": 1,
             "name": "INTERNET-007 native intention ingress",
+            "path": ".github/workflows/internet-007-intentions.yml",
             "head_branch": "main", "event": "schedule",
             "status": "queued", "conclusion": None,
         })
