@@ -121,13 +121,18 @@ def test_state_publication_uses_original_blob_as_compare_and_swap(monkeypatch):
 
 
 def test_missing_state_starts_new_lineage_and_existing_is_verified(monkeypatch):
-    monkeypatch.setattr(f, "request", lambda *_args, **_kw: (404, {}, b""))
+    ref = f.canonical({"ref": "refs/heads/" + f.STATE_BRANCH,
+                       "object": {"sha": "d" * 40}})
+    def missing_file(method, url, *_args, **_kw):
+        return (200, {}, ref) if "/git/ref/heads/" in url else (404, {}, b"")
+    monkeypatch.setattr(f, "request", missing_file)
     assert f.read_remote_state("token") == (None, None)
     state = f.successor(None, receipt())
     envelope = {"encoding": "base64", "sha": "c" * 40,
                 "content": base64.b64encode(f.canonical(state)).decode()}
-    monkeypatch.setattr(f, "request",
-                        lambda *_args, **_kw: (200, {}, f.canonical(envelope)))
+    def existing_file(method, url, *_args, **_kw):
+        return (200, {}, ref) if "/git/ref/heads/" in url else (200, {}, f.canonical(envelope))
+    monkeypatch.setattr(f, "request", existing_file)
     read, sha = f.read_remote_state("token")
     assert sha == "c" * 40 and read == state
 
@@ -142,3 +147,9 @@ def test_duplicate_json_keys_and_nonfinite_values_refused():
 def test_no_arbitrary_host_request(monkeypatch):
     with pytest.raises(f.FreeFabricRefused):
         f.request("GET", "https://example.com/cpu")
+
+
+def test_missing_state_branch_is_refused_not_reinitialized(monkeypatch):
+    monkeypatch.setattr(f, "request", lambda *_args, **_kw: (404, {}, b""))
+    with pytest.raises(f.FreeFabricRefused, match="state branch is missing"):
+        f.read_remote_state("token")
