@@ -117,9 +117,10 @@ create-branch API (or `git branch research/internet-005-state main` followed
 by a normal push). This is a deliberate administrative operation. The running
 program never recreates a missing state branch after a possible loss.
 
-After this PR is merged into `main`, manually invoke
-`INTERNET-005 free-fabric continuity` via GitHub Actions workflow dispatch.
-It will first run offline tests, then one live computational quantum. The
+The merge into `main` triggers the first `INTERNET-005 free-fabric continuity`
+Actions job through a path-restricted `push` event. It first runs offline
+tests, then one live computational quantum. Subsequent runs can also be
+started manually via GitHub Actions workflow dispatch. The
 scheduled trigger runs every six hours on a best-effort basis; it can be delayed,
 disabled or skipped by GitHub. It is *not* a guaranteed clock or uninterrupted
 CPU process.
