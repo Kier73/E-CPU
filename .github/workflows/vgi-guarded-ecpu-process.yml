@@ -1,0 +1,42 @@
+name: Certified VGI code on E-CPU processes
+
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/vgi_guarded_runtime.py'
+      - 'mailcpu/vgi_guarded_worker.py'
+      - 'tests/test_vgi_guarded_runtime_host.py'
+      - '.github/workflows/vgi-guarded-ecpu-process.yml'
+  push:
+    paths:
+      - 'mailcpu/vgi_guarded_runtime.py'
+      - 'mailcpu/vgi_guarded_worker.py'
+      - 'tests/test_vgi_guarded_runtime_host.py'
+      - '.github/workflows/vgi-guarded-ecpu-process.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-process-guarded-vgi:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Acquire receiver-pinned VGI source
+        uses: actions/checkout@v4
+        with:
+          repository: Kier73/Virtual-Ground-Interpreter
+          ref: 39a169b21513ffaaee85e40826c706c07a47215b
+          path: external-vgi
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install E-CPU and pinned VGI interpreter
+        run: |
+          python -m pip install -e . pytest
+          python -m pip install -e external-vgi/virtual_ground_interpreter
+      - name: Verify real E-CPU Hypervisor and child-process execution
+        run: python -m pytest -q tests/test_vgi_guarded_runtime_host.py
