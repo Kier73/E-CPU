@@ -63,6 +63,45 @@ or grant execution rights. The artifact is a bounded report with one record
 per Git revision, its exact Git commit, independent Git blob SHA, accepted
 native state digest, and committed DAG operation.
 
+## Bounded online continuation and automatic independent audit
+
+Once GitHub assigns the initial `INTERNET-007 native intention ingress`
+runner, the **same source-controlled workflow** can request a different
+GitHub Actions invocation for the next dependent operation. This is
+an authenticated `workflow_dispatch` (not an implicitly triggered Git
+commit, unsupported arbitrary HTTP request, or an infinite polling loop).
+
+The continuation decision is a separate, pure E-CPU policy in
+`mailcpu.internet_quantum_continuation`. Before requesting a successor, it
+requires the exact repository and `main` branch, an approved source
+manifest, correct intention ID and digest, a zero-dollar budget, one
+monotonic native DAG operation matching its expected dependency order,
+a successful Git blob-SHA checkpoint publication, and a nonterminal
+`recoverable` result. It requests **at most one** next run per accepted
+quantum. Revision five is terminal and cannot self-dispatch.
+
+The live job carries only `contents:write` and `actions:write` and uses
+the built-in GitHub token to call the existing workflow's specific
+`workflow_dispatch` route. GitHub documents that
+`workflow_dispatch` remains triggerable from the native `GITHUB_TOKEN`.
+Failure to dispatch emits a warning without invalidating already
+committed semantic state: best-effort scheduling or manual dispatch
+can continue later.
+
+The independent proof workflow additionally listens to the successful
+**completed** `workflow_run` event of the actual intention workflow,
+rather than verifying a still-running writer prematurely. It reads
+historical state with `contents:read` and independently checks workflow
+identity, run ID, attempt, `main`, and success with `actions:read`.
+Partial evidence is honestly partial. The first fully accepted
+six-state/five-successful-run sequence yields `verified-complete`.
+
+This orchestration cannot overcome a GitHub Actions runner queue that
+never starts, quotas, repository permissions, or unavailable public
+services. It removes repeated human dispatches **after** the first
+hosted execution becomes available. It does not imply real-time CPU
+continuity, external-quorum governance, or an unlimited free tier.
+
 ## Execute
 
 Offline first:
