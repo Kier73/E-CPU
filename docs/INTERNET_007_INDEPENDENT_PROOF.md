@@ -100,6 +100,33 @@ The new workflow includes a manual `require_complete` boolean, default
 true for deliberate acceptance; scheduled/automatic audits report partial
 evidence without incorrectly calling it a completed proof.
 
+## Actual service-native continuity evidence (separate from runner proof)
+
+A three-invocation online experiment was also completed against the real
+GitHub service, with evidence retained under
+[research/internet-007-live-service-proof](https://github.com/Kier73/E-CPU/tree/research/internet-007-live-service-proof).
+Each connector invocation had a fresh execution context:
+
+1. Invocation 1 queried the original Git graph and verified its
+   `ahead=11, behind=0` relation, plus a pinned VGI commit. It published
+   [phase 1](https://github.com/Kier73/E-CPU/commit/83728a1761d16897ec9f0c44cfc041a9760d998c).
+2. Invocation 2 reopened the retained Git object and independently queried
+   the reverse graph; it observed `ahead=0, behind=11` and retained
+   [phase 2](https://github.com/Kier73/E-CPU/commit/7f841c4c0c42421a88e4a8f0e2b2cb6950a846b9),
+   content-binding its exact predecessor Git blob SHA.
+3. Invocation 3 reread both Git blobs, verified predecessor identity and
+   the inverse graph relationship, then asked GitHub for commit ancestry
+   between the two evidence commits. GitHub returned one successor
+   commit, zero behind, and phase 1 as the unique merge base. It persisted
+   [phase 3](https://github.com/Kier73/E-CPU/blob/research/internet-007-live-service-proof/evidence/native-stage-3-proof.json).
+
+This is **positive evidence** for service-native Git graph computation,
+Internet-retained state, and successful reobservation across independent
+caller lifetimes. It does **not** execute E-CPU's Python DAG on separate
+hosted Actions runners, prove an independently governed recovery quorum,
+or measure arithmetic in an uninstrumented router. The stricter five-run
+auditor below is still necessary.
+
 ## Independence and remaining uncertainties
 
 Independence here means separate verification of (a) native semantic
