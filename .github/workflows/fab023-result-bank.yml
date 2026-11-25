@@ -1,0 +1,29 @@
+name: FAB-023 shared pure result bank
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/shared_result_bank.py'
+      - 'tests/test_shared_result_bank.py'
+      - 'tests/test_fab023_native_shared_result.py'
+      - 'examples/fab_127/benchmark_shared_result_bank.py'
+      - '.github/workflows/fab023-result-bank.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -e . pytest
+      - run: python -m pytest -vv tests/test_shared_result_bank.py tests/test_fab023_native_shared_result.py tests/test_computational_transition.py
+      - run: python examples/fab_127/benchmark_shared_result_bank.py fab023-measured > fab023-report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fab023-results
+          path: fab023-report.json
