@@ -30,7 +30,7 @@ def fake_get(url, validator):
 
 def advance():
     dag = online.graph_template()
-    previous = None
+    previous = online.genesis()
     history = []
     for node in online.ORDER:
         assert online.run_one(dag, fake_get) == node
@@ -48,7 +48,7 @@ def advance():
 def test_four_native_service_operations_across_ephemeral_runner_lifetimes():
     history = advance()
     assert [x["revision"] for x in history] == [1, 2, 3, 4]
-    assert history[0]["previous_digest"] is None
+    assert history[0]["previous_digest"] == online.genesis()["digest"]
     for left, right in zip(history, history[1:]):
         assert right["previous_digest"] == left["digest"]
     dag = NavigableComputationDAG.from_snapshot(history[-1]["dag"])
@@ -147,7 +147,7 @@ def test_missing_state_branch_refuses_untrusted_reinitialization(monkeypatch):
         online.read_state("token")
 
 
-def test_empty_state_file_on_existing_branch_bootstraps(monkeypatch):
+def test_deleted_state_file_refuses_to_bootstrap(monkeypatch):
     ref = source.canonical({"ref": "refs/heads/" + source.STATE_BRANCH,
                             "object": {"sha": "f" * 40}})
     def server(method, url, *_a, **_kw):
@@ -155,7 +155,8 @@ def test_empty_state_file_on_existing_branch_bootstraps(monkeypatch):
             return 200, {}, ref
         return 404, {}, b""
     monkeypatch.setattr(source, "request", server)
-    assert online.read_state("token") == (None, None)
+    with pytest.raises(online.OnlineDAGRefused, match="genesis/checkpoint file missing"):
+        online.read_state("token")
 
 
 def test_remote_checkpoint_read_reconstructs_verified_dag(monkeypatch):
@@ -175,3 +176,26 @@ def test_terminal_workspace_does_not_repeat_accepted_effects():
     def unexpected(*_a):
         raise AssertionError("completed execution must not issue network requests")
     assert online.run_one(dag, unexpected) is None
+
+
+def test_genesis_is_exact_fenced_state_and_cannot_be_rewritten():
+    start = online.genesis()
+    assert online.validate_checkpoint(start) == start
+    assert start["revision"] == 0
+    assert start["workspace_id"] == online.WORKSPACE_ID
+    changed = copy.deepcopy(start)
+    changed["workspace_id"] = "f" * 64
+    with pytest.raises(online.OnlineDAGRefused):
+        online.validate_checkpoint(changed)
+    assert online.checkpoint(start, _one_step_dag())["previous_digest"] == start["digest"]
+
+
+def _one_step_dag():
+    dag = online.graph_template()
+    assert online.run_one(dag, fake_get) == "git-commit"
+    return dag
+
+
+def test_first_commit_from_unanchored_none_is_refused():
+    with pytest.raises((TypeError, online.OnlineDAGRefused)):
+        online.checkpoint(None, _one_step_dag())
