@@ -1,0 +1,42 @@
+{
+  "schema": "mailcpu.internet007.intention.v1",
+  "intention_id": "cross-source-structures",
+  "purpose": "Form a native E-CPU Ground from independently pinned In-Formation-Space and VL-I Git observer sources",
+  "budget": {
+    "max_cost_usd": 0,
+    "max_nodes": 5,
+    "max_reads_per_quantum": 3,
+    "max_response_bytes": 2000000
+  },
+  "nodes": [
+    {
+      "id": "a-ifs",
+      "operator": "github.git.commit",
+      "dependencies": [],
+      "params": {
+        "repository": "Kier73/In-Formation-Space",
+        "sha": "ccf7dfb88a52c458ee9dd00e26ffbaecf5b2af9c"
+      }
+    },
+    {
+      "id": "b-vli",
+      "operator": "github.git.commit",
+      "dependencies": [],
+      "params": {
+        "repository": "Kier73/VL-I",
+        "sha": "00fd4026dc3c35bc130d2d09ab9d88b354616d7b"
+      }
+    },
+    {
+      "id": "z-join",
+      "operator": "ground.join",
+      "dependencies": [
+        "a-ifs",
+        "b-vli"
+      ],
+      "params": {
+        "label": "cross-repository-communication-ground"
+      }
+    }
+  ]
+}
