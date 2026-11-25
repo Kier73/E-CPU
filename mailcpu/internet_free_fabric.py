@@ -229,6 +229,56 @@ def successor(previous: dict | None, observation: dict) -> dict:
     return validate_checkpoint(candidate | {"digest": digest(candidate)})
 
 
+def bind_native_observer_path(observation: dict) -> dict:
+    """Carry verified remote-service facts into native E-CPU observer evidence.
+
+    The receiver issues the E-CPU observer receipt after checking the HTTPS
+    response. This names a *local observer*, not an authenticated GitHub
+    machine, native WAN carrier, or remote E-CPU peer.
+    """
+    from .observer_orbit import ObserverContract, ObserverReceipt
+    from .observer_path_evidence import ObserverPathStage, verify_observer_path
+    from .semantic_translation import (
+        ObservationContract, RepresentationRef, canonical_value_digest,
+    )
+
+    validate_observation(observation)
+    ground = RepresentationRef.from_payload("internet005.ground", 1, INTENTION)
+    subject = RepresentationRef.from_payload("internet005.service-evidence", 1, observation)
+    context = canonical_value_digest({"workspace_id": WORKSPACE_ID, "source": HEAD})
+    projection = ObservationContract.from_definition(
+        "internet005.remote-service-projection", 1,
+        {"exact": True, "source": "verified-GitHub-HTTPS-response"},
+    )
+    contract = ObserverContract(
+        "internet005-local-receiver", 1, subject, ground, projection, context,
+    )
+    native_receipt = ObserverReceipt.issue(
+        contract, operation_id="internet005.verify-service-observation",
+        input_digest=subject.content_digest,
+        projection_value={"native_graph_ahead": observation["ahead_by"],
+                          "native_http_predicate": observation["conditional_status"],
+                          "source_receipt": observation["digest"]},
+        subject_state_before_digest=subject.content_digest,
+        subject_state_after_digest=subject.content_digest,
+    )
+    stage = ObserverPathStage(
+        "observe", "internet005-local-receiver", "internet005-local-receiver",
+        subject, subject, contract=contract, receipt=native_receipt,
+    )
+    path = verify_observer_path(
+        (stage,), ground=ground, context_digest=context,
+        receiver_policy_digest=canonical_value_digest({
+            "allow": "only-pinned-internet005-remote-service-observation",
+            "workspace_id": WORKSPACE_ID,
+        }), observed_at=0, verify_carrier=lambda _: False,
+        verify_observer=lambda item: (
+            item.contract == contract and item.receipt == native_receipt
+        ),
+    )
+    return path.to_dict()
+
+
 def state_url() -> str:
     return f"{API_BASE}/contents/{STATE_PATH}?ref={STATE_BRANCH}"
 
@@ -300,6 +350,7 @@ def main() -> int:
         require(url in (COMMIT_URL, COMPARE_URL), "unknown Git operator")
         return request("GET", url, token, etag=etag)
     evidence = observe_native_paths(get)
+    native_path = bind_native_observer_path(evidence)
     state = successor(previous, evidence)
     committed_blob = publish_remote_state(token, state, blob) if args.publish else None
     report = {
@@ -307,6 +358,7 @@ def main() -> int:
         "workspace_id": WORKSPACE_ID, "prior_revision": previous["revision"] if previous else 0,
         "next_revision": state["revision"], "next_digest": state["digest"],
         "previous_digest": state["previous_digest"], "observation": evidence,
+        "native_receiver_path": native_path,
         "published": committed_blob is not None, "published_blob_sha": committed_blob,
         "physical_execution": "GitHub-hosted Python observer",
         "external_execution": "GitHub Git and HTTP service-native operations",
