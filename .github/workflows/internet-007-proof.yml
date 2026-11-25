@@ -16,6 +16,11 @@ on:
       - 'tests/test_internet_intention_proof.py'
       - 'docs/INTERNET_007_INDEPENDENT_PROOF.md'
       - '.github/workflows/internet-007-proof.yml'
+  workflow_run:
+    workflows:
+      - INTERNET-007 native intention ingress
+    types:
+      - completed
   workflow_dispatch:
     inputs:
       require_complete:
@@ -49,7 +54,7 @@ jobs:
             tests/test_internet_fabric_dag.py
 
   independent-history:
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
     needs: offline-controls
     runs-on: ubuntu-latest
     timeout-minutes: 10
