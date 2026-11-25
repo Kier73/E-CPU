@@ -1,0 +1,92 @@
+name: FAB-025-026 dual computational capacity
+on:
+  pull_request:
+    paths:
+      - 'examples/fab_127/fab025.c'
+      - 'examples/fab_127/fab026.py'
+      - '.github/workflows/fab025-026-capacity.yml'
+  workflow_dispatch:
+    inputs:
+      full:
+        description: Run full 24-bit geometry (2 GiB fleet and dense 4096 matrix)
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  independent-fleet:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and verify compact fleet across process lifetimes
+        env:
+          FULL: ${{ inputs.full }}
+        run: |
+          set -euxo pipefail
+          bits=12
+          if [ "$FULL" = true ]; then bits=24; fi
+          gcc -std=c11 -O3 -Wall -Wextra -Werror -pthread examples/fab_127/fab025.c -o /tmp/fab025
+          /tmp/fab025 init "$bits" 4 fleet.chk | tee fleet-init.json
+          sha256sum fleet.chk > fleet.sha256
+          sha256sum -c fleet.sha256
+          /tmp/fab025 resume "$bits" 3 fleet.chk | tee fleet-resume.json
+          /tmp/fab025 verify "$bits" 4 fleet.chk | tee fleet-verify.json
+          python - <<'PY'
+          import json
+          a,b,c=(json.load(open('fleet-'+p+'.json')) for p in ('init','resume','verify'))
+          assert a['instructions']+b['instructions']==c['instructions']
+          assert a['machines']==b['machines']==c['machines']
+          assert not any(x['errors'] for x in (a,b,c))
+          with open('fleet.chk','r+b') as f:
+              f.seek(80); x=f.read(1); f.seek(80); f.write(bytes([x[0]^1]))
+          PY
+          if /tmp/fab025 verify "$bits" 4 fleet.chk; then exit 1; fi
+          rm fleet.chk
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: independent-fleet
+          path: |
+            fleet-*.json
+            fleet.sha256
+  collective:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install numpy threadpoolctl
+      - name: Layered contraction, failed worker, reopen, missing shard, corruption refusal
+        env:
+          FULL: ${{ inputs.full }}
+        run: |
+          set -euxo pipefail
+          n=64
+          layers=4
+          workers=3
+          if [ "$FULL" = true ]; then n=4096; layers=8; workers=4; fi
+          python examples/fab_127/fab026.py collective --n "$n" --layers "$layers" --workers "$workers" > collective-report.json
+          python examples/fab_127/fab026.py collective --n "$n" --layers "$layers" --workers "$workers" --resume > collective-reopen.json
+          rm collective/layer-001-shard-001.bin
+          python examples/fab_127/fab026.py collective --n "$n" --layers "$layers" --workers "$workers" --resume > collective-missing.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          a,b,c=(json.load(open('collective-'+p+'.json')) for p in ('report','reopen','missing'))
+          assert a['failed_before_publication']==1
+          assert b['worker_invocations']==0 and b['reused_shards']==a['committed_shards']
+          assert c['worker_invocations']==1 and c['reused_shards']==a['committed_shards']-1
+          assert a['result_sha256']==b['result_sha256']==c['result_sha256']
+          p=Path('collective/layer-002-shard-000.bin')
+          data=bytearray(p.read_bytes()); data[-1]^=1; p.write_bytes(data)
+          PY
+          if python examples/fab_127/fab026.py collective --n "$n" --layers "$layers" --workers "$workers" --resume; then exit 1; fi
+          rm -rf collective
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: collective
+          path: collective-*.json
