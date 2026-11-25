@@ -29,7 +29,7 @@ MAX_READ_STATES = 33
 MAX_REMOTE_BYTES = 2_000_000
 RUN_LINE = re.compile(
     r"INTERNET-007 ([a-z][a-z0-9_-]{1,47}) revision ([1-9][0-9]{0,3}) "
-    r"\\[run=([1-9][0-9]{0,19}) attempt=([1-9][0-9]{0,4})\\]\\Z"
+    r"\[run=([1-9][0-9]{0,19}) attempt=([1-9][0-9]{0,4})\]\Z"
 )
 
 
