@@ -224,6 +224,7 @@ def github_run_verifier(token: str) -> RunVerifier:
             type(value.get("run_attempt")) is int and
             value["run_attempt"] == attempt and
             value.get("name") == "INTERNET-007 native intention ingress" and
+            value.get("path") == ".github/workflows/internet-007-intentions.yml" and
             value.get("head_branch") == "main" and
             value.get("event") in ("push", "schedule", "workflow_dispatch") and
             value.get("status") == "completed" and value.get("conclusion") == "success"
