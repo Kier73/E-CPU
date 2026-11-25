@@ -151,16 +151,15 @@ def genesis() -> dict:
     return fields | {"digest": internet.digest(fields)}
 
 
-def checkpoint(previous: dict | None, dag: NavigableComputationDAG) -> dict:
-    if previous is not None:
-        validate_checkpoint(previous)
+def checkpoint(previous: dict, dag: NavigableComputationDAG) -> dict:
+    validate_checkpoint(previous)
     revision = len(dag.committed_nodes)
     require(revision > 0 and revision <= len(ORDER), "checkpoint requires a new verified commit")
-    require(revision == (previous["revision"] + 1 if previous else 1),
+    require(revision == previous["revision"] + 1,
             "native DAG successor must advance exactly once")
     fields = {
         "schema": SCHEMA, "workspace_id": WORKSPACE_ID,
-        "revision": revision, "previous_digest": previous["digest"] if previous else None,
+        "revision": revision, "previous_digest": previous["digest"],
         "dag": dag.snapshot(),
     }
     return validate_checkpoint(fields | {"digest": internet.digest(fields)})
@@ -175,8 +174,7 @@ def validate_checkpoint(state: object) -> dict:
     require(type(state["revision"]) is int and 0 <= state["revision"] <= len(ORDER),
             "checkpoint revision invalid")
     require((state["revision"] == 0 and state["previous_digest"] is None) or
-            (state["revision"] == 1 and (state["previous_digest"] is None or
-                                         _is_hash(state["previous_digest"]))) or
+            (state["revision"] == 1 and state["previous_digest"] == genesis()["digest"]) or
             (state["revision"] > 1 and _is_hash(state["previous_digest"])),
             "checkpoint lineage invalid")
     require(_is_hash(state["digest"]) and
@@ -250,7 +248,7 @@ def _state_url() -> str:
     return f"{internet.API_BASE}/contents/{STATE_PATH}?ref={STATE_BRANCH}"
 
 
-def read_state(token: str) -> tuple[dict | None, str | None]:
+def read_state(token: str) -> tuple[dict, str]:
     branch_url = f"{internet.API_BASE}/git/ref/heads/{STATE_BRANCH}"
     status, _, data = internet.request("GET", branch_url, token)
     require(status == 200, "workspace state branch missing; refusing reset")
@@ -308,9 +306,8 @@ def main() -> int:
     require(type(token) is str and bool(token), "explicit GitHub token needed")
     state, blob = read_state(token)
     dag = (NavigableComputationDAG.from_snapshot(state["dag"])
-           if state and state["revision"] > 0 else graph_template())
-    if state is not None:
-        validate_snapshot(dag.snapshot())
+           if state["revision"] > 0 else graph_template())
+    validate_snapshot(dag.snapshot())
     def get(url: str, etag: str | None):
         require(url in (internet.COMMIT_URL, internet.COMPARE_URL),
                 "unapproved Internet operation")
@@ -320,11 +317,11 @@ def main() -> int:
     published = publish(token, next_state, blob) if node_id and args.publish else None
     report = {
         "schema": REPORT_SCHEMA, "workspace_id": WORKSPACE_ID,
-        "prior_revision": state["revision"] if state else 0,
-        "revision": next_state["revision"] if next_state else 0,
+        "prior_revision": state["revision"],
+        "revision": next_state["revision"],
         "committed_node": node_id, "remaining": len(ORDER) - len(dag.committed_nodes),
         "complete": dag.is_complete, "native_dag_digest": dag.digest,
-        "checkpoint_digest": next_state["digest"] if next_state else None,
+        "checkpoint_digest": next_state["digest"],
         "published_blob_sha": published,
         "authority": "single-GitHub-administrator-CAS-not-M3-quorum",
     }
