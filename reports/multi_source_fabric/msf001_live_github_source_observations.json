@@ -1,0 +1,307 @@
+{
+  "schema": "mailcpu.msf001.github-live-source-observations.v1",
+  "recorded_at": "2026-11-25T04:00:00Z",
+  "observation_scope": "live authenticated GitHub commit and tree GET via linked GitHub connector; metadata only; no E-CPU runtime or WAN peer execution implied",
+  "count": 4,
+  "observations": [
+    {
+      "name": "ecpu",
+      "repository": "Kier73/E-CPU",
+      "commit": "6f05be0b4ecbb53c5f64580c7b82ee531fdd1f73",
+      "tree": "4fa22c1d958ae2226a9db38c00af0d2f7382eceb",
+      "anchor": "mailcpu/computational_fabric.py",
+      "anchor_sha": "36c51aa475e4f04a1ba07dc2ab726c9780ef083f",
+      "anchor_bytes": 115053,
+      "tree_entries": 886,
+      "members": [
+        {
+          "path": "mailcpu/__init__.py",
+          "blob_sha": "23e1a9edd22d458e92082c286c4ed309e43f491c",
+          "size": 54300
+        },
+        {
+          "path": "mailcpu/__main__.py",
+          "blob_sha": "e540344d7c0b85f5e659f1f685e39e4f80dcd362",
+          "size": 147
+        },
+        {
+          "path": "mailcpu/_codec.py",
+          "blob_sha": "0a33b92e7d2030af129350cd61cd1ef4e3faee4b",
+          "size": 4621
+        },
+        {
+          "path": "mailcpu/active_ground_discovery.py",
+          "blob_sha": "38b7adfff202fd808b778656850948b3d61e07b8",
+          "size": 12963
+        },
+        {
+          "path": "mailcpu/adaptive_placement.py",
+          "blob_sha": "5adc73a10403969f13af20fe89b8afc90033052e",
+          "size": 28071
+        },
+        {
+          "path": "mailcpu/addressable_intelligence.py",
+          "blob_sha": "ef7cd904624c43ee65536e24295db4c02405d0df",
+          "size": 20492
+        },
+        {
+          "path": "mailcpu/affine_orbit.py",
+          "blob_sha": "fad80b39239c7b32c43e7ad969c1fb123968b71a",
+          "size": 17428
+        },
+        {
+          "path": "mailcpu/affine_stream.py",
+          "blob_sha": "2ea84b173a05dc2b99f1d4612691c8e0c0c932cc",
+          "size": 13771
+        },
+        {
+          "path": "mailcpu/ai_ground_atlas.py",
+          "blob_sha": "3ff3846cf5b6fa3b460169c5e54f81ce9d271e13",
+          "size": 12449
+        },
+        {
+          "path": "mailcpu/ai_ground_atlas.v1.json",
+          "blob_sha": "eb8bbb6bcfcff56a9032e013d904307a0b421fe8",
+          "size": 121046
+        },
+        {
+          "path": "mailcpu/ai_ground_reuse.py",
+          "blob_sha": "03fbef6f2d9d2184117210a4026018adb6715549",
+          "size": 13365
+        },
+        {
+          "path": "mailcpu/assembler.py",
+          "blob_sha": "da4395041bb1874fdabd759d1d39347a290805e0",
+          "size": 5318
+        }
+      ],
+      "source_reduction_value": 303971,
+      "code_blob_payload_bytes_fetched": 0
+    },
+    {
+      "name": "vgi",
+      "repository": "Kier73/Virtual-Ground-Interpreter",
+      "commit": "ae3f949b7d0b2aaa42236bc7cc37e9857384b174",
+      "tree": "edf77294d35231326065b138aa6b2036927c120c",
+      "anchor": "theory_development/build_07/cross_observer_invariants.py",
+      "anchor_sha": "646e771a4870384eccac0419be54eee62b2d7c11",
+      "anchor_bytes": 37987,
+      "tree_entries": 3106,
+      "members": [
+        {
+          "path": "theory_development/Early Codonic Encoding Exploration insights.md",
+          "blob_sha": "8afeea528b317264c31d6317e794658276f6585d",
+          "size": 16845
+        },
+        {
+          "path": "theory_development/Questions On the Virtual Ground.md",
+          "blob_sha": "52776fdcf3c84e2f936d75d0e1408fc6cce1de45",
+          "size": 6388
+        },
+        {
+          "path": "theory_development/README.md",
+          "blob_sha": "e3747122050169777600fef5b67de1f20ff900bf",
+          "size": 3440
+        },
+        {
+          "path": "theory_development/VirtualLayer_early_codonic_reference.md",
+          "blob_sha": "9b9cf95506c3665d53f066659ee8ead27cefc67d",
+          "size": 44031
+        },
+        {
+          "path": "theory_development/build_01/BUILD_01.md",
+          "blob_sha": "354431e6a938cde87380ad80b02ae6caccf07861",
+          "size": 12738
+        },
+        {
+          "path": "theory_development/build_01/README.md",
+          "blob_sha": "e63ae190384afa8c15b52a59448923593b84fc05",
+          "size": 4017
+        },
+        {
+          "path": "theory_development/build_01/demo_report.json",
+          "blob_sha": "fe3dd5e950a588adb3c780b1c1751001f3b4f0e2",
+          "size": 17224
+        },
+        {
+          "path": "theory_development/build_01/dynamic_report.json",
+          "blob_sha": "f66e0da8eea08d02c5aa645ea36e85958b60b6fd",
+          "size": 12064
+        },
+        {
+          "path": "theory_development/build_01/dynamic_response.py",
+          "blob_sha": "966d8614bb8a9c426ed6ba4f9a4273d32af0465f",
+          "size": 8954
+        },
+        {
+          "path": "theory_development/build_01/requirements.txt",
+          "blob_sha": "73d10d84474458daa76a8d453c34298c37b73ab5",
+          "size": 67
+        },
+        {
+          "path": "theory_development/build_01/run_tests.sh",
+          "blob_sha": "df508b74958194c9541349cb184553ff60de3832",
+          "size": 147
+        },
+        {
+          "path": "theory_development/build_01/test_dynamic_response.py",
+          "blob_sha": "5b59b1898403fb1f533c3c8174e727aabae00808",
+          "size": 2173
+        }
+      ],
+      "source_reduction_value": 128088,
+      "code_blob_payload_bytes_fetched": 0
+    },
+    {
+      "name": "ifs",
+      "repository": "Kier73/In-Formation-Space",
+      "commit": "ccf7dfb88a52c458ee9dd00e26ffbaecf5b2af9c",
+      "tree": "c56b0ddc658b39d2f46115c2787e780a8ae1d887",
+      "anchor": "bridges/authority-lineage/authority_lineage.py",
+      "anchor_sha": "12e609221eae22315d1be5e413968f4313e3dea2",
+      "anchor_bytes": 38311,
+      "tree_entries": 2369,
+      "members": [
+        {
+          "path": "bridges/adaptive-attention-execution/README.md",
+          "blob_sha": "9437577225d5e9818edb2a9e203171411743c8f5",
+          "size": 6037
+        },
+        {
+          "path": "bridges/adaptive-attention-execution/construction-report.md",
+          "blob_sha": "d46d695e309b75931bdbc8a6e6195008b1bef45e",
+          "size": 4826
+        },
+        {
+          "path": "bridges/adaptive-attention-execution/ecpu-adapter-map.md",
+          "blob_sha": "522a1230ab4ef050342eec1a9cb22f1b181172b8",
+          "size": 15343
+        },
+        {
+          "path": "bridges/authority-lineage/README.md",
+          "blob_sha": "231c30dd39c1ad0c69877cda870e3c386ecae39e",
+          "size": 26966
+        },
+        {
+          "path": "bridges/authority-lineage/authority-lineage.schema.json",
+          "blob_sha": "d93001addf8e900f15f5f101adaffa9afb0aee94",
+          "size": 25760
+        },
+        {
+          "path": "bridges/authority-lineage/authority_lineage.py",
+          "blob_sha": "12e609221eae22315d1be5e413968f4313e3dea2",
+          "size": 38311
+        },
+        {
+          "path": "bridges/authority-lineage/demonstration.py",
+          "blob_sha": "e300a65f6d9aecbaaa3f8417be785f237854d961",
+          "size": 5324
+        },
+        {
+          "path": "bridges/authority-lineage/observation_adapter.py",
+          "blob_sha": "00cb9f599021e4f83aa48e766857fdf0d60d2464",
+          "size": 15031
+        },
+        {
+          "path": "bridges/authority-lineage/review-root-transition.schema.json",
+          "blob_sha": "21c59e3701686c5a07a3b11af2b34c803a71fc92",
+          "size": 2073
+        },
+        {
+          "path": "bridges/authority-lineage/review-trust-manifest.schema.json",
+          "blob_sha": "a8431345d465c07b004de019436801f0f59dd837",
+          "size": 3182
+        },
+        {
+          "path": "bridges/authority-lineage/review-trust-store.schema.json",
+          "blob_sha": "781e80ad6fe8277952033a56603456c6b082e7a3",
+          "size": 1275
+        },
+        {
+          "path": "bridges/authority-lineage/review_certificate_demo.py",
+          "blob_sha": "5b5702279668c4c8a4c2ba336721ae2ce663c88d",
+          "size": 5752
+        }
+      ],
+      "source_reduction_value": 149880,
+      "code_blob_payload_bytes_fetched": 0
+    },
+    {
+      "name": "vli",
+      "repository": "Kier73/VL-I",
+      "commit": "00fd4026dc3c35bc130d2d09ab9d88b354616d7b",
+      "tree": "d65a2b6b9437003d8aa19c6c7217bd592ddee3fd",
+      "anchor": "examples/external_source_trial.py",
+      "anchor_sha": "f15926280772c43b8f61288bd417dba8de7cde2e",
+      "anchor_bytes": 1961,
+      "tree_entries": 423,
+      "members": [
+        {
+          "path": "examples/adaptive_intention_lab.py",
+          "blob_sha": "1469aaa0a1613c5566ab5d067656a2921ec8ceb3",
+          "size": 3315
+        },
+        {
+          "path": "examples/addressed_head_experiment.py",
+          "blob_sha": "929820359af40d7f4a490ae2f276b693aa80c739",
+          "size": 5218
+        },
+        {
+          "path": "examples/architecture_dry_run.py",
+          "blob_sha": "1852f70a71e6ed7c960133276e562e698974a6f9",
+          "size": 7020
+        },
+        {
+          "path": "examples/architecture_survey.py",
+          "blob_sha": "f7dcf1c27d0395283b241378c6c8dd6e37b3bd5a",
+          "size": 7470
+        },
+        {
+          "path": "examples/authenticated_temporal_source_demo.py",
+          "blob_sha": "97cce82ff7dc6595efbfe259db69c8730c425f42",
+          "size": 5309
+        },
+        {
+          "path": "examples/check_external_transformer.py",
+          "blob_sha": "475886f3f68f5a5cebca35a0caf27c0288b47d11",
+          "size": 2579
+        },
+        {
+          "path": "examples/check_qwen_block.py",
+          "blob_sha": "4ccb650ee67527d0b0ca7416fdcbac80154addf3",
+          "size": 4373
+        },
+        {
+          "path": "examples/classified_qwen.py",
+          "blob_sha": "bc49f4b5f4a0c98a7b1433a0425e64198c6ede1f",
+          "size": 6482
+        },
+        {
+          "path": "examples/coefficient_plan.cpp",
+          "blob_sha": "89ee8ab5697b9c6878f0680ccaf650721609dcb1",
+          "size": 3158
+        },
+        {
+          "path": "examples/composed_attention_row.py",
+          "blob_sha": "8b825fcd13a850f57451a75df0fc02a348250352",
+          "size": 7631
+        },
+        {
+          "path": "examples/connectome_shape_demo.py",
+          "blob_sha": "54db19ef30a9cab47e32608494823dafe5f49c08",
+          "size": 5045
+        },
+        {
+          "path": "examples/constructive_data_demo.py",
+          "blob_sha": "ee7cb0fab0909da7d1ac8540885efd363c6d7d44",
+          "size": 5306
+        }
+      ],
+      "source_reduction_value": 62906,
+      "code_blob_payload_bytes_fetched": 0
+    }
+  ],
+  "scalar_oracle_total": 644845,
+  "exact_pins": true,
+  "source_blob_bytes_fetched": 0
+}
