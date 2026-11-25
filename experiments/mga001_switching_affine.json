@@ -1,0 +1,29 @@
+{
+  "direct": 648,
+  "semigroup": 648,
+  "certs": 36,
+  "nonlinear": 36,
+  "noncommute": 36,
+  "coarse": 24,
+  "huge": 1,
+  "forgeryRejected": true,
+  "example": {
+    "modulus": "1099511627776",
+    "fullStates": "1208925819614629174706176",
+    "quotientStates": 64,
+    "cycle": 64,
+    "transient": 0,
+    "coordinate": "10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000123",
+    "initial": [
+      "123456789120",
+      "98765432128"
+    ],
+    "result": [
+      "324434440595",
+      "972843212407"
+    ],
+    "queryMatrixMultiplications": 326,
+    "admissionMatrixMultiplications": 128,
+    "sourceMatrices": 64
+  }
+}
