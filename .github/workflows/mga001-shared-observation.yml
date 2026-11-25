@@ -1,0 +1,24 @@
+name: MGA-001-C shared observation
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/shared_observation_ground.py'
+      - 'mailcpu/substrate_bootstrap.py'
+      - 'tests/test_shared_observation_ground.py'
+      - '.github/workflows/mga001-shared-observation.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  shared-observation:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m unittest discover -s tests -p test_shared_observation_ground.py -v
+      - run: python -m unittest discover -s tests -p test_substrate_bootstrap.py -v
