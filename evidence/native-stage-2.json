@@ -1,0 +1,15 @@
+{
+  "schema": "mailcpu.internet007.github-service-live-proof.v1",
+  "phase": 2,
+  "predecessor_git_blob_sha": "492828194e7127a32ec77056a6db232aad70a6c8",
+  "predecessor_service_commit_sha": "83728a1761d16897ec9f0c44cfc041a9760d998c",
+  "intention": "verify-github-native-ancestry-and-cross-repository-source",
+  "graph_source_sha": "afcd39be08ee2f64992763e913c5370968232b84",
+  "reverse_ahead_by": 0,
+  "reverse_behind_by": 11,
+  "reverse_status": "behind",
+  "reverse_merge_base": "9a34c11147db7d8619b65b6058fa121ab9b1c43c",
+  "vgi_source_sha": "ae3f949b7d0b2aaa42236bc7cc37e9857384b174",
+  "verified_by": "fresh-independent-connector-invocation-2",
+  "authority_scope": "github-service-native-operations-not-remote-ECPU-host"
+}
