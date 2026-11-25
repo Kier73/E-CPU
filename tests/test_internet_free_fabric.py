@@ -153,3 +153,19 @@ def test_missing_state_branch_is_refused_not_reinitialized(monkeypatch):
     monkeypatch.setattr(f, "request", lambda *_args, **_kw: (404, {}, b""))
     with pytest.raises(f.FreeFabricRefused, match="state branch is missing"):
         f.read_remote_state("token")
+
+
+def test_remote_service_projection_enters_native_e_cpu_observer_path():
+    native = f.bind_native_observer_path(receipt())
+    assert native["source"] == "internet005-local-receiver"
+    assert native["destination"] == "internet005-local-receiver"
+    assert [s["mode"] for s in native["stages"]] == ["observe"]
+    assert native["verification_scope"] == "receiver_callbacks_not_external_attestation"
+    assert len(native["path_digest"]) == 64
+
+
+def test_native_path_refuses_altered_external_receipt():
+    invalid = receipt()
+    invalid["ahead_by"] = 500
+    with pytest.raises(f.FreeFabricRefused):
+        f.bind_native_observer_path(invalid)
