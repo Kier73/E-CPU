@@ -1,0 +1,64 @@
+name: INTERNET-005 free-fabric continuity
+
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/internet_free_fabric.py'
+      - 'tests/test_internet_free_fabric.py'
+      - 'docs/INTERNET_005_FREE_FABRIC_CONTINUITY.md'
+      - '.github/workflows/internet-005-free-fabric.yml'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'mailcpu/internet_free_fabric.py'
+      - 'tests/test_internet_free_fabric.py'
+      - 'docs/INTERNET_005_FREE_FABRIC_CONTINUITY.md'
+      - '.github/workflows/internet-005-free-fabric.yml'
+  schedule:
+    - cron: '17 */6 * * *'
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install local E-CPU and pytest
+        run: python -m pip install -e . pytest
+      - name: Test Internet-native observers and fresh-process recovery
+        run: python -m pytest -q tests/test_internet_free_fabric.py
+
+  online:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    concurrency:
+      group: internet-005-state-branch
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install E-CPU
+        run: python -m pip install -e .
+      - name: Observe real Internet paths and publish one fenced successor
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python -m mailcpu.internet_free_fabric --live --publish --output internet005-result.json
+      - name: Retain bounded evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: internet005-evidence-${{ github.run_id }}
+          path: internet005-result.json
+          if-no-files-found: ignore
