@@ -55,7 +55,17 @@ The first admitted intention is a small, fixed reference workload:
 
 The Git repository's graph service and the HTTP conditional handler are
 **external native computational operators**, not E-CPU programs installed on
-GitHub's systems. These services do not provide evidence that intermediary
+GitHub's systems.
+
+A receiver-local adapter also takes the checked remote-service receipt through
+**native E-CPU** `RepresentationRef`, `ObservationContract`,
+`ObserverContract`, `ObserverReceipt`, `ObserverPathStage` and
+`verify_observer_path`. Its exported witness explicitly says
+`receiver_callbacks_not_external_attestation`: it qualifies a local
+observation of service evidence, **not** a packet-level WAN carrier or remote
+GitHub identity signature. The resulting path digest is retained in the live
+report but does not grant execution capability.
+ These services do not provide evidence that intermediary
 routers, copper or optical links performed arithmetic.
 
 For all versions, the observer uses exact, read-only, allowlisted HTTPS
