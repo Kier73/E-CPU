@@ -30,8 +30,8 @@ COMPARE_URL = f"https://api.github.com/repos/{REPOSITORY}/compare/{BASE}...{HEAD
 API_BASE = f"https://api.github.com/repos/{REPOSITORY}"
 MAX_REPLY = 2_000_000
 MAX_STATE = 32768
-HEX64 = re.compile(r"[0-9a-f]{64}\\Z")
-HEX40 = re.compile(r"[0-9a-f]{40}\\Z")
+HEX64 = re.compile(r"[0-9a-f]{64}\Z")
+HEX40 = re.compile(r"[0-9a-f]{40}\Z")
 INTENTION = {
     "kind": "internet-native-service-graph-and-conditional-observation",
     "repository": REPOSITORY, "base": BASE, "head": HEAD,
@@ -245,7 +245,7 @@ def read_remote_state(token: str) -> tuple[dict | None, str | None]:
             type(sha) is str and HEX40.fullmatch(sha) is not None,
             "remote state object malformed")
     try:
-        binary = base64.b64decode(content, validate=True)
+        binary = base64.b64decode(content.replace("\n", ""), validate=True)
     except (ValueError, TypeError) as exc:
         raise FreeFabricRefused("invalid checkpoint base64") from exc
     require(len(binary) <= MAX_STATE, "remote state exceeds byte budget")
