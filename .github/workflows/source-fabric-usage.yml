@@ -1,0 +1,56 @@
+name: MSF-001 multi-source computational-directory usage
+
+on:
+  pull_request:
+    paths:
+      - 'examples/multi_source_fabric_usage.py'
+      - 'tests/test_multi_source_fabric_usage.py'
+      - 'docs/MSF_001_MULTI_SOURCE_DIRECTORY_USAGE.md'
+      - '.github/workflows/source-fabric-usage.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-and-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.14']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install E-CPU
+        run: python -m pip install -e . pytest
+      - name: Verify source-pinned directory and Hypervisor composition
+        run: python -m pytest -q tests/test_multi_source_fabric_usage.py
+      - name: Live four-source HTTPS observation and native fabric execution
+        run: python examples/multi_source_fabric_usage.py --live --output msf001-result.json
+      - name: Check bounded report and exact joined oracle
+        run: |
+          python - <<'PY'
+          import json
+          data = json.load(open('msf001-result.json', encoding='utf-8'))
+          assert data['source_count'] == 4, data
+          assert data['local_host_count'] == 5, data
+          assert data['source_code_payload_bytes_fetched'] == 0, data
+          assert data['total_owned_network_bytes'] > 0, data
+          assert all(x['native']['local_admission'] == 'found' for x in data['routed_receipts'])
+          assert all(x['native']['execution'] == 'executed' for x in data['routed_receipts'])
+          assert data['join']['execution'] == 'executed', data
+          assert data['join']['value'] == sum(
+              sum(m['size'] for m in s['source_ground']['members'])
+              for s in data['source_grounds'])
+          print('verified', data['source_count'], data['join']['value'], data['directory_digest'])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: msf001-${{ matrix.python-version }}
+          path: msf001-result.json
+          if-no-files-found: ignore
