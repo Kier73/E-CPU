@@ -137,6 +137,23 @@ class ReplicatedMailboxStore:
         )
         return stored
 
+    def send_once(self, addr: str, message: Message, *, operation_id: str) -> Message:
+        """Durably enqueue an immutable operation-derived message identity.
+
+        An equal retry after consumption returns the original envelope without
+        re-enqueueing it. Reusing the operation identity with altered content
+        is refused by the original journal fingerprint. This is local enqueue,
+        not remote authentication or a replication quorum acknowledgement.
+        """
+        if not addr or not isinstance(message, Message) or message.sender != self.node_id:
+            raise ReplicatedMailboxError("local enqueue identity is invalid")
+        if not isinstance(operation_id, str) or not operation_id:
+            raise ReplicatedMailboxError("operation identity is required")
+        identity = hashlib.sha256(operation_id.encode("utf-8")).hexdigest()
+        stored = replace(message, recipient=addr, message_id=f"{self.node_id}:once:{identity}")
+        self._commit(operation_id, "enqueue", {"addr": addr, "message": _message_to_record(stored)})
+        return stored
+
     def apply_replica(self, operation_id: str, event: str, payload: Mapping[str, Any]) -> bool:
         """Mathematics: apply remote event `e(o)` exactly once; equal replays return `False`, conflicts refuse."""
 
