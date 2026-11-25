@@ -46,6 +46,13 @@ class VerificationGroundTests(unittest.TestCase):
             with self.assertRaises(BootstrapRefused):
                 g.advance(3,t)
 
+    def test_aliased_rows_do_not_skip_boundary_checks(self):
+        # width 1 has equal-sized rows; repeated object identity must not
+        # bypass arithmetic checks at the row boundary.
+        row=((1,0),(5,1))
+        with self.assertRaises(BootstrapRefused):
+            AffineVerificationGround(5,1,65521,1,(row,)*63)
+
     def test_cost_model_and_cold_selection(self):
         t=(1<<63)-1
         self.assertEqual(cold_multiplications(t),253)

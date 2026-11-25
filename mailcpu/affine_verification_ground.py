@@ -106,7 +106,7 @@ class AffineVerificationGround:
         if type(self.rows) is not tuple or len(self.rows) != len(sizes):
             raise BootstrapRefused("invalid radix row count")
         base = (self.a, self.c)
-        for size, row in zip(sizes, self.rows):
+        for index, (size, row) in enumerate(zip(sizes, self.rows)):
             if type(row) is not tuple or len(row) != size:
                 raise BootstrapRefused("invalid radix digit count")
             if any(type(p) is not tuple or len(p) != 2 or any(
@@ -121,7 +121,7 @@ class AffineVerificationGround:
                 a,c = base
                 if row[d] != ((p*a)%self.m, (p*c+q)%self.m):
                     raise BootstrapRefused("radix digit law differs")
-            if size == 1 << self.width and row is not self.rows[-1]:
+            if index+1 < len(sizes):
                 p,q = row[-1]
                 a,c = base
                 base = ((p*a)%self.m, (p*c+q)%self.m)
