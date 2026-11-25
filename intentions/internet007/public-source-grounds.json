@@ -1,0 +1,70 @@
+{
+  "schema": "mailcpu.internet007.intention.v1",
+  "intention_id": "public-source-grounds",
+  "purpose": "Compose verified native Git and HTTP relations from two public research repositories into one E-CPU observer Ground",
+  "budget": {
+    "max_cost_usd": 0,
+    "max_nodes": 8,
+    "max_reads_per_quantum": 3,
+    "max_response_bytes": 2000000
+  },
+  "nodes": [
+    {
+      "id": "a-ecpu-commit",
+      "operator": "github.git.commit",
+      "dependencies": [],
+      "params": {
+        "repository": "Kier73/E-CPU",
+        "sha": "9406072db3b0a3bb73e64cdac997b647fa8447c1"
+      }
+    },
+    {
+      "id": "b-vgi-commit",
+      "operator": "github.git.commit",
+      "dependencies": [],
+      "params": {
+        "repository": "Kier73/Virtual-Ground-Interpreter",
+        "sha": "ae3f949b7d0b2aaa42236bc7cc37e9857384b174"
+      }
+    },
+    {
+      "id": "c-http-etag",
+      "operator": "http.etag.check",
+      "dependencies": [
+        "a-ecpu-commit"
+      ],
+      "params": {
+        "source": "a-ecpu-commit"
+      }
+    },
+    {
+      "id": "d-graph",
+      "operator": "github.git.compare",
+      "dependencies": [],
+      "params": {
+        "repository": "Kier73/E-CPU",
+        "base": "9a34c11147db7d8619b65b6058fa121ab9b1c43c",
+        "head": "afcd39be08ee2f64992763e913c5370968232b84",
+        "expect": {
+          "merge_base": "9a34c11147db7d8619b65b6058fa121ab9b1c43c",
+          "ahead": 11,
+          "behind": 0,
+          "status": "ahead"
+        }
+      }
+    },
+    {
+      "id": "z-join",
+      "operator": "ground.join",
+      "dependencies": [
+        "a-ecpu-commit",
+        "b-vgi-commit",
+        "c-http-etag",
+        "d-graph"
+      ],
+      "params": {
+        "label": "public-cross-repository-source-ground"
+      }
+    }
+  ]
+}
