@@ -1,0 +1,44 @@
+{
+  "source_bits": 25,
+  "source_states": "33554432",
+  "joint_period": 16766977,
+  "rank": 144,
+  "max_degree": 2,
+  "total_basis_terms": 9441,
+  "compile_products": 22734,
+  "checker_visits": 32175,
+  "moderate_checks": 192,
+  "exhaustive_small_checks": 2752,
+  "huge_checks": 64,
+  "huge_coordinate": "167669770000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001234",
+  "huge_remainder_inner_iterations": 65409,
+  "max_moderate_remainder_iterations": 1187,
+  "coefficient_tamper_refused": true,
+  "counter_ranks": [
+    [
+      2,
+      3
+    ],
+    [
+      3,
+      5
+    ],
+    [
+      4,
+      9
+    ],
+    [
+      5,
+      17
+    ],
+    [
+      6,
+      33
+    ],
+    [
+      7,
+      65
+    ]
+  ],
+  "counter_budget_refused": true
+}
