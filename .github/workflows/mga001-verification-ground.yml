@@ -1,0 +1,24 @@
+name: MGA-001-E compiled verification
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/affine_verification_ground.py'
+      - 'mailcpu/affine_shared_continuation.py'
+      - 'tests/test_affine_verification_ground.py'
+      - '.github/workflows/mga001-verification-ground.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  compiled-verification:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m unittest discover -s tests -p test_affine_verification_ground.py -v
+      - run: python -m unittest discover -s tests -p test_affine_shared_continuation.py -v

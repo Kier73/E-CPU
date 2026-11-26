@@ -10,6 +10,7 @@ import json
 import re
 
 from .law_certifier import lcg_navigate
+from .affine_verification_ground import AffineVerificationGround
 from .runtime_qualification import affine_expected
 from .shared_result_bank import PureContract, ResultBank
 from .shared_observation_ground import plan_shared, execute_shared
@@ -77,32 +78,40 @@ def _contract(orbit, locus, authority):
                         digest("independent-affine-expected-v1"), 128, 1024)
 
 
-def _verifier(orbit):
+def _expected(orbit, t, verification_ground):
+    if verification_ground is None:
+        return orbit.expected(t)
+    if type(verification_ground) is not AffineVerificationGround:
+        raise BootstrapRefused("independently admitted verification Ground required")
+    return verification_ground.expected(orbit, t)
+
+
+def _verifier(orbit, verification_ground=None):
     def verify(raw, output):
         t = json.loads(raw)
-        return (canonical(t) == raw and canonical(orbit.expected(t)) == output)
+        return (canonical(t) == raw and canonical(_expected(orbit, t, verification_ground)) == output)
     return verify
 
 
-def retain(bank, orbit, locus, authority, checkpoint):
+def retain(bank, orbit, locus, authority, checkpoint, *, verification_ground=None):
     """Admit exact coordinate, independently recheck even if already retained."""
     if not isinstance(bank, ResultBank):
         raise BootstrapRefused("receiver-installed result bank required")
     t, _ = orbit.parse(checkpoint)
     raw = canonical(checkpoint)
-    if canonical(orbit.expected(t)) != raw:
+    if canonical(_expected(orbit, t, verification_ground)) != raw:
         raise BootstrapRefused("checkpoint contradicts original source")
     stored = bank.resolve(_contract(orbit, locus, authority), canonical(t),
-                          lambda _: raw, _verifier(orbit))
+                          lambda _: raw, _verifier(orbit, verification_ground))
     if stored != raw:
         raise BootstrapRefused("retained checkpoint differs")
     return json.loads(stored)
 
 
-def lookup(bank, orbit, locus, authority, t):
+def lookup(bank, orbit, locus, authority, t, *, verification_ground=None):
     if not isinstance(bank, ResultBank):
         raise BootstrapRefused("receiver-installed result bank required")
-    raw = bank.lookup(_contract(orbit, locus, authority), canonical(_coordinate(t)), _verifier(orbit))
+    raw = bank.lookup(_contract(orbit, locus, authority), canonical(_coordinate(t)), _verifier(orbit, verification_ground))
     return None if raw is None else json.loads(raw)
 
 
@@ -146,7 +155,7 @@ def _local_plan(runtime, orbit, locus, checkpoint, t, coordinate):
     return local, task, plan
 
 
-def continue_observation(runtime, orbit, banks, offers, target_coordinate, targets, *, coordinate):
+def continue_observation(runtime, orbit, banks, offers, target_coordinate, targets, *, coordinate, verification_ground=None):
     """Select and realize a new intention from existing verified starting points.
 
     Only explicit offered bank coordinates are searched. Rank the native plans
@@ -184,7 +193,7 @@ def continue_observation(runtime, orbit, banks, offers, target_coordinate, targe
         if locus not in live or locus not in banks or start > t:
             diagnostics.append([locus, start, "UNAVAILABLE"])
             continue
-        checkpoint = lookup(banks[locus], orbit, locus, authority, start)
+        checkpoint = lookup(banks[locus], orbit, locus, authority, start, verification_ground=verification_ground)
         if checkpoint is None:
             diagnostics.append([locus, start, "NOT_RETAINED"])
             continue
@@ -228,7 +237,7 @@ def continue_observation(runtime, orbit, banks, offers, target_coordinate, targe
     retained = []
     for host, value in sorted(delivered.items()):
         if host in banks:
-            retain(banks[host], orbit, host, authority, value)
+            retain(banks[host], orbit, host, authority, value, verification_ground=verification_ground)
             retained.append(host)
     body = {"schema": SCHEMA, "ground": orbit.ground, "coordinate": t,
             "start": {"locus": locus, "coordinate": start, "delta": delta},
