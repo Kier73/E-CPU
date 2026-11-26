@@ -336,6 +336,7 @@ class ComputationalSessionStore:
         backend_fingerprint: str,
         state_schema_id: str,
         state_media_type: str = "application/octet-stream",
+        record_backing: Any | None = None,
     ) -> None:
         """Mathematics: Bind one session identity to its artifact, target backend, M1 page store, and independent lineage."""
         if not isinstance(object_store, ComputationalObjectStore):
@@ -375,6 +376,12 @@ class ComputationalSessionStore:
         self.backend_fingerprint = backend_fingerprint
         self.state_schema_id = state_schema_id
         self.state_media_type = state_media_type
+        if record_backing is not None and (
+            not callable(getattr(record_backing, "put_record", None))
+            or not callable(getattr(record_backing, "get_record", None))
+        ):
+            raise TypeError("record_backing must implement put_record and get_record")
+        self.record_backing = record_backing
         self._session_dir = session_dir
         self._lock = threading.RLock()
 
@@ -802,6 +809,11 @@ class ComputationalSessionStore:
         }
         encoded = _canonical_bytes(payload, "session checkpoint envelope")
         target = self._record_path(checkpoint.revision, recovery_manifest.digest)
+        if self.record_backing is not None:
+            self.record_backing.put_record(target.name, encoded)
+            if self.record_backing.get_record(target.name) != encoded:
+                raise ComputationalSessionIntegrityError("retained checkpoint readback differs")
+            return
         if target.is_symlink():
             raise ComputationalSessionIntegrityError("checkpoint envelope cannot be a symlink")
         if target.exists():
@@ -849,10 +861,13 @@ class ComputationalSessionStore:
 
     def _read_record(self, path: Path) -> Mapping[str, Any]:
         """Mathematics: Read and canonicality-check one immutable local checkpoint envelope before interpreting it."""
-        if path.is_symlink() or not path.is_file():
+        if self.record_backing is None and (path.is_symlink() or not path.is_file()):
             raise ComputationalSessionIntegrityError("quorum-anchored checkpoint envelope is missing or unsafe")
         try:
-            raw = path.read_bytes()
+            raw = (path.read_bytes() if self.record_backing is None
+                   else self.record_backing.get_record(path.name))
+            if type(raw) is not bytes:
+                raise ComputationalSessionIntegrityError("checkpoint backing must return bytes")
             payload = json.loads(raw)
         except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise ComputationalSessionIntegrityError("cannot read computational session checkpoint envelope") from exc
