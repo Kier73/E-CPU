@@ -1,0 +1,63 @@
+{
+  "localTraining": 192,
+  "crossTraining": 96,
+  "heldout": 1024,
+  "distinctHeldout": 1024,
+  "localRules": [
+    11,
+    11,
+    11
+  ],
+  "localPairVisits": [
+    18304,
+    18304,
+    18304
+  ],
+  "unionRules": 33,
+  "crossRules": 3,
+  "crossPairVisits": 192,
+  "checks": 4096,
+  "mergePermutations": 6,
+  "binary": {
+    "rules": 0,
+    "applications": 32769,
+    "prepare": 500,
+    "total": 33269
+  },
+  "individual": [
+    {
+      "rules": 11,
+      "applications": 24321,
+      "prepare": 544,
+      "total": 24865
+    },
+    {
+      "rules": 11,
+      "applications": 24321,
+      "prepare": 544,
+      "total": 24865
+    },
+    {
+      "rules": 11,
+      "applications": 24321,
+      "prepare": 544,
+      "total": 24865
+    }
+  ],
+  "union": {
+    "rules": 33,
+    "applications": 7425,
+    "prepare": 632,
+    "total": 8057
+  },
+  "coalescent": {
+    "rules": 36,
+    "applications": 6401,
+    "prepare": 644,
+    "total": 7045
+  },
+  "bestFixed": {
+    "width": 6,
+    "total": 10801
+  }
+}
