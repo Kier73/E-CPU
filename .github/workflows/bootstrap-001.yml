@@ -1,0 +1,29 @@
+name: BOOT-001 native intention continuity
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/bootstrap_001.py'
+      - 'tests/test_bootstrap_001.py'
+      - '.github/workflows/bootstrap-001.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'mailcpu/bootstrap_001.py'
+      - 'tests/test_bootstrap_001.py'
+      - '.github/workflows/bootstrap-001.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  boot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -e . pytest
+      - run: python -m pytest -q tests/test_bootstrap_001.py tests/test_internet_intention_ingress.py tests/test_computational_session.py tests/test_continuous_session.py
