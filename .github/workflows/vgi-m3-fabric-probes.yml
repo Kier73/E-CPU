@@ -1,0 +1,40 @@
+name: VGI M3 authenticated fabric probes
+on:
+  push:
+    paths:
+      - 'mailcpu/vgi_guarded_recovery.py'
+      - 'mailcpu/vgi_fabric_probe.py'
+      - 'tests/test_vgi_fabric_probe.py'
+      - 'tests/test_vgi_guarded_recovery.py'
+      - 'docs/VGI_M3_AUTHENTICATED_FABRIC_PROBES.md'
+      - '.github/workflows/vgi-m3-fabric-probes.yml'
+  pull_request:
+    paths:
+      - 'mailcpu/vgi_guarded_recovery.py'
+      - 'mailcpu/vgi_fabric_probe.py'
+      - 'tests/test_vgi_fabric_probe.py'
+      - 'tests/test_vgi_guarded_recovery.py'
+      - '.github/workflows/vgi-m3-fabric-probes.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  authenticated-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install E-CPU and test runtime
+        run: python -m pip install -e . pytest
+      - name: Install pinned Virtual-Ground-Interpreter
+        run: |
+          python -m pip install 'git+https://github.com/Kier73/Virtual-Ground-Interpreter.git@39a169b21513ffaaee85e40826c706c07a47215b#subdirectory=virtual_ground_interpreter'
+      - name: Verify source module pin
+        run: python -c "from mailcpu.vgi_guarded_runtime import admit_vgi_guarded_runtime; manifest,_=admit_vgi_guarded_runtime(); print(manifest.manifest_digest)"
+      - name: Full direct mTLS and M3 regression
+        run: python -m pytest -q tests/test_vgi_fabric_probe.py tests/test_vgi_guarded_recovery.py
+      - name: Virtual Layer regression
+        run: python -m pytest -q tests/test_virtual_layer.py

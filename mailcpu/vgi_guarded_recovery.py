@@ -144,18 +144,42 @@ class CheckpointSourceObservation:
     source_state: tuple[int, ...]
 
 
-# This callback is installed by the receiver, NOT serialized into a workload.
+@dataclass(frozen=True, slots=True)
+class CheckpointProbeObservation:
+    """Receiver-validated probe values from an authenticated E-CPU fabric hop.
+
+    The receipt digest identifies the verified hop receipt; it is not a
+    standalone signature or evidence of TLS identity when detached.
+    """
+    checkpoint_digest: str
+    lineage_digest: str
+    program_fingerprint: str
+    from_stage: int
+    to_stage: int
+    old_coordinates: tuple[int, ...]
+    probes: tuple[int, ...]
+    source_peer_id: str
+    source_host_id: str
+    fabric_receipt_digest: str
+
+
+# Both callbacks are installed by the receiver, never transported as code.
 SourceObserver = Callable[[ComputationalTransitionContext], CheckpointSourceObservation]
+ProbeObserver = Callable[[ComputationalTransitionContext, int, int, tuple[int, ...]], CheckpointProbeObservation]
 
 
 class GuardedTransitionBackend:
     """Local deterministic VGI transition; M4 builds the CAS context."""
 
     def __init__(self, program: GuardedProgram, backend_fingerprint: str,
-                 *, source_observer: SourceObserver | None = None) -> None:
+                 *, source_observer: SourceObserver | None = None,
+                 probe_observer: ProbeObserver | None = None) -> None:
+        if source_observer is not None and probe_observer is not None:
+            raise VGIRecoveryError("choose exactly one source observation path")
         self.program = program
         self.backend_fingerprint = backend_fingerprint
         self.source_observer = source_observer
+        self.probe_observer = probe_observer
 
     def _state(self, raw: bytes) -> dict[str, Any]:
         record = _decode(raw, MAX_STATE_BYTES, "state")
@@ -180,10 +204,23 @@ class GuardedTransitionBackend:
         elif event["kind"] == "initial":
             _keys(event, {"kind"}, "initial event")
         elif event["kind"] == "migrate":
-            _keys(event, {"kind", "from_stage", "before", "predecessor_checkpoint", "predecessor_lineage",
-                          "source_snapshot_sha256", "probes", "observer_authority"}, "migration event")
-            if event["observer_authority"] != "receiver-local-checkpoint-keyed":
+            if event.get("observer_authority") == "receiver-local-checkpoint-keyed":
+                _keys(event, {"kind", "from_stage", "before", "predecessor_checkpoint", "predecessor_lineage",
+                              "source_snapshot_sha256", "probes", "observer_authority"}, "migration event")
+            authority = event.get("observer_authority")
+            if authority not in ("receiver-local-checkpoint-keyed", "m3-fabric-probe-v1"):
                 raise VGIRecoveryError("unsupported migration observation provenance")
+            if authority == "m3-fabric-probe-v1":
+                _keys(event, {"kind", "from_stage", "before", "predecessor_checkpoint",
+                             "predecessor_lineage", "source_snapshot_sha256", "probes",
+                             "observer_authority", "source_peer_id", "source_host_id",
+                             "fabric_receipt_digest"}, "fabric migration event")
+                if event["source_snapshot_sha256"] is not None:
+                    raise VGIRecoveryError("fabric probe event must not contain source snapshot")
+                if (type(event["source_peer_id"]) is not str or not event["source_peer_id"]
+                    or type(event["source_host_id"]) is not str or not event["source_host_id"]):
+                    raise VGIRecoveryError("fabric source host identity is missing")
+                _require_digest(event["fabric_receipt_digest"], "fabric receipt")
             prior = _index(event["from_stage"], len(self.program.stages), "previous stage")
             if prior + 1 != i:
                 raise VGIRecoveryError("migration stage changed unexpectedly")
@@ -195,7 +232,8 @@ class GuardedTransitionBackend:
                 tuple(event["before"]), tuple(event["probes"]), plan)
             if tuple(x) != lifted:
                 raise VGIRecoveryError("migration proof does not reconstruct committed state")
-            _require_digest(event["source_snapshot_sha256"], "source snapshot")
+            if authority == "receiver-local-checkpoint-keyed":
+                _require_digest(event["source_snapshot_sha256"], "source snapshot")
         else:
             _keys(event, {"kind", "before", "symbol", "steps", "predecessor_checkpoint", "predecessor_lineage"}, "jump event")
             before = event["before"]
@@ -239,33 +277,57 @@ class GuardedTransitionBackend:
             target = _index(command["target"], len(self.program.stages), "migration target")
             if target != idx + 1:
                 raise VGIRecoveryError("migration must advance exactly one admitted stage")
-            if self.source_observer is None:
-                raise VGIRecoveryError("receiver has not bound an authenticated source observer")
             new_stage = self.program.stages[target]
             new = new_stage.admitted
             plan = guarded.plan_migration(q, new)
-            observation = self.source_observer(context)
-            if (not isinstance(observation, CheckpointSourceObservation)
-                or observation.checkpoint_digest != context.checkpoint_digest):
-                raise VGIRecoveryError("source observation does not belong to this M3 checkpoint")
-            x = observation.source_state
-            if type(x) is not tuple or len(x) != new.source_dimension or any(
-                type(v) is not int or not 0 <= v < new.modulus for v in x
-            ):
-                raise VGIRecoveryError("invalid trusted source snapshot")
-            if q.project(x) != initial:
-                raise VGIRecoveryError("source snapshot disagrees with committed reduced state")
-            probes = guarded.observe_migration_probes(new_stage.source, x, new, plan)
-            lifted = guarded.apply_migration(q, new, initial, probes, plan)
-            if lifted != new.project(x):
-                raise VGIRecoveryError("migration does not preserve source observation")
+            if self.probe_observer is not None:
+                remote = self.probe_observer(context, idx, target, initial)
+                if not isinstance(remote, CheckpointProbeObservation):
+                    raise VGIRecoveryError("fabric observer returned no typed probe observation")
+                if (remote.checkpoint_digest != context.checkpoint_digest
+                    or remote.lineage_digest != context.lineage_digest
+                    or remote.program_fingerprint != self.program.fingerprint
+                    or remote.from_stage != idx or remote.to_stage != target
+                    or remote.old_coordinates != initial):
+                    raise VGIRecoveryError("remote probe belongs to another committed M3 state")
+                if not remote.source_peer_id or not remote.source_host_id:
+                    raise VGIRecoveryError("remote probe source identity is missing")
+                _require_digest(remote.fabric_receipt_digest, "fabric receipt")
+                probes = remote.probes
+                lifted = guarded.apply_migration(q, new, initial, probes, plan)
+                event = {"kind": "migrate", "from_stage": idx, "before": list(initial),
+                         "predecessor_checkpoint": context.checkpoint_digest,
+                         "predecessor_lineage": context.lineage_digest,
+                         "source_snapshot_sha256": None, "probes": list(probes),
+                         "observer_authority": "m3-fabric-probe-v1",
+                         "source_peer_id": remote.source_peer_id,
+                         "source_host_id": remote.source_host_id,
+                         "fabric_receipt_digest": remote.fabric_receipt_digest}
+            else:
+                if self.source_observer is None:
+                    raise VGIRecoveryError("receiver has not bound a source observer")
+                observation = self.source_observer(context)
+                if (not isinstance(observation, CheckpointSourceObservation)
+                    or observation.checkpoint_digest != context.checkpoint_digest):
+                    raise VGIRecoveryError("source observation does not belong to this M3 checkpoint")
+                x = observation.source_state
+                if type(x) is not tuple or len(x) != new.source_dimension or any(
+                    type(v) is not int or not 0 <= v < new.modulus for v in x
+                ):
+                    raise VGIRecoveryError("invalid trusted source snapshot")
+                if q.project(x) != initial:
+                    raise VGIRecoveryError("source snapshot disagrees with committed reduced state")
+                probes = guarded.observe_migration_probes(new_stage.source, x, new, plan)
+                lifted = guarded.apply_migration(q, new, initial, probes, plan)
+                if lifted != new.project(x):
+                    raise VGIRecoveryError("migration does not preserve source observation")
+                event = {"kind": "migrate", "from_stage": idx, "before": list(initial),
+                         "predecessor_checkpoint": context.checkpoint_digest,
+                         "predecessor_lineage": context.lineage_digest,
+                         "source_snapshot_sha256": _sha(list(x)), "probes": list(probes),
+                         "observer_authority": "receiver-local-checkpoint-keyed"}
             state["stage"] = target
             state["coordinates"] = list(lifted)
-            event = {"kind": "migrate", "from_stage": idx, "before": list(initial),
-                     "predecessor_checkpoint": context.checkpoint_digest,
-                     "predecessor_lineage": context.lineage_digest,
-                     "source_snapshot_sha256": _sha(list(x)), "probes": list(probes),
-                     "observer_authority": "receiver-local-checkpoint-keyed"}
         elif command.get("kind") == "jump":
             _keys(command, {"schema", "kind", "symbol", "steps"}, "jump request")
             if type(command["symbol"]) is not str:
@@ -291,7 +353,8 @@ class VGIDurableGroundSession:
 
     def __init__(self, session_store: ComputationalSessionStore,
                  program: GuardedProgram, *,
-                 source_observer: SourceObserver | None = None) -> None:
+                 source_observer: SourceObserver | None = None,
+                 probe_observer: ProbeObserver | None = None) -> None:
         if not isinstance(session_store, ComputationalSessionStore):
             raise TypeError("expected ComputationalSessionStore")
         if session_store.state_schema_id != STATE_SCHEMA:
@@ -299,7 +362,8 @@ class VGIDurableGroundSession:
         self.store = session_store
         self.program = program
         self.backend = GuardedTransitionBackend(program, session_store.backend_fingerprint,
-                                                source_observer=source_observer)
+                                                source_observer=source_observer,
+                                                probe_observer=probe_observer)
         self.contract = ComputationalTransitionContract(
             transition_id=TRANSITION_ID, state_schema_id=STATE_SCHEMA,
             input_schema_id=INPUT_SCHEMA,
@@ -318,9 +382,19 @@ class VGIDurableGroundSession:
                  "last_event": {"kind": "initial"}}
         return self.store.create_session(_canonical(state))
 
+    def _check_snapshot(self, snapshot: ComputationalSessionSnapshot) -> None:
+        """Cross-bind the saved mathematical receipt to the actual M3 predecessor."""
+        state = self.backend.inspect(snapshot.state_bytes)
+        event = state["last_event"]
+        if event["kind"] != "initial" and (
+            event["predecessor_checkpoint"] != snapshot.checkpoint.predecessor_checkpoint_digest
+            or event["predecessor_lineage"] != snapshot.checkpoint.predecessor_lineage_digest
+        ):
+            raise VGIRecoveryError("Ground event does not match committed M3 predecessor")
+
     def load(self) -> ComputationalSessionSnapshot:
         snapshot = self.store.load_latest()
-        self.backend.inspect(snapshot.state_bytes)
+        self._check_snapshot(snapshot)
         return snapshot
 
     def inspect(self) -> dict[str, Any]:
@@ -355,5 +429,5 @@ class VGIDurableGroundSession:
 
     def restore_export(self, record: Mapping[str, Any]) -> ComputationalSessionSnapshot:
         restored = self.store.restore_export(record)
-        self.backend.inspect(restored.state_bytes)
+        self._check_snapshot(restored)
         return restored
