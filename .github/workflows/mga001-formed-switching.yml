@@ -1,0 +1,33 @@
+name: MGA-001-I formed switching Ground
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/formed_switching_ground.py'
+      - 'mailcpu/switching_affine_ground.py'
+      - 'tests/test_formed_switching_ground.py'
+      - 'experiments/mga001_fibre_quotient*'
+      - '.github/workflows/mga001-formed-switching.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  formed-switching:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -m unittest discover -s tests -p test_formed_switching_ground.py -v
+      - run: python -m unittest discover -s tests -p test_switching_affine_ground.py -v
+      - name: Reproduce campaign
+        shell: bash
+        run: |
+          node experiments/mga001_fibre_quotient.js > "$RUNNER_TEMP/fibre.json"
+          diff --strip-trailing-cr -u experiments/mga001_fibre_quotient.json "$RUNNER_TEMP/fibre.json"

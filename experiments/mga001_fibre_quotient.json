@@ -1,0 +1,43 @@
+{
+  "fullStates": "1208925819614629174706176",
+  "declaredResidues": 64,
+  "rawActionLabels": 64,
+  "normalizedActionLabels": 2,
+  "minimalSwitchingClasses": 4,
+  "refinementRounds": 1,
+  "checkedPairs": 2016,
+  "distinguishable": 1536,
+  "maxDistinguishingDepth": 1,
+  "fibre": 1024,
+  "direct": 1024,
+  "semigroup": 1024,
+  "classes": [
+    0,
+    1,
+    0,
+    1,
+    0,
+    1,
+    0,
+    1,
+    2,
+    3,
+    2,
+    3,
+    2,
+    3,
+    2,
+    3
+  ],
+  "example": {
+    "coordinate": "10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000123",
+    "initial": [
+      "123456789120",
+      "98765432128"
+    ],
+    "result": [
+      "909984792262",
+      "831773184061"
+    ]
+  }
+}
