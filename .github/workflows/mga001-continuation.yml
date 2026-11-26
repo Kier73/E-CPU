@@ -1,0 +1,27 @@
+name: MGA-001-D persistent continuation
+on:
+  pull_request:
+    paths:
+      - 'mailcpu/affine_shared_continuation.py'
+      - 'mailcpu/shared_result_bank.py'
+      - 'mailcpu/shared_observation_ground.py'
+      - 'tests/test_affine_shared_continuation.py'
+      - '.github/workflows/mga001-continuation.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  continuation:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install pytest
+      - run: python -m unittest discover -s tests -p test_affine_shared_continuation.py -v
+      - run: python -m unittest discover -s tests -p test_shared_observation_ground.py -v
+      - run: python -m pytest tests/test_shared_result_bank.py -q
