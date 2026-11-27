@@ -1,0 +1,25 @@
+name: PFG-001 polynomial flow
+on:
+  push:
+    paths:
+      - 'experiments/pfg001_polynomial_flow*'
+      - '.github/workflows/pfg001-polynomial-flow.yml'
+  pull_request:
+    paths:
+      - 'experiments/pfg001_polynomial_flow*'
+      - '.github/workflows/pfg001-polynomial-flow.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  reproduce:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: |
+          node experiments/pfg001_polynomial_flow.js > /tmp/pfg001.json
+          diff -u experiments/pfg001_polynomial_flow_evidence.json /tmp/pfg001.json
